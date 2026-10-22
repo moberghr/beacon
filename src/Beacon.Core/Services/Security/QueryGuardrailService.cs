@@ -94,24 +94,27 @@ internal sealed class QueryGuardrailService : IQueryGuardrailService
             if (matches.Count > 0)
                 piiColumns = matches.Select(m => m.Value).Distinct().ToList();
 
-            // Also match against custom PII patterns
+            // Also match against custom PII patterns. One that cannot be evaluated (invalid, or not finished within its
+            // timeout) refuses the query (fail closed, as IsPiiColumn): what it would have found cannot be masked. The
+            // refusal names the pattern by its position, never its text or the SQL.
             if (options.CustomPiiPatterns is { Count: > 0 })
             {
                 piiColumns ??= [];
-                foreach (var pattern in options.CustomPiiPatterns)
+                for (var position = 0; position < options.CustomPiiPatterns.Count; position++)
                 {
                     try
                     {
-                        var customMatches = Regex.Matches(trimmedSql, pattern, RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1));
-                        foreach (Match m in customMatches)
+                        foreach (Match match in CustomPiiPattern.Get(options.CustomPiiPatterns[position]).Matches(trimmedSql))
                         {
-                            if (!piiColumns.Contains(m.Value, StringComparer.OrdinalIgnoreCase))
-                                piiColumns.Add(m.Value);
+                            if (!piiColumns.Contains(match.Value, StringComparer.OrdinalIgnoreCase))
+                            {
+                                piiColumns.Add(match.Value);
+                            }
                         }
                     }
-                    catch
+                    catch (Exception ex) when (ex is ArgumentException or RegexMatchTimeoutException)
                     {
-                        // Invalid regex pattern — skip
+                        return new QueryValidationResult(false, CustomPatternNotEvaluatedMessage(position + 1));
                     }
                 }
             }
@@ -119,6 +122,10 @@ internal sealed class QueryGuardrailService : IQueryGuardrailService
 
         return new QueryValidationResult(true, PiiColumns: piiColumns);
     }
+
+    /// <summary>The refusal of a query a custom PII pattern could not be evaluated over; <paramref name="position"/> counts from 1.</summary>
+    internal static string CustomPatternNotEvaluatedMessage(int position) =>
+        $"Custom PII pattern {position} could not be evaluated over the query, so the query was refused. Check the pattern in the MCP settings.";
 
     public bool IsPiiColumn(string columnName, IReadOnlyList<string>? customPatterns = null)
     {
@@ -136,7 +143,7 @@ internal sealed class QueryGuardrailService : IQueryGuardrailService
         {
             try
             {
-                if (Regex.IsMatch(columnName, pattern, RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1)))
+                if (CustomPiiPattern.Get(pattern).IsMatch(columnName))
                 {
                     return true;
                 }
@@ -144,7 +151,7 @@ internal sealed class QueryGuardrailService : IQueryGuardrailService
             catch (Exception ex) when (ex is ArgumentException or RegexMatchTimeoutException)
             {
                 // Fail CLOSED: if a custom pattern can't be evaluated, treat the column as PII rather
-                // than risk leaking it. Patterns are validated at write time, so this is defensive.
+                // than risk leaking it. New patterns are checked at write time, so this is defensive.
                 return true;
             }
         }

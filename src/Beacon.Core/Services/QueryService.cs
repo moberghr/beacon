@@ -261,6 +261,9 @@ internal partial class QueryService(
     /// <summary>How long a final query may run on the in-memory join store (<c>Beacon:Query:StatementTimeoutSeconds</c>). Settable for tests.</summary>
     internal int FinalQueryTimeoutSeconds { get; init; } = queryOptions.Value.StatementTimeoutSeconds;
 
+    /// <summary>The most bytes a final query's result may hold while it is read (<c>Beacon:Query:MaxResultBytes</c>). Settable for tests.</summary>
+    internal long FinalQueryMaxResultBytes { get; init; } = queryOptions.Value.MaxResultBytes;
+
     /// <summary>
     /// Creates a query from <paramref name="queryData"/> after the checks of a save. With the approval workflow on, its SQL
     /// waits for approval like an edit's: the query is created with nothing live (no steps, no final query) and its content

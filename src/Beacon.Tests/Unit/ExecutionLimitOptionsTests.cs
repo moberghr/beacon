@@ -43,6 +43,27 @@ public class ExecutionLimitOptionsTests
         }
     }
 
+    [TestCase(-1L, false)]
+    [TestCase(0L, false)]
+    [TestCase(1L, true)]
+    [TestCase(4_294_967_296L, true)]
+    public void MaxResultBytes_IsAcceptedWhenPositive(long bytes, bool valid)
+    {
+        var result = new QueryExecutionOptionsValidator().Validate(null, new QueryExecutionOptions { MaxResultBytes = bytes });
+
+        result.Succeeded.Should().Be(valid);
+        if (!valid)
+        {
+            result.FailureMessage.Should().Contain("Beacon:Query:MaxResultBytes");
+        }
+    }
+
+    [Test]
+    public void MaxResultBytes_DefaultsTo256MiB()
+    {
+        new QueryExecutionOptions().MaxResultBytes.Should().Be(268_435_456);
+    }
+
     [TestCase(0, false)]
     [TestCase(1, true)]
     [TestCase(10_000_000, true)]

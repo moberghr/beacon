@@ -132,6 +132,8 @@ public class SqlExecutionPathCoverageTests
         ["src/Beacon.Connector.Snowflake/ServiceCollectionExtensions.cs"] = "registers the Snowflake driver",
         ["src/Beacon.Core/Services/Providers/DatabaseProvider.cs"] = "the database connectors' reads, on the resolver's connection",
         ["src/Beacon.Connector.PostgreSql/PostgreSqlMetadataExtractor.cs"] = "the metadata scan's fixed catalog SQL, on the connection the scan resolved",
+        ["src/Beacon.Connector.MySql/MySqlMetadataExtractor.cs"] = "the metadata scan's fixed catalog SQL, on the connection the scan resolved",
+        ["src/Beacon.Connector.AzureSynapse/AzureSynapseMetadataExtractor.cs"] = "the metadata scan's fixed catalog SQL, on the connection the scan resolved",
         ["src/Beacon.Core/Services/MigrationService.Sql.cs"] = "the migration writer's connection to its write target, from the resolver",
         ["src/Beacon.Core/Services/DataSourceService.cs"] = "tests a new connection after its transport check (the engine verifier identifies the engine on it) and empties a replaced or refused connection's pool",
         ["src/Beacon.Core/Services/Providers/DatabaseEngineVerifier.cs"] = "identifies a new connection's engine on create and update: one fixed catalog statement, outside the gate; empties a refused connection's pool",

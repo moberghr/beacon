@@ -51,10 +51,12 @@ internal static class TestQueryServices
         return providers.Object;
     }
 
+    /// <param name="queryOptions"><c>Beacon:Query</c> in place of the defaults.</param>
     public static DatabaseProvider DatabaseProvider(
         IDataSourceConnectionResolver? connections = null,
         IHostDataSourceGuard? hostGuard = null,
-        IConfiguredDatabaseResolver? configuredDatabases = null)
+        IConfiguredDatabaseResolver? configuredDatabases = null,
+        QueryExecutionOptions? queryOptions = null)
     {
         return new DatabaseProvider(
             connections ?? Connections(),
@@ -62,7 +64,7 @@ internal static class TestQueryServices
             hostGuard ?? new HostDataSourceGuard(new TestHostDataSources()),
             configuredDatabases ?? TestConfiguredDatabases.None,
             NullLogger<DatabaseProvider>.Instance,
-            QueryOptions);
+            queryOptions == null ? QueryOptions : Options.Create(queryOptions));
     }
 
     /// <param name="statementTimeout">The runner's own statement timeout in place of the default.</param>

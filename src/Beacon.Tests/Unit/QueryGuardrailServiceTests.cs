@@ -199,19 +199,107 @@ public class QueryGuardrailServiceTests
         result.PiiColumns.Should().Contain("customer_secret");
     }
 
+    // An invalid stored pattern cannot be evaluated: the query is refused (fail closed), naming the pattern by position.
     [Test]
-    public void ValidateQuery_InvalidCustomPiiPattern_IsSkippedWithoutThrowing()
+    public void ValidateQuery_InvalidCustomPiiPattern_RefusesTheQuery()
     {
         var options = new QueryGuardrailOptions
         {
             ReadOnly = true,
             DetectPii = true,
+            CustomPiiPatterns = ["customer_secret", "("]
+        };
+
+        var result = _service.ValidateQuery("SELECT id FROM orders", options);
+
+        result.IsValid.Should().BeFalse();
+        result.Error.Should().Be(QueryGuardrailService.CustomPatternNotEvaluatedMessage(2));
+        result.Error.Should().NotContain("(").And.NotContain("orders");
+    }
+
+    // A pattern only the backtracking engine can run (a lookahead) that does not finish within its timeout refuses the
+    // query instead of letting it through unmasked.
+    [Test]
+    public void ValidateQuery_CustomPiiPatternThatTimesOut_RefusesTheQuery()
+    {
+        var options = new QueryGuardrailOptions
+        {
+            ReadOnly = true,
+            DetectPii = true,
+            CustomPiiPatterns = ["(a+)+(?=b)"]
+        };
+
+        var result = _service.ValidateQuery($"SELECT b, '{new string('a', 5000)}!' AS note FROM orders", options);
+
+        result.IsValid.Should().BeFalse();
+        result.Error.Should().Be(QueryGuardrailService.CustomPatternNotEvaluatedMessage(1));
+    }
+
+    // With PII detection off the custom patterns are not run, so one that cannot be evaluated refuses nothing.
+    [Test]
+    public void ValidateQuery_InvalidCustomPiiPattern_WithPiiDetectionOff_DoesNotRefuse()
+    {
+        var options = new QueryGuardrailOptions
+        {
+            ReadOnly = true,
+            DetectPii = false,
             CustomPiiPatterns = ["("]
         };
 
-        var act = () => _service.ValidateQuery("SELECT id FROM orders", options);
+        var result = _service.ValidateQuery("SELECT id FROM orders", options);
 
-        act.Should().NotThrow();
+        result.IsValid.Should().BeTrue(result.Error);
+    }
+
+    // A stored pattern only the backtracking engine can build (a lookahead) still runs there, and matches as before, over
+    // the query text and over a column name alike.
+    [Test]
+    public void ACustomPiiPatternWithALookahead_RunsOnTheBacktrackingEngine_AndStillMatches()
+    {
+        var options = new QueryGuardrailOptions
+        {
+            ReadOnly = true,
+            DetectPii = true,
+            CustomPiiPatterns = ["loyalty(?=_tier)"]
+        };
+
+        var result = _service.ValidateQuery("SELECT loyalty_tier, loyalty_points FROM orders", options);
+
+        result.IsValid.Should().BeTrue(result.Error);
+        result.PiiColumns.Should().Equal("loyalty");
+        _service.IsPiiColumn("loyalty_tier", ["loyalty(?=_tier)"]).Should().BeTrue();
+        _service.IsPiiColumn("loyalty_points", ["loyalty(?=_tier)"]).Should().BeFalse();
+        CustomPiiPattern.Get("loyalty(?=_tier)").Options.Should().NotHaveFlag(RegexOptions.NonBacktracking);
+        CustomPiiPattern.Get("card_[0-9]+").Options.Should().HaveFlag(RegexOptions.NonBacktracking);
+    }
+
+    // One regex per pattern text, built once: the query check and the column check share it.
+    [Test]
+    public void ACustomPiiPattern_IsBuiltOnce_AndCachedByItsText()
+    {
+        var first = CustomPiiPattern.Get("loyalty_[0-9]+");
+
+        CustomPiiPattern.Get("loyalty_[0-9]+").Should().BeSameAs(first);
+    }
+
+    // A nested quantifier the linear-time engine can run finishes at once over a long literal, and matches as before.
+    [Test]
+    public void ValidateQuery_NestedQuantifierPattern_RunsInLinearTime_AndStillMatches()
+    {
+        var options = new QueryGuardrailOptions
+        {
+            ReadOnly = true,
+            DetectPii = true,
+            CustomPiiPatterns = ["(a+)+$", "card_[0-9]+"]
+        };
+        var stopwatch = Stopwatch.StartNew();
+
+        var result = _service.ValidateQuery($"SELECT card_42, '{new string('a', 50_000)}!' AS note FROM orders", options);
+
+        stopwatch.Stop();
+        result.IsValid.Should().BeTrue(result.Error);
+        result.PiiColumns.Should().Equal("card_42");
+        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(1));
     }
 
     [TestCase("email", true)]

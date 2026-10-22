@@ -42,6 +42,38 @@ public class InMemoryDatabaseManagerTests
     // Test-only, for reading back state the store's own authorizers refuse to show (they deny every PRAGMA).
     private static readonly delegate_authorizer AllowEverything = (_, _, _, _, _, _) => raw.SQLITE_OK;
 
+    // The read is held to its byte budget: each row costs its overhead and its values (an integer 16 bytes), so 100,000
+    // rows pass a 10,000-byte budget long before the end, and the read fails naming the limit; a small result passes.
+    [Test]
+    public async Task ExecuteQueryAsync_AResultPastTheByteBudget_Fails_NamingTheLimit()
+    {
+        using var manager = new InMemoryDatabaseManager(NullLogger<InMemoryDatabaseManager>.Instance) { MaxResultBytes = 10_000 };
+
+        var act = () => manager.ExecuteQueryAsync(
+            "WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r WHERE i < 100000) SELECT i FROM r",
+            TimeoutSeconds,
+            int.MaxValue,
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<Beacon.Core.Services.Providers.ResultTooLargeException>()
+            .WithMessage("The result is larger than the 10000-byte limit (Beacon:Query:MaxResultBytes); select fewer columns or rows.");
+    }
+
+    [Test]
+    public async Task ExecuteQueryAsync_AResultWithinTheByteBudget_IsReadWhole()
+    {
+        using var manager = new InMemoryDatabaseManager(NullLogger<InMemoryDatabaseManager>.Instance) { MaxResultBytes = 10_000 };
+
+        var (results, _, timedOut) = await manager.ExecuteQueryAsync(
+            "WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r WHERE i < 100) SELECT i FROM r",
+            TimeoutSeconds,
+            MaxRows,
+            CancellationToken.None);
+
+        timedOut.Should().BeFalse();
+        results.Should().HaveCount(100);
+    }
+
     [Test]
     public async Task ExecuteQueryAsync_Attach_IsRefusedByTheEngine()
     {

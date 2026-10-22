@@ -886,6 +886,7 @@ public class CrossSourceQueryServiceTests
             Options.Create(new McpDeploymentOptions { ForbidRowDataToLlm = forbidRowData }),
             statementLog ?? new McpStatementLog(),
             costLimit ?? TestQueryCostLimit.Passing,
+            Options.Create(new QueryExecutionOptions()),
             NullLoggerFactory.Instance,
             logger ?? NullLogger<CrossSourceQueryService>.Instance);
     }

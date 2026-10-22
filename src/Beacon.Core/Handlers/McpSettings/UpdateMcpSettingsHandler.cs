@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -8,6 +7,7 @@ using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
+using Beacon.Core.Services.Security;
 using Beacon.Core.Authorization;
 using Beacon.Core.SecurityAudit;
 
@@ -39,35 +39,18 @@ internal sealed class UpdateMcpSettingsHandler(
             }
         }
 
-        // A row cap below one row is refused: the query tools would otherwise read it as no cap at all.
-        if (data.MaxRowLimit < 1)
-        {
-            throw new InvalidOperationException("MaxRowLimit must be at least 1.");
-        }
-
-        // A retention window below one day would delete every learning signal on each cleanup run.
-        if (data.LearningSignalRetentionDays < 1)
-        {
-            throw new InvalidOperationException("LearningSignalRetentionDays must be at least 1.");
-        }
-
-        // Reject invalid custom PII regexes at write time (before touching the DB) so an unparseable
-        // pattern can never be persisted and later silently skipped in the detection hot paths
-        // (fail-open PII leak).
-        foreach (var pattern in data.CustomPiiPatterns)
-        {
-            try
-            {
-                _ = Regex.Match(string.Empty, pattern, RegexOptions.None, TimeSpan.FromSeconds(1));
-            }
-            catch (ArgumentException ex)
-            {
-                throw new InvalidOperationException($"Custom PII pattern is not a valid regular expression: {ex.Message}");
-            }
-        }
+        // Every numeric setting in its range (McpSettingsRanges): a row cap below one row would read as no cap at all, a
+        // retention window below one day would delete every learning signal on each cleanup run, a statement timeout of 0
+        // would cancel every statement.
+        McpSettingsRanges.Check(data);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         var entity = await context.McpSettings.FirstOrDefaultAsync(cancellationToken);
+
+        // A custom PII pattern the save adds must be valid, at most 500 characters and buildable on the linear-time
+        // engine (CustomPiiPattern). The page re-sends the whole list, so a pattern already stored is not checked again:
+        // one stored before these checks keeps working (evaluated fail closed) and never blocks an unrelated save.
+        CustomPiiPattern.CheckAdded(data.CustomPiiPatterns, CustomPiiPattern.Stored(entity?.CustomPiiPatterns));
 
         if (entity == null)
         {

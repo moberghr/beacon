@@ -1,6 +1,6 @@
 using Dapper;
-using MySql.Data.MySqlClient;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Helpers;
 using Beacon.Core.Models.Metadata;
 using Beacon.Core.Services.Providers;
 
@@ -12,7 +12,8 @@ public class MySqlMetadataExtractor : IDatabaseMetadataExtractor
 
     public async Task<IReadOnlyList<TableMetadataDto>> ExtractMetadataAsync(string connectionString, CancellationToken cancellationToken = default)
     {
-        using var connection = new MySqlConnection(connectionString);
+        // Through the factory, as every other connection to the source: the same pool and connect timeout.
+        await using var connection = DbConnectionFactory.CreateConnection(DatabaseEngineType.MySQL, connectionString);
         await connection.OpenAsync(cancellationToken);
 
         var databaseName = connection.Database;

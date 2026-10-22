@@ -284,16 +284,31 @@ public sealed class SqlExecutionGate(
             return readOnly;
         }
 
-        var causedByReadOnly = readOnly.Code == SqlGateCodes.Ast
-            || (readOnly.Code == SqlGateCodes.Guardrail
-                && guardrail.ValidateQuery(request.Sql, new QueryGuardrailOptions { ReadOnly = false, Dialect = request.Dialect }).IsValid);
-
-        return causedByReadOnly
-            ? readOnly with
+        if (readOnly.Code == SqlGateCodes.Guardrail)
+        {
+            // The guardrail judged again without read-only enforcement, with the same PII detection: a refusal it still
+            // makes (a custom PII pattern that could not be evaluated) is the verdict, whatever read-only says.
+            var withoutReadOnly = guardrail.ValidateQuery(request.Sql, new QueryGuardrailOptions
             {
-                Message = $"{readOnly.Message} Read-only enforcement is on because the deployment lock {McpDeploymentOptions.SectionName}:{nameof(McpDeploymentOptions.ForceReadOnly)} pins it, whatever the stored MCP settings say."
+                ReadOnly = false,
+                DetectPii = request.DetectPii,
+                CustomPiiPatterns = request.CustomPiiPatterns?.ToList(),
+                Dialect = request.Dialect
+            });
+            if (!withoutReadOnly.IsValid)
+            {
+                return readOnly with { Message = withoutReadOnly.Error ?? readOnly.Message };
             }
-            : readOnly;
+        }
+        else if (readOnly.Code != SqlGateCodes.Ast)
+        {
+            return readOnly;
+        }
+
+        return readOnly with
+        {
+            Message = $"{readOnly.Message} Read-only enforcement is on because the deployment lock {McpDeploymentOptions.SectionName}:{nameof(McpDeploymentOptions.ForceReadOnly)} pins it, whatever the stored MCP settings say."
+        };
     }
 
     private static SqlGateVerdict EvaluateSchema(SqlGateRequest request, SqlValidationResult result)

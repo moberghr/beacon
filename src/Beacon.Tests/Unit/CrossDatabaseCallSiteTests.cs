@@ -228,6 +228,7 @@ public class CrossDatabaseCallSiteTests
             TestProjectAccess.Evaluator(TestProjectAccess.ReadableIn(ProjectId)),
             TestRowSecurity.Resolver,
             TestQueryCostLimit.Passing,
+            Options.Create(new QueryExecutionOptions()),
             NullLoggerFactory.Instance);
 
         var foreign = await executor.ExecuteAsync(SavedQueryTestData.Tool("orders", [SavedQueryTestData.Step(1, DataSourceId, Foreign)], [ProjectId]), ProjectId, new Dictionary<string, object?>(), CancellationToken.None);
@@ -261,6 +262,36 @@ public class CrossDatabaseCallSiteTests
         foreign.ErrorMessage.Should().Contain("another database");
         matching.Success.Should().BeTrue();
         ProviderRan(provider).Should().BeTrue();
+    }
+
+    // The eval run's statement is cancelled at the effective MCP statement timeout, not a fixed one.
+    [Test]
+    public async Task EvalRun_IsCancelledAtTheEffectiveStatementTimeout()
+    {
+        var provider = new Mock<IDataSourceProvider>();
+        provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .Returns(async (DataSource _, string _, Dictionary<string, object?> _, CancellationToken token) =>
+            {
+                await Task.Delay(Timeout.Infinite, token);
+
+                return new ProviderQueryResult { Success = true, Rows = [], TotalRows = 0 };
+            });
+        var executor = new EvalReadOnlySqlExecutor(
+            Store().Factory(),
+            Providers(provider.Object),
+            TestSqlGate.Create(),
+            TestConfiguredDatabases.Of(Configured),
+            TestRowSecurity.Resolver,
+            new McpSettingsData { StatementTimeoutSeconds = 1 });
+        executor.UseDataSource(Source());
+
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+        var run = () => executor.ExecuteReadOnlyAsync(DataSourceId, Matching, CancellationToken.None);
+
+        await run.Should().ThrowAsync<OperationCanceledException>();
+        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10), "a fixed 30-second timeout would still be waiting");
     }
 
     // The ask paths gate on the configured database the grounding context carries: on the small-schema path (every
@@ -450,6 +481,7 @@ public class CrossDatabaseCallSiteTests
             Options.Create(new McpDeploymentOptions()),
             new McpStatementLog(),
             TestQueryCostLimit.Passing,
+            Options.Create(new QueryExecutionOptions()),
             NullLoggerFactory.Instance,
             NullLogger<CrossSourceQueryService>.Instance);
     }

@@ -32,7 +32,7 @@ public class UpdateMcpSettingsHandlerTests
     [TestCase("*invalid")]
     public async Task Handle_InvalidCustomPiiPattern_Throws(string badPattern)
     {
-        var handler = CreateHandler();
+        var (handler, saves) = CreateHandlerWithRow(new McpSettings(), Unlocked());
         var command = new UpdateMcpSettingsCommand(new McpSettingsData
         {
             CustomPiiPatterns = [badPattern],
@@ -42,6 +42,84 @@ public class UpdateMcpSettingsHandlerTests
 
         await act.Should().ThrowAsync<InvalidOperationException>()
             .WithMessage("*valid regular expression*");
+        saves().Should().Be(0);
+    }
+
+    // A new pattern must run on the linear-time engine: lookarounds, backreferences and atomic groups are refused.
+    [TestCase("(?=x)secret")]
+    [TestCase("(?<!x)secret")]
+    [TestCase(@"(a)\1")]
+    [TestCase("(?>a+)b")]
+    public async Task Handle_ANewCustomPiiPatternTheLinearEngineCannotRun_IsRefused(string pattern)
+    {
+        var (handler, saves) = CreateHandlerWithRow(new McpSettings(), Unlocked());
+
+        var act = () => handler.Handle(new UpdateMcpSettingsCommand(new McpSettingsData { CustomPiiPatterns = ["iban", pattern] }), CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("Custom PII patterns cannot use lookarounds, backreferences or atomic groups.");
+        saves().Should().Be(0);
+    }
+
+    [Test]
+    public async Task Handle_ANewCustomPiiPatternOver500Characters_IsRefused_And500AreWritten()
+    {
+        var (handler, saves) = CreateHandlerWithRow(new McpSettings(), Unlocked());
+
+        var tooLong = () => handler.Handle(new UpdateMcpSettingsCommand(new McpSettingsData { CustomPiiPatterns = [new string('a', 501)] }), CancellationToken.None);
+
+        await tooLong.Should().ThrowAsync<InvalidOperationException>().WithMessage("Custom PII patterns must be at most 500 characters.");
+        saves().Should().Be(0);
+
+        await handler.Handle(new UpdateMcpSettingsCommand(new McpSettingsData { CustomPiiPatterns = [new string('a', 500)] }), CancellationToken.None);
+
+        saves().Should().Be(1);
+    }
+
+    // The page re-sends the whole list: a pattern stored before the checks existed is not checked again, so it does not
+    // block a save that changes something else.
+    [Test]
+    public async Task Handle_AStoredLookaroundPattern_DoesNotBlockAnUnrelatedSave()
+    {
+        var stored = new McpSettings { MaxRowLimit = 1000, CustomPiiPatterns = "[\"(?=x)secret\"]" };
+        var (handler, saves) = CreateHandlerWithRow(stored, Unlocked());
+
+        await handler.Handle(
+            new UpdateMcpSettingsCommand(new McpSettingsData { MaxRowLimit = 200, CustomPiiPatterns = ["(?=x)secret"] }),
+            CancellationToken.None);
+
+        saves().Should().Be(1);
+        stored.MaxRowLimit.Should().Be(200);
+        stored.CustomPiiPatterns.Should().Be("[\"(?=x)secret\"]");
+    }
+
+    // Every numeric setting of the global settings and a project's overrides has a range (McpSettingsRanges) or is listed
+    // here with the reason it needs none.
+    [Test]
+    public void EveryNumericSetting_HasARange_OrIsExemptWithAReason()
+    {
+        var exempt = new Dictionary<string, string>(StringComparer.Ordinal);
+        var numeric = new[] { typeof(McpSettingsData), typeof(McpProjectSettingsData) }
+            .SelectMany(x => x.GetProperties())
+            .Where(x => IsNumeric(x.PropertyType))
+            .Select(x => x.Name)
+            .Distinct()
+            .ToList();
+
+        numeric.Should().NotBeEmpty();
+        numeric.Except(exempt.Keys).Should().BeEquivalentTo(McpSettingsRanges.Fields, "a new numeric setting needs a range, or an exemption with its reason");
+
+        static bool IsNumeric(Type type)
+        {
+            var underlying = Nullable.GetUnderlyingType(type) ?? type;
+
+            return underlying == typeof(int)
+                || underlying == typeof(long)
+                || underlying == typeof(short)
+                || underlying == typeof(double)
+                || underlying == typeof(float)
+                || underlying == typeof(decimal);
+        }
     }
 
     // A row cap below one row is refused before any DB access (the strict factory throws on one).
@@ -54,7 +132,7 @@ public class UpdateMcpSettingsHandlerTests
             CancellationToken.None);
 
         await act.Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage("MaxRowLimit must be at least 1.");
+            .WithMessage("MaxRowLimit must be between 1 and 10000000.");
     }
 
     // A retention window below one day is refused before any DB access (the strict factory throws on one).
@@ -67,7 +145,58 @@ public class UpdateMcpSettingsHandlerTests
             CancellationToken.None);
 
         await act.Should().ThrowAsync<InvalidOperationException>()
-            .WithMessage("LearningSignalRetentionDays must be at least 1.");
+            .WithMessage("LearningSignalRetentionDays must be between 1 and 36500.");
+    }
+
+    // Every numeric setting outside its range is refused before any DB access (the strict factory throws on one), with a
+    // message naming the field and the range.
+    [TestCaseSource(nameof(OutOfRangeGlobalValues))]
+    public async Task Handle_ANumericSettingOutsideItsRange_IsRefused_NamingTheFieldAndRange(string field, Action<McpSettingsData> set, string range)
+    {
+        var data = new McpSettingsData();
+        set(data);
+
+        var act = async () => await CreateHandler(Unlocked()).Handle(new UpdateMcpSettingsCommand(data), CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage($"{field} must be {range}.");
+    }
+
+    [Test]
+    public async Task Handle_EveryNumericSettingAtTheEdgeOfItsRange_IsWritten()
+    {
+        var stored = new McpSettings();
+        var (handler, saves) = CreateHandlerWithRow(stored, Unlocked());
+
+        await handler.Handle(
+            new UpdateMcpSettingsCommand(new McpSettingsData
+            {
+                MaxRowLimit = 10_000_000,
+                LearningAutoApproveThreshold = 1,
+                LearningInjectionBudgetChars = 0,
+                LearningSignalRetentionDays = 36_500,
+                SelfConsistencyCandidateCount = 1,
+                ExemplarTopK = 1,
+                LearningReplayMinFlips = 1,
+                DocChunkWindowSentences = 1,
+                DocChunkOverlapSentences = 0,
+                GlossaryTopK = 1,
+                DocChunkTopK = 1,
+                GoldenExemplarTopK = 1,
+                GoldenExemplarBudgetChars = 0,
+                ValueGroundingMaxProbes = 0,
+                SelfConsistencyMinTables = 1,
+                StatementTimeoutSeconds = 3600,
+                MaxResultBytes = 1,
+                MaxExplainCost = 0,
+                MaxConcurrentQueriesPerKey = 1
+            }),
+            CancellationToken.None);
+
+        saves().Should().Be(1);
+        stored.StatementTimeoutSeconds.Should().Be(3600);
+        stored.MaxConcurrentQueriesPerKey.Should().Be(1);
+        stored.ValueGroundingMaxProbes.Should().Be(0);
+        stored.MaxExplainCost.Should().Be(0);
     }
 
     [Test]
@@ -305,6 +434,35 @@ public class UpdateMcpSettingsHandlerTests
         await handler.Handle(new UpdateMcpSettingsCommand(new McpSettingsData { MaxRowLimit = 100 }), CancellationToken.None);
 
         history.Should().BeEmpty();
+    }
+
+    internal static IEnumerable<TestCaseData> OutOfRangeGlobalValues()
+    {
+        yield return Case("MaxRowLimit", x => x.MaxRowLimit = 10_000_001, "between 1 and 10000000");
+        yield return Case("LearningAutoApproveThreshold", x => x.LearningAutoApproveThreshold = -0.1, "between 0 and 1");
+        yield return Case("LearningAutoApproveThreshold", x => x.LearningAutoApproveThreshold = 1.5, "between 0 and 1");
+        yield return Case("LearningAutoApproveThreshold", x => x.LearningAutoApproveThreshold = double.NaN, "between 0 and 1");
+        yield return Case("LearningInjectionBudgetChars", x => x.LearningInjectionBudgetChars = -1, "at least 0");
+        yield return Case("LearningSignalRetentionDays", x => x.LearningSignalRetentionDays = 36_501, "between 1 and 36500");
+        yield return Case("SelfConsistencyCandidateCount", x => x.SelfConsistencyCandidateCount = 0, "at least 1");
+        yield return Case("ExemplarTopK", x => x.ExemplarTopK = 0, "at least 1");
+        yield return Case("LearningReplayMinFlips", x => x.LearningReplayMinFlips = 0, "at least 1");
+        yield return Case("DocChunkWindowSentences", x => x.DocChunkWindowSentences = 0, "at least 1");
+        yield return Case("DocChunkOverlapSentences", x => x.DocChunkOverlapSentences = -1, "at least 0");
+        yield return Case("GlossaryTopK", x => x.GlossaryTopK = 0, "at least 1");
+        yield return Case("DocChunkTopK", x => x.DocChunkTopK = 0, "at least 1");
+        yield return Case("GoldenExemplarTopK", x => x.GoldenExemplarTopK = 0, "at least 1");
+        yield return Case("GoldenExemplarBudgetChars", x => x.GoldenExemplarBudgetChars = -1, "at least 0");
+        yield return Case("ValueGroundingMaxProbes", x => x.ValueGroundingMaxProbes = -1, "at least 0");
+        yield return Case("SelfConsistencyMinTables", x => x.SelfConsistencyMinTables = 0, "at least 1");
+        yield return Case("StatementTimeoutSeconds", x => x.StatementTimeoutSeconds = 0, "between 1 and 3600");
+        yield return Case("StatementTimeoutSeconds", x => x.StatementTimeoutSeconds = 3601, "between 1 and 3600");
+        yield return Case("MaxResultBytes", x => x.MaxResultBytes = 0, "at least 1");
+        yield return Case("MaxExplainCost", x => x.MaxExplainCost = -1, "between 0 and 9999999999999999.99");
+        yield return Case("MaxConcurrentQueriesPerKey", x => x.MaxConcurrentQueriesPerKey = 0, "at least 1");
+
+        static TestCaseData Case(string field, Action<McpSettingsData> set, string range) =>
+            new TestCaseData(field, set, range).SetArgDisplayNames(field, range);
     }
 
     private static McpDeploymentOptions Unlocked() => new() { ForceReadOnly = false, ForcePiiDetection = false };

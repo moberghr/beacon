@@ -95,15 +95,24 @@ internal sealed class QueryExecutionService(
             // Mask PII column values before returning to the MCP client (§1.6/§1.11). Read-only was
             // already enforced upstream, so here we only need PII detection.
             var customPatterns = settings.CustomPiiPatterns.Count > 0 ? settings.CustomPiiPatterns : null;
-            var sqlPiiColumns = settings.EnablePiiDetection
+            var sqlPii = settings.EnablePiiDetection
                 ? guardrailService.ValidateQuery(sql, new QueryGuardrailOptions
                 {
                     ReadOnly = false,
                     DetectPii = true,
                     CustomPiiPatterns = customPatterns,
                     Dialect = DataSourceSqlDialect.Of(dataSource)
-                }).PiiColumns ?? []
-                : [];
+                })
+                : null;
+
+            // A custom PII pattern that could not be evaluated over the SQL this time masks every result column (fail
+            // closed): what it would have named cannot be known.
+            var sqlPiiColumns = sqlPii is { IsValid: false }
+                ? result.Rows
+                    .SelectMany(x => x.Keys)
+                    .Distinct(StringComparer.OrdinalIgnoreCase)
+                    .ToList()
+                : sqlPii?.PiiColumns ?? [];
 
             // The output columns the host policy masks for this statement, as the gate's report carries them on the query
             // tool path: masked in full whatever the detection setting, on top of the provider's own positional masking. A

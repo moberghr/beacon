@@ -1,6 +1,6 @@
 using Dapper;
-using Microsoft.Data.SqlClient;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Helpers;
 using Beacon.Core.Models.Metadata;
 using Beacon.Core.Services.Providers;
 
@@ -12,7 +12,8 @@ public class AzureSynapseMetadataExtractor : IDatabaseMetadataExtractor
 
     public async Task<IReadOnlyList<TableMetadataDto>> ExtractMetadataAsync(string connectionString, CancellationToken cancellationToken = default)
     {
-        await using var connection = new SqlConnection(connectionString);
+        // Through the factory, as every other connection to the source: the same pool and connect timeout.
+        await using var connection = DbConnectionFactory.CreateConnection(DatabaseEngineType.AzureSynapse, connectionString);
         await connection.OpenAsync(cancellationToken);
 
         const string tablesQuery = @"
