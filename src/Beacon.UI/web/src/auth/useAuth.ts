@@ -24,6 +24,11 @@ export interface CurrentUser {
    * the caller is a session, not an API key). Without it "Sign out everywhere" is not offered.
    */
   signOutEverywhereEnabled?: boolean;
+  /**
+   * Server-advertised, signed in or not: Beacon is embedded as an MCP gateway (`AddBeaconMcpGateway`), which serves only
+   * its own pages (no first-run setup).
+   */
+  gatewayMode?: boolean;
 }
 
 export function useAuth() {

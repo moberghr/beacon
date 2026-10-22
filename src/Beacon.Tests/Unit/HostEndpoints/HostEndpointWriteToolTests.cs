@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.DependencyInjection;
 using NUnit.Framework;
 using Beacon.Core.HostDocs;
 using Beacon.Core.HostEndpoints;
@@ -236,7 +237,7 @@ public class HostEndpointWriteToolTests
     [Test]
     public async Task TheBrief_MarksWriteTools()
     {
-        var catalog = (IHostEndpointToolCatalog)_host.App.Services.GetService(typeof(IHostEndpointToolCatalog))!;
+        IHostEndpointToolCatalog catalog = _host.CreateService(HostEndpointTestHost.OuterRequest(UserWithLeave()));
         var listing = await catalog.GetForProjectAsync(HostEndpointTestHost.ProjectId, CancellationToken.None);
 
         var brief = ProjectBriefService.Render(new ProjectBriefData("Netgiro", null, [], [], 0, [], [], 0, [], 0, listing));
@@ -246,6 +247,33 @@ public class HostEndpointWriteToolTests
         brief.Should().Contain("- `api_leave_book` *(writes)* — Book leave for yourself.")
             .And.Contain("- `api_thing_by_id` — One thing")
             .And.Contain("call one only when the user asked for that change");
+    }
+
+    [Test]
+    public async Task TheBrief_ListsWhatTheCallersToolListOffers()
+    {
+        var systemCaller = HostEndpointTestHost.SystemCaller(HostEndpointTestClaims.Permission(HostEndpointTestHost.ViewThings));
+
+        // One service per call: every HttpContextAccessor shares one async-local request, so the latest CreateService wins.
+        IHostEndpointToolCatalog forSystem = _host.CreateService(HostEndpointTestHost.OuterRequest(systemCaller));
+        var systemListing = await forSystem.GetForProjectAsync(HostEndpointTestHost.ProjectId, CancellationToken.None);
+        IHostEndpointToolCatalog forApiKey = _host.CreateService(HostEndpointTestHost.OuterRequest(null));
+        var apiKeyListing = await forApiKey.GetForProjectAsync(HostEndpointTestHost.ProjectId, CancellationToken.None);
+
+        var brief = ProjectBriefService.Render(new ProjectBriefData("Netgiro", null, [], [], 0, [], [], 0, [], 0, systemListing));
+
+        systemListing!.Tools.Select(x => x.ToolName).Should().Contain("api_thing_by_id").And.NotContain(x => x.StartsWith("api_leave_"));
+        brief.Should().Contain("- `api_thing_by_id` — One thing").And.NotContain("api_leave_book");
+        apiKeyListing.Should().BeNull("a credential that cannot call the tools is not shown them in the brief either");
+    }
+
+    [Test]
+    public void TheBriefsCatalog_IsTheCallersToolService()
+    {
+        using var scope = _host.App.Services.CreateScope();
+
+        scope.ServiceProvider.GetServices<IHostEndpointToolCatalog>().Should().ContainSingle()
+            .Which.Should().BeOfType<HostEndpointToolService>("the brief must list what get_context and tools/list offer the caller");
     }
 
     private static McpCaller UserWithLeave() =>

@@ -124,8 +124,9 @@ What you get, and what you do not have to write:
   401/403 itself, never your sign-in redirect: you edit no cookie events.
 - **Discovery:** `/.well-known/oauth-protected-resource` publishes your tenant's v2 issuer and
   `api://<ClientId>/mcp.access` plus `offline_access` (so clients refresh instead of re-prompting hourly). It names the
-  server `Beacon MCP` and links Beacon's docs unless you set `Beacon:Mcp:ProtectedResource:ResourceName` and
-  `ResourceDocumentation` to your application's.
+  server `Beacon MCP` (the server card and `initialize`: `Beacon`) and links Beacon's docs unless you set
+  `Beacon:Mcp:ProtectedResource:ResourceName` and `ResourceDocumentation` (an https URL) to your application's. The
+  server card describes the gateway (your endpoints and documents); `x.ServerDescription` words it yourself.
 - **The host project** is synced the first time it is needed; the `beacon-mcp-gateway` health check reports Degraded until
   then. No hosted service, no startup step.
 - **Admin UI** at `/beacon`: the MCP audit, the MCP settings, the learning views and your project, for holders of

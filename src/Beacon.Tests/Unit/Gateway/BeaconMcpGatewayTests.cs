@@ -63,6 +63,7 @@ public class BeaconMcpGatewayTests
         provider.GetRequiredService<IOptions<McpServerOptions>>().Value.ToolCollection!
             .Select(x => x.ProtocolTool.Name).Should().BeEquivalentTo("get_context", "search", "get_documentation");
         services.Should().NotContain(x => x.ServiceType == typeof(SavedQueryToolService));
+        provider.GetRequiredService<Beacon.MCP.BeaconMcpOptions>().ServerDescription.Should().Be(BeaconMcpGatewayOptions.DefaultServerDescription);
 
         var locks = provider.GetRequiredService<IOptions<McpDeploymentOptions>>().Value;
         locks.ForceReadOnly.Should().BeTrue();

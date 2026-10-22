@@ -28,6 +28,12 @@ public sealed class BeaconMcpOptions
     /// </summary>
     public string? ServerInstructions { get; set; }
 
+    /// <summary>
+    /// The server card's <c>description</c>. Null (the default) keeps Beacon's, which describes governed access to a
+    /// project's data sources; a host that serves only its own endpoints and documents describes those instead.
+    /// </summary>
+    public string? ServerDescription { get; set; }
+
     internal void Validate()
     {
         var unknown = BuiltInTools

@@ -15,11 +15,11 @@ public sealed record HostEndpointToolSummary(string Name, string ToolName, strin
 public sealed record HostEndpointToolListing(IReadOnlyList<HostEndpointToolSummary> Tools, bool CatalogMode);
 
 /// <summary>
-/// Read-only view of the host endpoint tools for Core consumers (the project brief). Implemented by Beacon.MCP when
-/// the host calls <c>AddHostEndpointTools</c>; absent otherwise.
+/// Read-only view of the host endpoint tools for Core consumers (the project brief): the ones the current MCP caller's
+/// <c>tools/list</c> offers. Implemented by Beacon.MCP when the host calls <c>AddHostEndpointTools</c>; absent otherwise.
 /// </summary>
 public interface IHostEndpointToolCatalog
 {
-    /// <summary>The tools that belong to <paramref name="projectId"/>, or null when that project has none.</summary>
+    /// <summary>The caller's tools in <paramref name="projectId"/>, or null when it has none there.</summary>
     Task<HostEndpointToolListing?> GetForProjectAsync(int projectId, CancellationToken cancellationToken);
 }

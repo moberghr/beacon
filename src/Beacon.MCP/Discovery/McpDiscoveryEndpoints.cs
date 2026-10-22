@@ -183,15 +183,21 @@ public static class McpDiscoveryEndpoints
         var options = GetProtectedResourceOptions(context.RequestServices, configuration);
         var scopes = McpDiscoveryDocuments.ResolveScopesSupported(options);
 
-        var builtInTools = context.RequestServices.GetService<BeaconMcpOptions>()?.BuiltInTools.ToList();
-        var document = McpDiscoveryDocuments.BuildServerCard(baseUrl, scopes, builtInTools, options.ResourceDocumentation);
+        var mcpOptions = context.RequestServices.GetService<BeaconMcpOptions>();
+        var document = McpDiscoveryDocuments.BuildServerCard(
+            baseUrl,
+            scopes,
+            mcpOptions?.BuiltInTools.ToList(),
+            options.ResourceDocumentation,
+            options.ResourceName,
+            mcpOptions?.ServerDescription);
         context.Response.Headers.CacheControl = CacheControlValue;
         return Results.Text(document.ToJsonString(), "application/json");
     }
 
     // Bound from configuration on every request, so a changed value applies at once, then completed by code: the host or
     // a Beacon composition (the MCP gateway's Entra defaults) contributes with services.Configure/PostConfigure.
-    private static McpProtectedResourceOptions GetProtectedResourceOptions(IServiceProvider services, IConfiguration configuration)
+    internal static McpProtectedResourceOptions GetProtectedResourceOptions(IServiceProvider services, IConfiguration configuration)
     {
         var options = configuration.GetSection(McpProtectedResourceOptions.SectionName).Get<McpProtectedResourceOptions>()
             ?? new McpProtectedResourceOptions();
@@ -258,6 +264,16 @@ public static class McpDiscoveryEndpoints
         {
             logger.LogWarning(
                 "{Section} publishes an external authorization server but no ScopesSupported — clients will request Beacon's internal scope name (Execute), which the external identity provider does not know.",
+                McpProtectedResourceOptions.SectionName);
+        }
+
+        // Clients show resource_documentation to people as a link: published as set, so a plain-http or relative value
+        // would send them somewhere a network can rewrite, or nowhere.
+        if (!string.IsNullOrWhiteSpace(options.ResourceDocumentation)
+            && (!Uri.TryCreate(options.ResourceDocumentation.Trim(), UriKind.Absolute, out var documentation) || documentation.Scheme != Uri.UriSchemeHttps))
+        {
+            logger.LogWarning(
+                "{Section}:ResourceDocumentation is not an absolute https URL — the discovery documents publish it as set, and MCP clients show it to people as a link. Set an https URL.",
                 McpProtectedResourceOptions.SectionName);
         }
     }
