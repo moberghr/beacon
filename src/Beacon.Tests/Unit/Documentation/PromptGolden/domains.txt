@@ -1,0 +1,23 @@
+# Tables and Relationships
+
+## Data Source: core
+### public.orders
+Description: Customer orders
+  - id (integer) [PK]
+  - customer_id (integer) FK→public.customers.id
+  Columns: id, customer_id, status
+  - status values: [open, closed]
+### public.customers
+  - id (integer) [PK]
+  Columns: id
+
+## Data Source: billing-api
+### api.GET /invoices
+Description: Invoices
+  Columns: number
+
+# Code References by Class
+## OrderService
+  - orders: DapperQuery(Create), EntityModel(Get)
+## CustomerApi
+  - customers: ApiEndpoint(List)

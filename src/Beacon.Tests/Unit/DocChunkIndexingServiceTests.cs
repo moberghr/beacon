@@ -333,6 +333,136 @@ public class DocChunkIndexingServiceTests
         capturedEmbeddings.Select(x => x.OwnerId).Should().NotContain(keptChunk.Id);
     }
 
+    private static McpSettingsData ContextualSettings() =>
+        new()
+        {
+            EnableSemanticRetrieval = true,
+            EnableContextualRetrieval = true,
+            DocChunkWindowSentences = 3,
+            DocChunkOverlapSentences = 1
+        };
+
+    private static List<McpDocChunk> StoredChunks(McpSettingsData settings, string? blurb, Func<int, string, string>? text = null)
+    {
+        var produced = DocumentChunker.Chunk(SectionContent, settings.DocChunkWindowSentences, settings.DocChunkOverlapSentences);
+        return produced
+            .Select((x, i) =>
+                new McpDocChunk
+                {
+                    Id = 700 + i,
+                    ProjectId = ProjectId,
+                    SourceSectionId = SectionId,
+                    SortOrder = i,
+                    ChunkText = text == null ? x : text(i, x),
+                    ContextualBlurb = blurb
+                })
+            .ToList();
+    }
+
+    [Test]
+    public async Task ReindexAsync_UnchangedChunkWithStoredBlurb_ReusesItWithoutCallingLlm()
+    {
+        var settings = ContextualSettings();
+        var existing = StoredChunks(settings, "stored blurb");
+        var llm = new Mock<ILlmProvider>(MockBehavior.Strict);
+        var embeddings = new CapturingEmbeddingService();
+
+        var service = BuildService(
+            settings, embeddings, llm.Object,
+            existingChunks: existing, existingEmbeddings: [],
+            capturedChunks: [], capturedEmbeddings: [], removedChunks: [], removedEmbeddings: []);
+
+        await service.ReindexAsync(CancellationToken.None);
+
+        llm.Invocations.Should().BeEmpty();
+        existing.Should().NotBeEmpty().And.OnlyContain(x => x.ContextualBlurb == "stored blurb");
+        embeddings.BatchTexts.Should().NotBeEmpty().And.OnlyContain(x => x.StartsWith("stored blurb"));
+    }
+
+    [Test]
+    public async Task ReindexAsync_UnchangedChunkWithNoStoredBlurb_AsksTheProvider()
+    {
+        var settings = ContextualSettings();
+        var existing = StoredChunks(settings, null);
+        var llm = new Mock<ILlmProvider>();
+        llm.Setup(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new LlmResponse { Content = "fresh blurb" });
+
+        var service = BuildService(
+            settings, new CapturingEmbeddingService(), llm.Object,
+            existingChunks: existing, existingEmbeddings: [],
+            capturedChunks: [], capturedEmbeddings: [], removedChunks: [], removedEmbeddings: []);
+
+        await service.ReindexAsync(CancellationToken.None);
+
+        llm.Verify(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()), Times.Exactly(existing.Count));
+        existing.Should().NotBeEmpty().And.OnlyContain(x => x.ContextualBlurb == "fresh blurb");
+    }
+
+    [Test]
+    public async Task ReindexAsync_ChangedChunkText_RegeneratesOnlyThatBlurb()
+    {
+        var settings = ContextualSettings();
+        var existing = StoredChunks(settings, "stored blurb", (i, x) => i == 0 ? "old text" : x);
+        var llm = new Mock<ILlmProvider>();
+        llm.Setup(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new LlmResponse { Content = "fresh blurb" });
+
+        var service = BuildService(
+            settings, new CapturingEmbeddingService(), llm.Object,
+            existingChunks: existing, existingEmbeddings: [],
+            capturedChunks: [], capturedEmbeddings: [], removedChunks: [], removedEmbeddings: []);
+
+        await service.ReindexAsync(CancellationToken.None);
+
+        llm.Verify(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()), Times.Once);
+        existing[0].ContextualBlurb.Should().Be("fresh blurb");
+        existing.Skip(1).Should().NotBeEmpty().And.OnlyContain(x => x.ContextualBlurb == "stored blurb");
+    }
+
+    [Test]
+    public async Task ReindexAsync_UnderTheRowDataLock_AStoredBlurbOfAValueListingSectionIsDropped()
+    {
+        var settings = ContextualSettings();
+        var existing = StoredChunks(settings, "blurb from before the lock");
+        var llm = new Mock<ILlmProvider>(MockBehavior.Strict);
+
+        var service = BuildService(
+            settings, new CapturingEmbeddingService(), llm.Object,
+            existingChunks: existing, existingEmbeddings: [],
+            capturedChunks: [], capturedEmbeddings: [], removedChunks: [], removedEmbeddings: [],
+            sectionType: ProjectDocSectionType.Glossary,
+            forbidRowData: true);
+
+        await service.ReindexAsync(CancellationToken.None);
+
+        llm.Invocations.Should().BeEmpty();
+        existing.Should().NotBeEmpty().And.OnlyContain(x => x.ContextualBlurb == null);
+    }
+
+    [Test]
+    public async Task ReindexAsync_AllAttemptedBlurbsFail_LogsErrorEvenWhenOtherChunksReuseTheirs()
+    {
+        var settings = ContextualSettings();
+        var existing = StoredChunks(settings, "stored blurb", (i, x) => i == 0 ? "old text" : x);
+        var llm = new Mock<ILlmProvider>();
+        llm.Setup(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("LLM provider unavailable"));
+        var logger = new ListLogger<DocChunkIndexingService>();
+
+        var service = BuildService(
+            settings, new CapturingEmbeddingService(), llm.Object,
+            existingChunks: existing, existingEmbeddings: [],
+            capturedChunks: [], capturedEmbeddings: [], removedChunks: [], removedEmbeddings: [], logger);
+
+        await service.ReindexAsync(CancellationToken.None);
+
+        llm.Verify(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()), Times.Once);
+        existing[0].ContextualBlurb.Should().BeNull();
+        logger.Entries.Should().Contain(x =>
+            x.Level == LogLevel.Error && x.Message.Contains("blurb generation failed for all 1/1"));
+    }
+
     private static McpEmbedding NewExistingDocChunkEmbedding(int id, int ownerId) =>
         new()
         {

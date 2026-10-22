@@ -606,10 +606,13 @@ internal sealed class ProjectDocumentationService(
     };
 
     // --- User Prompt Builders ---
+    // Each builder bounds its variable part with a DocumentationPromptBudget: items are added whole, in their order, and the
+    // ones past the budget are counted in one closing line.
 
-    private static string BuildProjectOverviewPrompt(DocumentationContext ctx)
+    internal static string BuildProjectOverviewPrompt(DocumentationContext ctx)
     {
         var sb = new StringBuilder();
+        var budget = new DocumentationPromptBudget(sb);
         sb.AppendLine($"# Project: {ctx.ProjectName}");
         if (ctx.ProjectDescription != null) sb.AppendLine($"Description: {ctx.ProjectDescription}");
         sb.AppendLine();
@@ -619,13 +622,15 @@ internal sealed class ProjectDocumentationService(
         {
             var engine = ds.Type == DataSourceType.Api ? ConnectorRegistry.GetDisplayName(DataSourceType.Api) : ds.EngineType?.ToString() ?? "Unknown";
             var tableCount = ctx.Tables.Count(t => t.DataSourceId == ds.Id);
-            sb.AppendLine($"- {ds.Name} ({engine}) — {tableCount} tables");
+            budget.TryAdd($"- {ds.Name} ({engine}) — {tableCount} tables{Environment.NewLine}");
         }
 
         sb.AppendLine();
         sb.AppendLine("## Repositories:");
         foreach (var repo in ctx.Repositories)
-            sb.AppendLine($"- {repo.Url} (branch: {repo.Branch}, files scanned: {repo.FilesScanned}, references found: {repo.ReferencesFound})");
+        {
+            budget.TryAdd($"- {repo.Url} (branch: {repo.Branch}, files scanned: {repo.FilesScanned}, references found: {repo.ReferencesFound}){Environment.NewLine}");
+        }
 
         sb.AppendLine();
         sb.AppendLine($"Total tables: {ctx.TableCount}");
@@ -635,35 +640,38 @@ internal sealed class ProjectDocumentationService(
         if (avgQuality.HasValue) sb.AppendLine($"Average quality score: {avgQuality:F0}%");
 
         sb.AppendLine($"Active data contracts: {ctx.Contracts.Count}");
+        budget.AppendNote();
 
         return sb.ToString();
     }
 
-    private static string BuildBusinessDomainsPrompt(DocumentationContext ctx)
+    internal static string BuildBusinessDomainsPrompt(DocumentationContext ctx)
     {
         var sb = new StringBuilder();
+        var budget = new DocumentationPromptBudget(sb);
         sb.AppendLine("# Tables and Relationships");
         sb.AppendLine();
 
         foreach (var group in ctx.Tables.GroupBy(t => t.DataSourceName))
         {
-            sb.AppendLine($"## Data Source: {group.Key}");
+            budget.Heading($"## Data Source: {group.Key}{Environment.NewLine}");
             foreach (var table in group)
             {
-                sb.AppendLine($"### {table.SchemaName}.{table.TableName}");
-                if (table.Description != null) sb.AppendLine($"Description: {table.Description}");
+                var block = new StringBuilder();
+                block.AppendLine($"### {table.SchemaName}.{table.TableName}");
+                if (table.Description != null) block.AppendLine($"Description: {table.Description}");
 
                 // Key columns with FK relationships
                 foreach (var col in table.Columns.Where(c => c.IsPrimaryKey || c.ForeignKeyTable != null))
                 {
-                    sb.Append($"  - {col.Name} ({col.DataType})");
-                    if (col.IsPrimaryKey) sb.Append(" [PK]");
-                    if (col.ForeignKeyTable != null) sb.Append($" FK→{col.ForeignKeyTable}.{col.ForeignKeyColumn}");
-                    sb.AppendLine();
+                    block.Append($"  - {col.Name} ({col.DataType})");
+                    if (col.IsPrimaryKey) block.Append(" [PK]");
+                    if (col.ForeignKeyTable != null) block.Append($" FK→{col.ForeignKeyTable}.{col.ForeignKeyColumn}");
+                    block.AppendLine();
                 }
 
                 // All columns (brief)
-                sb.AppendLine($"  Columns: {string.Join(", ", table.Columns.Select(c => c.Name))}");
+                block.AppendLine($"  Columns: {string.Join(", ", table.Columns.Select(c => c.Name))}");
 
                 var tableEnums = ctx.GetEnumValuesForTable(table.SchemaName, table.TableName);
                 if (tableEnums.Count > 0)
@@ -671,81 +679,97 @@ internal sealed class ProjectDocumentationService(
                     foreach (var enumCol in tableEnums)
                     {
                         var values = string.Join(", ", enumCol.Values.Select(x => x.Value));
-                        sb.AppendLine($"  - {enumCol.ColumnName} values: [{values}]");
+                        block.AppendLine($"  - {enumCol.ColumnName} values: [{values}]");
                     }
                 }
+
+                budget.TryAdd(block.ToString());
             }
-            sb.AppendLine();
+
+            budget.EndGroup(Environment.NewLine);
         }
 
         // Code references grouped by class
         sb.AppendLine("# Code References by Class");
         foreach (var classGroup in ctx.CodeReferences.Where(r => r.ClassName != null).GroupBy(r => r.ClassName))
         {
-            sb.AppendLine($"## {classGroup.Key}");
+            var block = new StringBuilder();
+            block.AppendLine($"## {classGroup.Key}");
             foreach (var refGroup in classGroup.GroupBy(r => r.TableName))
             {
-                sb.AppendLine($"  - {refGroup.Key}: {string.Join(", ", refGroup.Select(r => $"{r.ReferenceType}({r.MethodName})"))}");
+                block.AppendLine($"  - {refGroup.Key}: {string.Join(", ", refGroup.Select(r => $"{r.ReferenceType}({r.MethodName})"))}");
             }
+
+            budget.TryAdd(block.ToString());
         }
+
+        budget.AppendNote();
 
         return sb.ToString();
     }
 
-    private static string BuildDataModelPrompt(DocumentationContext ctx)
+    internal static string BuildDataModelPrompt(DocumentationContext ctx)
     {
         var sb = new StringBuilder();
+        var budget = new DocumentationPromptBudget(sb);
         sb.AppendLine("# Full Schema Metadata");
         sb.AppendLine();
 
         foreach (var group in ctx.Tables.GroupBy(t => t.DataSourceName))
         {
-            sb.AppendLine($"## Data Source: {group.Key}");
+            budget.Heading($"## Data Source: {group.Key}{Environment.NewLine}");
             foreach (var table in group)
             {
-                sb.AppendLine($"### {table.SchemaName}.{table.TableName}");
-                if (table.Description != null) sb.AppendLine($"Description: {table.Description}");
+                var block = new StringBuilder();
+                block.AppendLine($"### {table.SchemaName}.{table.TableName}");
+                if (table.Description != null) block.AppendLine($"Description: {table.Description}");
 
-                sb.AppendLine("Columns:");
+                block.AppendLine("Columns:");
                 foreach (var col in table.Columns)
                 {
-                    sb.Append($"  - {col.Name} {col.DataType}");
-                    if (col.IsPrimaryKey) sb.Append(" PK");
-                    if (!col.IsNullable) sb.Append(" NOT NULL");
-                    if (col.ForeignKeyTable != null) sb.Append($" FK→{col.ForeignKeyTable}.{col.ForeignKeyColumn}");
-                    if (col.Description != null) sb.Append($" — {col.Description}");
-                    sb.AppendLine();
+                    block.Append($"  - {col.Name} {col.DataType}");
+                    if (col.IsPrimaryKey) block.Append(" PK");
+                    if (!col.IsNullable) block.Append(" NOT NULL");
+                    if (col.ForeignKeyTable != null) block.Append($" FK→{col.ForeignKeyTable}.{col.ForeignKeyColumn}");
+                    if (col.Description != null) block.Append($" — {col.Description}");
+                    block.AppendLine();
                 }
 
                 if (table.Indexes.Count > 0)
                 {
-                    sb.AppendLine("Indexes:");
+                    block.AppendLine("Indexes:");
                     foreach (var idx in table.Indexes)
-                        sb.AppendLine($"  - {idx.Name} ({idx.Columns}){(idx.IsUnique ? " UNIQUE" : "")}");
+                        block.AppendLine($"  - {idx.Name} ({idx.Columns}){(idx.IsUnique ? " UNIQUE" : "")}");
                 }
 
                 var tableEnums = ctx.GetEnumValuesForTable(table.SchemaName, table.TableName);
                 if (tableEnums.Count > 0)
                 {
-                    sb.AppendLine("Enum/Status Values:");
+                    block.AppendLine("Enum/Status Values:");
                     foreach (var enumCol in tableEnums)
                     {
                         var values = string.Join(", ",
                             enumCol.Values.Select(x => $"{x.Value} ({x.Count:N0} rows)"));
-                        sb.AppendLine($"  - {enumCol.ColumnName}: [{values}]");
+                        block.AppendLine($"  - {enumCol.ColumnName}: [{values}]");
                     }
                 }
 
-                sb.AppendLine();
+                block.AppendLine();
+                budget.TryAdd(block.ToString());
             }
+
+            budget.EndGroup("");
         }
+
+        budget.AppendNote();
 
         return sb.ToString();
     }
 
-    private static string BuildDataFlowsPrompt(DocumentationContext ctx)
+    internal static string BuildDataFlowsPrompt(DocumentationContext ctx)
     {
         var sb = new StringBuilder();
+        var budget = new DocumentationPromptBudget(sb);
         sb.AppendLine("# Code References (showing how data flows through code)");
         sb.AppendLine();
 
@@ -760,24 +784,14 @@ internal sealed class ProjectDocumentationService(
         sb.AppendLine("## Write Operations (data ingestion/processing)");
         foreach (var group in writes.GroupBy(r => r.TableName ?? "unknown"))
         {
-            sb.AppendLine($"### Table: {group.Key}");
-            foreach (var r in group.Take(10))
-            {
-                sb.AppendLine($"  - {r.ClassName}.{r.MethodName} ({r.ReferenceType}) — {r.FilePath}:{r.LineNumber}");
-                if (r.CodeSnippet != null) sb.AppendLine($"    ```{r.CodeSnippet}```");
-            }
+            budget.TryAdd(DataFlowTableBlock(group.Key, group));
         }
 
         sb.AppendLine();
         sb.AppendLine("## Read Operations (data serving)");
         foreach (var group in reads.GroupBy(r => r.TableName ?? "unknown"))
         {
-            sb.AppendLine($"### Table: {group.Key}");
-            foreach (var r in group.Take(10))
-            {
-                sb.AppendLine($"  - {r.ClassName}.{r.MethodName} ({r.ReferenceType}) — {r.FilePath}:{r.LineNumber}");
-                if (r.CodeSnippet != null) sb.AppendLine($"    ```{r.CodeSnippet}```");
-            }
+            budget.TryAdd(DataFlowTableBlock(group.Key, group));
         }
 
         sb.AppendLine();
@@ -787,16 +801,32 @@ internal sealed class ProjectDocumentationService(
             var fks = table.Columns.Where(c => c.ForeignKeyTable != null).ToList();
             if (fks.Count > 0)
             {
-                sb.AppendLine($"  - {table.SchemaName}.{table.TableName} → {string.Join(", ", fks.Select(c => $"{c.ForeignKeyTable} (via {c.Name})"))}");
+                budget.TryAdd($"  - {table.SchemaName}.{table.TableName} → {string.Join(", ", fks.Select(c => $"{c.ForeignKeyTable} (via {c.Name})"))}{Environment.NewLine}");
             }
         }
+
+        budget.AppendNote();
 
         return sb.ToString();
     }
 
-    private static string BuildCodeLineagePrompt(DocumentationContext ctx)
+    private static string DataFlowTableBlock(string table, IEnumerable<CodeRefInfo> references)
+    {
+        var block = new StringBuilder();
+        block.AppendLine($"### Table: {table}");
+        foreach (var r in references.Take(10))
+        {
+            block.AppendLine($"  - {r.ClassName}.{r.MethodName} ({r.ReferenceType}) — {r.FilePath}:{r.LineNumber}");
+            if (r.CodeSnippet != null) block.AppendLine($"    ```{r.CodeSnippet}```");
+        }
+
+        return block.ToString();
+    }
+
+    internal static string BuildCodeLineagePrompt(DocumentationContext ctx)
     {
         var sb = new StringBuilder();
+        var budget = new DocumentationPromptBudget(sb);
         sb.AppendLine("# Code-to-Data References");
         sb.AppendLine();
 
@@ -807,14 +837,17 @@ internal sealed class ProjectDocumentationService(
             .GroupBy(r => r.ClassName!)
             .OrderByDescending(g => g.Count()))
         {
-            sb.AppendLine($"### {classGroup.Key}");
+            var block = new StringBuilder();
+            block.AppendLine($"### {classGroup.Key}");
             var byTable = classGroup.GroupBy(r => r.TableName ?? "unknown");
             foreach (var tableGroup in byTable)
             {
                 var types = string.Join(", ", tableGroup.Select(r => $"{r.ReferenceType}").Distinct());
                 var methods = string.Join(", ", tableGroup.Select(r => r.MethodName).Where(m => m != null).Distinct().Take(5));
-                sb.AppendLine($"  - {tableGroup.Key}: [{types}] methods: {methods}");
+                block.AppendLine($"  - {tableGroup.Key}: [{types}] methods: {methods}");
             }
+
+            budget.TryAdd(block.ToString());
         }
 
         // By table
@@ -825,21 +858,27 @@ internal sealed class ProjectDocumentationService(
             .GroupBy(r => r.TableName!)
             .OrderByDescending(g => g.Count()))
         {
-            sb.AppendLine($"### {tableGroup.Key}");
+            var block = new StringBuilder();
+            block.AppendLine($"### {tableGroup.Key}");
             var writers = tableGroup.Where(r => r.ReferenceType is CodeReferenceType.DapperQuery or CodeReferenceType.RawSql or CodeReferenceType.Migration or CodeReferenceType.StoredProcedureCall)
                 .Select(r => $"{r.ClassName}.{r.MethodName}").Distinct().ToList();
             var readers = tableGroup.Where(r => r.ReferenceType is CodeReferenceType.EntityModel or CodeReferenceType.ApiEndpoint or CodeReferenceType.DbContextConfiguration)
                 .Select(r => $"{r.ClassName}.{r.MethodName}").Distinct().ToList();
-            if (writers.Count > 0) sb.AppendLine($"  Writers: {string.Join(", ", writers)}");
-            if (readers.Count > 0) sb.AppendLine($"  Readers: {string.Join(", ", readers)}");
+            if (writers.Count > 0) block.AppendLine($"  Writers: {string.Join(", ", writers)}");
+            if (readers.Count > 0) block.AppendLine($"  Readers: {string.Join(", ", readers)}");
+
+            budget.TryAdd(block.ToString());
         }
+
+        budget.AppendNote();
 
         return sb.ToString();
     }
 
-    private static string BuildDataQualityPrompt(DocumentationContext ctx)
+    internal static string BuildDataQualityPrompt(DocumentationContext ctx)
     {
         var sb = new StringBuilder();
+        var budget = new DocumentationPromptBudget(sb);
         sb.AppendLine("# Data Quality Information");
         sb.AppendLine();
 
@@ -853,21 +892,24 @@ internal sealed class ProjectDocumentationService(
         sb.AppendLine("## Quality Scores:");
         foreach (var score in ctx.QualityScores.OrderBy(q => q.Score))
         {
-            sb.AppendLine($"  - {score.SchemaName}.{score.TableName}: {score.Score:F0}% (trend: {score.Trend})");
+            budget.TryAdd($"  - {score.SchemaName}.{score.TableName}: {score.Score:F0}% (trend: {score.Trend}){Environment.NewLine}");
         }
 
         sb.AppendLine();
         sb.AppendLine("## Data Contracts:");
         foreach (var contract in ctx.Contracts)
         {
-            sb.AppendLine($"### {contract.SchemaName}.{contract.TableName}");
+            var block = new StringBuilder();
+            block.AppendLine($"### {contract.SchemaName}.{contract.TableName}");
             foreach (var rule in contract.Rules)
             {
-                sb.Append($"  - {rule.RuleType}");
-                if (rule.ColumnName != null) sb.Append($" on {rule.ColumnName}");
-                if (rule.Configuration != null) sb.Append($" (config: {rule.Configuration})");
-                sb.AppendLine();
+                block.Append($"  - {rule.RuleType}");
+                if (rule.ColumnName != null) block.Append($" on {rule.ColumnName}");
+                if (rule.Configuration != null) block.Append($" (config: {rule.Configuration})");
+                block.AppendLine();
             }
+
+            budget.TryAdd(block.ToString());
         }
 
         // Tables without quality contracts
@@ -882,51 +924,62 @@ internal sealed class ProjectDocumentationService(
             sb.AppendLine();
             sb.AppendLine($"## Tables Without Quality Contracts ({tablesWithout.Count}):");
             foreach (var t in tablesWithout.Take(50))
-                sb.AppendLine($"  - {t}");
+            {
+                budget.TryAdd($"  - {t}{Environment.NewLine}");
+            }
         }
+
+        budget.AppendNote();
 
         return sb.ToString();
     }
 
-    private static string BuildApiDocumentationPrompt(DocumentationContext ctx)
+    internal static string BuildApiDocumentationPrompt(DocumentationContext ctx)
     {
         var sb = new StringBuilder();
+        var budget = new DocumentationPromptBudget(sb);
         sb.AppendLine("# API Data Sources");
         sb.AppendLine();
 
         foreach (var apiDs in ctx.ApiDataSources)
         {
             var tables = ctx.Tables.Where(t => t.DataSourceId == apiDs.Id).ToList();
-            sb.AppendLine($"## {apiDs.Name}");
-            sb.AppendLine();
+            budget.Heading($"## {apiDs.Name}{Environment.NewLine}{Environment.NewLine}");
 
             foreach (var endpoint in tables)
             {
-                sb.AppendLine($"### {endpoint.TableName}");
-                if (endpoint.Description != null) sb.AppendLine($"Description: {endpoint.Description}");
-                sb.AppendLine("Response fields:");
+                var block = new StringBuilder();
+                block.AppendLine($"### {endpoint.TableName}");
+                if (endpoint.Description != null) block.AppendLine($"Description: {endpoint.Description}");
+                block.AppendLine("Response fields:");
                 foreach (var col in endpoint.Columns)
                 {
-                    sb.Append($"  - {col.Name} ({col.DataType})");
-                    if (col.Description != null) sb.Append($" — {col.Description}");
-                    sb.AppendLine();
+                    block.Append($"  - {col.Name} ({col.DataType})");
+                    if (col.Description != null) block.Append($" — {col.Description}");
+                    block.AppendLine();
                 }
-                sb.AppendLine();
+                block.AppendLine();
+                budget.TryAdd(block.ToString());
             }
+
+            budget.EndGroup("");
         }
+
+        budget.AppendNote();
 
         return sb.ToString();
     }
 
-    private static string BuildGlossaryPrompt(DocumentationContext ctx, List<ProjectDocumentationSection> existingSections)
+    internal static string BuildGlossaryPrompt(DocumentationContext ctx, List<ProjectDocumentationSection> existingSections)
     {
         var sb = new StringBuilder();
+        var budget = new DocumentationPromptBudget(sb);
         sb.AppendLine("# Context for Glossary Generation");
         sb.AppendLine();
         sb.AppendLine("## Table and Column Names:");
         foreach (var table in ctx.Tables.Take(100))
         {
-            sb.AppendLine($"- {table.SchemaName}.{table.TableName}: {string.Join(", ", table.Columns.Select(c => c.Name))}");
+            budget.TryAdd($"- {table.SchemaName}.{table.TableName}: {string.Join(", ", table.Columns.Select(c => c.Name))}{Environment.NewLine}");
         }
 
         if (ctx.EnumValues.Count > 0)
@@ -936,7 +989,7 @@ internal sealed class ProjectDocumentationService(
             foreach (var enumCol in ctx.EnumValues)
             {
                 var values = string.Join(", ", enumCol.Values.Select(x => x.Value));
-                sb.AppendLine($"- {enumCol.SchemaName}.{enumCol.TableName}.{enumCol.ColumnName}: [{values}]");
+                budget.TryAdd($"- {enumCol.SchemaName}.{enumCol.TableName}.{enumCol.ColumnName}: [{values}]{Environment.NewLine}");
             }
         }
 
@@ -946,10 +999,10 @@ internal sealed class ProjectDocumentationService(
         foreach (var section in existingSections.Where(s => s.Content.Length > 50).Take(4))
         {
             var excerpt = section.Content.Length > 500 ? section.Content[..500] : section.Content;
-            sb.AppendLine($"### {section.Title}:");
-            sb.AppendLine(excerpt);
-            sb.AppendLine();
+            budget.TryAdd($"### {section.Title}:{Environment.NewLine}{excerpt}{Environment.NewLine}{Environment.NewLine}");
         }
+
+        budget.AppendNote();
 
         return sb.ToString();
     }
@@ -1432,7 +1485,7 @@ internal sealed class ProjectDocumentationService(
 
     // --- Context Models ---
 
-    private sealed class DocumentationContext
+    internal sealed class DocumentationContext
     {
         public string ProjectName { get; init; } = null!;
         public string? ProjectDescription { get; init; }
@@ -1462,10 +1515,10 @@ internal sealed class ProjectDocumentationService(
         string PatternType, string TableName, string? ColumnName,
         string Content, string? ExampleQuestion, string? ExampleSql);
 
-    private sealed record DataSourceInfo(int Id, string Name, DataSourceType Type, DatabaseEngineType? EngineType);
-    private sealed record RepoInfo(string Url, string Branch, int FilesScanned, int ReferencesFound);
+    internal sealed record DataSourceInfo(int Id, string Name, DataSourceType Type, DatabaseEngineType? EngineType);
+    internal sealed record RepoInfo(string Url, string Branch, int FilesScanned, int ReferencesFound);
 
-    private sealed class TableInfo
+    internal sealed class TableInfo
     {
         public int DataSourceId { get; init; }
         public string DataSourceName { get; init; } = null!;
@@ -1476,31 +1529,31 @@ internal sealed class ProjectDocumentationService(
         public List<IndexDetail> Indexes { get; init; } = new();
     }
 
-    private sealed record ColumnDetail(
+    internal sealed record ColumnDetail(
         string Name, string DataType, bool IsNullable, bool IsPrimaryKey,
         string? ForeignKeyTable, string? ForeignKeyColumn, string? Description,
         int? MaxLength);
 
-    private sealed record IndexDetail(string Name, string Columns, bool IsUnique);
+    internal sealed record IndexDetail(string Name, string Columns, bool IsUnique);
 
-    private sealed record CodeRefInfo(
+    internal sealed record CodeRefInfo(
         string FilePath, int? LineNumber, CodeReferenceType ReferenceType,
         string? SchemaName, string? TableName, string? ColumnName,
         string? CodeSnippet, string? ClassName, string? MethodName);
 
-    private sealed record QualityScoreInfo(
+    internal sealed record QualityScoreInfo(
         int DataSourceId, string SchemaName, string TableName, double Score, DataQualityTrendDirection Trend);
 
-    private sealed record ContractInfo(
+    internal sealed record ContractInfo(
         int DataSourceId, string SchemaName, string TableName, List<ContractRuleInfo> Rules);
 
-    private sealed record ContractRuleInfo(
+    internal sealed record ContractRuleInfo(
         DataContractRuleType RuleType, string? ColumnName, string? Configuration);
 
-    private sealed record EnumColumnValues(
+    internal sealed record EnumColumnValues(
         int DataSourceId, string SchemaName, string TableName,
         string ColumnName, List<EnumValueCount> Values);
 
-    private sealed record EnumValueCount(string Value, long Count);
+    internal sealed record EnumValueCount(string Value, long Count);
 
 }

@@ -1,0 +1,14 @@
+# Data Quality Information
+
+## Quality Scores:
+  - public.customers: 40% (trend: 0)
+  - public.orders: 92% (trend: 0)
+
+## Data Contracts:
+### public.orders
+  - 0 on status (config: {"allowed":["a"]})
+  - 0
+
+## Tables Without Quality Contracts (2):
+  - public.customers
+  - api.GET /invoices

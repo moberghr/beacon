@@ -438,6 +438,325 @@ public class McpLearningDetectionTests
         signals.Should().Equal([fresh], "an explicit retentionDays argument overrides both project and global windows");
     }
 
+    [Test]
+    public async Task DetectSchemaCorrectionsAsync_ColumnWithAnExtractedLesson_RefreshesItWithoutCallingTheExtractor_WhileItsSignalCountIsUnchanged()
+    {
+        var extractor = ExtractorReturningALesson();
+        var stored = new McpLearnedPattern
+        {
+            Id = 41,
+            ProjectId = ProjectId,
+            DataSourceId = DataSourceId,
+            SchemaName = "public",
+            TableName = "orders",
+            ColumnName = "created_at",
+            PatternType = McpPatternType.SchemaCorrection,
+            PatternContent = "A lesson the extractor wrote earlier",
+            SignalCount = 3,
+            Confidence = 0.5,
+            Status = McpPatternStatus.NeedsEvidence
+        };
+        var saved = new List<object>();
+        var (service, context) = BuildRecordingService(extractor.Object, [stored], saved);
+        var extraction = new McpLearningAggregationService.ExtractionStats();
+
+        await service.DetectSchemaCorrectionsAsync(
+            context, ProjectId, DataSourceId, [CorrectionSignal(), CorrectionSignal(), CorrectionSignal()], extraction, retainContent: true, CancellationToken.None);
+
+        extractor.Verify(x => x.ExtractAsync(It.IsAny<FailureCluster>(), It.IsAny<CancellationToken>()), Times.Never);
+        stored.PatternContent.Should().Be("A lesson the extractor wrote earlier");
+        stored.Confidence.Should().BeApproximately(0.95, 0.0001);
+        saved.Should().BeEmpty();
+        extraction.Attempts.Should().Be(0);
+        extraction.ReusedExtractions.Should().Be(1);
+    }
+
+    [Test]
+    public async Task DetectSchemaCorrectionsAsync_ColumnWithAnExtractedLesson_AsksTheExtractorAgainWhenSignalsWereAdded()
+    {
+        var extractor = ExtractorReturningALesson();
+        var stored = new McpLearnedPattern
+        {
+            Id = 43,
+            ProjectId = ProjectId,
+            DataSourceId = DataSourceId,
+            SchemaName = "public",
+            TableName = "orders",
+            ColumnName = "created_at",
+            PatternType = McpPatternType.SchemaCorrection,
+            PatternContent = "A lesson the extractor wrote earlier",
+            SignalCount = 2,
+            Status = McpPatternStatus.NeedsEvidence
+        };
+        var (service, context) = BuildRecordingService(extractor.Object, [stored], []);
+
+        await service.DetectSchemaCorrectionsAsync(
+            context, ProjectId, DataSourceId, [CorrectionSignal(), CorrectionSignal(), CorrectionSignal()], new McpLearningAggregationService.ExtractionStats(), retainContent: true, CancellationToken.None);
+
+        extractor.Verify(x => x.ExtractAsync(It.IsAny<FailureCluster>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public async Task DetectSchemaCorrectionsAsync_ColumnWithOnlyTheDeterministicContent_StillAsksTheExtractor()
+    {
+        var extractor = ExtractorReturningALesson();
+        var stored = new McpLearnedPattern
+        {
+            Id = 42,
+            ProjectId = ProjectId,
+            DataSourceId = DataSourceId,
+            SchemaName = "public",
+            TableName = "orders",
+            ColumnName = "created_at",
+            PatternType = McpPatternType.SchemaCorrection,
+            PatternContent = "NEVER use 'created_at' on public.orders — correct column is 'created_on'",
+            Status = McpPatternStatus.NeedsEvidence
+        };
+        var (service, context) = BuildRecordingService(extractor.Object, [stored], []);
+        var extraction = new McpLearningAggregationService.ExtractionStats();
+
+        await service.DetectSchemaCorrectionsAsync(
+            context, ProjectId, DataSourceId, [CorrectionSignal(), CorrectionSignal(), CorrectionSignal()], extraction, retainContent: true, CancellationToken.None);
+
+        extractor.Verify(x => x.ExtractAsync(It.IsAny<FailureCluster>(), It.IsAny<CancellationToken>()), Times.Once);
+        extraction.ReusedExtractions.Should().Be(0);
+    }
+
+    [Test]
+    public async Task DetectSchemaCorrectionsAsync_MoreClustersThanTheCap_ExtractsExactlyTheCapAndTheRestTakeTheDeterministicContent()
+    {
+        var extractor = ExtractorReturningALesson();
+        var saved = new List<object>();
+        var (service, context) = BuildRecordingService(extractor.Object, [], saved);
+        var extraction = new McpLearningAggregationService.ExtractionStats();
+        var clusters = McpLearningAggregationService.MaxLessonExtractionsPerRun + 5;
+        var signals = Enumerable.Range(0, clusters)
+            .Select(i => CorrectionSignalFor(ProjectId, "public.orders", $"bad_{i:D2}", $"good_{i:D2}"))
+            .ToList();
+
+        await service.DetectSchemaCorrectionsAsync(
+            context, ProjectId, DataSourceId, signals, extraction, retainContent: true, CancellationToken.None);
+
+        extractor.Verify(
+            x => x.ExtractAsync(It.IsAny<FailureCluster>(), It.IsAny<CancellationToken>()), Times.Exactly(McpLearningAggregationService.MaxLessonExtractionsPerRun));
+        var patterns = saved.OfType<McpLearnedPattern>().ToList();
+        patterns.Should().HaveCount(clusters);
+        patterns.Count(x => x.PatternContent == "An extracted lesson").Should().Be(McpLearningAggregationService.MaxLessonExtractionsPerRun);
+        patterns.Count(x => x.PatternContent.StartsWith("NEVER use 'bad_")).Should().Be(5);
+        extraction.Attempts.Should().Be(McpLearningAggregationService.MaxLessonExtractionsPerRun);
+        extraction.NullResults.Should().Be(0);
+        extraction.CappedExtractions.Should().Be(5);
+    }
+
+    [Test]
+    public async Task DetectSchemaCorrectionsAsync_CappedClusters_DoNotCountTowardTheNullResultWarning()
+    {
+        var extractor = new Mock<ILessonExtractor>();
+        extractor.SetupGet(x => x.IsAvailable).Returns(true);
+        extractor
+            .Setup(x => x.ExtractAsync(It.IsAny<FailureCluster>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((ExtractedLesson?)null);
+        var (service, context) = BuildRecordingService(extractor.Object, [], []);
+        var extraction = new McpLearningAggregationService.ExtractionStats();
+        var clusters = McpLearningAggregationService.MaxLessonExtractionsPerRun + 3;
+        var signals = Enumerable.Range(0, clusters)
+            .Select(i => CorrectionSignalFor(ProjectId, "public.orders", $"bad_{i:D2}", $"good_{i:D2}"))
+            .ToList();
+
+        await service.DetectSchemaCorrectionsAsync(
+            context, ProjectId, DataSourceId, signals, extraction, retainContent: true, CancellationToken.None);
+
+        extraction.Attempts.Should().Be(McpLearningAggregationService.MaxLessonExtractionsPerRun);
+        extraction.NullResults.Should().Be(extraction.Attempts, "every attempted extraction was null, so the run warns about the provider");
+        extraction.CappedExtractions.Should().Be(3);
+    }
+
+    // An LLM lesson can have the same shape as the template ("NEVER use '...'"): only the exact template text is the fallback's.
+    [TestCase("NEVER use 'created_at' on public.orders — prefer created_on in every query", 0)]
+    [TestCase("Column 'created_at' does not exist on public.orders — check schema, it was renamed", 0)]
+    [TestCase("Column 'created_at' does not exist on public.orders — check schema", 1)]
+    public async Task DetectSchemaCorrectionsAsync_OnlyTheExactTemplateTextIsNotAnExtractedLesson(string storedContent, int extractorCalls)
+    {
+        var extractor = ExtractorReturningALesson();
+        var stored = StoredLesson(44, "created_at", storedContent, signalCount: 3, McpPatternStatus.NeedsEvidence);
+        var (service, context) = BuildRecordingService(extractor.Object, [stored], []);
+
+        // No correct column can be found for these signals, so the template is the "Column '…' does not exist" text.
+        await service.DetectSchemaCorrectionsAsync(
+            context, ProjectId, DataSourceId, [NoReplacementSignal(), NoReplacementSignal(), NoReplacementSignal()], new McpLearningAggregationService.ExtractionStats(), retainContent: true, CancellationToken.None);
+
+        extractor.Verify(x => x.ExtractAsync(It.IsAny<FailureCluster>(), It.IsAny<CancellationToken>()), Times.Exactly(extractorCalls));
+    }
+
+    [TestCase(McpPatternStatus.NeedsEvidence)]
+    [TestCase(McpPatternStatus.Approved)]
+    [TestCase(McpPatternStatus.AutoApproved)]
+    [TestCase(McpPatternStatus.Rejected)]
+    public async Task DetectSchemaCorrectionsAsync_AReusedLesson_RefreshesItsTimestampWhateverItsStatus(McpPatternStatus status)
+    {
+        var extractor = ExtractorReturningALesson();
+        var stored = StoredLesson(45, "created_at", "A lesson the extractor wrote earlier", signalCount: 1, status);
+        stored.LastRefreshedAt = new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc);
+        var (service, context) = BuildRecordingService(extractor.Object, [stored], []);
+
+        await service.DetectSchemaCorrectionsAsync(
+            context, ProjectId, DataSourceId, [CorrectionSignal()], new McpLearningAggregationService.ExtractionStats(), retainContent: true, CancellationToken.None);
+
+        extractor.Verify(x => x.ExtractAsync(It.IsAny<FailureCluster>(), It.IsAny<CancellationToken>()), Times.Never);
+        stored.Status.Should().Be(status);
+        stored.PatternContent.Should().Be("A lesson the extractor wrote earlier");
+        stored.LastRefreshedAt.Should().BeAfter(new DateTime(2020, 1, 1, 0, 0, 0, DateTimeKind.Utc));
+    }
+
+    [Test]
+    public async Task DetectSchemaCorrectionsAsync_ClustersPastTheCap_KeepTheirStoredLesson_AndTheCapGoesToClustersWithoutOne()
+    {
+        var extractor = ExtractorReturningALesson();
+        var cap = McpLearningAggregationService.MaxLessonExtractionsPerRun;
+        var withLesson = Enumerable.Range(0, cap + 2)
+            .Select(i => StoredLesson(100 + i, $"bad_{i:D2}", $"stored lesson {i}", signalCount: 5, McpPatternStatus.AutoApproved))
+            .ToList();
+        var saved = new List<object>();
+        var (service, context) = BuildRecordingService(extractor.Object, withLesson, saved);
+        var extraction = new McpLearningAggregationService.ExtractionStats();
+        // Three more clusters have no stored lesson; they come last in the signals but first in line for the cap.
+        var signals = Enumerable.Range(0, cap + 5)
+            .Select(i => CorrectionSignalFor(ProjectId, "public.orders", $"bad_{i:D2}", $"good_{i:D2}"))
+            .ToList();
+
+        await service.DetectSchemaCorrectionsAsync(
+            context, ProjectId, DataSourceId, signals, extraction, retainContent: true, CancellationToken.None);
+
+        extractor.Verify(x => x.ExtractAsync(It.IsAny<FailureCluster>(), It.IsAny<CancellationToken>()), Times.Exactly(cap));
+        saved.OfType<McpLearnedPattern>().Should().HaveCount(3, "only the clusters without a stored lesson add rows");
+        saved.OfType<McpLearnedPattern>().Should().OnlyContain(x => x.PatternContent == "An extracted lesson");
+        var kept = withLesson.Where(x => x.PatternContent.StartsWith("stored lesson")).ToList();
+        kept.Should().HaveCount(5, "22 clusters with a lesson, 17 of them in the 20 - 3 calls left after the lesson-less ones");
+        kept.Should().OnlyContain(x => x.Status == McpPatternStatus.AutoApproved && x.SignalCount == 1);
+        extraction.CappedExtractions.Should().Be(5);
+    }
+
+    [Test]
+    public async Task DetectSchemaCorrectionsAsync_ANullResult_KeepsTheStoredLesson_AndRefreshesItsStatistics()
+    {
+        var extractor = new Mock<ILessonExtractor>();
+        extractor.SetupGet(x => x.IsAvailable).Returns(true);
+        extractor
+            .Setup(x => x.ExtractAsync(It.IsAny<FailureCluster>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((ExtractedLesson?)null);
+        var stored = StoredLesson(46, "created_at", "A lesson the extractor wrote earlier", signalCount: 5, McpPatternStatus.AutoApproved);
+        var saved = new List<object>();
+        var (service, context) = BuildRecordingService(extractor.Object, [stored], saved);
+        var extraction = new McpLearningAggregationService.ExtractionStats();
+
+        await service.DetectSchemaCorrectionsAsync(
+            context, ProjectId, DataSourceId, [CorrectionSignal()], extraction, retainContent: true, CancellationToken.None);
+
+        stored.PatternContent.Should().Be("A lesson the extractor wrote earlier");
+        stored.Status.Should().Be(McpPatternStatus.AutoApproved);
+        stored.SignalCount.Should().Be(1);
+        saved.Should().BeEmpty();
+        extraction.Attempts.Should().Be(1);
+        extraction.NullResults.Should().Be(1);
+    }
+
+    [Test]
+    public async Task DetectSchemaCorrectionsAsync_TheCapIsSharedByTheDataSourcesOfAProject_AndEachProjectHasItsOwn()
+    {
+        var extractor = ExtractorReturningALesson();
+        var cap = McpLearningAggregationService.MaxLessonExtractionsPerRun;
+        var (service, context) = BuildRecordingService(extractor.Object, [], []);
+        var extraction = new McpLearningAggregationService.ExtractionStats();
+        List<McpQuerySignal> Clusters(int count) => Enumerable.Range(0, count)
+            .Select(i => CorrectionSignalFor(ProjectId, "public.orders", $"bad_{i:D2}", $"good_{i:D2}"))
+            .ToList();
+
+        await service.DetectSchemaCorrectionsAsync(context, ProjectId, DataSourceId, Clusters(cap - 8), extraction, retainContent: true, CancellationToken.None);
+        await service.DetectSchemaCorrectionsAsync(context, ProjectId, DataSourceId + 1, Clusters(cap - 8), extraction, retainContent: true, CancellationToken.None);
+
+        extraction.Attempts.Should().Be(cap, "two data sources of one project draw on one cap");
+        extraction.CappedExtractions.Should().Be((cap - 8) * 2 - cap);
+
+        await service.DetectSchemaCorrectionsAsync(context, ProjectId + 1, DataSourceId, Clusters(cap), extraction, retainContent: true, CancellationToken.None);
+
+        extraction.Attempts.Should().Be(cap * 2, "another project has its own cap");
+    }
+
+    [Test]
+    public async Task DetectSchemaCorrectionsAsync_ReusedLessons_DoNotConsumeTheCap()
+    {
+        var extractor = ExtractorReturningALesson();
+        var cap = McpLearningAggregationService.MaxLessonExtractionsPerRun;
+        var withLesson = Enumerable.Range(0, cap)
+            .Select(i => StoredLesson(200 + i, $"old_{i:D2}", $"stored lesson {i}", signalCount: 1, McpPatternStatus.NeedsEvidence))
+            .ToList();
+        var (service, context) = BuildRecordingService(extractor.Object, withLesson, []);
+        var extraction = new McpLearningAggregationService.ExtractionStats();
+        var signals = Enumerable.Range(0, cap)
+            .Select(i => CorrectionSignalFor(ProjectId, "public.orders", $"old_{i:D2}", $"good_{i:D2}"))
+            .Concat(Enumerable.Range(0, cap).Select(i => CorrectionSignalFor(ProjectId, "public.orders", $"new_{i:D2}", $"good_{i:D2}")))
+            .ToList();
+
+        await service.DetectSchemaCorrectionsAsync(context, ProjectId, DataSourceId, signals, extraction, retainContent: true, CancellationToken.None);
+
+        extraction.ReusedExtractions.Should().Be(cap);
+        extraction.Attempts.Should().Be(cap);
+        extraction.CappedExtractions.Should().Be(0);
+    }
+
+    private static McpLearnedPattern StoredLesson(int id, string column, string content, int signalCount, McpPatternStatus status) =>
+        new()
+        {
+            Id = id,
+            ProjectId = ProjectId,
+            DataSourceId = DataSourceId,
+            SchemaName = "public",
+            TableName = "orders",
+            ColumnName = column,
+            PatternType = McpPatternType.SchemaCorrection,
+            PatternContent = content,
+            SignalCount = signalCount,
+            Confidence = 0.5,
+            Status = status
+        };
+
+    private static McpQuerySignal NoReplacementSignal()
+    {
+        var signal = CorrectionSignalFor(ProjectId, "public.orders", "created_at", "created_on");
+        signal.SchemaValidationError = "Column 'created_at' does not exist on 'l'. Available: id";
+        signal.CorrectedSql = "SELECT id FROM public.orders";
+
+        return signal;
+    }
+
+    private static Mock<ILessonExtractor> ExtractorReturningALesson()
+    {
+        var extractor = new Mock<ILessonExtractor>();
+        extractor.SetupGet(x => x.IsAvailable).Returns(true);
+        extractor
+            .Setup(x => x.ExtractAsync(It.IsAny<FailureCluster>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ExtractedLesson(McpPatternType.SchemaCorrection, "An extracted lesson", null, null, "symptom", "root cause", "rule", null, null));
+
+        return extractor;
+    }
+
+    private static (McpLearningAggregationService Service, BeaconContext Context) BuildRecordingService(
+        ILessonExtractor extractor, List<McpLearnedPattern> existing, List<object> saved)
+    {
+        var context = new RecordingBeaconContext(
+            new Dictionary<Type, object> { [typeof(McpLearnedPattern)] = RecordingBeaconContext.MemorySet(existing, saved) },
+            saved);
+        var service = new McpLearningAggregationService(
+            Mock.Of<IDbContextFactory<BeaconContext>>(),
+            SettingsProviderMock.Create().Object,
+            TestGroundingSqlChecks.PassThrough().Object,
+            NullLogger<McpLearningAggregationService>.Instance,
+            lessonExtractor: extractor,
+            replayVerifier: null);
+
+        return (service, context);
+    }
+
     private static McpQuerySignal AgedSignal(int? projectId, int ageDays)
     {
         return new McpQuerySignal

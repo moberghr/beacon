@@ -1,0 +1,18 @@
+# Code References (showing how data flows through code)
+
+## Write Operations (data ingestion/processing)
+### Table: orders
+  - OrderService.Create (DapperQuery) — src/Orders.cs:12
+    ```INSERT INTO orders```
+### Table: unknown
+  - . (RawSql) — src/Misc.cs:3
+
+## Read Operations (data serving)
+### Table: orders
+  - OrderService.Get (EntityModel) — src/Orders.cs:40
+### Table: customers
+  - CustomerApi.List (ApiEndpoint) — src/Customers.cs:7
+    ```GET /customers```
+
+## FK Relationships (data dependencies)
+  - public.orders → public.customers (via customer_id)
