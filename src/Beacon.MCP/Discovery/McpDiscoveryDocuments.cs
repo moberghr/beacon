@@ -38,6 +38,9 @@ internal static class McpDiscoveryDocuments
     public const string ServerCardPath = McpDiscoveryPaths.ServerCardPath;
     public const string DocumentationUrl = "https://moberghr.github.io/beacon/features/mcp-server/";
 
+    /// <summary>The <c>resource_name</c> published unless <see cref="McpProtectedResourceOptions.ResourceName"/> sets one.</summary>
+    public const string DefaultResourceName = "Beacon MCP";
+
     public static readonly IReadOnlyList<string> ScopesSupported = [BeaconScopes.Execute];
 
     /// <summary>The OpenID scope that makes an identity provider issue a refresh token with the access token.</summary>
@@ -66,18 +69,22 @@ internal static class McpDiscoveryDocuments
     /// SDK type serializes an unset list as <c>[]</c>, which RFC 9728 clients would read as "no authorization server
     /// exists" rather than "not applicable".
     /// </summary>
+    /// <param name="resourceName"><see cref="McpProtectedResourceOptions.ResourceName"/>; empty publishes <see cref="DefaultResourceName"/>.</param>
+    /// <param name="resourceDocumentation"><see cref="McpProtectedResourceOptions.ResourceDocumentation"/>; empty publishes <see cref="DocumentationUrl"/>.</param>
     public static JsonObject BuildProtectedResourceMetadata(
         string publicBaseUrl,
         IReadOnlyList<string> authorizationServers,
-        IReadOnlyList<string> scopesSupported)
+        IReadOnlyList<string> scopesSupported,
+        string? resourceName = null,
+        string? resourceDocumentation = null)
     {
         var metadata = new ProtectedResourceMetadata
         {
             Resource = $"{publicBaseUrl}{McpPath}",
             BearerMethodsSupported = ["header"],
             ScopesSupported = [.. scopesSupported],
-            ResourceName = "Beacon MCP",
-            ResourceDocumentation = DocumentationUrl
+            ResourceName = string.IsNullOrWhiteSpace(resourceName) ? DefaultResourceName : resourceName.Trim(),
+            ResourceDocumentation = DocumentationOrDefault(resourceDocumentation)
         };
 
         if (authorizationServers.Count > 0)
@@ -171,7 +178,12 @@ internal static class McpDiscoveryDocuments
     /// protected-resource metadata and the <c>WWW-Authenticate</c> challenge.
     /// </summary>
     /// <param name="builtInTools">The built-in tools the host serves (<see cref="BeaconMcpOptions.BuiltInTools"/>); null lists all.</param>
-    public static JsonObject BuildServerCard(string publicBaseUrl, IReadOnlyList<string> scopesSupported, IReadOnlyCollection<string>? builtInTools = null)
+    /// <param name="documentation"><see cref="McpProtectedResourceOptions.ResourceDocumentation"/>; empty publishes <see cref="DocumentationUrl"/>.</param>
+    public static JsonObject BuildServerCard(
+        string publicBaseUrl,
+        IReadOnlyList<string> scopesSupported,
+        IReadOnlyCollection<string>? builtInTools = null,
+        string? documentation = null)
     {
         var tools = new JsonArray();
         foreach (var tool in McpToolCatalog.Tools.Where(x => builtInTools?.Contains(x.Name) != false))
@@ -197,7 +209,7 @@ internal static class McpDiscoveryDocuments
                 ["resource_metadata"] = $"{publicBaseUrl}{ProtectedResourceMetadataPath}"
             },
             ["tools"] = tools,
-            ["documentation"] = DocumentationUrl
+            ["documentation"] = DocumentationOrDefault(documentation)
         };
     }
 
@@ -215,4 +227,7 @@ internal static class McpDiscoveryDocuments
 
         return assemblyVersion?.ToString(3) ?? FallbackVersion;
     }
+
+    private static string DocumentationOrDefault(string? documentation) =>
+        string.IsNullOrWhiteSpace(documentation) ? DocumentationUrl : documentation.Trim();
 }

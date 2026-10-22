@@ -40,4 +40,16 @@ public sealed class McpProtectedResourceOptions
     /// card's <c>authentication.scopes_supported</c>. Empty keeps the Beacon names.
     /// </summary>
     public List<string> ScopesSupported { get; set; } = [];
+
+    /// <summary>
+    /// The <c>resource_name</c> to publish: the name an MCP client shows for the server. Empty publishes
+    /// <c>Beacon MCP</c>; a host that serves Beacon as its own MCP server (an MCP gateway) names its application here.
+    /// </summary>
+    public string? ResourceName { get; set; }
+
+    /// <summary>
+    /// The <c>resource_documentation</c> URL to publish, also the server card's <c>documentation</c>. Empty publishes
+    /// Beacon's MCP documentation; a gateway host links its own.
+    /// </summary>
+    public string? ResourceDocumentation { get; set; }
 }

@@ -69,7 +69,8 @@ internal sealed class HostEndpointToolRegistry
             policyProvider == null ? null : x => AuthenticationSchemesOf(x, policyProvider),
             options.TrustedAuthenticationSchemes,
             options.AllowWriteTools,
-            options.CallerBindings.Keys.ToList());
+            options.CallerBindings.Keys.ToList(),
+            options.DescriptionNote);
         WarnAboutUnusedCallerBindings(services, options, tools);
 
         return tools;

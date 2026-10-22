@@ -136,6 +136,21 @@ public class HostEndpointDiscoveryTests
     }
 
     [Test]
+    public async Task Description_TheHostReplacesOrDropsTheNote()
+    {
+        await using var host = await HostEndpointTestHost.StartAsync(
+            [typeof(ThingsController), typeof(LeaveController)],
+            configure: x =>
+            {
+                x.AllowWriteTools = true;
+                x.DescriptionNote = tool => tool.ReadOnly ? null : $"{tool.HttpMethod} {tool.Route} changes only your own leave.";
+            });
+
+        host.Tool("thing_by_id").Description.Should().Be("One thing, echoing what the endpoint saw.");
+        host.Tool("leave_book").Description.Should().Be("Book leave for yourself.\n\nPOST /leave/book changes only your own leave.");
+    }
+
+    [Test]
     public void ProtocolTool_CarriesReadOnlyAnnotations()
     {
         var tool = _host.Tool("thing_search").ToProtocolTool();

@@ -47,6 +47,9 @@ public static class McpContentRedactor
     // tested before the broad schema/not-found keywords that almost every provider message also contains.
     private static readonly (string Class, string[] Keywords)[] Classifiers =
     [
+        // A tool's own argument errors first: they name the argument, and an argument may be called anything ("timeout",
+        // "column_name", ...), so no keyword its name carries may outrank them.
+        (ClassValidation, ["invalid argument", "required argument", "required parameter"]),
         // Timeout BEFORE cancelled on purpose: PostgreSQL reports a hit statement timeout as
         // "canceling statement due to statement timeout", which the bare "cancel" keyword would otherwise
         // classify as a user abort. A real user cancel ("canceling statement due to user request") carries no
@@ -60,7 +63,8 @@ public static class McpContentRedactor
         // validation bucket's "invalid" keyword would otherwise swallow. MySQL contracts the verb
         // ("Table 'x' doesn't exist"), so both spellings are listed (review note, 2026-09-11).
         (ClassNotFound, ["not found", "no such", "does not exist", "doesn't exist", "invalid object name", "unknown table", "missing"]),
-        (ClassValidation, ["invalid", "validation", "not allowed", "read-only", "read only"]),
+        // "Bad Request" and "Unprocessable" are a host endpoint's 400 and 422 (audited as "HTTP 400 Bad Request").
+        (ClassValidation, ["invalid", "validation", "not allowed", "read-only", "read only", "bad request", "unprocessable"]),
         (ClassExecution, ["execution", "deadlock", "constraint", "division by zero", "conversion failed"])
     ];
 
