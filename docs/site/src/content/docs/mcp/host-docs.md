@@ -137,13 +137,15 @@ The documents belong to one project and are only ever visible to callers authori
 - **`get_documentation`**: the project-level response (no arguments) ends with an *Imported documents* listing
   (title + path). `document: "<path>"` (or an exact title) returns one document in full; a title shared by several
   documents is an error that names their paths.
-- **`search`**: imported documents match on title, path or chunk text and appear as
+- **`search`**: imported documents match on title, path or chunk text (any word of the query; the documents holding
+  the most words first) and appear as
   `- **[IMPORTED_DOC]** \`path\` (title)`, followed by ` -- snippet` when there is one, with or without embeddings.
 - **`get_context` with `format: "agents_md"`**: a deterministic *project brief* in markdown to drop into an agent
   workspace's `AGENTS.md`: the project description, data sources (host-managed ones marked read-only), up to 30 key
   tables (best-described and most-related first), masked columns, up to 30 glossary terms, the imported document
   titles, and how to use Beacon's tools (`get_query_context` → `dry_run` → `query`, read-only, masked columns stay
-  masked). Built from the catalog only, with no LLM call, and audited like every tool call.
+  masked; a project without data sources is pointed at `search` and `get_documentation` instead). Built from the
+  catalog only, with no LLM call, and audited like every tool call.
 
 The REST API exposes the same documents: `GET /beacon/api/projects/{id}/imported-documents` (listing) and
 `GET /beacon/api/projects/{id}/imported-documents/{documentId}` (one document with its content). Both need Read in

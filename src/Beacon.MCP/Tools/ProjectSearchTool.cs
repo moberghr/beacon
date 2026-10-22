@@ -41,7 +41,7 @@ internal sealed class ProjectSearchTool(
             return ToolHelper.Error(offsetError);
         }
 
-        if (string.IsNullOrEmpty(query))
+        if (string.IsNullOrWhiteSpace(query))
         {
             const string queryError = "Missing required parameter: query";
             sw.Stop();

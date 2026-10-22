@@ -3,6 +3,9 @@ using Beacon.AI.Services.Knowledge;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities.Projects;
+using Beacon.Core.HostDocs;
+using Beacon.Core.HostEndpoints;
+using Beacon.MCP.HostEndpoints;
 using Beacon.MCP.Services;
 using Beacon.MCP.Tools;
 using Beacon.Tests.Common;
@@ -172,11 +175,111 @@ public class ImportedDocumentToolTests
         _store.Chunks.Add(new() { Id = 22, ProjectId = OtherProjectId, ImportedDocumentId = 9, ChunkText = "Loans elsewhere.", SortOrder = 0 });
 
         await using var context = new DocsTestContext(_store);
-        var rows = await KnowledgeGraphService.BuildImportedDocsQuery(context, ProjectId, "loans", 10)
+        var rows = await KnowledgeGraphService.BuildImportedDocsQuery(context, ProjectId, ["loans"], 10)
             .ToListAsync();
 
         rows.Should().ContainSingle();
-        rows[0].Should().Be(new ImportedDocSearchRow(2, "Netgiro", "50-data/contexts.md", "Contexts", "Loans live in NetgiroContext."));
+        rows[0].Should().Be(new ImportedDocSearchRow(2, "Netgiro", "50-data/contexts.md", "Contexts", "Loans live in NetgiroContext.", 1));
+    }
+
+    [Test]
+    public async Task SearchKeywordArm_ImportedDocs_MatchTheQueryWords_MostTermsFirst()
+    {
+        _store.Documents.Add(Document(5, ProjectId, "60-hr/leave.md", "Annual leave", "Leave policy."));
+        _store.Documents.Add(Document(6, ProjectId, "60-hr/sick.md", "Sick leave", "Sick leave."));
+        var project = new Project { Id = ProjectId, Name = "Netgiro" };
+        foreach (var document in _store.Documents)
+        {
+            document.Project = project;
+        }
+
+        _store.Chunks.Add(new() { Id = 30, ProjectId = ProjectId, ImportedDocumentId = 5, ChunkText = "Leave policy.", SortOrder = 0 });
+        _store.Chunks.Add(new() { Id = 31, ProjectId = ProjectId, ImportedDocumentId = 5, ChunkText = "Request annual leave in the portal.", SortOrder = 1 });
+        _store.Chunks.Add(new() { Id = 32, ProjectId = ProjectId, ImportedDocumentId = 6, ChunkText = "Report sick leave on the day.", SortOrder = 0 });
+
+        await using var context = new DocsTestContext(_store);
+        var terms = KnowledgeGraphService.SearchTermsOf("How do I request annual leave?");
+        var rows = await KnowledgeGraphService.BuildImportedDocsQuery(context, ProjectId, terms, 10)
+            .ToListAsync();
+
+        rows.Select(x => x.Path).Should().Equal("60-hr/leave.md", "60-hr/sick.md");
+        rows[0].Hits.Should().Be(3);
+        rows[0].MatchingChunk.Should().Be("Request annual leave in the portal.", "the chunk holding the most terms is the snippet");
+        rows[1].Hits.Should().Be(1);
+    }
+
+    [Test]
+    public async Task GetContext_ProjectWithoutDataSources_ListsHostToolsAndImportedDocuments()
+    {
+        _store.Projects.Add(new Project { Id = ProjectId, Name = "Netgiro" });
+        var tools = new Mock<IHostEndpointToolOverview>();
+        tools
+            .Setup(x => x.ListForProjectAsync(ProjectId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new HostEndpointToolListing(
+                [
+                    new HostEndpointToolSummary("leave_balance", "api_leave_balance", "Your remaining annual leave."),
+                    new HostEndpointToolSummary("request_leave", "api_request_leave", "Request annual leave.") { ReadOnly = false }
+                ],
+                false));
+
+        var text = await GetContextAsync(tools.Object);
+
+        text.Should().Be("""
+            # Project: Netgiro
+
+            **Host application tools:** 2
+            **Imported documents:** 4
+
+            ## Host application tools
+
+            Call them by name. Tools marked (writes) change data.
+
+            - `api_leave_balance` — Your remaining annual leave.
+            - `api_request_leave` (writes) — Request annual leave.
+
+            ## Imported documents
+
+            Read one with `get_documentation` and `document: "<path>"`; `search` matches their text.
+
+            - Shared — `40-web/admin.md`
+            - Shared — `40-web/partner.md`
+            - Contexts — `50-data/contexts.md`
+            - Netgiro Platform — `README.md`
+
+
+            """.ReplaceLineEndings("\n"));
+    }
+
+    [Test]
+    public async Task GetContext_EmptyProject_SaysSoInsteadOfCountingZeroDataSources()
+    {
+        _store.Documents.Clear();
+        _store.Projects.Add(new Project { Id = ProjectId, Name = "Netgiro" });
+
+        var text = await GetContextAsync(null);
+
+        text.Should().Be("# Project: Netgiro\n\nThis project has no data sources, host application tools or imported documents yet.\n");
+    }
+
+    private async Task<string> GetContextAsync(IHostEndpointToolOverview? tools)
+    {
+        var knowledgeGraph = new Mock<IKnowledgeGraphService>();
+        knowledgeGraph
+            .Setup(x => x.GetProjectDataSourcesAsync(ProjectId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+        var tool = new GetContextTool(
+            knowledgeGraph.Object,
+            _store.Factory().Object,
+            new Mock<IProjectBriefService>().Object,
+            ProjectContext(),
+            AuditService(),
+            NullLogger<GetContextTool>.Instance,
+            tools);
+
+        var result = await tool.ExecuteAsync(cancellationToken: CancellationToken.None);
+        result.IsError.Should().NotBe(true, Text(result));
+
+        return Text(result);
     }
 
     private async Task<string> ExecuteAsync(string? document = null)

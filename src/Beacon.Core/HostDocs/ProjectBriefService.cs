@@ -257,6 +257,12 @@ internal sealed class ProjectBriefService(
     private static void AppendTools(StringBuilder sb, ProjectBriefData data)
     {
         sb.Append("## Working with this project through Beacon\n\n");
+        if (data.DataSources.Count == 0)
+        {
+            AppendDocumentTools(sb, data);
+            return;
+        }
+
         sb.Append("Beacon exposes this project over MCP. Access is **read-only**: only SELECT / WITH statements run, and write statements are rejected at several layers — do not attempt them.\n\n");
         sb.Append("For hand-written SQL use `get_query_context` → `dry_run` → `query`:\n\n");
         sb.Append("1. `search` — find tables, columns and documents by keyword.\n");
@@ -269,6 +275,25 @@ internal sealed class ProjectBriefService(
         sb.Append("Rules:\n\n");
         sb.Append("- Masked columns stay masked: never try to unmask, reconstruct or infer their values.\n");
         sb.Append("- Excluded tables and columns are not visible to Beacon; if something is missing, it is out of scope, not hidden.\n");
+        sb.Append("- Pass `project_id` on every call when your credentials reach more than one project.\n\n");
+    }
+
+    // A project without data sources (an MCP gateway's, or one of documents only) runs no SQL: its brief names the
+    // document tools, and the host application tools follow in their own section.
+    private static void AppendDocumentTools(StringBuilder sb, ProjectBriefData data)
+    {
+        var hasTools = data.EndpointTools is { Tools.Count: > 0 };
+        sb.Append((hasTools, data.Documents.Count > 0) switch
+        {
+            (true, true) => "Beacon exposes this project over MCP: the host application tools and the documents listed below.\n\n",
+            (true, false) => "Beacon exposes this project over MCP: the host application tools listed below.\n\n",
+            (false, true) => "Beacon exposes this project over MCP: the documents listed below.\n\n",
+            _ => "Beacon exposes this project over MCP. It has no data sources, host application tools or documents yet.\n\n"
+        });
+        sb.Append("- `get_context` — the project overview.\n");
+        sb.Append("- `search` — find documents by keyword.\n");
+        sb.Append("- `get_documentation` — read one document with `document: \"<path>\"`.\n\n");
+        sb.Append("Rules:\n\n");
         sb.Append("- Pass `project_id` on every call when your credentials reach more than one project.\n\n");
     }
 

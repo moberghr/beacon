@@ -219,7 +219,8 @@ internal sealed class ProjectAccessWorld
                     .ToList(),
                 Saved),
             [typeof(ProjectDocumentation)] = RecordingBeaconContext.MemorySet(new List<ProjectDocumentation>(), Saved),
-            [typeof(GitHubRepository)] = RecordingBeaconContext.MemorySet(new List<GitHubRepository>(), Saved)
+            [typeof(GitHubRepository)] = RecordingBeaconContext.MemorySet(new List<GitHubRepository>(), Saved),
+            [typeof(ProjectImportedDocument)] = RecordingBeaconContext.MemorySet(new List<ProjectImportedDocument>(), Saved)
         };
         foreach (var served in Served)
         {

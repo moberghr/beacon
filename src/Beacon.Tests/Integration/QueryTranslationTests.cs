@@ -476,7 +476,7 @@ public class QueryTranslationTests : QueryTranslationTestBase
     /// <summary>
     /// Translates the REAL table sub-query of <c>KnowledgeGraphService.SearchProjectAsync</c>
     /// (via the extracted <c>BuildMatchingTablesQuery</c>) and guards its deterministic
-    /// ORDER BY schema_name, table_name, data_source_id, id — the trailing unique keys stop
+    /// ORDER BY hits, schema_name, table_name, data_source_id, id — the trailing unique keys stop
     /// same-named tables from different data sources reshuffling/dropping between pages.
     /// </summary>
     [Test]
@@ -485,14 +485,14 @@ public class QueryTranslationTests : QueryTranslationTestBase
         var dsIds = new List<int> { 1, 2 };
 
         AssertQueryTranslates(ctx => Beacon.AI.Services.Knowledge.KnowledgeGraphService
-            .BuildMatchingTablesQuery(ctx, dsIds, "order", 20));
+            .BuildMatchingTablesQuery(ctx, dsIds, ["order"], 20));
 
         var sql = Beacon.AI.Services.Knowledge.KnowledgeGraphService
-            .BuildMatchingTablesQuery(Context, dsIds, "order", 20)
+            .BuildMatchingTablesQuery(Context, dsIds, ["order"], 20)
             .ToQueryString();
 
         Assert.That(sql, Does.Contain("ORDER BY"), "expected deterministic ordering on the table sub-query");
-        var orderBy = sql[sql.IndexOf("ORDER BY", StringComparison.Ordinal)..];
+        var orderBy = FinalOrderByLine(sql);
         Assert.That(orderBy, Does.Contain("schema_name"));
         Assert.That(orderBy, Does.Contain("table_name"));
         Assert.That(orderBy, Does.Contain("data_source_id"));
@@ -513,7 +513,7 @@ public class QueryTranslationTests : QueryTranslationTestBase
     /// <summary>
     /// Translates the REAL column sub-query of <c>KnowledgeGraphService.SearchProjectAsync</c>
     /// (via <c>BuildMatchingColumnsQuery</c>) and guards its deterministic
-    /// ORDER BY schema_name, table_name, column_name, data_source_id, id — the trailing unique
+    /// ORDER BY hits, schema_name, table_name, column_name, data_source_id, id — the trailing unique
     /// keys stop same-named columns from different data sources reshuffling/dropping between pages.
     /// </summary>
     [Test]
@@ -522,14 +522,14 @@ public class QueryTranslationTests : QueryTranslationTestBase
         var dsIds = new List<int> { 1, 2 };
 
         AssertQueryTranslates(ctx => Beacon.AI.Services.Knowledge.KnowledgeGraphService
-            .BuildMatchingColumnsQuery(ctx, dsIds, "order", 20));
+            .BuildMatchingColumnsQuery(ctx, dsIds, ["order"], 20));
 
         var sql = Beacon.AI.Services.Knowledge.KnowledgeGraphService
-            .BuildMatchingColumnsQuery(Context, dsIds, "order", 20)
+            .BuildMatchingColumnsQuery(Context, dsIds, ["order"], 20)
             .ToQueryString();
 
         Assert.That(sql, Does.Contain("ORDER BY"), "expected deterministic ordering on the column sub-query");
-        var orderBy = sql[sql.IndexOf("ORDER BY", StringComparison.Ordinal)..];
+        var orderBy = FinalOrderByLine(sql);
         Assert.That(orderBy, Does.Contain("schema_name"));
         Assert.That(orderBy, Does.Contain("table_name"));
         Assert.That(orderBy, Does.Contain("column_name"));
@@ -560,10 +560,10 @@ public class QueryTranslationTests : QueryTranslationTestBase
     public void SearchProjectDocSectionsOrdering_Translates()
     {
         AssertQueryTranslates(ctx => Beacon.AI.Services.Knowledge.KnowledgeGraphService
-            .BuildDocSectionsQuery(ctx, 1, "revenue", 10));
+            .BuildDocSectionsQuery(ctx, 1, ["revenue"], 10));
 
         var sql = Beacon.AI.Services.Knowledge.KnowledgeGraphService
-            .BuildDocSectionsQuery(Context, 1, "revenue", 10)
+            .BuildDocSectionsQuery(Context, 1, ["revenue"], 10)
             .ToQueryString();
 
         Assert.That(sql, Does.Contain("ORDER BY"), "expected deterministic ordering on the documentation sub-query");

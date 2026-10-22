@@ -62,13 +62,14 @@ public class McpToolEarlyReturnAuditTests
         AssertSingleErrorRow(logs, "search", expectedProjectId: null);
     }
 
-    [Test]
-    public async Task Search_MissingQuery_IsAudited()
+    [TestCase("")]
+    [TestCase("   ")]
+    public async Task Search_MissingQuery_IsAudited(string query)
     {
         var (logs, _, projectContext, audit) = Arrange();
         var tool = BuildSearchTool(projectContext, audit);
 
-        var result = await tool.ExecuteAsync(string.Empty, cancellationToken: CancellationToken.None);
+        var result = await tool.ExecuteAsync(query, cancellationToken: CancellationToken.None);
 
         AssertError(result, "Missing required parameter: query");
         AssertSingleErrorRow(logs, "search", expectedProjectId: null);

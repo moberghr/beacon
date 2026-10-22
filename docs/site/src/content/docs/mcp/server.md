@@ -152,7 +152,7 @@ Further tools appear next to them:
 
 ### `get_context`
 
-Get an overview of the project: data sources, schemas, tables, quality scores, and documentation status. **This is the recommended starting point** for understanding what data is available.
+Get an overview of the project: data sources, schemas, tables, quality scores, and documentation status, plus the [host application tools](/mcp/host-endpoint-tools/) the caller's tool list offers (none for a credential that cannot call them, no write tool for a system caller) and the project's [imported documents](/mcp/host-docs/), up to 50 of each listed. **This is the recommended starting point** for understanding what the project offers. A project without data sources, such as an [MCP gateway's](/mcp/gateway/), leaves out the data source, documentation and repository counts and lists its tools and documents.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|
@@ -295,7 +295,7 @@ When the host ships documents with [`ExposeDocs`](/mcp/host-docs/), the project-
 
 ### `search`
 
-Search tables, columns, and documentation across all data sources in the project. Keyword matching is fused with embedding-based semantic matching (reciprocal rank fusion) when a [local embedder](/mcp/knowledge-base/#local-embeddings) is configured; without one, search falls back to keyword-only rather than failing.
+Search tables, columns, and documentation across all data sources in the project. The keyword arm matches the words of the query, not the query as one string: "how do I request annual leave" looks for `request`, `annual` and `leave` (function words and single characters are dropped, at most 8 words, and words keep their underscores, so `order_items` stays one), and a result holding more of the words ranks higher. Keyword matching is fused with embedding-based semantic matching (reciprocal rank fusion) when a [local embedder](/mcp/knowledge-base/#local-embeddings) is configured; without one, search falls back to keyword-only rather than failing.
 
 | Parameter | Type | Required | Default | Description |
 |-----------|------|----------|---------|-------------|
