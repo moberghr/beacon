@@ -22,7 +22,15 @@ public class DelegatingLlmProvider : ILlmProvider
 
     public Task<LlmResponse> CompleteAsync(LlmRequest request, CancellationToken cancellationToken = default)
     {
-        var provider = RequireProvider();
+        ArgumentNullException.ThrowIfNull(request);
+
+        // The provider that serves the call and the configuration its span names come from one snapshot, so a concurrent
+        // hot-swap never tags a call with another provider's kind or model.
+        var (provider, configuration) = _manager.CurrentSnapshot();
+        if (provider == null)
+        {
+            throw NotConfigured();
+        }
 
         // Recursion guard: pass the INNER provider to the queue, never `this`. If `this` were
         // passed, the queue would call back into DelegatingLlmProvider.CompleteAsync, which
@@ -33,7 +41,12 @@ public class DelegatingLlmProvider : ILlmProvider
                 "LlmProviderManager.CurrentProvider must not be the DelegatingLlmProvider itself.");
         }
 
-        return _queue.EnqueueRequestAsync(provider, request, cancellationToken);
+        // One span per completion, around the queue so it covers the wait for a slot and the retries too.
+        return LlmCompletionTelemetry.TraceAsync(
+            configuration.Provider.ToString().ToLowerInvariant(),
+            configuration.Model,
+            request,
+            () => _queue.EnqueueRequestAsync(provider, request, cancellationToken));
     }
 
     public Task<TokenCount> CountTokensAsync(string text, CancellationToken cancellationToken = default)
@@ -46,8 +59,12 @@ public class DelegatingLlmProvider : ILlmProvider
     // provider is not configured (no key yet) or could not be built.
     private ILlmProvider RequireProvider()
     {
-        return _manager.CurrentProvider
-            ?? throw new InvalidOperationException(
-                _manager.InactiveReason ?? "LLM provider is not configured. Configure it via Admin Settings.");
+        return _manager.CurrentProvider ?? throw NotConfigured();
+    }
+
+    private InvalidOperationException NotConfigured()
+    {
+        return new InvalidOperationException(
+            _manager.InactiveReason ?? "LLM provider is not configured. Configure it via Admin Settings.");
     }
 }

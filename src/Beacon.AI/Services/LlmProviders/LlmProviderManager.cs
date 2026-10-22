@@ -68,6 +68,18 @@ public class LlmProviderManager : ILlmConfigurationUpdater
     /// </summary>
     public LlmConfiguration CurrentConfiguration => Volatile.Read(ref _config);
 
+    /// <summary>
+    /// The active provider together with the configuration it was built from, read as one pair: a configuration update
+    /// running at the same time is seen either whole or not at all.
+    /// </summary>
+    internal (ILlmProvider? Provider, LlmConfiguration Configuration) CurrentSnapshot()
+    {
+        lock (_lock)
+        {
+            return (_currentProvider, _config);
+        }
+    }
+
     public void UpdateConfiguration(AppSettingsData settings)
     {
         lock (_lock)

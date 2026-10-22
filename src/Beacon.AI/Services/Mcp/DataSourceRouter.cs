@@ -3,6 +3,7 @@ using Microsoft.Extensions.Logging;
 using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
 using Beacon.Core.Helpers;
+using Beacon.Core.Telemetry;
 
 namespace Beacon.AI.Services.Mcp;
 
@@ -14,6 +15,9 @@ internal sealed class DataSourceRouter(ILogger<DataSourceRouter> logger) : IData
         string question,
         CancellationToken ct)
     {
+        using var stage = BeaconTelemetry.StartAskStage(BeaconTelemetry.AskStageRouting);
+        stage?.SetTag(BeaconTelemetry.AskSourcesTag, dataSources.Count);
+
         if (dataSources.Count == 1)
         {
             return new RoutingResult
@@ -62,10 +66,11 @@ internal sealed class DataSourceRouter(ILogger<DataSourceRouter> logger) : IData
             SystemPrompt = "You are a data routing assistant. Respond with JSON only.",
             Messages = [new ChatMessage(ConversationRole.User, routingPrompt)],
             Temperature = 0.0m,
-            MaxTokens = 512
+            MaxTokens = 512,
+            Operation = LlmOperations.AskRouting
         };
 
-        var response = await llmProvider.CompleteAsync(request, ct);
+        var response = await BeaconTelemetry.ObserveStageAsync(stage, () => llmProvider.CompleteAsync(request, ct));
         var json = response.Content.Trim();
         if (json.StartsWith("```")) json = json[(json.IndexOf('\n') + 1)..];
         if (json.EndsWith("```")) json = json[..json.LastIndexOf("```")];

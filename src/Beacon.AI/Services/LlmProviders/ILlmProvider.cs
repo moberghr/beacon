@@ -15,8 +15,23 @@ public record LlmRequest
     public string? SystemPrompt { get; init; }
     public decimal Temperature { get; init; } = 0.3m;
     public int MaxTokens { get; init; } = 4096;
+
+    /// <summary>
+    /// What the completion is for, one of the <see cref="LlmOperations"/> constants; tags the completion's span and metrics.
+    /// Never content.
+    /// </summary>
+    public string? Operation { get; init; }
 }
 
-public record ChatMessage(ConversationRole Role, string Content);
+public record ChatMessage(ConversationRole Role, string Content)
+{
+    /// <summary>
+    /// Marks the end of a reusable prompt prefix: the provider may cache everything up to and including this message
+    /// (Claude gives it an ephemeral cache point). Set it on a long, repeated message such as one carrying the schema
+    /// context. Providers that cache prompts on their own (OpenAI, Azure OpenAI) ignore it, and so does Bedrock, which does
+    /// not request prompt caching yet.
+    /// </summary>
+    public bool CacheBreakpoint { get; init; }
+}
 
 public record TokenCount(int Tokens);

@@ -43,8 +43,53 @@ public static class BeaconTelemetry
     public const string ToolInputTag = "beacon.tool.input";
     public const string SecurityAuditActionTag = "beacon.security_audit.action";
 
+    public const string LlmCallsInstrument = "beacon.llm.calls";
+    public const string LlmTokensInstrument = "beacon.llm.tokens";
+
+    /// <summary>The span of one LLM completion, from the request entering the queue to the provider's answer.</summary>
+    public const string LlmCompletionActivityName = "beacon.llm.completion";
+
+    /// <summary>Prefix of the ask stage spans: <c>beacon.ask.intent</c>, <c>beacon.ask.generation</c>, ….</summary>
+    public const string AskStageActivityPrefix = "beacon.ask.";
+
+    public const string LlmProviderTag = "gen_ai.provider.name";
+    public const string LlmRequestModelTag = "gen_ai.request.model";
+    public const string LlmResponseModelTag = "gen_ai.response.model";
+    public const string LlmInputTokensTag = "gen_ai.usage.input_tokens";
+    public const string LlmOutputTokensTag = "gen_ai.usage.output_tokens";
+    public const string LlmCacheReadTokensTag = "gen_ai.usage.cache_read.input_tokens";
+    public const string LlmCacheWriteTokensTag = "gen_ai.usage.cache_creation.input_tokens";
+    public const string LlmTokenTypeTag = "gen_ai.token.type";
+    public const string LlmOperationTag = "beacon.llm.operation";
+    public const string LlmCacheHintTag = "beacon.llm.cache_hint";
+    public const string LlmTruncatedTag = "beacon.llm.truncated";
+    public const string AskStageTag = "beacon.ask.stage";
+    public const string AskRepairTriggerTag = "beacon.ask.repair.trigger";
+    public const string AskCandidatesTag = "beacon.ask.candidates";
+    public const string AskTablesTag = "beacon.ask.tables";
+    public const string AskSourcesTag = "beacon.ask.sources";
+    public const string AskIntentTag = "beacon.ask.intent";
+    public const string AskStatementPurposeTag = "beacon.ask.statement.purpose";
+    public const string AskProducedSqlTag = "beacon.ask.produced_sql";
+
+    /// <summary>The innermost exception's type name when a span fails; <see cref="ErrorTypeTag"/> carries the outermost one.</summary>
+    public const string ErrorRootTypeTag = "beacon.error.root_type";
+
+    public const string TokenTypeInput = "input";
+    public const string TokenTypeOutput = "output";
+    public const string TokenTypeCacheRead = "cache_read";
+    public const string TokenTypeCacheWrite = "cache_write";
+
+    public const string AskStageIntent = "intent";
+    public const string AskStageRouting = "routing";
+    public const string AskStageGeneration = "generation";
+    public const string AskStageSelfConsistency = "self_consistency";
+    public const string AskStageRepair = "repair";
+    public const string AskStageExecution = "execution";
+
     public const string OutcomeSuccess = "success";
     public const string OutcomeError = "error";
+    public const string OutcomeCancelled = "cancelled";
 
     public static readonly ActivitySource Source = new(ActivitySourceName);
 
@@ -76,7 +121,81 @@ public static class BeaconTelemetry
     public static readonly Counter<long> SecurityAuditVerificationFailures = Meter.CreateCounter<long>(
         SecurityAuditVerificationFailuresInstrument, unit: "{event}", description: "Stored security audit events that failed verification.");
 
+    /// <summary>One per LLM completion; tagged provider, request model, operation, outcome and error type (errors only).</summary>
+    public static readonly Counter<long> LlmCalls = Meter.CreateCounter<long>(
+        LlmCallsInstrument, unit: "{call}", description: "LLM completions requested by Beacon.");
+
+    /// <summary>
+    /// Tokens of one LLM completion, one measurement per token type (input, output, cache_read, cache_write); tagged
+    /// provider, request model, operation and token type.
+    /// </summary>
+    public static readonly Histogram<long> LlmTokens = Meter.CreateHistogram<long>(
+        LlmTokensInstrument, unit: "{token}", description: "Tokens used by LLM completions.");
+
     /// <summary>Database errors that could not be screened in time and were replaced as a whole; never tagged with content.</summary>
     public static readonly Counter<long> ErrorRedactionFallbacks = Meter.CreateCounter<long>(
         ErrorRedactionFallbacksInstrument, unit: "{error}", description: "Database errors replaced as a whole because screening them timed out.");
+
+    /// <summary>
+    /// Starts the span of one ask stage (<c>beacon.ask.{stage}</c>, one of the <c>AskStage*</c> names) tagged with the
+    /// stage name; null when nobody listens. Callers add counts only, never content.
+    /// </summary>
+    public static Activity? StartAskStage(string stage)
+    {
+        var activity = Source.StartActivity(AskStageActivityPrefix + stage);
+        activity?.SetTag(AskStageTag, stage);
+
+        return activity;
+    }
+
+    /// <summary>
+    /// Marks a span whose work threw: a cancellation is outcome <see cref="OutcomeCancelled"/> with no error status; anything
+    /// else is outcome <see cref="OutcomeError"/>, error status, <see cref="ErrorTypeTag"/> (the exception's type name) and
+    /// <see cref="ErrorRootTypeTag"/> (the innermost exception's type name). Type names only, never a message.
+    /// </summary>
+    public static void RecordFailure(Activity? activity, Exception exception)
+    {
+        if (activity == null)
+        {
+            return;
+        }
+
+        if (exception is OperationCanceledException)
+        {
+            activity.SetTag(OutcomeTag, OutcomeCancelled);
+
+            return;
+        }
+
+        activity.SetTag(OutcomeTag, OutcomeError);
+        activity.SetTag(ErrorTypeTag, exception.GetType().Name);
+        activity.SetTag(ErrorRootTypeTag, RootType(exception).Name);
+        activity.SetStatus(ActivityStatusCode.Error);
+    }
+
+    /// <summary>Awaits a stage's work, recording on <paramref name="stage"/> (see <see cref="RecordFailure"/>) when it throws.</summary>
+    public static async Task<T> ObserveStageAsync<T>(Activity? stage, Func<Task<T>> work)
+    {
+        try
+        {
+            return await work();
+        }
+        catch (Exception ex)
+        {
+            RecordFailure(stage, ex);
+            throw;
+        }
+    }
+
+    /// <summary>The innermost exception's type, following <see cref="Exception.InnerException"/> to its end.</summary>
+    public static Type RootType(Exception exception)
+    {
+        var root = exception;
+        while (root.InnerException != null)
+        {
+            root = root.InnerException;
+        }
+
+        return root.GetType();
+    }
 }

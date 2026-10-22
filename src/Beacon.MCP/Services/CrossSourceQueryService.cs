@@ -320,7 +320,8 @@ internal sealed class CrossSourceQueryService(
             SystemPrompt = "You are a SQLite expert. Return ONLY the SQL query.",
             Messages = [new ChatMessage(ConversationRole.User, joinPrompt)],
             Temperature = 0.1m,
-            MaxTokens = 1024
+            MaxTokens = 1024,
+            Operation = LlmOperations.AskCrossSourceJoin
         };
 
         llmBudget?.Consume();

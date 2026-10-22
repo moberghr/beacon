@@ -82,7 +82,7 @@ public class AskSqlPipelineTests
             .ReturnsAsync(new AskExecutionResult(null, "column \"amount\" does not exist", 0, false));
         _sqlGeneration
             .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), GeneratedSql,
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<CancellationToken>()))
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<McpSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(RepairedSql);
         _executor
             .Setup(x => x.ExecuteAsync(DataSourceId, RepairedSql, 100, It.IsAny<CancellationToken>()))
@@ -136,7 +136,7 @@ public class AskSqlPipelineTests
         outcome.Repairs.Should().BeEmpty();
         outcome.Text.Should().Contain($"**Refused:** {refusal}");
         _sqlGeneration.Verify(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<McpSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
         _executor.Verify(x => x.ExecuteAsync(DataSourceId, It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -157,7 +157,7 @@ public class AskSqlPipelineTests
 
         _sqlGeneration
             .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), GeneratedSql,
-                "column \"amount\" does not exist", It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<CancellationToken>()))
+                "column \"amount\" does not exist", It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<McpSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(RepairedSql);
 
         _executor
@@ -289,7 +289,7 @@ public class AskSqlPipelineTests
         _sqlGeneration
             .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), groupByMismatchSql,
                 It.Is<string>(s => s.StartsWith("Semantic check:", StringComparison.Ordinal) && s.Contains("GROUP_BY_MISMATCH")),
-                It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<CancellationToken>()))
+                It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<McpSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(repairedSql);
 
         _executor
@@ -324,7 +324,7 @@ public class AskSqlPipelineTests
         _sqlGeneration
             .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), groupByMismatchSql,
                 It.Is<string>(s => s.StartsWith("Semantic check:", StringComparison.Ordinal)),
-                It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<CancellationToken>()))
+                It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<McpSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(worseRetrySql);
 
         _executor
@@ -375,7 +375,7 @@ public class AskSqlPipelineTests
 
         _sqlGeneration.Verify(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
             It.Is<string>(s => s.StartsWith("Semantic check:", StringComparison.Ordinal)),
-            It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+            It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<McpSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     // NF1: lint findings are computed once, right after schema validation — BEFORE a dry-run repair can
@@ -400,7 +400,7 @@ public class AskSqlPipelineTests
 
         _sqlGeneration
             .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), cleanSql,
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<CancellationToken>()))
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<McpSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(dryRunRepairSql);
 
         _executor
@@ -535,7 +535,7 @@ public class AskSqlPipelineTests
             new AskSqlPipelineOptions { LlmBudget = budget }, CancellationToken.None);
 
         _sqlGeneration.Verify(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<McpSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
         outcome.Repairs.Should().BeEmpty();
         outcome.EmptyResultRetried.Should().BeFalse();
         budget.Used.Should().Be(1);
