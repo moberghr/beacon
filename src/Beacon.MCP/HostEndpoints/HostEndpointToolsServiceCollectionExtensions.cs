@@ -42,7 +42,7 @@ public static class HostEndpointToolsServiceCollectionExtensions
         services.TryAddSingleton<HostEndpointDispatcher>();
         services.TryAddTransient<HostEndpointToolService>();
         services.TryAddTransient<IHostEndpointToolOverview>(x => x.GetRequiredService<HostEndpointToolService>());
-        services.AddSingleton<IHostEndpointToolCatalog, HostEndpointToolCatalog>();
+        services.AddTransient<IHostEndpointToolCatalog>(x => x.GetRequiredService<HostEndpointToolService>());
         services.AddTransient<IStartupFilter, HostEndpointToolsStartupFilter>();
         services.Configure<McpServerOptions>(InstallHandlers);
 

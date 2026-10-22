@@ -424,10 +424,11 @@ public class HostEndpointDispatchTests
     [Test]
     public async Task TheCatalog_FeedsTheProjectBrief_ForItsProjectOnly()
     {
-        var catalog = _host.App.Services.GetService(typeof(IHostEndpointToolCatalog)) as IHostEndpointToolCatalog;
-
-        var listing = await catalog!.GetForProjectAsync(HostEndpointTestHost.ProjectId, CancellationToken.None);
-        var other = await catalog.GetForProjectAsync(8, CancellationToken.None);
+        // One service per call: every HttpContextAccessor shares one async-local request, so the latest CreateService wins.
+        IHostEndpointToolCatalog catalog = _host.CreateService(HostEndpointTestHost.OuterRequest(HostEndpointTestHost.SystemCaller()));
+        var listing = await catalog.GetForProjectAsync(HostEndpointTestHost.ProjectId, CancellationToken.None);
+        IHostEndpointToolCatalog otherCatalog = _host.CreateService(HostEndpointTestHost.OuterRequest(HostEndpointTestHost.SystemCaller()));
+        var other = await otherCatalog.GetForProjectAsync(8, CancellationToken.None);
 
         other.Should().BeNull();
         listing!.CatalogMode.Should().BeFalse();

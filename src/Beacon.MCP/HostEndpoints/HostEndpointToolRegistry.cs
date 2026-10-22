@@ -176,22 +176,3 @@ internal sealed class HostEndpointProjectResolver(
         return projectId;
     }
 }
-
-internal sealed class HostEndpointToolCatalog(
-    HostEndpointToolRegistry registry,
-    IHostEndpointProjectResolver projectResolver) : IHostEndpointToolCatalog
-{
-    public async Task<HostEndpointToolListing?> GetForProjectAsync(int projectId, CancellationToken cancellationToken)
-    {
-        if (registry.Tools.Count == 0 || await projectResolver.ResolveAsync(cancellationToken) != projectId)
-        {
-            return null;
-        }
-
-        var tools = registry.Tools
-            .Select(x => new HostEndpointToolSummary(x.Name, x.ToolName, x.FirstDescriptionLine()) { ReadOnly = x.ReadOnly })
-            .ToList();
-
-        return new HostEndpointToolListing(tools, registry.IsCatalogMode);
-    }
-}

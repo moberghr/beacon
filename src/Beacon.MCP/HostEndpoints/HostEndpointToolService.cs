@@ -30,7 +30,7 @@ internal sealed class HostEndpointToolService(
     IProjectAccessEvaluator projectAccess,
     IHttpContextAccessor httpContextAccessor,
     McpAuditService auditService,
-    HostEndpointToolOptions options) : IHostEndpointToolOverview
+    HostEndpointToolOptions options) : IHostEndpointToolOverview, IHostEndpointToolCatalog
 {
     public const string SearchToolName = "search_api";
     public const string CallToolName = "call_api";
@@ -125,6 +125,10 @@ internal sealed class HostEndpointToolService(
 
         return tools.Count == 0 ? null : new HostEndpointToolListing(tools, registry.IsCatalogMode);
     }
+
+    // The project brief lists what get_context lists: the tools this caller's tools/list offers.
+    public Task<HostEndpointToolListing?> GetForProjectAsync(int projectId, CancellationToken cancellationToken) =>
+        ListForProjectAsync(projectId, cancellationToken);
 
     public async Task<CallToolResult> CallAsync(string toolName, IDictionary<string, JsonElement>? arguments, CancellationToken cancellationToken)
     {

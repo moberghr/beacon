@@ -80,6 +80,18 @@ public class McpGatewayToolOptionsTests
         provider.GetRequiredService<IOptions<McpServerOptions>>().Value.ServerInstructions.Should().Be("Inventhor's own tools.");
     }
 
+    [TestCase("Leave Desk", "Leave Desk")]
+    [TestCase(null, McpDiscoveryDocuments.ServerName)]
+    public void TheServerName_IsTheHostsResourceName_WhenSet(string? resourceName, string expected)
+    {
+        using var provider = McpServices(_ => { }, new Dictionary<string, string?> { ["Beacon:Mcp:ProtectedResource:ResourceName"] = resourceName });
+
+        var serverInfo = provider.GetRequiredService<IOptions<McpServerOptions>>().Value.ServerInfo!;
+
+        serverInfo.Name.Should().Be(expected, "initialize names the server as the discovery documents do");
+        serverInfo.Version.Should().Be(McpDiscoveryDocuments.ServerVersion);
+    }
+
     [Test]
     public void TheServerCard_ListsOnlyTheServedBuiltInTools()
     {
@@ -94,7 +106,7 @@ public class McpGatewayToolOptionsTests
         await using var app = await DiscoveryHostAsync(new LogRecorder(), services =>
         {
             services.PostConfigure<McpProtectedResourceOptions>(x => x.ScopesSupported = ["api://inventhor/mcp.access", "offline_access"]);
-            var mcpOptions = new BeaconMcpOptions { SavedQueryTools = false };
+            var mcpOptions = new BeaconMcpOptions { SavedQueryTools = false, ServerDescription = "Inventhor's own tools." };
             mcpOptions.BuiltInTools.IntersectWith(["search"]);
             services.AddSingleton(mcpOptions);
         });
@@ -105,6 +117,7 @@ public class McpGatewayToolOptionsTests
 
         metadata["scopes_supported"]!.AsArray().Select(x => x!.GetValue<string>()).Should().Equal("api://inventhor/mcp.access", "offline_access");
         card["tools"]!.AsArray().Select(x => x!["name"]!.GetValue<string>()).Should().Equal("search");
+        card["description"]!.GetValue<string>().Should().Be("Inventhor's own tools.");
     }
 
     [TestCase(new[] { "api://inventhor/mcp.access" }, true)]
@@ -140,10 +153,15 @@ public class McpGatewayToolOptionsTests
         act.Should().NotThrow();
     }
 
-    private static ServiceProvider McpServices(Action<BeaconMcpOptions> configure)
+    private static ServiceProvider McpServices(Action<BeaconMcpOptions> configure, Dictionary<string, string?>? settings = null)
     {
         var services = new ServiceCollection();
         services.AddLogging();
+        if (settings != null)
+        {
+            services.AddSingleton<IConfiguration>(new ConfigurationBuilder().AddInMemoryCollection(settings).Build());
+        }
+
         Beacon.MCP.ServiceConfiguration.AddBeaconMcp(services, configure);
 
         return services.BuildServiceProvider();

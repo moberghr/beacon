@@ -21,8 +21,12 @@ public sealed class BeaconMcpGatewayOptions
         "This is the application's MCP server. Its api_<name> tools call the application's own endpoints as the signed-in person, " +
         "with that person's permissions in the application, and return what the application returns (for many endpoints, search_api " +
         "finds one and call_api calls it). A tool that changes data says so; call it only when the person asked for that change. " +
-        "get_context describes the application and lists its documents, search finds documents and tools by keyword, and " +
+        "get_context describes the application and lists its documents, search finds documents by keyword, and " +
         "get_documentation reads one document (document=<path>).";
+
+    /// <summary>The server card's description unless <see cref="ServerDescription"/> replaces it.</summary>
+    public const string DefaultServerDescription =
+        "The application's MCP server: its own endpoints as tools, run with the signed-in person's permissions, and its documents.";
 
     private readonly List<Action<HostEndpointToolOptions>> _tools = [];
     private readonly List<Action<HostDocsOptions>> _docs = [];
@@ -41,6 +45,9 @@ public sealed class BeaconMcpGatewayOptions
 
     /// <summary>The instructions sent to clients at <c>initialize</c>. Default <see cref="DefaultServerInstructions"/>.</summary>
     public string ServerInstructions { get; set; } = DefaultServerInstructions;
+
+    /// <summary>The <c>description</c> of the discovery server card. Default <see cref="DefaultServerDescription"/>.</summary>
+    public string ServerDescription { get; set; } = DefaultServerDescription;
 
     internal Action<BeaconBuilder>? DatabaseConfiguration { get; private set; }
 
