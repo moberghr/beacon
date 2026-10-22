@@ -10,11 +10,15 @@ using Beacon.MCP.Tools;
 
 namespace Beacon.MCP.Services;
 
-internal sealed class McpPlaygroundService(IServiceProvider serviceProvider) : IMcpPlaygroundService
+internal sealed class McpPlaygroundService(IServiceProvider serviceProvider, BeaconMcpOptions options) : IMcpPlaygroundService
 {
     internal const string NoRequestMessage = "Access denied: the playground runs only for a signed-in request.";
 
-    public IReadOnlyList<string> ToolNames => McpToolCatalog.Names;
+    // The built-in tools this host serves (BeaconMcpOptions.BuiltInTools), in the catalog's order: one the host left out
+    // (the MCP gateway's SQL tools) is not registered with the MCP server, so it is not listed here either.
+    public IReadOnlyList<string> ToolNames { get; } = McpToolCatalog.Names
+        .Where(x => options.BuiltInTools.Contains(x))
+        .ToList();
 
     public async Task<McpPlaygroundResult> ExecuteToolAsync(
         string toolName, Dictionary<string, object?> arguments, int projectId, CancellationToken ct)

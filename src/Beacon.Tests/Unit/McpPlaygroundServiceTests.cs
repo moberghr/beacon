@@ -22,6 +22,7 @@ using Beacon.Core.Services;
 using Beacon.Core.Services.Retention;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
+using Beacon.MCP;
 using Beacon.MCP.Services;
 using Beacon.MCP.Tools;
 using Beacon.Tests.Common;
@@ -80,7 +81,7 @@ public class McpPlaygroundServiceTests
     [Test]
     public async Task DryRunArm_DispatchesToDryRunTool_ForwardingDataSourceAndSql()
     {
-        var service = new McpPlaygroundService(BuildServiceProvider());
+        var service = new McpPlaygroundService(BuildServiceProvider(), new BeaconMcpOptions());
 
         var result = await service.ExecuteToolAsync(
             "dry_run",
@@ -99,7 +100,7 @@ public class McpPlaygroundServiceTests
     [Test]
     public async Task GetQueryContextArm_DispatchesToGetQueryContextTool_ForwardingQuestionAndDataSource()
     {
-        var service = new McpPlaygroundService(BuildServiceProvider());
+        var service = new McpPlaygroundService(BuildServiceProvider(), new BeaconMcpOptions());
 
         var result = await service.ExecuteToolAsync(
             "get_query_context",
@@ -120,7 +121,7 @@ public class McpPlaygroundServiceTests
         _knowledgeGraph
             .Setup(x => x.SearchProjectAsync("customer", ProjectId, It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(MakeSearchResults(10));
-        var service = new McpPlaygroundService(BuildServiceProvider());
+        var service = new McpPlaygroundService(BuildServiceProvider(), new BeaconMcpOptions());
 
         var result = await service.ExecuteToolAsync(
             "search",
@@ -138,7 +139,7 @@ public class McpPlaygroundServiceTests
     [Test]
     public async Task GetDocumentationArm_ForwardsResponseFormat()
     {
-        var service = new McpPlaygroundService(BuildServiceProvider());
+        var service = new McpPlaygroundService(BuildServiceProvider(), new BeaconMcpOptions());
 
         var result = await service.ExecuteToolAsync(
             "get_documentation",
@@ -154,7 +155,7 @@ public class McpPlaygroundServiceTests
     [Test]
     public async Task AuditRequiredAndSaveFails_WithholdsTheResult_AfterTheToolRan()
     {
-        var service = new McpPlaygroundService(BuildServiceProvider(auditRequired: true, auditSaveThrows: true));
+        var service = new McpPlaygroundService(BuildServiceProvider(auditRequired: true, auditSaveThrows: true), new BeaconMcpOptions());
 
         var result = await service.ExecuteToolAsync(
             "dry_run",
@@ -173,7 +174,7 @@ public class McpPlaygroundServiceTests
     [Test]
     public async Task AuditRequiredAndSaveSucceeds_ReturnsTheResult()
     {
-        var service = new McpPlaygroundService(BuildServiceProvider(auditRequired: true));
+        var service = new McpPlaygroundService(BuildServiceProvider(auditRequired: true), new BeaconMcpOptions());
 
         var result = await service.ExecuteToolAsync(
             "dry_run",
@@ -188,7 +189,7 @@ public class McpPlaygroundServiceTests
     [Test]
     public async Task AuditNotRequiredAndSaveFails_ReturnsTheResult()
     {
-        var service = new McpPlaygroundService(BuildServiceProvider(auditRequired: false, auditSaveThrows: true));
+        var service = new McpPlaygroundService(BuildServiceProvider(auditRequired: false, auditSaveThrows: true), new BeaconMcpOptions());
 
         var result = await service.ExecuteToolAsync(
             "dry_run",
@@ -203,7 +204,7 @@ public class McpPlaygroundServiceTests
     [Test]
     public async Task NoRequest_IsDenied_BeforeAnyTool()
     {
-        var service = new McpPlaygroundService(BuildServiceProvider(withRequest: false));
+        var service = new McpPlaygroundService(BuildServiceProvider(withRequest: false), new BeaconMcpOptions());
 
         var result = await service.ExecuteToolAsync(
             "dry_run",
@@ -225,7 +226,7 @@ public class McpPlaygroundServiceTests
     {
         // A member of another project only: the restricted project is not in the caller's scope.
         var access = TestProjectAccess.Scope(new Dictionary<int, ProjectRole> { [ProjectId + 1] = ProjectRole.Editor }, includesOpen: false, notOpen: []);
-        var service = new McpPlaygroundService(BuildServiceProvider(access: access));
+        var service = new McpPlaygroundService(BuildServiceProvider(access: access), new BeaconMcpOptions());
 
         var result = await service.ExecuteToolAsync(
             "get_documentation", new Dictionary<string, object?>(), ProjectId, CancellationToken.None);
@@ -240,7 +241,7 @@ public class McpPlaygroundServiceTests
     public async Task Viewer_ReadsTheCatalog_ButCannotRunSqlCarryingTools()
     {
         var access = TestProjectAccess.Scope(new Dictionary<int, ProjectRole> { [ProjectId] = ProjectRole.Viewer }, includesOpen: false, notOpen: []);
-        var service = new McpPlaygroundService(BuildServiceProvider(access: access));
+        var service = new McpPlaygroundService(BuildServiceProvider(access: access), new BeaconMcpOptions());
 
         var dryRun = await service.ExecuteToolAsync(
             "dry_run",
@@ -262,7 +263,7 @@ public class McpPlaygroundServiceTests
     public async Task GetQueryContext_ProbesLiveValues_OnlyForACallerWhoMayQueryTheProject(ProjectRole role, bool liveValueProbes)
     {
         var access = TestProjectAccess.Scope(new Dictionary<int, ProjectRole> { [ProjectId] = role }, includesOpen: false, notOpen: []);
-        var service = new McpPlaygroundService(BuildServiceProvider(access: access));
+        var service = new McpPlaygroundService(BuildServiceProvider(access: access), new BeaconMcpOptions());
 
         var result = await service.ExecuteToolAsync(
             "get_query_context",
@@ -286,7 +287,7 @@ public class McpPlaygroundServiceTests
     public async Task AViewer_IsDeniedTheToolsThatQuery_AndRunsTheCatalogTools(string tool, bool needsQuery)
     {
         var access = TestProjectAccess.Scope(new Dictionary<int, ProjectRole> { [ProjectId] = ProjectRole.Viewer }, includesOpen: false, notOpen: []);
-        var service = new McpPlaygroundService(BuildServiceProvider(access: access));
+        var service = new McpPlaygroundService(BuildServiceProvider(access: access), new BeaconMcpOptions());
 
         var result = await service.ExecuteToolAsync(tool, new Dictionary<string, object?>(), ProjectId, CancellationToken.None);
 
@@ -318,7 +319,7 @@ public class McpPlaygroundServiceTests
         _knowledgeGraph
             .Setup(x => x.GetLineageAsync(DataSourceId, ProjectId, "public", "customers", It.IsAny<CancellationToken>()))
             .ReturnsAsync(new LineageInfo { SchemaName = "public", TableName = "customers" });
-        var service = new McpPlaygroundService(BuildServiceProvider());
+        var service = new McpPlaygroundService(BuildServiceProvider(), new BeaconMcpOptions());
 
         var result = await service.ExecuteToolAsync(
             "get_documentation",
@@ -340,7 +341,7 @@ public class McpPlaygroundServiceTests
     {
         // A cookie session's NameIdentifier is its user's external id; the signal and the audit row record its Users.Id.
         var session = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "8d6f0c2e-ext")], "Cookies"));
-        var service = new McpPlaygroundService(BuildServiceProvider(caller: session, actors: TestProjectAccess.Actors(beaconUserId: 12, externalId: "8d6f0c2e-ext")));
+        var service = new McpPlaygroundService(BuildServiceProvider(caller: session, actors: TestProjectAccess.Actors(beaconUserId: 12, externalId: "8d6f0c2e-ext")), new BeaconMcpOptions());
 
         var result = await service.ExecuteToolAsync(
             "dry_run",
@@ -358,7 +359,7 @@ public class McpPlaygroundServiceTests
     {
         var session = new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.NameIdentifier, "8d6f0c2e-ext")], "Cookies"));
         var actors = TestProjectAccess.Actors(beaconUserId: 12, externalId: "8d6f0c2e-ext");
-        var service = new McpPlaygroundService(BuildServiceProvider(caller: session, actors: actors));
+        var service = new McpPlaygroundService(BuildServiceProvider(caller: session, actors: actors), new BeaconMcpOptions());
         await service.ExecuteToolAsync(
             "dry_run",
             new Dictionary<string, object?> { ["datasource_id"] = DataSourceId, ["sql"] = ValidSql },
@@ -400,7 +401,7 @@ public class McpPlaygroundServiceTests
     [Test]
     public async Task UnknownTool_ReturnsError()
     {
-        var service = new McpPlaygroundService(BuildServiceProvider());
+        var service = new McpPlaygroundService(BuildServiceProvider(), new BeaconMcpOptions());
 
         var result = await service.ExecuteToolAsync(
             "definitely_not_a_tool", new Dictionary<string, object?>(), ProjectId, CancellationToken.None);

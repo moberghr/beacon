@@ -685,4 +685,33 @@ describe('McpSettingsPage', () => {
     expect(await screen.findByText('Save overrides')).toBeInTheDocument();
     expect(screen.getByLabelText('Override Max row limit')).toBeEnabled();
   });
+  it('describes only the tools the server serves: the MCP gateway has no SQL tools', async () => {
+    mswServer.use(
+      permissionsHandler({ isAdmin: true, gatewayMode: true }),
+      http.get('*/beacon/api/mcp/tools', () => HttpResponse.json({ toolNames: ['get_context', 'get_documentation', 'search'] })),
+    );
+    renderWithProviders(<McpSettingsPage />);
+
+    expect(await screen.findByText('Read only')).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByLabelText('Ask tool system prompt')).not.toBeInTheDocument());
+    expect(screen.getByLabelText('Global instruction')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Tool descriptions'));
+    for (const tool of ['get_context', 'get_documentation', 'search']) {
+      expect(screen.getByLabelText(tool)).toBeInTheDocument();
+    }
+    for (const tool of ['ask', 'query']) {
+      expect(screen.queryByLabelText(tool)).not.toBeInTheDocument();
+    }
+  });
+
+  it('describes every tool a full Beacon serves', async () => {
+    mswServer.use(permissionsHandler({ isAdmin: true }));
+    renderWithProviders(<McpSettingsPage />);
+
+    expect(await screen.findByLabelText('Ask tool system prompt')).toBeInTheDocument();
+    fireEvent.click(screen.getByText('Tool descriptions'));
+    for (const tool of ['get_context', 'ask', 'query', 'get_documentation', 'search']) {
+      expect(screen.getByLabelText(tool)).toBeInTheDocument();
+    }
+  });
 });
