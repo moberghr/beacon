@@ -53,6 +53,10 @@ function serve(stored = settings()) {
 const apiKeyInput = () => screen.getByPlaceholderText('Set — leave blank to keep');
 const providerButton = (name: string) => screen.getByRole('button', { name: new RegExp(`^${name}`) });
 
+/** The form takes the stored settings in an effect after its fields appear: an edit made before that is reset. */
+const storedSettingsApplied = () =>
+  waitFor(() => expect(screen.getByPlaceholderText('https://beacon.example.com')).toHaveValue('https://beacon.example.test'));
+
 /** Saves once Save is enabled: it waits for the installed providers to load. */
 async function save() {
   const button = screen.getByRole('button', { name: 'Save changes' });
@@ -91,6 +95,7 @@ describe('AdminSettingsPage permissions', () => {
 
     // The base URL is an Admin's too: a SecurityAdmin saves the stored one back.
     expect(screen.getByPlaceholderText('https://beacon.example.com')).toBeDisabled();
+    await storedSettingsApplied();
     fireEvent.change(screen.getByRole('spinbutton', { name: /monthly budget/i }), { target: { value: '75' } });
     await save();
 
@@ -151,14 +156,16 @@ describe('AdminSettingsPage API key', () => {
     mswServer.use(permissionsForRoles(['Admin']));
   });
 
-  const changeBudget = async () =>
-    fireEvent.change(await screen.findByRole('spinbutton', { name: /monthly budget/i }), { target: { value: '75' } });
+  const changeBudget = async () => {
+    await storedSettingsApplied();
+    fireEvent.change(screen.getByRole('spinbutton', { name: /monthly budget/i }), { target: { value: '75' } });
+  };
 
   it('saves other settings while no API key is stored for the kept provider', async () => {
     const sent = serve(settings({ llmApiKeySet: false }));
     renderWithProviders(<AdminSettingsPage />);
 
-    // The budget field appears once the stored settings loaded, so the form reset cannot overwrite the base URL edit.
+    // changeBudget waits for the stored settings, so the form reset cannot overwrite the base URL edit.
     await changeBudget();
     fireEvent.change(screen.getByPlaceholderText('https://beacon.example.com'), {
       target: { value: 'https://beacon.example.org' },
@@ -197,7 +204,8 @@ describe('AdminSettingsPage API key', () => {
     const sent = serve(settings({ llmApiKeySet: false }));
     renderWithProviders(<AdminSettingsPage />);
 
-    fireEvent.change(await screen.findByPlaceholderText('sk-…'), { target: { value: 'sk-typed' } });
+    await storedSettingsApplied();
+    fireEvent.change(screen.getByPlaceholderText('sk-…'), { target: { value: 'sk-typed' } });
     await save();
 
     await waitFor(() => expect(sent.saves).toHaveLength(1));
@@ -220,7 +228,8 @@ describe('AdminSettingsPage API key', () => {
     const sent = serve();
     renderWithProviders(<AdminSettingsPage />);
 
-    fireEvent.click(await screen.findByRole('button', { name: /^Anthropic/ }));
+    await storedSettingsApplied();
+    fireEvent.click(providerButton('Anthropic'));
     await save();
 
     expect(await screen.findByText('This provider needs an API key.')).toBeInTheDocument();
@@ -285,7 +294,8 @@ describe('AdminSettingsPage installed providers', () => {
     serve();
     renderWithProviders(<AdminSettingsPage />);
 
-    fireEvent.change(await screen.findByRole('spinbutton', { name: /monthly budget/i }), { target: { value: '75' } });
+    await storedSettingsApplied();
+    fireEvent.change(screen.getByRole('spinbutton', { name: /monthly budget/i }), { target: { value: '75' } });
 
     expect(screen.getByRole('button', { name: 'Save changes' })).toBeDisabled();
     expect(screen.getByRole('button', { name: 'Test connection' })).toBeEnabled();
@@ -304,6 +314,7 @@ describe('AdminSettingsPage installed providers', () => {
       expect(providerButton(name)).toBeEnabled();
     }
 
+    await storedSettingsApplied();
     fireEvent.click(providerButton('Anthropic'));
     await save();
 

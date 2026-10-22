@@ -137,6 +137,8 @@ internal partial class QueryService
     /// it bounds the final query on the in-memory join too.</param>
     /// <param name="maxRows">The row ceiling of every statement in place of <see cref="ExecutionRowCeiling"/> (a
     /// migration's own budget), or null.</param>
+    /// <param name="recordManualExecution">Records the run and its steps as manual executions (a run from the editor);
+    /// false for a subscription run, which its run history records.</param>
     private async Task<QueryExecutionResult> ExecuteQuerySteps(
         Query query,
         string? finalQuery,
@@ -144,7 +146,8 @@ internal partial class QueryService
         McpSettingsData? pii,
         TimeSpan? statementTimeout,
         CancellationToken cancellationToken,
-        int? maxRows = null)
+        int? maxRows = null,
+        bool recordManualExecution = true)
     {
         var stepResults = new List<QueryStepResult>();
         using var virtualTableManager = new VirtualTableManager(loggerFactory.CreateLogger<VirtualTableManager>())
@@ -182,7 +185,7 @@ internal partial class QueryService
             // by their own column names and aliases.
             var isResultStep = !hasFinalQuery && step == steps[^1];
             var masking = pii == null ? null : new StepMasking(pii, isResultStep, FeedsJoin: hasFinalQuery);
-            var (stepResult, run) = await ExecuteStep(step, parameters, masking, statementTimeout, cancellationToken, maxRows);
+            var (stepResult, run) = await ExecuteStep(step, parameters, masking, statementTimeout, cancellationToken, maxRows, recordManualExecution);
             stepResults.Add(stepResult);
             totalExecutionTime += stepResult.ExecutionTimeMs;
 
@@ -261,6 +264,11 @@ internal partial class QueryService
             ExecutionTimeByDataSource = dataSourceExecutionTimes
         };
 
+        if (!recordManualExecution)
+        {
+            return executionResult;
+        }
+
         // Log manual query execution for full query preview
         // For multi-step queries, we log the final query if present, or concatenated step queries
         var loggedQuery = !string.IsNullOrEmpty(finalQuery)
@@ -303,7 +311,8 @@ internal partial class QueryService
         StepMasking? masking,
         TimeSpan? statementTimeout,
         CancellationToken cancellationToken,
-        int? rowCeiling = null)
+        int? rowCeiling = null,
+        bool recordManualExecution = true)
     {
         var ceiling = rowCeiling ?? ExecutionRowCeiling;
         if (!step.DataSource.DatabaseEngineType.HasValue)
@@ -359,6 +368,11 @@ internal partial class QueryService
             ErrorMessage = errorMessage
         };
 
+        if (!recordManualExecution)
+        {
+            return (stepResult, run);
+        }
+
         // Log manual query execution for step preview
         await queryExecutionLogger.LogQueryExecutionAsync(
             queryText: parameterizedSql,
@@ -398,6 +412,7 @@ internal partial class QueryService
             finalQuery,
             x => gate.Evaluate(JoinGateRequest(x, pii, rowCeiling)),
             inMemoryDbLogger,
+            ceiling + 1,
             cancellationToken);
 
         if (result.TimedOut)

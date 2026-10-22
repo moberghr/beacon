@@ -1,0 +1,31 @@
+{
+  "recordedWith": "Azure.AI.OpenAI 2.1.0 (default service version)",
+  "method": "POST",
+  "endpoint": "https://beacon-test.openai.azure.com/",
+  "deployment": "my deploy/1",
+  "url": "https://beacon-test.openai.azure.com/openai/deployments/my%20deploy%2F1/chat/completions?api-version=2024-10-21",
+  "authHeader": "api-key",
+  "body": {
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are terse."
+      },
+      {
+        "role": "user",
+        "content": "Hi"
+      },
+      {
+        "role": "assistant",
+        "content": "Hello"
+      },
+      {
+        "role": "user",
+        "content": "Count tables"
+      }
+    ],
+    "model": "my deploy/1",
+    "temperature": 0.2,
+    "max_tokens": 256
+  }
+}

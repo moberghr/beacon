@@ -567,6 +567,7 @@ public class AiActorCycleProposeOnlyTests
             Mock.Of<IQueryVersionService>(),
             new Beacon.Core.BeaconConfiguration(),
             _audit,
+            SubscriptionScheduleCheck.Default,
             _logger.Object,
             Mock.Of<IOptionsMonitor<AiActorOptions>>(x => x.CurrentValue == new AiActorOptions { ThinkCooldownMinutes = cooldownMinutes }),
             time,

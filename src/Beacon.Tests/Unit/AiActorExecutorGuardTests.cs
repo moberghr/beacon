@@ -139,6 +139,33 @@ public class AiActorExecutorGuardTests
             Times.Once);
     }
 
+    // An actor's schedule is held to the limits a person's is: a cron that fires more often than the minimum, or that is not
+    // a five-field cron, creates nothing.
+    [TestCase("* * * * *", "*every 5 minutes*")]
+    [TestCase("*/30 * * * * *", "*five fields*")]
+    [TestCase("not a cron", "*five fields*")]
+    public async Task CreateSubscription_WithAScheduleOutsideTheLimits_CreatesNothing(string cron, string message)
+    {
+        var service = BuildService(queries: [new Query { Id = 1, AiActorId = ActorId }]);
+
+        var action = await service.ExecuteOrProposeAsync(Actor(), Plan("CREATE_SUBSCRIPTION", ("queryId", 1), ("cronExpression", cron)), [], CancellationToken.None);
+
+        action.Success.Should().BeFalse();
+        action.ErrorMessage.Should().Match(message);
+        _subscriptionsSet.Verify(x => x.Add(It.IsAny<Subscription>()), Times.Never);
+    }
+
+    [Test]
+    public async Task CreateSubscription_WithAScheduleAtTheMinimum_IsCreated()
+    {
+        var service = BuildService(queries: [new Query { Id = 1, AiActorId = ActorId }]);
+
+        var action = await service.ExecuteOrProposeAsync(Actor(), Plan("CREATE_SUBSCRIPTION", ("queryId", 1), ("cronExpression", "*/5 * * * *")), [], CancellationToken.None);
+
+        action.Success.Should().BeTrue();
+        _subscriptionsSet.Verify(x => x.Add(It.Is<Subscription>(y => y.CronExpression == "*/5 * * * *")), Times.Once);
+    }
+
     [Test]
     public async Task CreateQuery_OverCap_CreatesNothing()
     {
@@ -245,7 +272,11 @@ public class AiActorExecutorGuardTests
             Mock.Of<IQueryVersionService>(),
             new Beacon.Core.BeaconConfiguration(),
             new RecordingSecurityAudit(),
-            Mock.Of<ILogger<AiActorService>>());
+            new SubscriptionScheduleCheck(Microsoft.Extensions.Options.Options.Create(new Beacon.Core.Configuration.SubscriptionOptions()), new Microsoft.Extensions.Time.Testing.FakeTimeProvider(new DateTimeOffset(2026, 10, 21, 0, 0, 0, TimeSpan.Zero))),
+            Mock.Of<ILogger<AiActorService>>(),
+            null,
+            null,
+            null);
     }
 
     private sealed class ExecutorContext(DbSet<Query> queries, DbSet<Subscription> subscriptions) : BeaconContext(Options, "beacon")

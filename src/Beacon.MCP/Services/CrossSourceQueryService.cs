@@ -310,7 +310,10 @@ internal sealed class CrossSourceQueryService(
         // The join SQL is LLM-generated from the user's question — run the same read-only gate (regex
         // guardrail + AST, §1.5) applied to each per-source query above before it touches the in-memory
         // SQLite store, so the final join is not a gap.
-        var joinReport = gate.Evaluate(SqlGateRequest.ForInMemoryJoin(translatedSql, settings));
+        // At most MaxRowLimit rows are returned: one row past it is written into the SQL and read back, so a result above
+        // the limit is reported as truncated.
+        var joinRowCap = Math.Max(1, settings.MaxRowLimit);
+        var joinReport = gate.Evaluate(SqlGateRequest.ForInMemoryJoin(translatedSql, settings) with { MaxRows = joinRowCap + 1 });
         if (joinReport.Blocked)
         {
             text += $"**Validation Error for join query:** {joinReport.BlockReason}\n";
@@ -318,7 +321,7 @@ internal sealed class CrossSourceQueryService(
             return (text, false);
         }
 
-        var (joinResults, execTimeMs, timedOut) = await memDb.ExecuteQueryAsync(joinReport.FinalSql, settings.StatementTimeoutSeconds);
+        var (joinResults, execTimeMs, timedOut) = await memDb.ExecuteQueryAsync(joinReport.FinalSql, settings.StatementTimeoutSeconds, joinRowCap + 1, ct);
 
         if (timedOut)
         {
@@ -334,6 +337,7 @@ internal sealed class CrossSourceQueryService(
             var joinedRows = PiiRowMasker.Mask(
                 guardrailService,
                 joinResults
+                    .Take(joinRowCap)
                     .Select(x => new Dictionary<string, object?>(x))
                     .ToList(),
                 joinPiiColumns.Concat(joinReport.PiiColumns),
@@ -344,6 +348,10 @@ internal sealed class CrossSourceQueryService(
 
             text += $"### Final Results ({joinedRows.Count} rows, {execTimeMs:F0}ms)\n\n";
             text += ToolHelper.FormatResultsAsMarkdown(joinedRows, maxResultBytes: settings.MaxResultBytes);
+            if (joinResults.Count > joinRowCap)
+            {
+                text += $"\n_The join returned more than the row limit of {joinRowCap}; only the first {joinRowCap} rows were kept. Narrow the question to see the rest._\n";
+            }
         }
         else
         {

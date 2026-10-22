@@ -384,6 +384,10 @@ internal class DatabaseProvider(
             // stays false.
             var useSqlServerRollbackOnlyTransaction = enforceReadOnly && engine == DatabaseEngineType.MSSQL;
 
+            // Snowflake also stops the statement on the server at the statement timeout, so it ends even when the client
+            // that should cancel it does not; the session setting is reset afterwards, as the driver pools the session.
+            var useSnowflakeStatementTimeout = engine == DatabaseEngineType.Snowflake;
+
             var connectionString = connectionResolver.GetConnectionString(dataSource);
             await using var connection = DbConnectionFactory.CreateConnection(
                 engine,
@@ -448,6 +452,13 @@ internal class DatabaseProvider(
                     await BeginMySqlReadOnlyAsync(connection, cancellationToken);
                 }
 
+                if (useSnowflakeStatementTimeout)
+                {
+                    await connection.ExecuteAsync(new CommandDefinition(
+                        SnowflakeSetStatementTimeout(StatementTimeoutSeconds),
+                        cancellationToken: cancellationToken));
+                }
+
                 // On PostgreSQL the statement goes out as a batch of exactly one command, so the driver refuses a second
                 // statement (a COMMIT, a BEGIN READ WRITE) rather than splitting the text and running each — the READ ONLY
                 // session and transaction alone cannot stop a statement that ends the transaction and opens a writable one.
@@ -491,6 +502,11 @@ internal class DatabaseProvider(
                 if (useMySqlReadOnlyTransaction)
                 {
                     mySqlReadOnlyClosed = await EndMySqlReadOnlyAsync(connection, dataSource);
+                }
+
+                if (useSnowflakeStatementTimeout)
+                {
+                    await ResetSnowflakeStatementTimeoutAsync(connection, dataSource, connectionString);
                 }
             }
 
@@ -780,6 +796,49 @@ internal class DatabaseProvider(
             DescribeFailure(dataSource, ex, "Closing the read-only transaction failed", LogLevel.Warning);
 
             return false;
+        }
+    }
+
+    // The value is Beacon's own validated setting (1 to 3600), never caller input; ALTER SESSION takes no bind parameters.
+    private static string SnowflakeSetStatementTimeout(int seconds) =>
+        $"ALTER SESSION SET STATEMENT_TIMEOUT_IN_SECONDS = {seconds}";
+
+    // The pooled session must not keep Beacon's timeout for whatever runs on it next (the metadata scan allows longer). When
+    // the reset fails, the connection is kept out of the pool before it closes (its session ends rather than returning to
+    // another borrower), and its connection string's pool is emptied as well.
+    private async Task ResetSnowflakeStatementTimeoutAsync(DbConnection connection, DataSource dataSource, string connectionString)
+    {
+        try
+        {
+            await connection.ExecuteAsync(new CommandDefinition(
+                "ALTER SESSION UNSET STATEMENT_TIMEOUT_IN_SECONDS",
+                commandTimeout: 5,
+                cancellationToken: CancellationToken.None));
+
+            return;
+        }
+        catch (Exception ex)
+        {
+            DescribeFailure(dataSource, ex, "Resetting the session statement timeout failed", LogLevel.Warning);
+        }
+
+        try
+        {
+            DbConnectionFactory.Discard(DatabaseEngineType.Snowflake, connection);
+        }
+        catch (Exception ex)
+        {
+            DescribeFailure(dataSource, ex, "Keeping the session out of the pool after a failed session reset failed", LogLevel.Warning);
+        }
+
+        try
+        {
+            await connection.CloseAsync();
+            DbConnectionFactory.ClearPool(DatabaseEngineType.Snowflake, connectionString);
+        }
+        catch (Exception ex)
+        {
+            DescribeFailure(dataSource, ex, "Emptying the connection pool after a failed session reset failed", LogLevel.Warning);
         }
     }
 

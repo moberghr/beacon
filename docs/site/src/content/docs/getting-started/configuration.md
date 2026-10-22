@@ -489,8 +489,8 @@ Bound from `Beacon:Query`, validated at startup. These apply to every statement 
 
 | Key | Type | Default | Range | What it does |
 |---|---|---|---|---|
-| `MaxExecutionRows` | int | `100000` | 1–10,000,000 | The most rows one statement may return. The cap is written into the SQL (a larger `LIMIT`/`TOP`/`FETCH` is lowered to it); on PostgreSQL, MySQL, SQL Server, Azure Synapse and Snowflake the read also stops one row past it. A larger result **fails** the run, never truncates, with a message naming the key. Rows are held in memory |
-| `StatementTimeoutSeconds` | int | `120` | 1–3600 | Cancels one statement: a query step, a final query on the in-memory join, a metadata sample. A subscription's own timeout may only be shorter (saving a longer one is refused) |
+| `MaxExecutionRows` | int | `100000` | 1–10,000,000 | The most rows one statement may return. The cap is written into the SQL (a larger `LIMIT`/`TOP`/`FETCH` is lowered to it); on PostgreSQL, MySQL, SQL Server, Azure Synapse and Snowflake the read also stops one row past it, BigQuery stops reading the job's result there, and Databricks returns no more than that (`row_limit`). A larger result **fails** the run, never truncates, with a message naming the key. Rows are held in memory |
+| `StatementTimeoutSeconds` | int | `120` | 1–3600 | Cancels one statement: a query step, a final query on the in-memory join, a metadata sample. A subscription's own timeout may only be shorter (saving a longer one is refused). On Snowflake the session also runs under `STATEMENT_TIMEOUT_IN_SECONDS` of this value, so the server stops the statement too |
 
 Data migration reads use `Beacon:Migrations:MaxRows` instead. The MCP tools that run SQL use the project's MCP statement timeout (30 seconds by default).
 
@@ -498,6 +498,17 @@ Data migration reads use `Beacon:Migrations:MaxRows` instead. The MCP tools that
 |---|---|---|---|---|
 | `Beacon:Metadata:ForcedRefreshCooldownMinutes` | int | `15` | 0–1440 (`0` = off) | After a successful forced metadata refresh of a data source, the next one answers `429` until this passes. Per process; Admins and DataSourceAdmins are not held to it. Validated at startup |
 | `Beacon:AiActors:ThinkCooldownMinutes` | int | `15` | 0–1440 (`0` = off) | An AI actor's think cycle starts at most once per this many minutes, from its last think time. Background cycles within it are skipped; an on-demand cycle is refused with the time left. Validated at startup |
+
+## Subscription limits
+
+Bound from `Beacon:Subscriptions`, validated at startup.
+
+| Key | Type | Default | Range | What it does |
+|---|---|---|---|---|
+| `MinIntervalMinutes` | int | `5` | 1–1440 | The shortest time between two runs of a subscription's cron schedule (in UTC). Creating a subscription with a schedule that fires more often (an AI actor's included), or changing one to it, is refused; a subscription saved before keeps its schedule through other edits and a reactivation |
+| `MaxAttachmentBytes` | int | `10485760` (10 MB) | 65,536–104,857,600 | The largest file a subscription attaches to its email. A larger CSV or XLSX keeps only its first rows that fit (a CSV exactly as many; an XLSX file can keep somewhat fewer), and the email says how many of the rows it delivers the file holds; a first row larger than the limit leaves the column headers only, and headers larger than the limit leave no attachment. The email itself is about 1.33 times the attachment's size (base64 encoding), so keep the limit below your mail server's message limit |
+
+See [Subscriptions](/features/subscriptions/).
 
 ## Data migration
 
@@ -664,7 +675,7 @@ Settings that bind Admins too and that nothing at runtime can change; only host 
 
 A write that contradicts an MCP lock answers `409` (`/errors/setting-locked`), an Admin's included; the MCP settings page shows the locked settings disabled, and `GET /beacon/api/mcp/settings/locks` lists them (`lockedFields`) and each active lock with the setting it pins (`locks`: `fieldName`, `lockName`). Stored values a lock overrides are kept and listed in one startup warning; they apply again when the lock is lifted. Settings resolve as **lock → project override → global value → built-in default**, ceilings last.
 
-Other startup-validated keys (`Beacon:Authorization:*`, `Beacon:Authentication:*`, `Beacon:UserManagement:*`, `Beacon:ApiKeys:*`, `Beacon:Query:*`, `Beacon:Notifications:*`, `Beacon:EncryptionKey`, `Beacon:DataProtection:*`) have no runtime override either. Of the configuration values, only the base URL and the LLM settings can also be changed at runtime, in [Admin settings](/security/admin-settings/).
+Other startup-validated keys (`Beacon:Authorization:*`, `Beacon:Authentication:*`, `Beacon:UserManagement:*`, `Beacon:ApiKeys:*`, `Beacon:Query:*`, `Beacon:Subscriptions:*`, `Beacon:Notifications:*`, `Beacon:EncryptionKey`, `Beacon:DataProtection:*`) have no runtime override either. Of the configuration values, only the base URL and the LLM settings can also be changed at runtime, in [Admin settings](/security/admin-settings/).
 
 ## MCP (`Beacon:Mcp`)
 
@@ -760,6 +771,34 @@ Beacon calls `AddOrUpdate` when a subscription is created or its cron changes an
 ## Data-source connectors
 
 Register a connector per engine on the builder: `.AddPostgreSqlConnector()`, `.AddSqlServerConnector()`, `.AddMySqlConnector()`, `.AddBigQueryConnector()`, `.AddSnowflakeConnector()`, `.AddDatabricksConnector()`, `.AddAzureSynapseConnector()`, `.AddCloudWatchConnector()`, `.AddApiConnector()`. Data-source connections are entered in the UI and encrypted at rest. Give every data source Beacon reads a read-only login. On PostgreSQL and MySQL, Beacon also runs each read in a read-only transaction. See [Data-source connectors](/integrate/connectors/) and [Data sources](/features/data-sources/).
+
+### Warehouse cost limits
+
+Each BigQuery query job is sent with `MaximumBytesBilled`: the data source's own `MaximumBytesBilled`, or 10 GiB
+(10,737,418,240 bytes) when it sets none. A job that would bill more fails without a charge, with a message naming the
+limit. The per-source value is a number of bytes in the data source's connection JSON, next to `ProjectId` and
+`ServiceAccountJson` (for example `"MaximumBytesBilled": 2147483648`); the **New data source** dialog does not ask for
+it, so set it by replacing the connection with `PUT /beacon/api/data-sources/{id}` (with `confirmTargetChange: true`,
+see [Data sources](/features/data-sources/)). The deployment can lower every source's limit, bound from
+`Beacon:DataSources:BigQuery`:
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `MaxBytesBilled` | long | none | The most bytes one BigQuery query job may bill; a larger source limit is lowered to it. At least 1 when set, validated at startup |
+
+```json
+{ "Beacon": { "DataSources": { "BigQuery": { "MaxBytesBilled": 5368709120 } } } }
+```
+
+Not configurable, on every deployment:
+
+- A BigQuery, Databricks or CloudWatch data source's stored `QueryTimeoutSeconds` is clamped to 900 seconds (0 or less
+  means 300). A BigQuery job and a Databricks statement are cancelled on the warehouse when the timeout passes or the
+  caller cancels.
+- Databricks results are limited to 16 MiB (`byte_limit`); a larger result fails rather than being cut short. A BigQuery
+  or Databricks result read without a row cap fails above 10,000 rows (Beacon's own reads always carry one).
+- A REST API data source's `TimeoutSeconds` is clamped to 1–120 seconds and one response may hold at most 10 MB. Fetching
+  the OpenAPI description for a metadata import takes at most 30 seconds and 50 MB.
 
 ## Logging
 

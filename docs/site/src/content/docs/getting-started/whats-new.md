@@ -83,11 +83,17 @@ the AWS SDK. The admin settings page lists only the providers you installed
 (`GET /beacon/api/admin-settings/llm-providers`). A configured provider that is not installed leaves AI without a
 provider: the host logs a warning, and AI calls fail with a message that names the package to add.
 
-### A MySQL migration writer, and a lighter build
+**Local embeddings moved to their own package too**: `Moberg.Beacon.AI.Embeddings.Onnx`, activated with
+`AddBeaconOnnxEmbeddings()`. Without it, retrieval is keyword-based and `Moberg.Beacon.AI` carries no ONNX runtime.
 
-Data-migration jobs into MySQL now use the MySQL connector's own writer, as PostgreSQL and SQL Server already did:
-multi-row parameterised inserts, Upsert with `ON DUPLICATE KEY UPDATE`, and Truncate-Load. A run is all-or-nothing
-on InnoDB. `EFCore.BulkExtensions` and `Pomelo.EntityFrameworkCore.MySql`
+### Migration writers in the connectors, and a lighter build
+
+Data-migration writes moved out of `Moberg.Beacon.Core` into the destination's connector, behind
+`IMigrationBulkWriter`. PostgreSQL writes with binary `COPY`, SQL Server with `SqlBulkCopy` and `MERGE`, MySQL with
+multi-row parameterised inserts, Upsert with `ON DUPLICATE KEY UPDATE`, and Truncate-Load. Every write, the clear and
+the primary key lookup run on the run's one connection and transaction, so a run is all-or-nothing on PostgreSQL and
+SQL Server, and an Insert or Upsert run is all-or-nothing on MySQL InnoDB. The exception is a MySQL Truncate-Load:
+`TRUNCATE` commits on its own, so a run that fails after the clear leaves the table empty. `EFCore.BulkExtensions` and `Pomelo.EntityFrameworkCore.MySql`
 have left the build, and `Moberg.Beacon.Core` no longer brings the SQL Server EF Core provider with it.
 
 ### Under the hood
@@ -106,6 +112,7 @@ have left the build, and `Moberg.Beacon.Core` no longer brings the SQL Server EF
 | `Moberg.Beacon.Testing` | Test helpers for a gateway host's MCP tools |
 | `Moberg.Beacon.Doctor` | The `beacon-doctor` .NET tool |
 | `Moberg.Beacon.AI.Bedrock` | The AWS Bedrock LLM provider, previously inside `Moberg.Beacon.AI` |
+| `Moberg.Beacon.AI.Embeddings.Onnx` | Local ONNX embeddings for semantic retrieval, previously inside `Moberg.Beacon.AI` |
 
 ## Upgrade from 4.x
 
@@ -120,6 +127,18 @@ two items.
 - [ ] **Bedrock users: add the package.** Reference `Moberg.Beacon.AI.Bedrock` and call `services.AddBeaconBedrock()`
       (before or after `AddBeaconAI`). Without them, Bedrock is not available and AI calls fail with
       "LLM provider Bedrock is not installed". → [AI providers](/integrate/ai/)
+- [ ] **Semantic retrieval: add the embeddings package.** Reference `Moberg.Beacon.AI.Embeddings.Onnx` and call
+      `services.AddBeaconOnnxEmbeddings()` (before or after `AddBeaconAI`). `AddBeaconEmbeddings()` is obsolete and no
+      longer loads the model. Without the package, retrieval falls back to keywords; with
+      `Beacon:Embeddings:Enabled` on, the host logs one warning the first time retrieval asks for embeddings. → [AI providers](/integrate/ai/)
+- [ ] **Migration targets: register the connector.** A data-migration run writes through the destination's connector,
+      so a PostgreSQL, SQL Server or MySQL target needs that connector package and its `Add<Engine>Connector()` call.
+      A run into an engine without one fails before Beacon decrypts the target's credentials. If you run MySQL
+      Truncate-Load jobs, keep a way to reload the table: a failed run leaves it empty.
+      → [Data migration](/features/data-migration/)
+- [ ] **Central package management: raise your pins.** If restore fails with `NU1109` ("Detected package downgrade"),
+      raise each pinned package to the version the message names (EF Core and `Microsoft.Extensions.*` patches,
+      `ClosedXML`). → [Packages](/integrate/packages/)
 - [ ] **No browser sessions on `/beacon/mcp`.** A signed-in browser session, Beacon's or yours, now gets `403` there.
       MCP clients use an API key or a mapped Entra token. The MCP playground is not affected: it calls `/beacon/api`.
       → [Connect AI clients](/mcp/connect/)
@@ -135,12 +154,21 @@ two items.
 - [ ] **SQL Server provider no longer transitive.** `Moberg.Beacon.Core` no longer references
       `Microsoft.EntityFrameworkCore.SqlServer` or `EFCore.BulkExtensions`. A host on SQL Server already references
       `Moberg.Beacon.Core.SqlServer`. Add your own reference only if your own code used those packages through Beacon.
+      The same goes for `AWSSDK.BedrockRuntime` and the ONNX packages, which `Moberg.Beacon.AI` no longer brings.
 - [ ] **Code that calls Beacon's internals:**
   - `SqlGateRequest` takes a `RowSecurity` argument, which you get from `IRowSecurityResolver`.
   - The `LlmProviderFactory(accessor, logger)` constructor is obsolete. Resolve the provider registrations from DI.
   - `Constants.Migration.MaxFailedRowsBeforeStop` is gone.
   - `IMigrationBulkContextProvider`, `MigrationBulkContextFactory` and `DynamicDbContext` are removed with
-    `EFCore.BulkExtensions`. MySQL migration writes use the connector's own writer.
+    `EFCore.BulkExtensions`, and `SqlServerDataTransferManager` and `ObjectDataReader<T>` with the old SQL Server
+    bulk path. Migration writes use the connectors' `IMigrationBulkWriter`.
+  - `BedrockProvider` moved to the `Beacon.AI.Bedrock` assembly and `IHostEndpointDispatchMiddleware` to `Beacon.MCP`.
+    Both keep their namespaces: recompile.
+  - `SqlClientTransportInspector` has an abstract `Read(string)` method, so a class of your own that derives from it
+    must implement it.
+  - `DatabaseAuthorizationProvider`'s constructor takes `IBeaconRequestPrincipal`, and its `(IUserManagementService)`
+    overload is gone.
+  - `AuthenticationPathPrefixes.Matches(PathString)` is gone: use `BeaconRequestPaths.Matches`.
 
 ## Behaviour changes worth knowing
 
@@ -149,6 +177,31 @@ two items.
 | MySQL migration runs | All-or-nothing on InnoDB. A run no longer ends as a partial success. A Truncate-Load that fails after the clear leaves the table empty. Upsert matches on any unique key and no longer needs the `CREATE TEMPORARY TABLES` privilege. |
 | AI provider | Choosing a provider that needs an API key requires typing a key. Saving or testing a provider that is not installed is refused while AI is on. |
 | Admin standing | A user who loses the Admin role loses Admin routes on their next request, not at the next session revalidation. |
+| PostgreSQL and SQL Server migration runs | All-or-nothing: the writes and the key lookup share the run's transaction, with no row-by-row fallback. An Upsert into a table without a primary key fails. An unqualified SQL Server table means `dbo`. |
+| SQL Server migration Insert | Keeps source identity values and NULLs (writing identity values needs `ALTER` on the table) and checks CHECK and foreign-key constraints: a violating row fails the run. |
+| XLSX attachments | Dates keep a date format per cell, `DateOnly` and `DateTimeOffset` are written as dates, and a report with no rows is an empty workbook instead of an error. |
+
+## After 5.0.0
+
+These changes are on `main` and ship in the next release after 5.0.0.
+
+### OpenAI and Azure OpenAI over plain HTTP
+
+OpenAI and Azure OpenAI now go over plain HTTP, as Claude already did, so `Moberg.Beacon.AI` no longer brings the
+`OpenAI`, `Azure.AI.OpenAI` or `Azure.Core` packages. Requests keep the SDKs' wire format and retry policy (up to three
+retries on 408, 429 and 5xx, honouring `Retry-After` up to 60 seconds). Redirects are not followed, so an API key never
+travels to a redirect target. Failures name the HTTP status and the provider's error code, never the response body, and
+the request queue does not resend a call that failed with a status, since the provider already retried it.
+
+This also fixes Azure OpenAI, which failed on every call in 4.x and 5.0.0 with a `MissingMethodException`.
+
+When you upgrade:
+
+- [ ] **Packages no longer transitive.** If your own code used `OpenAI`, `Azure.AI.OpenAI` or `Azure.Core` through
+      Beacon, reference them yourself.
+- [ ] **Code that builds providers itself:** `OpenAiProvider` and `AzureOpenAiProvider` keep their constructors but
+      are obsolete. Providers are built through the `ILlmProviderRegistration`s that `AddBeaconAI()` installs, and a
+      host's own registration for a built-in provider now wins whatever the call order.
 
 ## Release notes
 

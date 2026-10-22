@@ -303,22 +303,28 @@ internal partial class QueryService(
     }
 
     /// <summary>
-    /// A query a preview creates, runs once and deletes again (<see cref="QueryExecutionPreviewService"/>): stored live, after
-    /// the checks of a save, whatever the approval workflow — it is never versioned, scheduled or published, and runs only
-    /// as the preview's own interactive run.
+    /// Runs given, unsaved steps once (<see cref="QueryExecutionPreviewService"/>, a migration's read): checked as a save
+    /// checks them, then run as detached entities through <see cref="ExecuteQuerySteps"/>, the path a saved query runs on.
+    /// Nothing is stored: no query is created to run them, so none is left behind, and nothing between the check and the
+    /// run can change them.
     /// </summary>
-    public async Task<BaseResponse> CreateTemporaryQuery(QueryData queryData, CancellationToken cancellationToken)
+    public async Task<QueryExecutionResult> ExecuteTemporaryQuery(
+        QueryData queryData,
+        List<ParameterValue>? parameters,
+        int? maxRows,
+        CancellationToken cancellationToken)
     {
         await ValidateNewQueryAsync(queryData, cancellationToken);
 
-        var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
-        await StoreLiveQueryAsync(queryData, actor.UserId, cancellationToken);
-
-        return new BaseResponse
+        var query = new Query
         {
-            Message = "Saved successfully",
-            Success = true
+            Name = queryData.Name,
+            Description = queryData.Description,
+            FinalQuery = queryData.FinalQuery,
+            Steps = await BuildDraftSteps(0, queryData.Steps, cancellationToken)
         };
+
+        return await ExecuteQuerySteps(query, query.FinalQuery, parameters, null, null, cancellationToken, maxRows);
     }
 
     public async Task DeleteQuery(int queryId, CancellationToken cancellationToken)

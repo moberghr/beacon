@@ -66,6 +66,7 @@ public class AiActorService : IAiActorServiceExtended
     private readonly IQueryVersionService _versionService;
     private readonly BeaconConfiguration _configuration;
     private readonly ISecurityAuditRecorder _securityAudit;
+    private readonly ISubscriptionScheduleCheck _scheduleCheck;
     private readonly ILogger<AiActorService> _logger;
     private readonly IOptionsMonitor<AiActorOptions>? _options;
     private readonly TimeProvider _timeProvider;
@@ -79,7 +80,7 @@ public class AiActorService : IAiActorServiceExtended
         PropertyNamingPolicy = JsonNamingPolicy.CamelCase
     };
 
-    [Obsolete("Use the constructor that takes the think cooldown options, time provider and think claim.")]
+    [Obsolete("Use the constructor that takes the schedule check, think cooldown options, time provider and think claim: without them the default schedule limits apply.")]
     public AiActorService(
         IDbContextFactory<BeaconContext> contextFactory,
         ILlmProvider llmProvider,
@@ -96,9 +97,24 @@ public class AiActorService : IAiActorServiceExtended
         ISecurityAuditRecorder securityAudit,
         ILogger<AiActorService> logger)
         : this(
-            contextFactory, llmProvider, metadataService, queryService, subscriptionService, beaconScheduler, runAs,
-            executionAccess, saveCheck, proposalCheck, versionService, configuration, securityAudit, logger,
-            null, null, null)
+            contextFactory,
+            llmProvider,
+            metadataService,
+            queryService,
+            subscriptionService,
+            beaconScheduler,
+            runAs,
+            executionAccess,
+            saveCheck,
+            proposalCheck,
+            versionService,
+            configuration,
+            securityAudit,
+            SubscriptionScheduleCheck.Default,
+            logger,
+            null,
+            null,
+            null)
     {
     }
 
@@ -116,6 +132,7 @@ public class AiActorService : IAiActorServiceExtended
         IQueryVersionService versionService,
         BeaconConfiguration configuration,
         ISecurityAuditRecorder securityAudit,
+        ISubscriptionScheduleCheck scheduleCheck,
         ILogger<AiActorService> logger,
         IOptionsMonitor<AiActorOptions>? options,
         TimeProvider? timeProvider,
@@ -137,6 +154,7 @@ public class AiActorService : IAiActorServiceExtended
         _versionService = versionService;
         _configuration = configuration;
         _securityAudit = securityAudit;
+        _scheduleCheck = scheduleCheck;
         _logger = logger;
     }
 
@@ -1415,6 +1433,18 @@ public class AiActorService : IAiActorServiceExtended
 
         action.SubscriptionQueryId = queryId;
         action.CronExpression = cronExpression;
+
+        // The schedule an actor proposes is held to the same limits as one a person saves.
+        try
+        {
+            _scheduleCheck.EnsureAllowed(cronExpression);
+        }
+        catch (InvalidOperationException ex)
+        {
+            action.ErrorMessage = ex.Message;
+            _logger.LogWarning("AI Actor {ActorId} was refused a subscription schedule for query {QueryId}", actor.Id, queryId);
+            return;
+        }
 
         if (!Enum.TryParse<NotificationTrigger>(notificationTriggerStr, out var notificationTrigger))
         {

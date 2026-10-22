@@ -56,6 +56,9 @@ internal sealed class RecordingDbConnection : DbConnection
     /// </summary>
     public Exception? FailClosingReaderWith { get; init; }
 
+    /// <summary>What committing a transaction throws, as a connection lost during the commit would; null commits.</summary>
+    public Exception? FailCommitWith { get; init; }
+
     /// <summary>The number of commands of every batch run, in order.</summary>
     public List<int> BatchSizes { get; } = [];
 
@@ -232,6 +235,11 @@ internal sealed class RecordingDbConnection : DbConnection
 
         public override void Commit()
         {
+            if (connection.FailCommitWith != null)
+            {
+                throw connection.FailCommitWith;
+            }
+
             connection.Commits++;
         }
 

@@ -11,6 +11,31 @@ public static class DbConnectionFactory
 
     private static readonly ConcurrentDictionary<DatabaseEngineType, Action<DbConnection>> _poolClearers = new();
 
+    private static readonly ConcurrentDictionary<DatabaseEngineType, Action<DbConnection>> _discarders = new();
+
+    /// <summary>
+    /// Registers how an open connection to <paramref name="engineType"/> is kept out of its driver's pool, so closing it
+    /// ends its session instead of handing that session to the next borrower (Snowflake: <c>PreventPooling</c>). Beacon
+    /// discards a connection whose session it changed and could not restore.
+    /// </summary>
+    public static void RegisterDiscard(DatabaseEngineType engineType, Action<DbConnection> discard)
+    {
+        _discarders[engineType] = discard;
+    }
+
+    // Marks an open connection so closing it ends its session; false when the engine registered no way to.
+    internal static bool Discard(DatabaseEngineType engineType, DbConnection connection)
+    {
+        if (!_discarders.TryGetValue(engineType, out var discard))
+        {
+            return false;
+        }
+
+        discard(connection);
+
+        return true;
+    }
+
     /// <summary>
     /// Registers how connections to <paramref name="engineType"/> are made and, when its driver pools connections, how the
     /// pool of one connection string is emptied (<paramref name="clearPool"/>, given an unopened connection).

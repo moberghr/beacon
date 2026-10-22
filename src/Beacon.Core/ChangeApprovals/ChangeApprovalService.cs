@@ -138,6 +138,13 @@ internal sealed class ChangeApprovalService(
         var proposedDestination = Read<RecipientDestinationView>(request.Kind, request.ProposedJson, ChangeApprovalKind.RecipientDestination);
         var hiddenByMask = RecipientDestinationDefinition.ChangeHiddenByMask(previousDestination, proposedDestination);
 
+        var reviewerId = request.ReviewedByUserId == null
+            ? null
+            : await context.Users
+                .Where(x => x.ExternalId == request.ReviewedByUserId)
+                .Select(x => (int?)x.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+
         return new ChangeApprovalDetail
         {
             Id = request.Id,
@@ -148,6 +155,7 @@ internal sealed class ChangeApprovalService(
             Status = request.Status,
             RequestedByUserName = request.RequestedByUserName,
             ReviewedByUserName = request.ReviewedByUserName,
+            ReviewedByBeaconUserId = reviewerId,
             ReviewedAt = request.ReviewedAt,
             ReviewComment = request.ReviewComment,
             ChangeSummary = request.ChangeSummary,

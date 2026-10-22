@@ -60,7 +60,7 @@ public class QueryPathFailureLoggingTests
         var log = new LogRecorder();
         using var manager = new InMemoryDatabaseManager(log.For<InMemoryDatabaseManager>());
 
-        var act = () => manager.ExecuteQueryAsync($"SELECT * FROM missing_table WHERE token = '{SecretLooking}'");
+        var act = () => manager.ExecuteQueryAsync($"SELECT * FROM missing_table WHERE token = '{SecretLooking}'", 30, 1000, CancellationToken.None);
 
         await act.Should().ThrowAsync<Exception>();
         AssertLoggedWithoutTheMessage(log, 1, "SqliteException (error code 1, at ");

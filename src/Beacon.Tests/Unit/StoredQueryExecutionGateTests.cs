@@ -5,9 +5,11 @@ using Beacon.Core;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Data.Entities.Metadata;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
+using Beacon.Core.Models.Queries;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Validation;
 using Beacon.Tests.Common;
@@ -281,6 +283,38 @@ public class StoredQueryExecutionGateTests
         JoinStatements(gate).Should().ContainSingle().Which.Should().EndWith("LIMIT 1001");
     }
 
+    // A migration's steps run as given, in-process: nothing is stored to run them, and they run through the same gate and
+    // read-only path as a saved step, within the migration's own budget.
+    [Test]
+    public async Task MigrationRead_OfGivenSteps_RunsThemInProcess_AndStoresNoQuery()
+    {
+        var connection = Connect(new RecordingDbConnection { RowCount = 5 });
+        var saved = new List<object>();
+        var service = (IStoredQueryPreview)BuildService("SELECT 1", saved: saved);
+
+        var result = await service.ExecuteTemporaryQuery(GivenSteps("SELECT id FROM accounts"), null, 100, CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.ErrorMessage);
+        result.FinalResult!.AllRecords.Should().HaveCount(5);
+        connection.ExecutedCommands.Should().Contain("SELECT id FROM accounts LIMIT 101");
+        connection.ExecutedCommands.Should().Contain(ReadOnlyTransaction);
+        saved.Should().BeEmpty("nothing is stored to run the steps");
+    }
+
+    [Test]
+    public async Task MigrationRead_OfAGivenStepThatWrites_IsRefusedBeforeAnythingRuns()
+    {
+        var connection = Connect(new RecordingDbConnection { RowCount = 1 });
+        var saved = new List<object>();
+        var service = (IStoredQueryPreview)BuildService("SELECT 1", saved: saved);
+
+        var act = () => service.ExecuteTemporaryQuery(GivenSteps("UPDATE accounts SET balance = 0"), null, 100, CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconException>().WithMessage("*UPDATE*");
+        connection.Executions.Should().BeEmpty();
+        saved.Should().BeEmpty();
+    }
+
     [Test]
     public async Task Subscription_MasksPiiColumns_BeforeTheResultReachesARecipient()
     {
@@ -315,6 +349,7 @@ public class StoredQueryExecutionGateTests
 
     // A final query that runs out of time has no rows; it fails the run instead of reading as an empty success to a
     // subscription, a query check, the AI actor or a migration about to write.
+    [TestCase("paged query preview")]
     [TestCase("query check")]
     [TestCase("subscription")]
     public async Task AFinalQueryThatTimesOut_FailsTheRun(string entryPoint)
@@ -325,11 +360,33 @@ public class StoredQueryExecutionGateTests
             finalQuery: "WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r WHERE i < 100000000) SELECT COUNT(*) AS n FROM r",
             finalQueryTimeoutSeconds: 1);
 
-        Func<Task> act = entryPoint == "subscription"
-            ? () => service.ExecuteQuery(SubscriptionId, CancellationToken.None)
-            : () => service.ExecuteQueryAdvanced(QueryId, cancellationToken: CancellationToken.None);
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+        Func<Task> act = entryPoint switch
+        {
+            "subscription" => () => service.ExecuteQuery(SubscriptionId, CancellationToken.None),
+            "paged query preview" => () => service.PreviewQuery(QueryId, null, new Paging { Page = 0, PageSize = 20 }, CancellationToken.None),
+            _ => () => service.ExecuteQueryAdvanced(QueryId, cancellationToken: CancellationToken.None)
+        };
 
         await act.Should().ThrowAsync<BeaconException>().WithMessage("The final query timed out.");
+        elapsed.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10), "the one-second timeout stopped the final query");
+    }
+
+    [Test]
+    public async Task PagedQueryPreview_AFinalQuery_StopsWhenTheCallerCancels()
+    {
+        Connect(new RecordingDbConnection { Columns = [("id", x => x + 1)], RowCount = 2 });
+        var service = BuildService(
+            "SELECT id FROM accounts",
+            finalQuery: "WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r WHERE i < 1000000000) SELECT COUNT(*) AS n FROM r",
+            finalQueryTimeoutSeconds: 30);
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(500));
+        var elapsed = System.Diagnostics.Stopwatch.StartNew();
+
+        var act = () => service.PreviewQuery(QueryId, null, new Paging { Page = 0, PageSize = 20 }, cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        elapsed.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10), "the caller's token stopped the final query, not the 30 s timeout");
     }
 
     [Test]
@@ -377,6 +434,12 @@ public class StoredQueryExecutionGateTests
 
     private const int Ceiling = Constants.Query.MaxExecutionRows;
 
+    private static QueryData GivenSteps(string sql) => new()
+    {
+        Name = "Migration-copy",
+        Steps = [new QueryStepData { StepOrder = 1, Name = "step 1", DataSourceId = DataSourceId, SqlValue = sql }]
+    };
+
     private static RecordingDbConnection Connect(RecordingDbConnection connection)
     {
         DbConnectionFactory.Register(DatabaseEngineType.PostgreSQL, _ => connection);
@@ -415,7 +478,8 @@ public class StoredQueryExecutionGateTests
         string? finalQuery = null,
         int? executionRowCeiling = null,
         int? finalQueryTimeoutSeconds = null,
-        ISqlExecutionGate? gate = null)
+        ISqlExecutionGate? gate = null,
+        List<object>? saved = null)
     {
         var dataSource = new DataSource
         {
@@ -445,7 +509,7 @@ public class StoredQueryExecutionGateTests
             CronExpression = "0 * * * *",
             MaxRows = maxRows
         };
-        var saved = new List<object>();
+        saved ??= [];
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
@@ -455,7 +519,8 @@ public class StoredQueryExecutionGateTests
                     [typeof(DataSource)] = RecordingBeaconContext.MemorySet([dataSource], saved),
                     [typeof(Query)] = RecordingBeaconContext.MemorySet([query], saved),
                     [typeof(QueryStep)] = RecordingBeaconContext.MemorySet([step], saved),
-                    [typeof(Subscription)] = RecordingBeaconContext.MemorySet([subscription], saved)
+                    [typeof(Subscription)] = RecordingBeaconContext.MemorySet([subscription], saved),
+                    [typeof(DatabaseMetadata)] = RecordingBeaconContext.MemorySet(new List<DatabaseMetadata>(), saved)
                 },
                 saved));
 

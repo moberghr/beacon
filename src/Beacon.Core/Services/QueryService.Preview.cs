@@ -209,7 +209,10 @@ internal partial class QueryService : IStoredQueryPreview
         ListRequest paging,
         CancellationToken cancellationToken)
     {
-        using var virtualTableManager = new VirtualTableManager(loggerFactory.CreateLogger<VirtualTableManager>());
+        using var virtualTableManager = new VirtualTableManager(loggerFactory.CreateLogger<VirtualTableManager>())
+        {
+            StatementTimeoutSeconds = FinalQueryTimeoutSeconds
+        };
         var summaries = new List<QueryPreviewStep>();
         var totalExecutionTime = 0.0;
 
@@ -240,12 +243,21 @@ internal partial class QueryService : IStoredQueryPreview
         if (failed == null && !string.IsNullOrEmpty(finalQuery))
         {
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
-            var page = await virtualTableManager.ExecuteFinalQueryPagedAsync(
-                finalQuery,
-                x => gate.Evaluate(JoinGateRequest(x, null) with { MaxRows = null }),
-                loggerFactory.CreateLogger<InMemoryDatabaseManager>(),
-                paging,
-                cancellationToken);
+            SqlResultPage page;
+            try
+            {
+                page = await virtualTableManager.ExecuteFinalQueryPagedAsync(
+                    finalQuery,
+                    x => gate.Evaluate(JoinGateRequest(x, null) with { MaxRows = null }),
+                    loggerFactory.CreateLogger<InMemoryDatabaseManager>(),
+                    paging,
+                    cancellationToken);
+            }
+            catch (InMemoryJoinTimeoutException)
+            {
+                throw new BeaconException(FinalQueryTimedOutMessage);
+            }
+
             totalExecutionTime += stopwatch.Elapsed.TotalMilliseconds;
             result = ToResultPage(page, paging);
         }

@@ -42,7 +42,13 @@ internal partial class MigrationService
         }
     }
 
-    private async Task ValidateDestinationTable(DbConnection connection, string? schema, string table, DatabaseEngineType engineType)
+    private async Task ValidateDestinationTable(
+        DbConnection connection,
+        DbTransaction transaction,
+        string? schema,
+        string table,
+        DatabaseEngineType engineType,
+        CancellationToken cancellationToken)
     {
         var tableName = schema == null ? table : $"{schema}.{table}";
         try
@@ -71,7 +77,7 @@ internal partial class MigrationService
                 _ => throw new NotSupportedException($"Database engine type '{engineType}' is not supported")
             };
 
-            var exists = await connection.ExecuteScalarAsync<bool>(checkQuery);
+            var exists = await connection.ExecuteScalarAsync<bool>(new CommandDefinition(checkQuery, transaction: transaction, cancellationToken: cancellationToken));
             if (!exists)
             {
                 throw new InvalidOperationException($"Table '{tableName}' does not exist in the destination database");
@@ -81,6 +87,42 @@ internal partial class MigrationService
         {
             throw new InvalidOperationException($"Failed to validate destination table '{tableName}': {ex.Message}", ex);
         }
+    }
+
+    // The first schema of the connection's search_path (current_schemas, without the implicit pg_catalog and temporary
+    // schemas) that holds a table of this exact name.
+    private const string PostgreSqlSearchPathSchemaQuery = @"SELECT t.table_schema
+        FROM information_schema.tables t
+        JOIN unnest(current_schemas(false)) WITH ORDINALITY AS s(schema_name, position) ON s.schema_name::text = t.table_schema::text
+        WHERE t.table_name = @table
+        ORDER BY s.position
+        LIMIT 1";
+
+    /// <summary>
+    /// The schema PostgreSQL resolves the unqualified <paramref name="table"/> to on the connection's search_path, read
+    /// inside the run's <paramref name="transaction"/>; a table
+    /// on no schema of the path does not exist for the run, wherever else a table of that name is.
+    /// </summary>
+    private async Task<string> ResolvePostgreSqlSchemaAsync(DbConnection connection, DbTransaction transaction, string table, CancellationToken cancellationToken)
+    {
+        string? schema;
+        try
+        {
+            schema = await connection.ExecuteScalarAsync<string?>(
+                new CommandDefinition(PostgreSqlSearchPathSchemaQuery, new { table }, transaction, cancellationToken: cancellationToken));
+        }
+        catch (Exception ex)
+        {
+            throw new InvalidOperationException($"Failed to resolve the schema of destination table '{table}': {ex.Message}", ex);
+        }
+
+        if (schema == null)
+        {
+            throw new InvalidOperationException($"Table '{table}' does not exist in any schema on the destination connection's search_path");
+        }
+
+        // Interpolated into the writer's SQL like a schema the job names (§1.10).
+        return SqlIdentifierGuard.Validate(schema, "schema");
     }
 
     private (string? schema, string table) ParseSchemaAndTableName(string tableName)

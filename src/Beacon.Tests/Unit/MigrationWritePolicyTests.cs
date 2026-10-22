@@ -186,7 +186,38 @@ public class MigrationWritePolicyTests
         _migrations.Verify(x => x.ExecuteMigrationJob(It.IsAny<ExecuteMigrationJobRequest>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
-    private async Task<CreateMigrationJobResult> CreateAsync(int source, int destination, string queryText = "SELECT 1", bool enabled = true)
+    // The service answers a run of a job with a run starting or in progress without starting it; the route answers 409.
+    [Test]
+    public async Task ARunTheServiceDidNotStart_BecauseAnotherIsInProgress_IsAConflict()
+    {
+        _world.Serve(new List<MigrationJob> { Job(1, ReadSource, WriteTarget) });
+        _migrations
+            .Setup(x => x.ExecuteMigrationJob(It.IsAny<ExecuteMigrationJobRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ExecuteMigrationJobResponse(0, MigrationStatus.Failed, ErrorMessage: "another run") { RunInProgress = true });
+
+        var run = () => RunAsync(1);
+
+        await run.Should().ThrowAsync<BeaconConflictException>().WithMessage("another run");
+    }
+
+    // A setting Beacon would not act on is refused with the reason before anything is checked or stored.
+    [TestCase(99, 30, "*mode*")]
+    [TestCase(1, 0, "*Timeout*")]
+    public async Task CreatingAJob_WithAnUnsupportedSetting_IsRefusedWithTheReason(int mode, int timeoutMinutes, string reason)
+    {
+        var create = () => CreateAsync(ReadSource, WriteTarget, mode: (MigrationMode)mode, timeoutMinutes: timeoutMinutes);
+
+        await create.Should().ThrowAsync<InvalidOperationException>().WithMessage(reason);
+        _migrations.Verify(x => x.CreateMigrationJob(It.IsAny<CreateMigrationJobRequest>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    private async Task<CreateMigrationJobResult> CreateAsync(
+        int source,
+        int destination,
+        string queryText = "SELECT 1",
+        bool enabled = true,
+        MigrationMode mode = MigrationMode.Insert,
+        int timeoutMinutes = 30)
     {
         await using var provider = Services(enabled);
         await using var scope = provider.CreateAsyncScope();
@@ -196,7 +227,7 @@ public class MigrationWritePolicyTests
             scope.ServiceProvider.GetRequiredService<MigrationWritePolicy>());
 
         return await handler.Handle(
-            new CreateMigrationJobCommand("copy", "copy rows", source, queryText, destination, "target"),
+            new CreateMigrationJobCommand("copy", "copy rows", source, queryText, destination, "target", mode, TimeoutMinutes: timeoutMinutes),
             CancellationToken.None);
     }
 

@@ -58,6 +58,13 @@ public class LlmRequestQueue
 
     private static bool IsRetryable(Exception ex)
     {
+        // A failure with an HTTP status comes from a provider that applied its own retry policy and stopped (the
+        // OpenAI-compatible provider retries 408, 429 and 5xx and honours Retry-After): retrying here would override it.
+        if (ex is HttpRequestException { StatusCode: not null })
+        {
+            return false;
+        }
+
         // Retry on rate limit, timeout, or transient network errors
         var message = ex.Message.ToLowerInvariant();
         return message.Contains("rate limit") ||

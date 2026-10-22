@@ -1,6 +1,7 @@
 using System.Net.Http.Headers;
 using System.Text;
 using Beacon.Connector.Api.Models;
+using Beacon.Core.Models;
 
 namespace Beacon.Connector.Api.Services;
 
@@ -90,6 +91,58 @@ public static class ApiHttpClientHelper
                 break;
         }
     }
+
+    /// <summary>
+    /// Reads the body of a response that was fetched with <see cref="HttpCompletionOption.ResponseHeadersRead"/>, refusing
+    /// one larger than <paramref name="maxBytes"/> (by its declared length, or as soon as more arrives) with a message that
+    /// names <paramref name="what"/> and the limit only.
+    /// </summary>
+    internal static async Task<MemoryStream> ReadCappedAsync(HttpResponseMessage response, long maxBytes, string what, CancellationToken cancellationToken)
+    {
+        if (response.Content.Headers.ContentLength > maxBytes)
+        {
+            throw TooLarge(what, maxBytes);
+        }
+
+        await using var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
+        var body = new MemoryStream();
+        var chunk = new byte[81920];
+        int read;
+        while ((read = await stream.ReadAsync(chunk, cancellationToken)) > 0)
+        {
+            if (body.Length + read > maxBytes)
+            {
+                throw TooLarge(what, maxBytes);
+            }
+
+            body.Write(chunk, 0, read);
+        }
+
+        body.Position = 0;
+        return body;
+    }
+
+    /// <summary>The encoding the response's Content-Type names, or UTF-8 when it names none or one .NET does not know.</summary>
+    internal static Encoding EncodingOf(HttpContent content)
+    {
+        var charset = content.Headers.ContentType?.CharSet?.Trim('"');
+        if (string.IsNullOrWhiteSpace(charset))
+        {
+            return Encoding.UTF8;
+        }
+
+        try
+        {
+            return Encoding.GetEncoding(charset);
+        }
+        catch (ArgumentException)
+        {
+            return Encoding.UTF8;
+        }
+    }
+
+    private static BeaconException TooLarge(string what, long maxBytes) =>
+        new($"The {what} is larger than the {maxBytes / (1024 * 1024)} MB Beacon reads.");
 
     private static string BuildUrl(string baseUrl, string path, ApiQueryParameters? parameters)
     {

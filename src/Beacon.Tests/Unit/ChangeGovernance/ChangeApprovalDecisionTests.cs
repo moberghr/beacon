@@ -209,6 +209,20 @@ public class ChangeApprovalDecisionTests
     }
 
     [Test]
+    public async Task TheDetail_OfADecidedRequest_NamesTheReviewerByUsersId()
+    {
+        var (store, _, request) = PendingJob(requestedBy: "ext-ben");
+        store.User(3, Ada, "Ada Lovelace");
+        request.Status = ApprovalStatus.Approved;
+        request.ReviewedByUserId = Ada;
+        request.ReviewedByUserName = "Ada Lovelace";
+
+        var detail = await Service(store).GetDetailAsync(request.Id, ChangeApprovalScope.Approver, CancellationToken.None);
+
+        detail!.ReviewedByBeaconUserId.Should().Be(3);
+    }
+
+    [Test]
     public async Task TheDetail_ShowsTheProposedJob_WithItsDataSourceNames_AndNoOtherKind()
     {
         var store = new ChangeApprovalStore();

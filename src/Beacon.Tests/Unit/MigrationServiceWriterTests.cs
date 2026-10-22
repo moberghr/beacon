@@ -61,7 +61,7 @@ public class MigrationServiceWriterTests
         _writer = new RecordingMigrationWriter(DatabaseEngineType.PostgreSQL);
         _encryption = new Mock<IEncryptionService>();
         _encryption.Setup(x => x.Decrypt(It.IsAny<string>())).Returns("Host=unused;Database=unused");
-        Destination(new RecordingDbConnection { Scalar = _ => true });
+        Destination(new RecordingDbConnection { Scalar = OnSearchPath });
     }
 
     [TearDown]
@@ -88,7 +88,7 @@ public class MigrationServiceWriterTests
         {
             x.Target.Connection.Should().BeSameAs(_destination);
             x.Target.Transaction.Should().BeSameAs(transaction);
-            x.Target.Schema.Should().BeNull();
+            x.Target.Schema.Should().Be("public", "a PostgreSQL table without a schema is resolved on the search_path");
             x.Target.Table.Should().Be("target");
             x.Target.CommandTimeoutSeconds.Should().Be(Constants.Migration.BulkCopyTimeoutSeconds);
         });
@@ -181,7 +181,7 @@ public class MigrationServiceWriterTests
         var lookup = _destination.Executions.Single(x => x.CommandText.Contains(PrimaryKeyLookup, StringComparison.Ordinal));
         lookup.Transaction.Should().NotBeNull().And.BeSameAs(upsert.Target.Transaction);
         lookup.Parameters.Should().ContainSingle(x => x.ParameterName == "tableName")
-            .Which.Value.Should().Be("\"target\"", "the table resolves by its quoted name, exactly as entered");
+            .Which.Value.Should().Be("\"public\".\"target\"", "the table resolves by its quoted name, exactly as entered, in the schema the search_path finds it in");
         _destination.Commits.Should().Be(1);
     }
 
@@ -248,7 +248,7 @@ public class MigrationServiceWriterTests
     {
         Job(MigrationMode.Upsert);
         SourceRows();
-        Destination(new RecordingDbConnection { Scalar = _ => true, RowCount = 0 });
+        Destination(new RecordingDbConnection { Scalar = OnSearchPath, RowCount = 0 });
 
         var result = await Service().ExecuteMigrationJob(Run(), CancellationToken.None);
 
@@ -393,14 +393,14 @@ public class MigrationServiceWriterTests
         Job(MigrationMode.Upsert);
         Destination(new RecordingDbConnection
         {
-            Scalar = _ => true,
+            Scalar = OnSearchPath,
             FailOnCommandText = x => x.Contains(PrimaryKeyLookup, StringComparison.Ordinal)
         });
 
         var result = await Service().ExecuteMigrationJob(Run(), CancellationToken.None);
 
         result.Status.Should().Be(MigrationStatus.Failed);
-        result.ErrorMessage.Should().Contain("Failed to read the primary key of table 'target'");
+        result.ErrorMessage.Should().Contain("Failed to read the primary key of table 'public.target'");
         _writer.Calls.Should().BeEmpty();
         _destination.Commits.Should().Be(0);
         _destination.Rollbacks.Should().Be(1);
@@ -410,12 +410,12 @@ public class MigrationServiceWriterTests
     public async Task UpsertIntoATableWithoutAPrimaryKey_FailsTheRun()
     {
         Job(MigrationMode.Upsert);
-        Destination(new RecordingDbConnection { Scalar = _ => true, RowCount = 0 });
+        Destination(new RecordingDbConnection { Scalar = OnSearchPath, RowCount = 0 });
 
         var result = await Service().ExecuteMigrationJob(Run(), CancellationToken.None);
 
         result.Status.Should().Be(MigrationStatus.Failed);
-        result.ErrorMessage.Should().Contain("Table 'target' has no primary key");
+        result.ErrorMessage.Should().Contain("Table 'public.target' has no primary key");
         _writer.Calls.Should().BeEmpty();
         _destination.Commits.Should().Be(0);
     }
@@ -485,11 +485,154 @@ public class MigrationServiceWriterTests
         _writer.Calls.Should().BeEmpty();
     }
 
+    // PostgreSQL finds a table named without a schema through the connection's search_path: the run resolves the schema
+    // there once (the first schema of current_schemas that holds the table), and the existence check, the key lookup and
+    // the writer all name that table.
+    [Test]
+    public async Task APostgreSqlTableWithoutASchema_IsResolvedOnTheSearchPath_ForTheCheck_TheKeyLookup_AndTheWriter()
+    {
+        var destination = new RecordingDbConnection
+        {
+            Scalar = x => x.Contains("current_schemas", StringComparison.Ordinal) ? "sales" : true,
+            RowCount = 1,
+            ColumnsFor = x => x.Contains(PrimaryKeyLookup, StringComparison.Ordinal) ? [("attname", _ => "id")] : null
+        };
+        Destination(destination);
+        Job(MigrationMode.Upsert, "orders");
+
+        var result = await Service().ExecuteMigrationJob(Run(), CancellationToken.None);
+
+        result.Status.Should().Be(MigrationStatus.Completed, result.ErrorMessage);
+        var resolution = destination.Executions.Single(x => x.CommandText.Contains("current_schemas(false)", StringComparison.Ordinal));
+        resolution.Parameters.Should().ContainSingle().Which.Value.Should().Be("orders");
+        var writeTransaction = _writer.Calls.Single().Target.Transaction;
+        resolution.Transaction.Should().NotBeNull().And.BeSameAs(writeTransaction, "the name is resolved inside the run's transaction");
+        var existence = destination.Executions.Single(x => x.CommandText.Contains("information_schema.tables", StringComparison.Ordinal) && !x.CommandText.Contains("current_schemas", StringComparison.Ordinal));
+        existence.CommandText.Should().Contain("table_schema = 'sales'", "the existence check names the resolved schema, not any schema");
+        existence.Transaction.Should().BeSameAs(writeTransaction);
+        destination.Executions.Single(x => x.CommandText.Contains(PrimaryKeyLookup, StringComparison.Ordinal))
+            .Parameters.Should().ContainSingle(x => x.ParameterName == "tableName")
+            .Which.Value.Should().Be("\"sales\".\"orders\"");
+        _writer.Calls.Single().Target.Should().Match<MigrationWriteTarget>(x => x.Schema == "sales" && x.Table == "orders");
+    }
+
+    [Test]
+    public async Task APostgreSqlTableWithoutASchema_NotOnTheSearchPath_FailsTheRun_BeforeAnythingIsWritten()
+    {
+        Destination(new RecordingDbConnection { Scalar = x => x.Contains("current_schemas", StringComparison.Ordinal) ? DBNull.Value : true });
+        Job(MigrationMode.Truncate, "orders");
+
+        var result = await Service().ExecuteMigrationJob(Run(), CancellationToken.None);
+
+        result.Status.Should().Be(MigrationStatus.Failed);
+        result.ErrorMessage.Should().Contain("does not exist");
+        _writer.Calls.Should().BeEmpty();
+        _destination.Commits.Should().Be(0);
+    }
+
+    // The run takes its job's destination lock first, inside its transaction and without waiting, with the job's key as a
+    // parameter: a PostgreSQL transaction-scoped advisory lock.
+    [Test]
+    public async Task APostgreSqlRun_TakesTheJobsAdvisoryLock_InsideItsTransaction_BeforeAnythingElse()
+    {
+        Job(MigrationMode.Insert);
+
+        var result = await Service().ExecuteMigrationJob(Run(), CancellationToken.None);
+
+        result.Status.Should().Be(MigrationStatus.Completed, result.ErrorMessage);
+        var acquire = _destination.Executions.First();
+        acquire.CommandText.Should().Be("SELECT pg_try_advisory_xact_lock(@lockNamespace, @jobId)");
+        acquire.Transaction.Should().NotBeNull().And.BeSameAs(_writer.Calls.Single().Target.Transaction);
+        acquire.Parameters.Should().ContainSingle(x => x.ParameterName == "jobId").Which.Value.Should().Be(JobId);
+    }
+
+    [Test]
+    public async Task ASqlServerRun_TakesTheJobsApplicationLock_OwnedByItsTransaction()
+    {
+        _world.DataSources.First(x => x.Id == WriteTarget).DatabaseEngineType = DatabaseEngineType.MSSQL;
+        Job(MigrationMode.Insert, "sales.orders");
+        var sqlServerWriter = new RecordingMigrationWriter(DatabaseEngineType.MSSQL);
+        var destination = new RecordingDbConnection { Scalar = x => x.Contains("sp_getapplock", StringComparison.Ordinal) ? 0 : 1 };
+        DbConnectionFactory.Register(DatabaseEngineType.MSSQL, _ => destination);
+
+        var result = await Service(MigrationTestWriters.Of(sqlServerWriter)).ExecuteMigrationJob(Run(), CancellationToken.None);
+
+        result.Status.Should().Be(MigrationStatus.Completed, result.ErrorMessage);
+        var acquire = destination.Executions.First();
+        acquire.CommandText.Should().Contain("sp_getapplock @Resource = @lockResource, @LockMode = 'Exclusive', @LockOwner = 'Transaction', @LockTimeout = 0");
+        acquire.Transaction.Should().NotBeNull().And.BeSameAs(sqlServerWriter.Calls.Single().Target.Transaction);
+        acquire.Parameters.Should().ContainSingle(x => x.ParameterName == "lockResource").Which.Value.Should().Be($"beacon-migration-{JobId}");
+    }
+
+    // MySQL's lock is the session's: taken without waiting before the write, released after the transaction ended.
+    [Test]
+    public async Task AMySqlRun_TakesTheJobsNamedLock_AndReleasesItAfterTheCommit()
+    {
+        var mySqlWriter = new RecordingMigrationWriter(DatabaseEngineType.MySQL);
+        var destination = MySqlDestination(new RecordingDbConnection { Scalar = _ => 1L });
+        Job(MigrationMode.Insert);
+
+        var result = await Service(MigrationTestWriters.Of(mySqlWriter)).ExecuteMigrationJob(Run(), CancellationToken.None);
+
+        result.Status.Should().Be(MigrationStatus.Completed, result.ErrorMessage);
+        destination.ExecutedCommands.First().Should().Be("SELECT GET_LOCK(@lockResource, 0)");
+        destination.ExecutedCommands.Last().Should().Be("SELECT RELEASE_LOCK(@lockResource)");
+        destination.Executions.Last().Parameters.Should().ContainSingle().Which.Value.Should().Be($"beacon-migration-{JobId}");
+        destination.Commits.Should().Be(1);
+    }
+
+    [TestCase(DatabaseEngineType.PostgreSQL)]
+    [TestCase(DatabaseEngineType.MSSQL)]
+    [TestCase(DatabaseEngineType.MySQL)]
+    public async Task ARunWhoseDestinationLockIsHeld_FailsAndWritesNothing(DatabaseEngineType engine)
+    {
+        object? busy = engine switch
+        {
+            DatabaseEngineType.PostgreSQL => false,
+            DatabaseEngineType.MSSQL => -1,
+            _ => 0L
+        };
+        var destination = new RecordingDbConnection
+        {
+            Scalar = x => x.Contains("lock", StringComparison.OrdinalIgnoreCase) && !x.Contains("RELEASE", StringComparison.Ordinal) ? busy : OnSearchPath(x)
+        };
+        _world.DataSources.First(x => x.Id == WriteTarget).DatabaseEngineType = engine;
+        DbConnectionFactory.Register(engine, _ => destination);
+        var writer = new RecordingMigrationWriter(engine);
+        Job(MigrationMode.Truncate);
+
+        var result = await Service(MigrationTestWriters.Of(writer)).ExecuteMigrationJob(Run(), CancellationToken.None);
+
+        result.Status.Should().Be(MigrationStatus.Failed);
+        result.ErrorMessage.Should().Be(MigrationService.DestinationBusyMessage);
+        writer.Calls.Should().BeEmpty();
+        destination.Commits.Should().Be(0);
+        destination.ExecutedCommands.Should().NotContain(x => x.Contains("RELEASE_LOCK", StringComparison.Ordinal), "a lock not taken is not released");
+    }
+
+    // A commit that fails leaves it unknown whether the rows were written: the run says so, and is not rolled back.
+    [Test]
+    public async Task ACommitThatFails_IsRecordedAsUnconfirmed_AndNotRolledBack()
+    {
+        Destination(new RecordingDbConnection { Scalar = OnSearchPath, FailCommitWith = new InvalidOperationException("the network went away") });
+        Job(MigrationMode.Insert);
+
+        var result = await Service().ExecuteMigrationJob(Run(), CancellationToken.None);
+
+        result.Status.Should().Be(MigrationStatus.Failed);
+        result.ErrorMessage.Should().Be(MigrationService.CommitUnknownMessage);
+        _destination.Rollbacks.Should().Be(0);
+    }
+
+    // The schema PostgreSQL resolves a name to, for a table that is on the search_path, and true for every other check.
+    private static object? OnSearchPath(string sql) =>
+        sql.Contains("current_schemas", StringComparison.Ordinal) ? "public" : true;
+
     private static RecordingDbConnection WithPrimaryKey(string column)
     {
         return new RecordingDbConnection
         {
-            Scalar = _ => true,
+            Scalar = OnSearchPath,
             RowCount = 1,
             ColumnsFor = x => x.Contains(PrimaryKeyLookup, StringComparison.Ordinal) ? [("attname", _ => column)] : null
         };

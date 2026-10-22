@@ -1,4 +1,5 @@
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Models;
 using Beacon.Core.Models.DataMigration;
 using Beacon.Core.Services;
 using MediatR;
@@ -33,6 +34,12 @@ internal sealed class RunMigrationJobHandler(
                 IsManualExecution: true,
                 ExecutionContext: "manual-ui"),
             cancellationToken);
+
+        // A job runs once at a time: a run refused because another is starting or in progress is a conflict to retry later.
+        if (response.RunInProgress)
+        {
+            throw new BeaconConflictException(response.ErrorMessage ?? MigrationService.RunInProgressMessage);
+        }
 
         return new RunMigrationJobResult(
             response.ExecutionId,

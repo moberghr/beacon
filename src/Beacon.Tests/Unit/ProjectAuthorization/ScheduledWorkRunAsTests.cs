@@ -556,6 +556,7 @@ public class ScheduledWorkRunAsTests
             Mock.Of<IQueryVersionService>(),
             new Beacon.Core.BeaconConfiguration(),
             new RecordingSecurityAudit(),
+            SubscriptionScheduleCheck.Default,
             NullLogger<AiActorService>.Instance,
             null,
             null,

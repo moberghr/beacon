@@ -58,6 +58,72 @@ public class ExecutionLimitOptionsTests
         }
     }
 
+    [TestCase(0, false)]
+    [TestCase(1, true)]
+    [TestCase(1440, true)]
+    [TestCase(1441, false)]
+    public void ASubscriptionsMinInterval_IsAcceptedFromOneMinuteToOneDay(int minutes, bool valid)
+    {
+        var result = new SubscriptionOptionsValidator().Validate(null, new SubscriptionOptions { MinIntervalMinutes = minutes });
+
+        result.Succeeded.Should().Be(valid);
+        if (!valid)
+        {
+            result.FailureMessage.Should().Contain("Beacon:Subscriptions:MinIntervalMinutes");
+        }
+    }
+
+    [TestCase(65_535, false)]
+    [TestCase(65_536, true)]
+    [TestCase(104_857_600, true)]
+    [TestCase(104_857_601, false)]
+    public void ASubscriptionsAttachmentCap_IsAcceptedFrom64KbTo100Mb(int bytes, bool valid)
+    {
+        var result = new SubscriptionOptionsValidator().Validate(null, new SubscriptionOptions { MaxAttachmentBytes = bytes });
+
+        result.Succeeded.Should().Be(valid);
+        if (!valid)
+        {
+            result.FailureMessage.Should().Contain("Beacon:Subscriptions:MaxAttachmentBytes");
+        }
+    }
+
+    [Test]
+    public void TheSubscriptionDefaults_AreFiveMinutes_AndTenMegabytes()
+    {
+        var subscriptions = new SubscriptionOptions();
+
+        subscriptions.MinIntervalMinutes.Should().Be(5);
+        subscriptions.MaxAttachmentBytes.Should().Be(10 * 1024 * 1024);
+    }
+
+    [Test]
+    public async Task TheConfiguredSubscriptionLimits_AreBound()
+    {
+        await using var provider = Build(new Dictionary<string, string?>
+        {
+            ["Beacon:Subscriptions:MinIntervalMinutes"] = "15",
+            ["Beacon:Subscriptions:MaxAttachmentBytes"] = "1048576"
+        });
+        await using var scope = provider.CreateAsyncScope();
+
+        var subscriptions = scope.ServiceProvider.GetRequiredService<IOptions<SubscriptionOptions>>().Value;
+
+        subscriptions.MinIntervalMinutes.Should().Be(15);
+        subscriptions.MaxAttachmentBytes.Should().Be(1_048_576);
+    }
+
+    [Test]
+    public async Task ASubscriptionLimitOutOfRange_FailsWhenTheServicesAreBuilt()
+    {
+        await using var provider = Build(new Dictionary<string, string?> { ["Beacon:Subscriptions:MinIntervalMinutes"] = "0" });
+        await using var scope = provider.CreateAsyncScope();
+
+        var act = () => scope.ServiceProvider.GetRequiredService<IOptions<SubscriptionOptions>>().Value;
+
+        act.Should().Throw<OptionsValidationException>().WithMessage("*Beacon:Subscriptions:MinIntervalMinutes*");
+    }
+
     [Test]
     public void TheDefaults_AreAHundredThousandRows_TwoMinutes_AndMigrationsOff()
     {

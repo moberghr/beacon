@@ -381,7 +381,8 @@ public class ReadOnlyExecutionRoutingTests
     }
 
     // Synapse (dedicated and serverless pools differ in what transactions they allow) and Snowflake have no read-only
-    // session: their read-only path runs the statement plainly, and a read-only login is the only database-side check.
+    // session: their read-only path runs the statement plainly (Snowflake inside its session statement timeout, set and
+    // reset around it), and a read-only login is the only database-side check.
     [TestCase(DatabaseEngineType.AzureSynapse)]
     [TestCase(DatabaseEngineType.Snowflake)]
     public async Task DatabaseProvider_EngineWithoutReadOnlySession_ExecuteReadOnlyQueryAsync_RunsPlain(DatabaseEngineType engine)
@@ -393,7 +394,10 @@ public class ReadOnlyExecutionRoutingTests
             EngineDataSource(engine), "SELECT 1", new Dictionary<string, object?>(), CancellationToken.None);
 
         result.Success.Should().BeTrue(result.ErrorMessage);
-        connection.ExecutedCommands.Should().Equal("SELECT 1");
+        string[] expected = engine == DatabaseEngineType.Snowflake
+            ? [$"ALTER SESSION SET STATEMENT_TIMEOUT_IN_SECONDS = {TestQueryServices.QueryOptions.Value.StatementTimeoutSeconds}", "SELECT 1", "ALTER SESSION UNSET STATEMENT_TIMEOUT_IN_SECONDS"]
+            : ["SELECT 1"];
+        connection.ExecutedCommands.Should().Equal(expected);
         connection.BegunTransaction.Should().BeNull();
         CreateDatabaseProvider().SupportsDatabaseReadOnlyEnforcement(engine).Should().BeFalse();
     }

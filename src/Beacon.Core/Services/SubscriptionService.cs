@@ -1,6 +1,5 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
-using Cronos;
 using Beacon.Core.Authorization;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
@@ -43,7 +42,8 @@ internal class SubscriptionService(
     BeaconConfiguration configuration,
     IOptions<QueryExecutionOptions> queryOptions,
     ISecurityAuditRecorder securityAudit,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    IOptions<SubscriptionOptions>? subscriptionOptions = null)
     : ISubscriptionService
 {
     public async Task<BaseResponse> CreateSubscription(SubscriptionData subscriptionData, CancellationToken cancellationToken)
@@ -57,7 +57,7 @@ internal class SubscriptionService(
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        CronExpression.Parse(subscriptionData.CronExpression);
+        EnsureScheduleWithinTheMinimumInterval(subscriptionData.CronExpression);
 
         var queryParams = await context.QuerySteps
             .Where(qs => qs.QueryId == subscriptionData.QueryId)
@@ -220,7 +220,7 @@ internal class SubscriptionService(
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        CronExpression.Parse(subscriptionData.CronExpression);
+        SubscriptionSchedule.EnsureValid(subscriptionData.CronExpression);
 
         var subscription = await context.Subscriptions
             .Include(x => x.Parameters)
@@ -228,6 +228,12 @@ internal class SubscriptionService(
             .Where(x => x.Id == subscriptionData.SubscriptionId)
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new InvalidOperationException($"Subscription {subscriptionData.SubscriptionId} not found.");
+
+        // The minimum interval holds for a changed schedule only: a subscription stored with a faster one stays editable.
+        if (subscription.CronExpression != subscriptionData.CronExpression)
+        {
+            EnsureScheduleWithinTheMinimumInterval(subscriptionData.CronExpression);
+        }
 
         var queryParams = await context.QueryParameters
             .Where(x => x.QueryId == subscription.QueryId)
@@ -486,6 +492,14 @@ internal class SubscriptionService(
 
             throw;
         }
+    }
+
+    // A schedule that fires more often than Beacon:Subscriptions:MinIntervalMinutes is refused on create and when an update
+    // changes it. A subscription stored before keeps its schedule, through edits of anything else and a reactivation.
+    private void EnsureScheduleWithinTheMinimumInterval(string cronExpression)
+    {
+        var minIntervalMinutes = (subscriptionOptions?.Value ?? new SubscriptionOptions()).MinIntervalMinutes;
+        SubscriptionSchedule.EnsureAllowed(cronExpression, minIntervalMinutes, timeProvider.GetUtcNow().UtcDateTime);
     }
 
     private static void EnsureMaxRowsIsPositive(int? maxRows)

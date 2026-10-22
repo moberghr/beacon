@@ -1,3 +1,4 @@
+using System.Data;
 using System.Dynamic;
 using System.Text.Json;
 using Dapper;
@@ -11,8 +12,10 @@ using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities.DataMigration;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.DataMigration;
 using Beacon.Core.HostData;
 using Beacon.Core.Helpers;
+using Beacon.Core.Models;
 using Beacon.Core.Models.DataMigration;
 using Beacon.Core.SecurityAudit;
 
@@ -27,7 +30,8 @@ public interface IMigrationService
 }
 
 /// <summary>
-/// Migration jobs and their runs. A run reads its source through the temporary-query path (the execution gate and the
+/// Migration jobs and their runs. A job runs once at a time (a run of a job with a run in progress is refused, 409) and is
+/// stopped after its timeout (<see cref="MigrationJobSettings"/>). A run reads its steps in-process, storing no query (the execution gate and the
 /// read-only provider path), within its own row budget (<see cref="MigrationOptions.MaxRows"/>), and writes only to a
 /// migration write target (<see cref="MigrationWriteTargets"/>), connecting with that data source's credentials — the only
 /// place Beacon connects with them. Nothing is created or run while the deployment does not run migrations
@@ -53,6 +57,32 @@ internal partial class MigrationService(
     /// <summary>Why a run of a job whose definition is not approved is refused (the failed run's message).</summary>
     internal const string NotApprovedMessage =
         "Not run: the job's definition waits for approval. A second person approves it on the approvals page; until then the job does not run.";
+
+    /// <summary>Why a run of a job that already has a run starting or in progress does not start (409 on the route).</summary>
+    internal const string RunInProgressMessage =
+        "Not run: another run of this job is starting or in progress. Wait for it to end, then run the job again.";
+
+    /// <summary>What a Running row left by a host that stopped during the run is closed with.</summary>
+    internal const string AbandonedRunMessage =
+        "Abandoned: the host stopped during the run, which never ended. Closed when the job was next run.";
+
+    /// <summary>The security event reason of a run refused because another run of the job is starting or in progress.</summary>
+    internal const string RunInProgressReason = "run_in_progress";
+
+    /// <summary>The security event reason of a run closed as abandoned.</summary>
+    internal const string AbandonedRunReason = "abandoned";
+
+    /// <summary>Why a run whose destination lock another run of the job holds wrote nothing.</summary>
+    internal const string DestinationBusyMessage =
+        "Nothing was written: another run of this job holds its destination's migration lock. Wait for it to end, then run the job again.";
+
+    internal const string DestinationBusyReason = "destination_busy";
+
+    /// <summary>What a run whose destination commit failed records: whether its rows were written is not known.</summary>
+    internal const string CommitUnknownMessage =
+        "The destination's commit could not be confirmed: check the destination table before running this job again.";
+
+    internal const string CommitUnknownReason = "commit_unknown";
 
     private readonly MigrationOptions _options = migrationOptions.Value;
 
@@ -164,65 +194,77 @@ internal partial class MigrationService(
                 return await RecordRefusedRunAsync(context, migrationJob, request, targetRefusal, "write_target_refused", cancellationToken);
             }
 
-            // Create execution record
-            var execution = new MigrationExecutionHistory
+            var modeRefusal = MigrationJobSettings.RunRefusal(migrationJob.Mode);
+            if (modeRefusal != null)
             {
-                MigrationJobId = migrationJob.Id,
-                StartedAt = DateTime.UtcNow,
-                Status = MigrationStatus.Running,
-                ExecutedQuery = migrationJob.QueryText,
-                QueryParameters = request.Parameters != null ? System.Text.Json.JsonSerializer.Serialize(request.Parameters) : null
-            };
+                logger.LogWarning("Migration job {MigrationJobId} was not run: its stored mode is not one of the three", migrationJob.Id);
 
-            // The run is on record before it touches a data source: started (by the caller, or the system for a scheduled
-            // run) in the save that creates its history row, and ended in the save that completes it.
-            context.MigrationExecutions.Add(execution);
-            await securityAudit.SaveWithEventsAsync(context, () => [JobStarted(migrationJob, execution.Id, request)], cancellationToken);
+                return await RecordRefusedRunAsync(context, migrationJob, request, modeRefusal, "unsupported_mode", cancellationToken);
+            }
+
+            // One run of a job at a time, on every host: a run of a job with a run starting or in progress does not start. It
+            // reads and writes nothing and adds no history row; the response says so (RunInProgress) and the route answers 409.
+            var execution = await StartRunAsync(context, migrationJob, request, cancellationToken);
+            if (execution == null)
+            {
+                logger.LogInformation("Migration job {MigrationJobId} was not run: another run of it is starting or in progress", migrationJob.Id);
+                await securityAudit.RecordAsync(RunInProgressRefused(migrationJob), CancellationToken.None);
+
+                return new ExecuteMigrationJobResponse(0, MigrationStatus.Failed, ErrorMessage: RunInProgressMessage) { RunInProgress = true };
+            }
+
+            // From here the run's row exists: it is closed whatever happens (a failure, the timeout, a cancelled request) and
+            // its id is the answer, so the job is never left blocked by a run that is no longer going on.
+            var timeout = MigrationJobSettings.RunTimeout(migrationJob.TimeoutMinutes);
+            using var timeoutSource = new CancellationTokenSource(timeout, timeProvider);
+            using var runSource = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeoutSource.Token);
+            var progress = new MigrationRunProgress();
+            string? failureCode = null;
+            List<string>? warnings = null;
 
             try
             {
-                // Execute the migration using existing query service
-                var migrationResult = await ExecuteMigrationInternal(migrationJob, execution, request, cancellationToken);
+                var migrationResult = await ExecuteMigrationInternal(migrationJob, execution, request, progress, runSource.Token);
 
-                // Update execution record
-                execution.CompletedAt = DateTime.UtcNow;
                 execution.Status = migrationResult.Status;
                 execution.SourceRowsRead = migrationResult.SourceRowsRead;
                 execution.DestinationRowsWritten = migrationResult.DestinationRowsWritten;
                 execution.RowsSkipped = migrationResult.RowsSkipped;
                 execution.RowsFailed = migrationResult.RowsFailed;
                 execution.ErrorMessage = migrationResult.ErrorMessage;
-
-                await securityAudit.StageAsync(context, JobRunEnded(migrationJob, execution, null), cancellationToken);
-                await context.SaveChangesAsync(cancellationToken);
-
-                logger.LogInformation("Completed migration job {Name} execution {ExecutionId} with status {Status}",
-                    migrationJob.Name, execution.Id, execution.Status);
-
-                return new ExecuteMigrationJobResponse(
-                    execution.Id,
-                    execution.Status,
-                    execution.SourceRowsRead,
-                    execution.DestinationRowsWritten,
-                    execution.RowsSkipped,
-                    execution.RowsFailed,
-                    execution.ExecutionDuration,
-                    execution.ErrorMessage,
-                    migrationResult.Warnings ?? new List<string>()
-                );
+                warnings = migrationResult.Warnings;
             }
             catch (Exception ex)
             {
-                execution.CompletedAt = DateTime.UtcNow;
+                // A run stopped by its timeout says so; once the write's commit has started, what the commit did is the outcome.
+                var timedOut = !progress.CommitStarted
+                    && timeoutSource.IsCancellationRequested
+                    && !cancellationToken.IsCancellationRequested;
+                var reported = ReportedFailure(ex);
+                failureCode = reported?.ReasonCode ?? (timedOut ? "timed_out" : null);
                 execution.Status = MigrationStatus.Failed;
-                execution.ErrorMessage = GetFullExceptionMessage(ex);
-                await securityAudit.StageAsync(context, JobRunEnded(migrationJob, execution, null), cancellationToken);
-                await context.SaveChangesAsync(cancellationToken);
+                execution.ErrorMessage = reported?.Message ?? (timedOut ? TimedOutMessage(timeout) : GetFullExceptionMessage(ex));
 
-                logger.LogError("Failed migration job {Name} execution {ExecutionId} ({Failure})", migrationJob.Name, execution.Id, FailureCodes.Describe(ex));
-
-                return new ExecuteMigrationJobResponse(execution.Id, MigrationStatus.Failed, ErrorMessage: GetFullExceptionMessage(ex));
+                logger.LogError("Failed migration job {Name} execution {ExecutionId} ({Failure}, timed out: {TimedOut})", migrationJob.Name, execution.Id, FailureCodes.Describe(ex), timedOut);
             }
+
+            execution.CompletedAt = timeProvider.GetUtcNow().UtcDateTime;
+            await CloseRunAsync(context, migrationJob, execution, failureCode);
+
+            logger.LogInformation("Migration job {Name} execution {ExecutionId} ended with status {Status}",
+                migrationJob.Name, execution.Id, execution.Status);
+
+            return new ExecuteMigrationJobResponse(
+                execution.Id,
+                execution.Status,
+                execution.SourceRowsRead,
+                execution.DestinationRowsWritten,
+                execution.RowsSkipped,
+                execution.RowsFailed,
+                execution.ExecutionDuration,
+                execution.ErrorMessage,
+                warnings ?? new List<string>()
+            );
         }
         catch (Exception ex)
         {
@@ -416,8 +458,13 @@ internal partial class MigrationService(
                 .Add("destinationDataSourceId", migrationJob.DestinationDataSourceId));
     }
 
-    // How a run ended: completed, failed (with its counts) or refused before it started (with a reason code).
-    private static SecurityAuditEntry JobRunEnded(MigrationJob migrationJob, MigrationExecutionHistory execution, string? refusalCode)
+    // How a run ended: completed, failed (with its counts, and a reason code when it timed out or was abandoned) or refused
+    // before it started (with a reason code).
+    private static SecurityAuditEntry JobRunEnded(
+        MigrationJob migrationJob,
+        MigrationExecutionHistory execution,
+        string? refusalCode,
+        string? failureCode = null)
     {
         var outcome = refusalCode != null
             ? SecurityAuditOutcomes.Refused
@@ -434,8 +481,181 @@ internal partial class MigrationService(
                 .Add("sourceRowsRead", execution.SourceRowsRead)
                 .Add("destinationRowsWritten", execution.DestinationRowsWritten)
                 .Add("rowsFailed", execution.RowsFailed)
-                .AddCode("reason", refusalCode));
+                .AddCode("reason", refusalCode ?? failureCode));
     }
+
+    // A run refused because the job has a run starting or in progress: no run row exists, so the event names none.
+    private static SecurityAuditEntry RunInProgressRefused(MigrationJob migrationJob)
+    {
+        return new SecurityAuditEntry(SecurityAuditActions.MigrationJobRunEnded)
+            .On(SecurityAuditResources.MigrationJob, migrationJob.Id)
+            .Ending(SecurityAuditOutcomes.Refused)
+            .With(new SecurityAuditDetails()
+                .Add("sourceDataSourceId", migrationJob.DataSourceId)
+                .Add("destinationDataSourceId", migrationJob.DestinationDataSourceId)
+                .AddCode("reason", RunInProgressReason));
+    }
+
+    // The run's history row, saved as Running only while the job has no run in progress; null when it has one. The check and
+    // the save share one serializable transaction, so two hosts that start the same job at once cannot both pass it: the
+    // database refuses one of them, whose claim is tried once more (and then finds the other's run). A Running row older
+    // than a run can last (the job's timeout and a margin) was left by a host that stopped during the run: it is closed
+    // as abandoned in the same transaction and blocks nothing.
+    private async Task<MigrationExecutionHistory?> StartRunAsync(
+        BeaconContext context,
+        MigrationJob migrationJob,
+        ExecuteMigrationJobRequest request,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            return await ClaimRunAsync(context, migrationJob, request, cancellationToken);
+        }
+        catch (Exception ex) when (DbSerializationConflict.IsSerializationConflict(ex))
+        {
+            logger.LogInformation("Migration job {MigrationJobId}: a concurrent start conflicted with this run's; trying once more", migrationJob.Id);
+        }
+
+        try
+        {
+            return await ClaimRunAsync(context, migrationJob, request, cancellationToken);
+        }
+        catch (Exception ex) when (DbSerializationConflict.IsSerializationConflict(ex))
+        {
+            return null;
+        }
+    }
+
+    // One claim, through the execution strategy (a host that enables retry-on-failure gets a retried unit, which starts from
+    // a clean tracker and a new row). Once the row is saved the commit is not cancelled: a claim committed for a request
+    // that is gone would leave a Running row nobody closes.
+    private async Task<MigrationExecutionHistory?> ClaimRunAsync(
+        BeaconContext context,
+        MigrationJob migrationJob,
+        ExecuteMigrationJobRequest request,
+        CancellationToken cancellationToken)
+    {
+        var strategy = context.Database.CreateExecutionStrategy();
+
+        return await strategy.ExecuteAsync(async () =>
+        {
+            context.ChangeTracker.Clear();
+            await using var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+
+            var startedAt = timeProvider.GetUtcNow().UtcDateTime;
+            var inProgressSince = startedAt - MigrationJobSettings.RunInProgressWindow(migrationJob.TimeoutMinutes);
+            var running = await context.MigrationExecutions
+                .Where(x => x.MigrationJobId == migrationJob.Id)
+                .Where(x => x.Status == MigrationStatus.Running)
+                .ToListAsync(cancellationToken);
+            if (running.Any(x => x.StartedAt > inProgressSince))
+            {
+                return null;
+            }
+
+            foreach (var abandoned in running)
+            {
+                abandoned.Status = MigrationStatus.Failed;
+                abandoned.CompletedAt = startedAt;
+                abandoned.ErrorMessage = AbandonedRunMessage;
+                await securityAudit.StageAsync(context, JobRunEnded(migrationJob, abandoned, null, AbandonedRunReason), CancellationToken.None);
+            }
+
+            var execution = new MigrationExecutionHistory
+            {
+                MigrationJobId = migrationJob.Id,
+                StartedAt = startedAt,
+                Status = MigrationStatus.Running,
+                ExecutedQuery = migrationJob.QueryText,
+                QueryParameters = request.Parameters != null ? JsonSerializer.Serialize(request.Parameters) : null
+            };
+
+            // The run is on record before it touches a data source: started (by the caller, or the system for a scheduled
+            // run) in the save that creates its history row, and ended in the save that completes it.
+            context.MigrationExecutions.Add(execution);
+            await securityAudit.SaveWithEventsAsync(context, () => [JobStarted(migrationJob, execution.Id, request)], CancellationToken.None);
+            await transaction.CommitAsync(CancellationToken.None);
+
+            return execution;
+        });
+    }
+
+    // The run's row closed with what happened, and its end event, in one save. When that save fails the row is closed from a
+    // fresh context, only while it is still Running, and the event recorded on its own, so a run that ended never stays
+    // Running. Never throws: the run's outcome is the answer.
+    private async Task CloseRunAsync(BeaconContext context, MigrationJob migrationJob, MigrationExecutionHistory execution, string? failureCode)
+    {
+        try
+        {
+            await securityAudit.StageAsync(context, JobRunEnded(migrationJob, execution, null, failureCode), CancellationToken.None);
+            await context.SaveChangesAsync(CancellationToken.None);
+
+            return;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(
+                "Could not record the end of migration job {MigrationJobId} execution {ExecutionId} ({Failure}); closing its row again",
+                migrationJob.Id,
+                execution.Id,
+                FailureCodes.Describe(ex));
+        }
+
+        try
+        {
+            await using var fresh = await contextFactory.CreateDbContextAsync(CancellationToken.None);
+            var status = execution.Status;
+            var completedAt = execution.CompletedAt;
+            var sourceRowsRead = execution.SourceRowsRead;
+            var destinationRowsWritten = execution.DestinationRowsWritten;
+            var rowsSkipped = execution.RowsSkipped;
+            var rowsFailed = execution.RowsFailed;
+            var errorMessage = execution.ErrorMessage;
+            await fresh.MigrationExecutions
+                .Where(x => x.Id == execution.Id)
+                .Where(x => x.Status == MigrationStatus.Running)
+                .ExecuteUpdateAsync(x => x
+                    .SetProperty(y => y.Status, status)
+                    .SetProperty(y => y.CompletedAt, completedAt)
+                    .SetProperty(y => y.SourceRowsRead, sourceRowsRead)
+                    .SetProperty(y => y.DestinationRowsWritten, destinationRowsWritten)
+                    .SetProperty(y => y.RowsSkipped, rowsSkipped)
+                    .SetProperty(y => y.RowsFailed, rowsFailed)
+                    .SetProperty(y => y.ErrorMessage, errorMessage), CancellationToken.None);
+            await securityAudit.RecordAsync(JobRunEnded(migrationJob, execution, null, failureCode), CancellationToken.None);
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(
+                "Could not close migration job {MigrationJobId} execution {ExecutionId} ({Failure}); it counts as in progress until the job's timeout and margin pass",
+                migrationJob.Id,
+                execution.Id,
+                FailureCodes.Describe(ex));
+        }
+    }
+
+    // Whether the destination write's commit has started: from then on, what the commit did is the run's outcome.
+    private sealed class MigrationRunProgress
+    {
+        public bool CommitStarted { get; set; }
+    }
+
+    // The failure a run reports as itself (its own message and reason code), wherever it sits in the exception chain.
+    private static MigrationRunFailedException? ReportedFailure(Exception exception)
+    {
+        for (var current = exception; current != null; current = current.InnerException)
+        {
+            if (current is MigrationRunFailedException reported)
+            {
+                return reported;
+            }
+        }
+
+        return null;
+    }
+
+    private static string TimedOutMessage(TimeSpan timeout) =>
+        $"The run timed out after {timeout.TotalMinutes:0} minutes (the job's timeout) and was stopped.";
 
     // A run refused before it started, recorded as a failed run so the job's history shows why it copied nothing.
     private async Task<ExecuteMigrationJobResponse> RecordRefusedRunAsync(

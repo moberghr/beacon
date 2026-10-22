@@ -423,8 +423,7 @@ public class QueryApprovalSubmissionTests
         store.Saved.Should().BeEmpty();
     }
 
-    // With the workflow on, a query created with steps (IQueryService.CreateQuery) has nothing live until approved; a
-    // preview's temporary query is stored live whatever the workflow, since it runs once and is deleted.
+    // With the workflow on, a query created with steps (IQueryService.CreateQuery) has nothing live until approved.
     [Test]
     public async Task CreateQuery_WithTheWorkflowOn_SubmitsItsSqlAndStoresNothingLive()
     {
@@ -438,7 +437,6 @@ public class QueryApprovalSubmissionTests
         data.Name = "Late payments";
 
         var response = await service.CreateQuery(data, CancellationToken.None);
-        var temporary = await service.CreateTemporaryQuery(GovernanceStore.Edit("SELECT 3"), CancellationToken.None);
 
         response.Message.Should().Be(QueryService.NewQuerySubmittedMessage);
         versions.Verify(
@@ -448,9 +446,7 @@ public class QueryApprovalSubmissionTests
                 It.Is<QueryChangeSubmission>(y => y.RequesterUserId == "ext-ada"),
                 It.IsAny<CancellationToken>()),
             Times.Once);
-        temporary.Success.Should().BeTrue();
-        store.Saved.OfType<Query>().Should().ContainSingle("only the preview's temporary query is stored live")
-            .Which.Steps.Should().ContainSingle().Which.SqlValue.Should().Be("SELECT 3");
+        store.Saved.OfType<Query>().Should().BeEmpty("nothing is stored live until approved");
     }
 
     [Test]

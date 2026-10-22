@@ -321,7 +321,7 @@ public class StoredConnectionPathTests
     }
 
     private sealed class CountingBigQueryProvider(IDataSourceConnectionResolver resolver)
-        : BigQueryProvider(resolver, new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance), NullLogger<BigQueryProvider>.Instance)
+        : BigQueryProvider(resolver, new SqlReadOnlyAstValidator(NullLogger<SqlReadOnlyAstValidator>.Instance), NullLogger<BigQueryProvider>.Instance, Microsoft.Extensions.Options.Options.Create(new BigQueryOptions()))
     {
         public int ClientsMade { get; private set; }
 

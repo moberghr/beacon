@@ -28,18 +28,24 @@ internal sealed class StoredQuerySnapshot
 
 /// <summary>
 /// Previews of a stored query that run a <see cref="StoredQuerySnapshot"/> the caller loaded and authorized: the seam
-/// <see cref="QueryExecutionPreviewService"/> re-checks the sources through right before the SQL runs. Also stores the
-/// temporary query a preview of unsaved steps runs.
+/// <see cref="QueryExecutionPreviewService"/> re-checks the sources through right before the SQL runs. Also runs given,
+/// unsaved steps once (a migration's read) without storing them.
 /// </summary>
 internal interface IStoredQueryPreview
 {
     Task<StoredQuerySnapshot> LoadSnapshot(int queryId, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Stores the temporary query a preview of unsaved steps runs once and deletes again: live, after the checks of a save,
-    /// whatever the approval workflow (it is never versioned, scheduled or published).
+    /// Runs <paramref name="queryData"/>'s steps and final query once, in-process, after the checks of a save: nothing is
+    /// stored, so nothing is left behind and nothing can change the steps between their check and their run.
+    /// <paramref name="maxRows"/> replaces <c>Beacon:Query:MaxExecutionRows</c> as the most rows a statement may return
+    /// when given.
     /// </summary>
-    Task<BaseResponse> CreateTemporaryQuery(QueryData queryData, CancellationToken cancellationToken);
+    Task<QueryExecutionResult> ExecuteTemporaryQuery(
+        QueryData queryData,
+        List<ParameterValue>? parameters,
+        int? maxRows,
+        CancellationToken cancellationToken);
 
     /// <summary>One page of the snapshot's result (steps summarised, final or single result paged).</summary>
     Task<QueryPreviewResult> PreviewSnapshot(StoredQuerySnapshot snapshot, ListRequest paging, CancellationToken cancellationToken);

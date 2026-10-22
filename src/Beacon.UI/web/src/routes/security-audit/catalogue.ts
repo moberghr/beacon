@@ -37,6 +37,7 @@ export const SECURITY_AUDIT_CATEGORIES: readonly SecurityAuditCategory[] = [
       'identity.user_enabled',
       'identity.user_disabled',
       'identity.user_archived',
+      'identity.last_super_admin_change_refused',
       'identity.password_changed',
       'identity.password_reset',
       'identity.roles_changed',
