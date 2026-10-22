@@ -8,8 +8,10 @@ namespace Beacon.AI.Services.LlmProviders;
 /// Builds concrete <see cref="ILlmProvider"/> instances from the current
 /// <see cref="LlmConfiguration"/> snapshot returned by the supplied accessor.
 /// Each call reads the latest configuration so hot-swaps pick up new values.
-/// A provider is built only through its <see cref="ILlmProviderRegistration"/>; when two registrations
-/// claim the same provider, the one registered last is used.
+/// A provider is built only through its <see cref="ILlmProviderRegistration"/>. A registration that
+/// <c>Moberg.Beacon.AI</c> ships (OpenAI, Azure OpenAI, Claude) is used only when no other registration
+/// claims its provider, wherever <c>AddBeaconAI</c> was called; when two other registrations claim the
+/// same provider, the one registered last is used and a warning is logged.
 /// </summary>
 public class LlmProviderFactory
 {
@@ -24,9 +26,13 @@ public class LlmProviderFactory
         _configAccessor = configAccessor ?? throw new ArgumentNullException(nameof(configAccessor));
         ArgumentNullException.ThrowIfNull(registrations);
 
-        foreach (var registration in registrations)
+        // The built-ins go first, so any other registration for the same provider replaces them (stable order).
+        var ordered = registrations
+            .OrderBy(x => IsBuiltIn(x) ? 0 : 1);
+        foreach (var registration in ordered)
         {
-            if (_registrations.ContainsKey(registration.Provider))
+            if (_registrations.TryGetValue(registration.Provider, out var existing)
+                && IsBuiltIn(existing) == IsBuiltIn(registration))
             {
                 logger?.LogWarning(
                     "More than one registration claims LLM provider {Provider}; the one registered last is used.",
@@ -92,6 +98,11 @@ public class LlmProviderFactory
     internal static string NotInstalledMessage(AiProvider provider)
     {
         return $"LLM provider {provider} is not installed: reference Moberg.Beacon.AI.{provider} and call AddBeacon{provider}().";
+    }
+
+    private static bool IsBuiltIn(ILlmProviderRegistration registration)
+    {
+        return registration is IBuiltInLlmProviderRegistration;
     }
 
     private ILlmProviderRegistration RegistrationFor(AiProvider provider)

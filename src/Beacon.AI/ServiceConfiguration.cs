@@ -51,7 +51,9 @@ public static class ServiceConfiguration
         // Connection tester for the admin settings "Test connection" button
         services.AddSingleton<ILlmConnectionTester, Handlers.AdminSettings.LlmConnectionTester>();
 
-        // The providers this package ships. Provider packages add theirs (Moberg.Beacon.AI.Bedrock: AddBeaconBedrock()).
+        // The providers this package ships, each sending through its named HTTP client. Provider packages add theirs
+        // (Moberg.Beacon.AI.Bedrock: AddBeaconBedrock()); a host's own registration for a built-in provider wins.
+        services.AddLlmHttpClients();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ILlmProviderRegistration, OpenAiProviderRegistration>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ILlmProviderRegistration, ClaudeProviderRegistration>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<ILlmProviderRegistration, AzureOpenAiProviderRegistration>());
