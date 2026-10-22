@@ -52,8 +52,7 @@ public class BedrockProvider : ILlmProvider
         ArgumentNullException.ThrowIfNullOrWhiteSpace(region);
         ArgumentNullException.ThrowIfNullOrWhiteSpace(modelId);
 
-        var config = CreateConfig(region);
-        _client = new AmazonBedrockRuntimeClient(config);
+        _client = CreateClient(null, CreateConfig(region));
         _modelId = modelId;
     }
 
@@ -64,9 +63,8 @@ public class BedrockProvider : ILlmProvider
         ArgumentNullException.ThrowIfNullOrWhiteSpace(region);
         ArgumentNullException.ThrowIfNullOrWhiteSpace(modelId);
 
-        var config = CreateConfig(region);
         _explicitCredentials = new Amazon.Runtime.BasicAWSCredentials(accessKey, secretKey);
-        _client = new AmazonBedrockRuntimeClient(_explicitCredentials, config);
+        _client = CreateClient(_explicitCredentials, CreateConfig(region));
         _modelId = modelId;
     }
 
@@ -80,9 +78,8 @@ public class BedrockProvider : ILlmProvider
 
         try
         {
-            var config = CreateConfig(region);
             _explicitCredentials = new Amazon.Runtime.SessionAWSCredentials(accessKey, secretKey, sessionToken);
-            _client = new AmazonBedrockRuntimeClient(_explicitCredentials, config);
+            _client = CreateClient(_explicitCredentials, CreateConfig(region));
             _modelId = modelId;
         }
         catch (Exception ex)
@@ -106,7 +103,8 @@ public class BedrockProvider : ILlmProvider
     internal string ModelId => _modelId;
 
     // The SDK does not retry (MaxErrorRetry = 0): the request queue is the one retry layer, and TransientFailure tells it
-    // which failures may pass.
+    // which failures may pass. The client's retry policy (ClockSkewRetryPolicy, see CreateClient) only re-signs and sends
+    // once more a request refused because the local clock is off.
     internal static AmazonBedrockRuntimeConfig CreateConfig(string region)
     {
         var regionEndpoint = RegionEndpoint.GetBySystemName(region)
@@ -118,6 +116,13 @@ public class BedrockProvider : ILlmProvider
             Timeout = TimeSpan.FromMinutes(5),
             MaxErrorRetry = 0
         };
+    }
+
+    internal static IAmazonBedrockRuntime CreateClient(Amazon.Runtime.AWSCredentials? credentials, AmazonBedrockRuntimeConfig config)
+    {
+        return credentials == null
+            ? new ClockSkewCorrectingBedrockClient(config)
+            : new ClockSkewCorrectingBedrockClient(credentials, config);
     }
 
     /// <summary>
