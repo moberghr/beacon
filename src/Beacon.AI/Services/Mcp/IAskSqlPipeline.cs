@@ -76,4 +76,12 @@ public sealed record AskSqlOutcome(
     string? ClarificationHint,
     IReadOnlyList<SqlLintFinding> LintFindings,
     string? CorrectedSql,
-    IReadOnlyList<string> ColumnsUsed);
+    IReadOnlyList<string> ColumnsUsed)
+{
+    /// <summary>
+    /// Schema, dry-run and execution failures no repair was attempted for (no repair attempt or LLM call was left), each
+    /// with its redacted error, a null <see cref="AskRepairStep.RetriedSql"/> and <c>Succeeded = false</c>. Not in
+    /// <see cref="AskSqlOutcome.Repairs"/>; a caller records them as it records a repaired failure.
+    /// </summary>
+    public IReadOnlyList<AskRepairStep> UnrepairedFailures { get; init; } = [];
+}

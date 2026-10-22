@@ -1357,6 +1357,175 @@ public class ProjectAskToolRepairFlowTests
         auditLogs.Should().ContainSingle().Which.ErrorMessage.Should().Be("Cancelled by the caller.");
     }
 
+    [Test]
+    public async Task ExecuteAsync_QuestionSpanningMoreThanFourSources_FailsAuditedAndSignalled_BeforeAnyGeneration()
+    {
+        var auditLogs = new List<McpAuditLog>();
+        var signals = new List<McpQuerySignal>();
+        RoutesTo(1, 1, 2, 3, 4, 5);
+        var pipeline = new Mock<IAskSqlPipeline>();
+        var crossSource = new Mock<ICrossSourceQueryService>();
+        var tool = DataQueryTool([1, 2, 3, 4, 5], auditLogs, signals, pipeline: pipeline.Object,
+            router: new DataSourceRouter(NullLogger<DataSourceRouter>.Instance), crossSource: crossSource.Object);
+
+        var result = await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeTrue();
+        var error = result.Content.OfType<TextContentBlock>().Single().Text;
+        error.Should().Be("This question spans 5 data sources; ask can join at most 4. Narrow the question to fewer sources.");
+        auditLogs.Should().ContainSingle().Which.ErrorMessage.Should().Be(error);
+        signals.Should().ContainSingle().Which.ExecutionFailed.Should().BeTrue();
+        crossSource.VerifyNoOtherCalls();
+        pipeline.VerifyNoOtherCalls();
+    }
+
+    [Test]
+    public async Task ExecuteAsync_QuestionSpanningFourSourcesNamedTwice_IsJoined()
+    {
+        RoutesTo(1, 2, 3, 4, 4, 1);
+        var crossSource = new Mock<ICrossSourceQueryService>();
+        crossSource
+            .Setup(x => x.ExecuteAsync(It.IsAny<ILlmProvider>(), It.Is<List<RoutedSource>>(y => y.Count == 4), ProjectId, Question,
+                It.IsAny<McpSettingsData>(), true, It.IsAny<McpSignalBuilder>(), It.IsAny<AskLlmBudget?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(("joined", true));
+        var tool = DataQueryTool([1, 2, 3, 4, 5], router: new DataSourceRouter(NullLogger<DataSourceRouter>.Instance), crossSource: crossSource.Object);
+
+        var result = await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeFalse();
+        crossSource.Verify(x => x.ExecuteAsync(It.IsAny<ILlmProvider>(), It.Is<List<RoutedSource>>(y => y.Count == 4), ProjectId, Question,
+            It.IsAny<McpSettingsData>(), true, It.IsAny<McpSignalBuilder>(), It.IsAny<AskLlmBudget?>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public async Task GenerateAndExecuteSqlAsync_ExecutionErrorWithoutAnLlmCallForTheRepair_IsSignalledRedacted()
+    {
+        SetupCleanDryRun();
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, GeneratedSql, 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AskExecutionResult(null, ErrorQuotingAValue, 0, false));
+
+        var signal = await RunToolPipelineAsync(new AskLlmBudget(2), spendFirst: 1);
+
+        signal.ExecutionFailed.Should().BeTrue();
+        signal.ExecutionError.Should().Be(RedactedError);
+        signal.IsSuccessful.Should().BeFalse();
+        _sqlGeneration.Verify(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public async Task GenerateAndExecuteSqlAsync_DryRunErrorWithoutAnLlmCallForTheRepair_IsSignalledRedacted()
+    {
+        _executor
+            .Setup(x => x.DryRunAsync(DataSourceId, GeneratedSql, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(ErrorQuotingAValue);
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, GeneratedSql, 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AskExecutionResult("### Results (1 rows)\n", null, 1, true));
+
+        var signal = await RunToolPipelineAsync(new AskLlmBudget(2), spendFirst: 1);
+
+        signal.DryRunFailed.Should().BeTrue();
+        signal.DryRunError.Should().Be(RedactedError);
+        signal.ExecutionFailed.Should().BeFalse();
+    }
+
+    [Test]
+    public async Task GenerateAndExecuteSqlAsync_SchemaErrorWithoutAnLlmCallForTheRepair_IsSignalled()
+    {
+        SetupCleanDryRun();
+        UseCatalogOfOrdersWithId();
+        GeneratesForAnySettings("SELECT bogus FROM orders");
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, "SELECT bogus FROM orders", 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AskExecutionResult("### Results (1 rows)\n", null, 1, true));
+
+        var signal = await RunToolPipelineAsync(new AskLlmBudget(2), spendFirst: 1);
+
+        signal.SchemaValidationFailed.Should().BeTrue();
+        signal.SchemaValidationError.Should().Contain("bogus");
+    }
+
+    // Without an LLM budget: the schema and dry-run repairs spend both attempts, so the execution error that follows is
+    // recorded without a repair.
+    [Test]
+    public async Task GenerateAndExecuteSqlAsync_ExecutionErrorAfterTheRepairAttemptsAreSpent_IsSignalledRedacted()
+    {
+        UseCatalogOfOrdersWithId();
+        GeneratesForAnySettings("SELECT bogus FROM orders");
+        _sqlGeneration
+            .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("SELECT id FROM orders");
+        _executor
+            .Setup(x => x.DryRunAsync(DataSourceId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("42601: syntax error");
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, It.IsAny<string>(), 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AskExecutionResult(null, ErrorQuotingAValue, 0, false));
+
+        var signal = await RunToolPipelineAsync(null, spendFirst: 0);
+
+        signal.SchemaValidationFailed.Should().BeTrue();
+        signal.DryRunFailed.Should().BeTrue();
+        signal.ExecutionFailed.Should().BeTrue();
+        signal.ExecutionError.Should().Be(RedactedError);
+        _sqlGeneration.Verify(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
+    // Runs the tool's single-source path over the real pipeline (the budget, if any, with some calls already spent, as the
+    // intent classification spends one) and returns the signal it built.
+    private async Task<McpQuerySignal> RunToolPipelineAsync(AskLlmBudget? budget, int spendFirst)
+    {
+        for (var i = 0; i < spendFirst; i++)
+        {
+            budget!.Consume();
+        }
+
+        var tool = CreateAuditedTool([], [], new Mock<IServiceProvider>(), new Mock<IIntentClassifier>(), pipeline: CreatePipeline());
+        var signal = new McpSignalBuilder().SetTool("ask").SetQuestion(Question);
+
+        await tool.GenerateAndExecuteSqlAsync(
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, true, signal, budget, CancellationToken.None);
+
+        return signal
+            .SetResult(null, 1, false)
+            .Build();
+    }
+
+    private void UseCatalogOfOrdersWithId()
+    {
+        _knowledgeGraph
+            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, ProjectId, It.IsAny<string>(), true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SmartSchemaContext
+            {
+                FullContext = "schema-context",
+                DatabaseDialect = "PostgreSQL",
+                TotalTableCount = 1,
+                SchemaCatalog = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase)
+                {
+                    ["orders"] = new(StringComparer.OrdinalIgnoreCase) { "id" }
+                }
+            });
+    }
+
+    private void GeneratesForAnySettings(string sql)
+    {
+        _sqlGeneration
+            .Setup(x => x.GenerateAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>(), It.IsAny<decimal?>()))
+            .ReturnsAsync(new SqlGenerationResult(sql, ["orders"]));
+    }
+
+    private void RoutesTo(params int[] dataSourceIds)
+    {
+        var entries = string.Join(",", dataSourceIds.Select(x => $$"""{ "datasource_id": {{x}}, "datasource_name": "n", "reason": "r" }"""));
+        _llmProvider
+            .Setup(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new Beacon.Core.Models.Ai.LlmResponse { Content = $$"""{ "sources": [{{entries}}] }""" });
+    }
+
     // The real pipeline over a statement whose execution comes back failed (as a provider reports a cancelled statement)
     // after the given action ran; its repair produces nothing.
     private void SetupRealPipelineExecution(Action whileRunning)

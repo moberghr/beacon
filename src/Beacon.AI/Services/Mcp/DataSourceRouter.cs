@@ -8,9 +8,6 @@ namespace Beacon.AI.Services.Mcp;
 
 internal sealed class DataSourceRouter(ILogger<DataSourceRouter> logger) : IDataSourceRouter
 {
-    // Most sources one ask joins across: each costs a generation (and possibly repairs) and a query against its database.
-    private const int MaxRoutedSources = 4;
-
     public async Task<RoutingResult> RouteAsync(
         ILlmProvider llmProvider,
         List<DataSourceKnowledge> dataSources,
@@ -99,7 +96,8 @@ internal sealed class DataSourceRouter(ILogger<DataSourceRouter> logger) : IData
             var validIds = dataSources
                 .Select(x => x.DataSourceId)
                 .ToHashSet();
-            // Each source once, in the model's order (its first mention), and no more than MaxRoutedSources.
+            // Each source once, in the model's order (its first mention), and no more than RoutingResult.MaxSources: each
+            // costs a generation (and possibly repairs) and a query against its database. The rest are reported as dropped.
             var distinctSources = parsed.Sources
                 .Where(x => validIds.Contains(x.DatasourceId))
                 .DistinctBy(x => x.DatasourceId)
@@ -111,16 +109,16 @@ internal sealed class DataSourceRouter(ILogger<DataSourceRouter> logger) : IData
                 return new RoutingResult { Sources = [] };
             }
 
-            if (distinctSources.Count > MaxRoutedSources)
+            if (distinctSources.Count > RoutingResult.MaxSources)
             {
                 logger.LogInformation(
-                    "Routing named {Count} data sources; keeping the first {Kept}",
+                    "Routing named {Count} data sources; more than the {Kept} one ask joins",
                     distinctSources.Count,
-                    MaxRoutedSources);
+                    RoutingResult.MaxSources);
             }
 
             var legitimateSources = distinctSources
-                .Take(MaxRoutedSources)
+                .Take(RoutingResult.MaxSources)
                 .ToList();
 
             return new RoutingResult
@@ -130,7 +128,8 @@ internal sealed class DataSourceRouter(ILogger<DataSourceRouter> logger) : IData
                     DataSourceId = x.DatasourceId,
                     DataSourceName = dataSources.First(y => y.DataSourceId == x.DatasourceId).Name,
                     Reason = x.Reason ?? ""
-                }).ToList()
+                }).ToList(),
+                DroppedSourceCount = distinctSources.Count - legitimateSources.Count
             };
         }
         catch (Exception ex)

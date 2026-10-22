@@ -93,6 +93,10 @@ internal sealed class AskSqlPipeline(
         var execute = options.Execute;
         var repairs = new List<AskRepairStep>();
 
+        // Schema, dry-run and execution failures whose repair was not attempted (no repair attempt or LLM call left): the
+        // caller records them as it records a repaired failure.
+        var unrepairedFailures = new List<AskRepairStep>();
+
         // Built once and reused by every gate evaluation below (NF1) so the SQL that ultimately runs — after
         // a dry-run, execution or empty-result repair swaps it out — is re-linted against the same join /
         // PK / catalog context rather than describing stale, already-superseded SQL.
@@ -280,6 +284,10 @@ internal sealed class AskSqlPipeline(
 
             repairs.Add(new AskRepairStep("schema", schemaVerdict.Message!, schemaRepairSql, schemaRepairOk));
         }
+        else if (schemaVerdict.Status == SqlGateStatus.Fail)
+        {
+            unrepairedFailures.Add(new AskRepairStep("schema", schemaVerdict.Message!, null, false));
+        }
 
         IReadOnlyList<SqlLintFinding> RelintFinalSql(string finalSql)
         {
@@ -357,7 +365,10 @@ internal sealed class AskSqlPipeline(
             AppendSemanticWarnings();
             return new AskSqlOutcome(initialSql, generatedSql, tables, true, text, null,
                 null, schemaValidationError, null, repairs, false, votingNote, assumptions, clarificationHint, lintFindings,
-                correctedSql, columnsUsed);
+                correctedSql, columnsUsed)
+            {
+                UnrepairedFailures = unrepairedFailures
+            };
         }
 
         // Dry-run through the provider (EXPLAIN / sp_describe_first_result_set) before real execution.
@@ -393,6 +404,10 @@ internal sealed class AskSqlPipeline(
 
             repairs.Add(new AskRepairStep("dry-run", redactedDryRunError, dryRunRepairSql, dryRunRepairOk));
         }
+        else if (rawDryRunError != null)
+        {
+            unrepairedFailures.Add(new AskRepairStep("dry-run", dryRunError!, null, false));
+        }
 
         var execResult = await ExecuteForAsync(McpStatementPurposes.Initial, executor, dataSourceId, generatedSql, settings, ct);
 
@@ -426,7 +441,10 @@ internal sealed class AskSqlPipeline(
                     AppendSemanticWarnings();
                     return new AskSqlOutcome(initialSql, retriedSql, tables, retryExec.IsSuccess, text, retryExec,
                         null, schemaValidationError, dryRunError, repairs, false, votingNote, assumptions, clarificationHint, lintFindings,
-                        retriedSql, columnsUsed);
+                        retriedSql, columnsUsed)
+                    {
+                        UnrepairedFailures = unrepairedFailures
+                    };
                 }
             }
 
@@ -461,7 +479,10 @@ internal sealed class AskSqlPipeline(
                         AppendSemanticWarnings();
                         return new AskSqlOutcome(initialSql, emptyRetry, tables, true, text, retryExec,
                             null, schemaValidationError, dryRunError, repairs, true, votingNote, assumptions, clarificationHint, lintFindings,
-                            emptyRetry, columnsUsed);
+                            emptyRetry, columnsUsed)
+                        {
+                            UnrepairedFailures = unrepairedFailures
+                        };
                     }
 
                     repairs.Add(new AskRepairStep("empty-result", emptyResultError, emptyRetry, false));
@@ -477,6 +498,11 @@ internal sealed class AskSqlPipeline(
             }
         }
 
+        if (!execResult.IsSuccess && !execResult.Refused && execResult.ErrorMessage != null && !repairs.Any(x => x.Trigger == "execution"))
+        {
+            unrepairedFailures.Add(new AskRepairStep("execution", RedactedError(execResult.ErrorMessage, generatedSql), null, false));
+        }
+
         text += execResult.Refused
             ? $"**Refused:** {execResult.ErrorMessage}\n"
             : execResult.FormattedResult ?? $"**Execution Error:** {CallerError(execResult.ErrorMessage ?? "", generatedSql)}\n";
@@ -485,7 +511,10 @@ internal sealed class AskSqlPipeline(
 
         return new AskSqlOutcome(initialSql, generatedSql, tables, execResult.IsSuccess, text, execResult,
             null, schemaValidationError, dryRunError, repairs, emptyResultRetried, votingNote, assumptions, clarificationHint, lintFindings,
-            correctedSql, columnsUsed);
+            correctedSql, columnsUsed)
+        {
+            UnrepairedFailures = unrepairedFailures
+        };
     }
 
     // Requests the extraCandidateCount extra candidates the caller sized CONCURRENTLY

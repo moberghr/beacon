@@ -146,6 +146,14 @@ internal sealed class ProjectAskTool(
                     "Could not determine which data source to query for this question.", cancellationToken);
             }
 
+            // A question that spans more sources than one ask joins is refused, never answered from some of them.
+            if (routing.DroppedSourceCount > 0)
+            {
+                return await FailAsync(signal, sw, projectId, question,
+                    $"This question spans {routing.Sources.Count + routing.DroppedSourceCount} data sources; ask can join at most {RoutingResult.MaxSources}. Narrow the question to fewer sources.",
+                    cancellationToken);
+            }
+
             // SQL runs with the strictest guardrails of the live projects that link the routed data sources.
             var sourceSettings = await sharedSourceSettings.GetEffectiveSettingsAsync(
                 projectId,
@@ -296,7 +304,9 @@ internal sealed class ProjectAskTool(
             return new AskToolOutcome(outcome.Text, false, null, outcome.GeneratedSql, null, null, outcome.TablesUsed);
         }
 
-        foreach (var repair in outcome.Repairs)
+        // A schema, dry-run or execution failure no repair was attempted for (no repair attempt or LLM call left) marks the
+        // signal exactly as a repaired one does: the same flag and the same redacted error.
+        foreach (var repair in outcome.Repairs.Concat(outcome.UnrepairedFailures))
         {
             // The pipeline hands its dry-run and execution repair errors over redacted, so the stored signal never holds a
             // database error's raw text.

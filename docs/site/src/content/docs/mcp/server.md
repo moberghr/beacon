@@ -194,7 +194,7 @@ Ask a natural language question about your data. Beacon auto-detects the right d
 | `execute` | boolean | No | `true` | Set to `false` to get the generated SQL without executing it |
 
 **How it works:**
-1. **Routing phase**: The LLM determines which data source(s) to query (skipped for single-source projects). Each source the model names counts once, and at most four are used
+1. **Routing phase**: The LLM determines which data source(s) to query (skipped for single-source projects). Each source the model names counts once; one `ask` joins at most four, and a question that spans more is refused with an error naming how many it spans (audited and signalled like every failed call), never answered from some of them
 2. **SQL generation**: Generates SQL using your actual schema as context
 3. **Execution**: Runs the query with safety guardrails (read-only, row limits, PII detection)
 

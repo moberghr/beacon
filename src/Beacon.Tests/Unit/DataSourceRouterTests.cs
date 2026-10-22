@@ -18,6 +18,7 @@ public class DataSourceRouterTests
 {
     private Mock<ILlmProvider> _llm = null!;
     private StructuredLogger _log = null!;
+    private RoutingResult _result = null!;
 
     [SetUp]
     public void SetUp()
@@ -41,15 +42,17 @@ public class DataSourceRouterTests
         var result = await RouteAsync(SourcesWithIds(1, 2, 3, 4, 5), [4, 3, 2, 1]);
 
         result.Should().Equal(4, 3, 2, 1);
+        _result.DroppedSourceCount.Should().Be(0);
         _log.Entries.Should().BeEmpty();
     }
 
     [Test]
-    public async Task RouteAsync_FiveSources_KeepsTheFirstFour_AndLogsTheCounts()
+    public async Task RouteAsync_FiveSources_KeepsTheFirstFour_ReportsTheFifthDropped_AndLogsTheCounts()
     {
         var result = await RouteAsync(SourcesWithIds(1, 2, 3, 4, 5), [5, 4, 3, 2, 1]);
 
         result.Should().Equal(5, 4, 3, 2);
+        _result.DroppedSourceCount.Should().Be(1);
         var entry = _log.Entries.Should().ContainSingle().Subject;
         entry.Level.Should().Be(LogLevel.Information);
         entry.Values.Should().Contain(new KeyValuePair<string, object?>("Count", 5));
@@ -63,6 +66,7 @@ public class DataSourceRouterTests
         var result = await RouteAsync(SourcesWithIds(1, 2, 3, 4, 5), [1, 1, 2, 3, 4, 5]);
 
         result.Should().Equal(1, 2, 3, 4);
+        _result.DroppedSourceCount.Should().Be(1);
         _log.Entries.Should().ContainSingle()
             .Which.Values.Should().Contain(new KeyValuePair<string, object?>("Count", 5));
     }
@@ -92,9 +96,9 @@ public class DataSourceRouterTests
             .Setup(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new LlmResponse { Content = $$"""{ "sources": [{{entries}}] }""" });
 
-        var result = await new DataSourceRouter(_log).RouteAsync(_llm.Object, sources, "which orders shipped late?", CancellationToken.None);
+        _result = await new DataSourceRouter(_log).RouteAsync(_llm.Object, sources, "which orders shipped late?", CancellationToken.None);
 
-        return result.Sources
+        return _result.Sources
             .Select(x => x.DataSourceId)
             .ToList();
     }

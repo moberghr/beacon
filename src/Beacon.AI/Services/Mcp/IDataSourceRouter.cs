@@ -5,7 +5,16 @@ namespace Beacon.AI.Services.Mcp;
 
 public record RoutingResult
 {
+    /// <summary>Most data sources one <c>ask</c> joins across.</summary>
+    public const int MaxSources = 4;
+
     public List<RoutedSource> Sources { get; init; } = [];
+
+    /// <summary>
+    /// The project's own data sources the model named beyond <see cref="MaxSources"/> (each counted once); they are not in
+    /// <see cref="Sources"/>. Above zero, the question spans more sources than one <c>ask</c> joins.
+    /// </summary>
+    public int DroppedSourceCount { get; init; }
 }
 
 public record RoutedSource
