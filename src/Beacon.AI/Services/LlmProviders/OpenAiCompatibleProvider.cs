@@ -14,9 +14,12 @@ namespace Beacon.AI.Services.LlmProviders;
 /// retries like their default policy: up to <see cref="MaxRetries"/> times on 408, 429, 5xx and transport failures,
 /// waiting as the service asks (<c>retry-after-ms</c> / <c>Retry-After</c>, up to <see cref="MaxRetryAfter"/>) or with
 /// exponential backoff. Each attempt, sending and reading the body, must finish within the attempt timeout (by default
-/// the clients' <see cref="LlmHttpClients.Timeout"/>); one that does not fails like an <see cref="HttpClient"/> timeout
-/// and is not retried here. A failure names the provider and the HTTP status only: never the response body, the
-/// request or the key.
+/// the clients' <see cref="LlmHttpClients.Timeout"/>); one that does not is not retried. This provider is its own retry
+/// layer: a status it stopped retrying surfaces as an <see cref="HttpRequestException"/> carrying the status, and a
+/// connection failure still failing after its retries, or a timeout, as a plain <see cref="AiServiceException"/> (the
+/// failure kept as its inner exception) that the request queue does not retry again and that is never mistaken for the
+/// caller's cancellation. A failure names the provider and the HTTP status only: never the response body, the request or
+/// the key.
 /// </summary>
 internal sealed partial class OpenAiCompatibleProvider : ILlmProvider
 {
@@ -144,10 +147,20 @@ internal sealed partial class OpenAiCompatibleProvider : ILlmProvider
             {
                 result = await SendOnceAsync(body, cancellationToken);
             }
-            catch (Exception ex) when (attempt < MaxRetries && IsTransportFailure(ex) && !cancellationToken.IsCancellationRequested)
+            catch (Exception ex) when (IsTransportFailure(ex) && !cancellationToken.IsCancellationRequested)
             {
+                if (attempt >= MaxRetries)
+                {
+                    throw new AiServiceException($"{DisplayName} could not be reached.", ex);
+                }
+
                 await _delay(BackoffDelay(attempt), cancellationToken);
                 continue;
+            }
+            catch (OperationCanceledException ex) when (!cancellationToken.IsCancellationRequested)
+            {
+                // The caller's token is not cancelled, so the client's own timeout ended the attempt.
+                throw new AiServiceException($"{DisplayName} did not answer in time.", ex);
             }
 
             if (result.Succeeded)
@@ -298,7 +311,7 @@ internal sealed partial class OpenAiCompatibleProvider : ILlmProvider
             && timeout.IsCancellationRequested
             && !cancellationToken.IsCancellationRequested)
         {
-            throw new TaskCanceledException(
+            throw new AiServiceException(
                 $"{DisplayName} did not answer within {_attemptTimeout.TotalSeconds.ToString(CultureInfo.InvariantCulture)} seconds.",
                 new TimeoutException("The attempt timeout elapsed."));
         }

@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text;
 using Beacon.AI.Services.LlmProviders;
+using Beacon.Core.Exceptions;
 using Beacon.Core.Models.Ai;
 using Beacon.Tests.Common;
 using FluentAssertions;
@@ -11,8 +12,9 @@ using NUnit.Framework;
 namespace Beacon.Tests.Unit.LlmProviders;
 
 /// <summary>
-/// The queue never retries an HTTP failure that carries a status: the provider that set it has applied its own retry
-/// policy (408, 429 and 5xx, honouring Retry-After) and stopped. Failures without a status follow the queue's rules.
+/// The queue never retries an HTTP failure: the OpenAI-compatible provider that raises one has applied its own retry
+/// policy (408, 429, 5xx and connection failures, honouring Retry-After) and stopped, and Claude and Bedrock report what
+/// may pass as <see cref="Beacon.Core.Exceptions.LlmTransientException"/>.
 /// </summary>
 [TestFixture]
 public class LlmRequestQueueRetryTests
@@ -39,19 +41,18 @@ public class LlmRequestQueueRetryTests
     }
 
     [Test]
-    public async Task AnHttpFailureWithoutAStatus_FollowsTheExistingRules_AndIsRetried()
+    public async Task AnHttpFailureWithoutAStatus_IsNotRetried_TheProviderMapsWhatMayPass()
     {
         var provider = new Mock<ILlmProvider>();
         provider
-            .SetupSequence(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new HttpRequestException("connection refused"))
-            .ReturnsAsync(new LlmResponse { Content = "ok" });
-        var queue = new LlmRequestQueue(1, 2);
+            .Setup(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new HttpRequestException("connection refused"));
+        var queue = new LlmRequestQueue(1, 3);
 
-        var response = await queue.EnqueueRequestAsync(provider.Object, new LlmRequest());
+        var act = () => queue.EnqueueRequestAsync(provider.Object, new LlmRequest());
 
-        response.Content.Should().Be("ok");
-        provider.Verify(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+        (await act.Should().ThrowExactlyAsync<HttpRequestException>()).Which.StatusCode.Should().BeNull();
+        provider.Verify(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Test]
@@ -113,5 +114,67 @@ public class LlmRequestQueueRetryTests
         thrown.Which.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
         thrown.Which.Message.Should().Be("OpenAI returned HTTP 401.");
         handler.Requests.Should().ContainSingle();
+    }
+
+    [Test]
+    [CancelAfter(10_000)]
+    public async Task AConnectionFailureLeftAfterTheProvidersRetries_ThroughTheQueue_IsOneProviderCall()
+    {
+        var delays = new List<TimeSpan>();
+        var handler = new OpenAiCompatibleProviderTests.StubHandler(_ => throw new HttpRequestException("connection refused"));
+        var provider = new CountingProvider(OpenAiCompatibleProvider.ForOpenAi(
+            new HttpClient(handler),
+            TestCredentials.ProviderSecretKey,
+            "m",
+            OpenAiCompatibleProviderTests.Recorder(delays)));
+        var queue = new LlmRequestQueue(1, 3);
+
+        var act = () => queue.EnqueueRequestAsync(provider, OpenAiCompatibleProviderTests.GoldenRequest())
+            .WaitAsync(TestContext.CurrentContext.CancellationToken);
+
+        var thrown = await act.Should().ThrowExactlyAsync<AiServiceException>();
+        thrown.Which.Message.Should().Be("OpenAI could not be reached.");
+        provider.Calls.Should().Be(1);
+        handler.Requests.Should().HaveCount(OpenAiCompatibleProvider.MaxRetries + 1);
+    }
+
+    [Test]
+    [CancelAfter(10_000)]
+    public async Task AnAttemptTimeout_ThroughTheQueue_IsOneProviderCall_AndNotACancellation()
+    {
+        var handler = new OpenAiCompatibleProviderTests.StallingHandler();
+        var provider = new CountingProvider(OpenAiCompatibleProvider.ForOpenAi(
+            new HttpClient(handler),
+            TestCredentials.ProviderSecretKey,
+            "m",
+            OpenAiCompatibleProviderTests.Recorder([]),
+            attemptTimeout: TimeSpan.FromMilliseconds(100)));
+        var queue = new LlmRequestQueue(1, 3);
+
+        var act = () => queue.EnqueueRequestAsync(provider, OpenAiCompatibleProviderTests.GoldenRequest())
+            .WaitAsync(TestContext.CurrentContext.CancellationToken);
+
+        var thrown = await act.Should().ThrowExactlyAsync<AiServiceException>();
+        thrown.Which.Message.Should().Be("OpenAI did not answer within 0.1 seconds.");
+        thrown.Which.InnerException.Should().BeOfType<TimeoutException>();
+        provider.Calls.Should().Be(1);
+        handler.Calls.Should().Be(1);
+    }
+
+    private sealed class CountingProvider(ILlmProvider inner) : ILlmProvider
+    {
+        public int Calls { get; private set; }
+
+        public Task<LlmResponse> CompleteAsync(LlmRequest request, CancellationToken cancellationToken = default)
+        {
+            Calls++;
+
+            return inner.CompleteAsync(request, cancellationToken);
+        }
+
+        public Task<TokenCount> CountTokensAsync(string text, CancellationToken cancellationToken = default)
+        {
+            return inner.CountTokensAsync(text, cancellationToken);
+        }
     }
 }

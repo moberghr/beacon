@@ -73,9 +73,16 @@ The `Beacon:LLM` section (`Provider` = `OpenAI`, `Claude`, `AzureOpenAI` or `Bed
 [Integrate → AI](/integrate/ai/). Never put a provider key in source or a committed `appsettings.json`.
 
 Every LLM call goes through `LlmRequestQueue`. It allows at most `Limits:MaxConcurrentRequests` calls at once (default
-50, read once when the host starts) and retries a call that fails with a rate-limit, timeout, `503`/`504` or transient
-network error, up to three attempts with exponential backoff; a call that still fails surfaces as
-`AiServiceException`. The other values under **Rate limits & budget** on the Admin Settings page (tokens per minute,
+50, read once when the host starts); background work holds at most half of them. A call that finds no free slot within
+`Limits:InteractiveQueueWaitSeconds` (60; background work `Limits:BackgroundQueueWaitSeconds`, 300; at most an hour),
+or arrives while `Limits:MaxQueuedRequests` (200) interactive calls, or half as many background calls, already wait,
+fails with `LlmQueueSaturatedException` ("The LLM is busy. Try again later."). For Claude and Bedrock the queue is the
+only retry layer: a transient failure (rate limit, overload, unavailable, timeout, connection failure) is tried up to
+three times, waiting at least what `Retry-After` asks (up to 60 seconds), with a slot held only while an attempt runs;
+a call that still fails surfaces as `LlmTransientException` (an `AiServiceException`). OpenAI and Azure OpenAI retry
+themselves and the queue does not retry them again: a status they stopped retrying surfaces as an
+`HttpRequestException` carrying it, a connection failure or timeout as an `AiServiceException`. See
+[Integrate → AI](/integrate/ai/#the-request-queue). The other values under **Rate limits & budget** on the Admin Settings page (tokens per minute,
 requests per minute, monthly budget) and the **Fast model** are recorded and shown in settings.
 
 ## What Beacon uses the model for
@@ -152,9 +159,13 @@ check the region, the model id and that the host's AWS credentials may invoke th
 
 **Test connection reports that AI is unavailable.** The host did not set `UseAI = true` or did not call `AddBeaconAI`.
 
-**Calls fail after retries.** Rate-limit and transient errors are retried three times; persistent failures usually mean
+**Calls fail after retries.** Rate-limit and transient errors are tried up to four times on OpenAI and Azure OpenAI and three times on Claude and Bedrock; persistent failures usually mean
 the provider's own quota. Lower `Beacon:LLM:Limits:MaxConcurrentRequests` and restart, or raise the quota with the
 provider.
+
+**Calls fail with "The LLM is busy. Try again later."** Every slot stayed taken for the whole wait limit, or too many
+calls were already waiting. Retry later, or raise `Limits:MaxConcurrentRequests` (within the provider's quota) or the
+`Limits:*QueueWaitSeconds` / `Limits:MaxQueuedRequests` limits and restart.
 
 **Debug logging.** Raise the log level for the AI namespaces:
 

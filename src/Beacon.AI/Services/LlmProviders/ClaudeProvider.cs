@@ -11,6 +11,7 @@ public class ClaudeProvider : ILlmProvider
     private readonly HttpClient _httpClient;
     private readonly string _apiKey;
     private readonly string _model;
+    private readonly TimeProvider _timeProvider;
     private const decimal InputCostPerMillionTokens = 3.00m;
     private const decimal OutputCostPerMillionTokens = 15.00m;
     private const decimal CachedInputCostPerMillionTokens = 0.30m; // 90% discount
@@ -23,7 +24,7 @@ public class ClaudeProvider : ILlmProvider
     {
     }
 
-    internal ClaudeProvider(HttpClient httpClient, string apiKey, string model)
+    internal ClaudeProvider(HttpClient httpClient, string apiKey, string model, TimeProvider? timeProvider = null)
     {
         if (string.IsNullOrWhiteSpace(apiKey))
             throw new ArgumentNullException(nameof(apiKey));
@@ -33,6 +34,7 @@ public class ClaudeProvider : ILlmProvider
         _httpClient = httpClient ?? throw new ArgumentNullException(nameof(httpClient));
         _apiKey = apiKey;
         _model = model;
+        _timeProvider = timeProvider ?? TimeProvider.System;
     }
 
     /// <summary>The model the client was built for.</summary>
@@ -68,7 +70,10 @@ public class ClaudeProvider : ILlmProvider
             httpRequest.Headers.TryAddWithoutValidation("anthropic-version", AnthropicVersion);
 
             using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
-            response.EnsureSuccessStatusCode();
+            if (!response.IsSuccessStatusCode)
+            {
+                throw StatusFailure(response);
+            }
 
             var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
             var result = JsonSerializer.Deserialize<ClaudeResponse>(responseContent);
@@ -106,12 +111,53 @@ public class ClaudeProvider : ILlmProvider
         {
             throw;
         }
+        catch (OperationCanceledException ex)
+        {
+            // The caller's token is not cancelled, so the client's own timeout ended the request.
+            throw new LlmTransientException("Claude API did not answer in time.", null, ex);
+        }
+        catch (Exception ex) when (ex is HttpRequestException { StatusCode: null } or IOException)
+        {
+            throw new LlmTransientException("Claude API could not be reached.", null, ex);
+        }
         catch (Exception ex) when (ex is not AiServiceException)
         {
             throw new AiServiceException(
                 $"Claude API request failed: {ex.Message}",
                 ex);
         }
+    }
+
+    // This provider does not retry: the request queue retries a transient failure (408, 429, 5xx and Anthropic's 529
+    // overloaded), waiting as long as retry-after asks. The failure names the status only, never the response body.
+    private AiServiceException StatusFailure(HttpResponseMessage response)
+    {
+        var status = (int)response.StatusCode;
+        var message = $"Claude API returned HTTP {status}.";
+        if (status is not (408 or 429 or >= 500 and <= 599))
+        {
+            return new AiServiceException(message);
+        }
+
+        return new LlmTransientException(message, RetryAfter(response));
+    }
+
+    // An HTTP date is measured against the provider's clock; a date already past asks for no wait.
+    private TimeSpan? RetryAfter(HttpResponseMessage response)
+    {
+        var retryAfter = response.Headers.RetryAfter;
+        if (retryAfter?.Delta is { } delta)
+        {
+            return delta;
+        }
+
+        if (retryAfter?.Date is { } date)
+        {
+            var wait = date - _timeProvider.GetUtcNow();
+            return wait > TimeSpan.Zero ? wait : TimeSpan.Zero;
+        }
+
+        return null;
     }
 
     private class ClaudeResponse

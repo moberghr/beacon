@@ -35,12 +35,12 @@ public static class ServiceConfiguration
         services.AddMediatR(cfg => cfg.RegisterServicesFromAssembly(typeof(ServiceConfiguration).Assembly));
 
         // Request queue for rate limiting — registered BEFORE the delegating provider so
-        // DelegatingLlmProvider can resolve it. Uses bootstrap config; concurrency limit is
-        // fixed for the singleton's lifetime (matches prior behaviour).
+        // DelegatingLlmProvider can resolve it. Uses bootstrap config; the concurrency and queue-wait
+        // limits are fixed for the singleton's lifetime (matches prior behaviour).
         services.AddSingleton(sp =>
         {
             var config = sp.GetRequiredService<LlmConfiguration>();
-            return new LlmRequestQueue(config.Limits.MaxConcurrentRequests);
+            return new LlmRequestQueue(config.Limits, sp.GetService<TimeProvider>(), sp.GetService<ILogger<LlmRequestQueue>>());
         });
 
         // LLM Provider Manager (holds swappable provider, implements ILlmConfigurationUpdater).

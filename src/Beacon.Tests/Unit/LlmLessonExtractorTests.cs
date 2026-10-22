@@ -224,6 +224,20 @@ public class LlmLessonExtractorTests
             .And.NotContain("ivan.horvat@bank.example");
     }
 
+    [Test]
+    public async Task ExtractAsync_AsksTheModelInTheBackgroundLane()
+    {
+        var requests = new List<LlmRequest>();
+        var llm = new Mock<ILlmProvider>();
+        llm.Setup(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()))
+            .Callback<LlmRequest, CancellationToken>((x, _) => requests.Add(x))
+            .ReturnsAsync(new LlmResponse { Content = "{}" });
+
+        await Extractor(llm.Object).ExtractAsync(Cluster, CancellationToken.None);
+
+        requests.Should().ContainSingle().Which.Priority.Should().Be(LlmRequestPriority.Background);
+    }
+
     private static (ILlmProvider Provider, List<string> Prompts) RecordingProvider()
     {
         var prompts = new List<string>();

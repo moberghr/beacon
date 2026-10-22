@@ -405,7 +405,8 @@ public class AiActorService : IAiActorServiceExtended
                     new(ConversationRole.User, userPrompt)
                 },
                 Temperature = 0.3m,
-                MaxTokens = 4096
+                MaxTokens = 4096,
+                Priority = background ? LlmRequestPriority.Background : LlmRequestPriority.Interactive
             };
 
             var llmResponse = await _llmProvider.CompleteAsync(llmRequest, cancellationToken);

@@ -398,7 +398,8 @@ internal sealed class McpEvalService(
             SystemPrompt = systemPrompt,
             Messages = [new ChatMessage(ConversationRole.User, userMessage)],
             Temperature = 0.0m,
-            MaxTokens = 256
+            MaxTokens = 256,
+            Priority = LlmRequestPriority.Background
         };
 
         // The prompt carries (redacted) result rows: the request is logged as such.

@@ -1,3 +1,4 @@
+using System.Net;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using Amazon;
@@ -10,7 +11,7 @@ namespace Beacon.AI.Services.LlmProviders;
 
 public class BedrockProvider : ILlmProvider
 {
-    private readonly AmazonBedrockRuntimeClient _client;
+    private readonly IAmazonBedrockRuntime _client;
     private readonly string _modelId;
     private readonly Amazon.Runtime.AWSCredentials? _explicitCredentials;
     private readonly Dictionary<string, (decimal input, decimal output)> _pricing = new()
@@ -90,13 +91,23 @@ public class BedrockProvider : ILlmProvider
         }
     }
 
+    internal BedrockProvider(IAmazonBedrockRuntime client, string modelId)
+    {
+        ArgumentNullException.ThrowIfNullOrWhiteSpace(modelId);
+
+        _client = client ?? throw new ArgumentNullException(nameof(client));
+        _modelId = modelId;
+    }
+
     /// <summary>The static credentials the client was built with; null when it uses the default AWS credential chain.</summary>
     internal Amazon.Runtime.AWSCredentials? ExplicitCredentials => _explicitCredentials;
 
     /// <summary>The model id the client was built for.</summary>
     internal string ModelId => _modelId;
 
-    private static AmazonBedrockRuntimeConfig CreateConfig(string region)
+    // The SDK does not retry (MaxErrorRetry = 0): the request queue is the one retry layer, and TransientFailure tells it
+    // which failures may pass.
+    internal static AmazonBedrockRuntimeConfig CreateConfig(string region)
     {
         var regionEndpoint = RegionEndpoint.GetBySystemName(region)
             ?? throw new InvalidOperationException($"Invalid AWS region: {region}");
@@ -105,7 +116,34 @@ public class BedrockProvider : ILlmProvider
         {
             RegionEndpoint = regionEndpoint,
             Timeout = TimeSpan.FromMinutes(5),
-            MaxErrorRetry = 3
+            MaxErrorRetry = 0
+        };
+    }
+
+    /// <summary>
+    /// The failure as one the request queue retries, or null when it is not one: throttling, an unavailable service, a
+    /// model that is not ready or timed out, an internal error, any service failure with status 408, 429 or 5xx, and a
+    /// connection failure or client timeout may pass. With its retries off the SDK reports a connection failure as an
+    /// <see cref="HttpRequestException"/> without a status or as the <see cref="IOException"/> inside it, and its client
+    /// timeout as a <see cref="TimeoutException"/> (or a cancellation while the caller's token is not cancelled). The
+    /// message names the failure's type only, never the service's text.
+    /// </summary>
+    internal static LlmTransientException? TransientFailure(Exception exception)
+    {
+        return exception switch
+        {
+            ThrottlingException
+                or ServiceUnavailableException
+                or ModelTimeoutException
+                or ModelNotReadyException
+                or InternalServerException
+                or Amazon.Runtime.AmazonServiceException { StatusCode: HttpStatusCode.RequestTimeout or HttpStatusCode.TooManyRequests or >= HttpStatusCode.InternalServerError and <= (HttpStatusCode)599 }
+                or HttpRequestException { StatusCode: null }
+                or IOException and not FileNotFoundException =>
+                new LlmTransientException($"AWS Bedrock request failed and may be retried ({exception.GetType().Name}).", null, exception),
+            OperationCanceledException or TimeoutException =>
+                new LlmTransientException("Bedrock request timed out. The AI model took too long to respond.", null, exception),
+            _ => null
         };
     }
 
@@ -133,6 +171,10 @@ public class BedrockProvider : ILlmProvider
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             throw;
+        }
+        catch (Exception ex) when (TransientFailure(ex) is { } transient)
+        {
+            throw transient;
         }
         catch (Exception ex) when (ex is not AiServiceException)
         {
@@ -203,6 +245,10 @@ public class BedrockProvider : ILlmProvider
         {
             throw;
         }
+        catch (Exception ex) when (TransientFailure(ex) is { } transient)
+        {
+            throw transient;
+        }
         catch (Amazon.BedrockRuntime.Model.ValidationException vex)
         {
             throw new AiServiceException($"Bedrock validation error: {vex.Message}", vex);
@@ -210,10 +256,6 @@ public class BedrockProvider : ILlmProvider
         catch (Amazon.Runtime.AmazonServiceException asex)
         {
             throw new AiServiceException($"AWS Bedrock service error: {asex.Message} (Status: {asex.StatusCode})", asex);
-        }
-        catch (TaskCanceledException tcex)
-        {
-            throw new AiServiceException("Bedrock request timed out. The AI model took too long to respond.", tcex);
         }
         catch (Exception ex)
         {
