@@ -7,6 +7,7 @@ using Microsoft.Data.Sqlite;
 using Microsoft.Extensions.Logging;
 using SQLitePCL;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Services.Providers;
 
 namespace Beacon.Core.Services;
 
@@ -78,6 +79,13 @@ public class InMemoryDatabaseManager : IDisposable
     /// engine-level guards on it directly.
     /// </summary>
     internal sqlite3 Handle => _connection.Handle!;
+
+    /// <summary>
+    /// The most bytes the result of <see cref="ExecuteQueryAsync(string, int, int, CancellationToken)"/> may hold while it
+    /// is read (<c>Beacon:Query:MaxResultBytes</c>, estimated as a data source read is); a larger result fails with
+    /// <see cref="ResultTooLargeException"/>. Set by the caller from the options.
+    /// </summary>
+    internal long MaxResultBytes { get; init; } = Constants.Query.MaxResultBytes;
 
     public async Task CreateTableFromResults(string tableName, List<IDictionary<string, object?>> data, ProjectInfo sourceProject)
     {
@@ -223,6 +231,13 @@ public class InMemoryDatabaseManager : IDisposable
 
             _logger.LogWarning("SQLite query timed out after {ExecutionTimeMs}ms", executionTimeMs);
             return (new List<IDictionary<string, object?>>(), executionTimeMs, true);
+        }
+        catch (ResultTooLargeException)
+        {
+            stopwatch.Stop();
+
+            _logger.LogWarning("SQLite query result passed the {MaxResultBytes}-byte read limit; the read was stopped", MaxResultBytes);
+            throw;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
@@ -566,13 +581,23 @@ public class InMemoryDatabaseManager : IDisposable
         return result;
     }
 
-    /// <summary>Reads at most <paramref name="maxRows"/> rows; the reader is disposed (the statement reset) at the cap.</summary>
+    /// <summary>
+    /// Reads at most <paramref name="maxRows"/> rows and <see cref="MaxResultBytes"/>; the reader is disposed (the
+    /// statement reset) at the cap, and a result past the byte budget throws <see cref="ResultTooLargeException"/>.
+    /// </summary>
     private async Task<List<IDictionary<string, object?>>> ReadRowsAsync(string sql, int maxRows, CancellationToken cancellationToken)
     {
         var rows = new List<IDictionary<string, object?>>();
+        var budget = new ResultByteBudget(MaxResultBytes);
         await foreach (var row in _connection.QueryUnbufferedAsync(sql).WithCancellation(cancellationToken))
         {
-            rows.Add((IDictionary<string, object?>)row);
+            var fields = (IDictionary<string, object?>)row;
+            rows.Add(fields);
+            if (budget.Add(fields.Values))
+            {
+                throw new ResultTooLargeException(MaxResultBytes);
+            }
+
             if (rows.Count >= maxRows)
             {
                 break;

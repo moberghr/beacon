@@ -1,7 +1,9 @@
+using Beacon.Connector.AzureSynapse;
 using Beacon.Connector.MySql;
 using Beacon.Connector.PostgreSql;
 using Beacon.Connector.SqlServer;
 using Beacon.Core;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
@@ -34,7 +36,8 @@ public class DatabaseProviderRowCapTests
         new BeaconBuilder(new ServiceCollection(), new ConfigurationBuilder().Build())
             .AddPostgreSqlConnector()
             .AddSqlServerConnector()
-            .AddMySqlConnector();
+            .AddMySqlConnector()
+            .AddAzureSynapseConnector();
     }
 
     [TestCase(DatabaseEngineType.PostgreSQL)]
@@ -154,6 +157,95 @@ public class DatabaseProviderRowCapTests
         connection.Commits.Should().Be(0);
     }
 
+    // Each row holds a 1,000-character text value: 2,000 bytes, plus 40 bytes of row overhead (32 + 8 for its column), so
+    // 2,040 bytes against the budget; a budget of 10,000 is passed by the fifth row.
+    private static readonly IReadOnlyList<(string Name, Func<int, object?> Value)> WideRows = [("body", _ => new string('x', 1000))];
+
+    [TestCase(DatabaseEngineType.PostgreSQL)]
+    [TestCase(DatabaseEngineType.MySQL)]
+    [TestCase(DatabaseEngineType.MSSQL)]
+    [TestCase(DatabaseEngineType.AzureSynapse)]
+    public async Task AReadPastTheByteBudget_StopsAndFails_NamingTheLimit_AndIsNotCommitted(DatabaseEngineType engine)
+    {
+        var connection = Connect(engine, new RecordingDbConnection { RowCount = 50, Columns = WideRows });
+
+        var result = await ReadCapped(engine, new QueryExecutionOptions { MaxResultBytes = 10_000 });
+
+        result.Success.Should().BeFalse();
+        result.ErrorMessage.Should().Be(
+            "The result is larger than the 10000-byte limit (Beacon:Query:MaxResultBytes); select fewer columns or rows.");
+        result.Rows.Should().BeEmpty();
+        connection.RowsRead.Should().Be(5, "the read stops at the first row past the budget");
+        connection.CancelCalls.Should().BeGreaterThan(0, "the rest of the statement is cancelled, not drained");
+        connection.Commits.Should().Be(0);
+    }
+
+    // PostgreSQL counts each value as it is read: the read stops inside the row whose value passes the budget, and the
+    // single-statement batch is cancelled.
+    [Test]
+    public async Task PostgreSql_AReadPastTheByteBudget_StopsAtTheValue_AndCancelsTheBatch()
+    {
+        var connection = Connect(DatabaseEngineType.PostgreSQL, new RecordingDbConnection
+        {
+            RowCount = 50,
+            Columns = [("body", _ => new string('x', 1000)), ("tail", _ => new string('y', 1000))]
+        });
+
+        var result = await ReadCapped(DatabaseEngineType.PostgreSQL, new QueryExecutionOptions { MaxResultBytes = 1_500 });
+
+        result.Success.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("1500-byte limit");
+        connection.RowsRead.Should().Be(1, "the first row's first value already passes the budget");
+        connection.BatchedCommands.Should().Equal(Statement);
+        connection.CancelCalls.Should().BeGreaterThan(0, "the rest of the statement is cancelled, not drained");
+        connection.Commits.Should().Be(0);
+    }
+
+    // A read that reaches its row cap before the byte budget is capped as before: no failure.
+    [TestCase(DatabaseEngineType.PostgreSQL)]
+    [TestCase(DatabaseEngineType.MySQL)]
+    [TestCase(DatabaseEngineType.MSSQL)]
+    public async Task AReadThatReachesTheCapBeforeTheByteBudget_IsCapped_NotFailed(DatabaseEngineType engine)
+    {
+        var connection = Connect(engine, new RecordingDbConnection { RowCount = 50, Columns = WideRows });
+
+        var result = await ReadCapped(engine, new QueryExecutionOptions { MaxResultBytes = 30_000 });
+
+        result.Success.Should().BeTrue(result.ErrorMessage);
+        result.Rows.Should().HaveCount(Cap);
+        connection.RowsRead.Should().Be(Cap);
+        connection.Commits.Should().Be(0);
+    }
+
+    [TestCase(DatabaseEngineType.PostgreSQL)]
+    [TestCase(DatabaseEngineType.MySQL)]
+    [TestCase(DatabaseEngineType.MSSQL)]
+    [TestCase(DatabaseEngineType.AzureSynapse)]
+    public async Task AReadWithinTheByteBudget_Succeeds_WithEveryValueWhole(DatabaseEngineType engine)
+    {
+        Connect(engine, new RecordingDbConnection { RowCount = 5, Columns = WideRows });
+
+        var result = await ReadCapped(engine, new QueryExecutionOptions { MaxResultBytes = 10_200 });
+
+        result.Success.Should().BeTrue(result.ErrorMessage);
+        result.Rows.Should().HaveCount(5);
+        result.Rows.Should().OnlyContain(x => ((string)x["body"]!).Length == 1000);
+    }
+
+    // A read without a row cap (an ad-hoc read on the plain path) is held to the same budget as it arrives.
+    [Test]
+    public async Task AnUncappedRead_PastTheByteBudget_StopsAndFails()
+    {
+        var connection = Connect(DatabaseEngineType.MSSQL, new RecordingDbConnection { RowCount = 50, Columns = WideRows });
+
+        var result = await DatabaseProvider(new QueryExecutionOptions { MaxResultBytes = 10_000 })
+            .ExecuteQueryAsync(DataSourceOf(DatabaseEngineType.MSSQL), Statement, new Dictionary<string, object?>(), CancellationToken.None);
+
+        result.Success.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("10000-byte limit");
+        connection.RowsRead.Should().Be(5);
+    }
+
     private static RecordingDbConnection Connect(DatabaseEngineType engine, RecordingDbConnection connection)
     {
         DbConnectionFactory.Register(engine, _ => connection);
@@ -161,18 +253,21 @@ public class DatabaseProviderRowCapTests
         return connection;
     }
 
-    private static Task<Beacon.Core.Models.Providers.ProviderQueryResult> ReadCapped(DatabaseEngineType engine)
+    private static Task<Beacon.Core.Models.Providers.ProviderQueryResult> ReadCapped(DatabaseEngineType engine, QueryExecutionOptions? options = null)
     {
-        var dataSource = new DataSource
-        {
-            Id = 3,
-            Name = "core",
-            DataSourceType = DataSourceType.Database,
-            DatabaseEngineType = engine,
-            EncryptedConnectionData = "encrypted"
-        };
-
-        return TestQueryServices.DatabaseProvider()
-            .ExecuteReadOnlyQueryAsync(dataSource, Statement, new Dictionary<string, object?>(), Cap, CancellationToken.None);
+        return DatabaseProvider(options)
+            .ExecuteReadOnlyQueryAsync(DataSourceOf(engine), Statement, new Dictionary<string, object?>(), Cap, CancellationToken.None);
     }
+
+    private static Beacon.Core.Services.Providers.DatabaseProvider DatabaseProvider(QueryExecutionOptions? options) =>
+        TestQueryServices.DatabaseProvider(queryOptions: options);
+
+    private static DataSource DataSourceOf(DatabaseEngineType engine) => new()
+    {
+        Id = 3,
+        Name = "core",
+        DataSourceType = DataSourceType.Database,
+        DatabaseEngineType = engine,
+        EncryptedConnectionData = "encrypted"
+    };
 }

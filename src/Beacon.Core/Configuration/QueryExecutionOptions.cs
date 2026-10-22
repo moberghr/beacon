@@ -30,6 +30,15 @@ public sealed class QueryExecutionOptions
     /// saved. Default 120; between 1 and <see cref="MaxAllowedStatementTimeoutSeconds"/>.
     /// </summary>
     public int StatementTimeoutSeconds { get; set; } = Constants.Query.StatementTimeoutSeconds;
+
+    /// <summary>
+    /// The most bytes one such statement's result may hold while it is read, estimated as the rows arrive
+    /// (<c>ResultByteBudget</c>: each row's overhead and its values, an array or collection by its elements). A larger result
+    /// fails the run with a message naming the limit; no value or row is ever cut short. Applies to the reads of PostgreSQL,
+    /// MySQL, SQL Server, Azure Synapse and Snowflake data sources, capped or not, and to a final query's read from the
+    /// in-memory join. Default 268,435,456 (256 MiB); must be greater than 0.
+    /// </summary>
+    public long MaxResultBytes { get; set; } = Constants.Query.MaxResultBytes;
 }
 
 internal sealed class QueryExecutionOptionsValidator : IValidateOptions<QueryExecutionOptions>
@@ -45,6 +54,11 @@ internal sealed class QueryExecutionOptionsValidator : IValidateOptions<QueryExe
         if (options.StatementTimeoutSeconds is < 1 or > QueryExecutionOptions.MaxAllowedStatementTimeoutSeconds)
         {
             failures.Add($"{QueryExecutionOptions.SectionName}:{nameof(QueryExecutionOptions.StatementTimeoutSeconds)} must be between 1 and {QueryExecutionOptions.MaxAllowedStatementTimeoutSeconds}.");
+        }
+
+        if (options.MaxResultBytes < 1)
+        {
+            failures.Add($"{QueryExecutionOptions.SectionName}:{nameof(QueryExecutionOptions.MaxResultBytes)} must be greater than 0.");
         }
 
         return failures.Count == 0

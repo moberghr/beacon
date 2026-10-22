@@ -201,7 +201,7 @@ public class McpProjectSettingsHandlerTests
             new UpdateMcpProjectSettingsCommand(ProjectId, new McpProjectSettingsData { MaxRowLimit = maxRowLimit }),
             CancellationToken.None);
 
-        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("MaxRowLimit must be at least 1.");
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("MaxRowLimit must be between 1 and 10000000.");
         _rows.Should().BeEmpty();
         _saveCalls.Should().Be(0);
     }
@@ -214,9 +214,37 @@ public class McpProjectSettingsHandlerTests
             new UpdateMcpProjectSettingsCommand(ProjectId, new McpProjectSettingsData { LearningSignalRetentionDays = retentionDays }),
             CancellationToken.None);
 
-        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("LearningSignalRetentionDays must be at least 1.");
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("LearningSignalRetentionDays must be between 1 and 36500.");
         _rows.Should().BeEmpty();
         _saveCalls.Should().Be(0);
+    }
+
+    // A project's override outside its range is refused before any write, as the global value would be: every case of the
+    // global handler's table whose field a project can override.
+    [TestCaseSource(nameof(OutOfRangeOverrides))]
+    public async Task Update_AnOverrideOutsideItsRange_IsRejectedBeforeAnyWrite(string field, object value, string range)
+    {
+        var data = new McpProjectSettingsData();
+        typeof(McpProjectSettingsData).GetProperty(field)!.SetValue(data, value);
+
+        var act = () => CreateUpdateHandler().Handle(new UpdateMcpProjectSettingsCommand(ProjectId, data), CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage($"{field} must be {range}.");
+        _rows.Should().BeEmpty();
+        _saveCalls.Should().Be(0);
+    }
+
+    [Test]
+    public async Task Update_OverridesWithinTheirRanges_AreWritten()
+    {
+        await CreateUpdateHandler().Handle(
+            new UpdateMcpProjectSettingsCommand(ProjectId, new McpProjectSettingsData { StatementTimeoutSeconds = 1, MaxConcurrentQueriesPerKey = 2, ValueGroundingMaxProbes = 0 }),
+            CancellationToken.None);
+
+        _rows.Should().ContainSingle();
+        _rows[0].StatementTimeoutSeconds.Should().Be(1);
+        _rows[0].MaxConcurrentQueriesPerKey.Should().Be(2);
+        _rows[0].ValueGroundingMaxProbes.Should().Be(0);
     }
 
     [Test]
@@ -378,6 +406,50 @@ public class McpProjectSettingsHandlerTests
             ("Mcp.Project.42.MaxRowLimit", "50", "75")
         ]);
         _history.Should().OnlyContain(x => x.ChangedByUserId == "3");
+    }
+
+    // A new pattern the linear-time engine cannot run is refused; one the project or the global settings already store is
+    // not checked again, so it does not block the save.
+    [Test]
+    public async Task Update_ANewLookaroundPattern_IsRefused_ButAStoredOneIsKept()
+    {
+        _global.Add(new McpSettings { CustomPiiPatterns = "[\"(?<!x)iban\"]" });
+        _rows.Add(new McpProjectSettings { Id = 7, ProjectId = ProjectId, CustomPiiPatterns = "[\"(?=x)secret\"]" });
+
+        var added = () => CreateUpdateHandler(Unlocked()).Handle(
+            new UpdateMcpProjectSettingsCommand(ProjectId, new McpProjectSettingsData { CustomPiiPatterns = ["(?=x)secret", "(?=y)card"] }),
+            CancellationToken.None);
+
+        await added.Should().ThrowAsync<InvalidOperationException>()
+            .WithMessage("Custom PII patterns cannot use lookarounds, backreferences or atomic groups.");
+        _saveCalls.Should().Be(0);
+
+        await CreateUpdateHandler(Unlocked()).Handle(
+            new UpdateMcpProjectSettingsCommand(ProjectId, new McpProjectSettingsData { MaxRowLimit = 20, CustomPiiPatterns = ["(?=x)secret", "(?<!x)iban"] }),
+            CancellationToken.None);
+
+        _saveCalls.Should().Be(1);
+        _rows[0].MaxRowLimit.Should().Be(20);
+    }
+
+    private static IEnumerable<TestCaseData> OutOfRangeOverrides()
+    {
+        foreach (var globalCase in UpdateMcpSettingsHandlerTests.OutOfRangeGlobalValues())
+        {
+            var field = (string)globalCase.Arguments[0]!;
+            var set = (Action<McpSettingsData>)globalCase.Arguments[1]!;
+            var range = (string)globalCase.Arguments[2]!;
+            if (typeof(McpProjectSettingsData).GetProperty(field) == null)
+            {
+                continue;
+            }
+
+            var data = new McpSettingsData();
+            set(data);
+            var value = typeof(McpSettingsData).GetProperty(field)!.GetValue(data)!;
+
+            yield return new TestCaseData(field, value, range).SetArgDisplayNames(field, value.ToString()!, range);
+        }
     }
 
     private static McpDeploymentOptions Unlocked() => new() { ForceReadOnly = false, ForcePiiDetection = false };

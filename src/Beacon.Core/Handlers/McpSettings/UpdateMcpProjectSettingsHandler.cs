@@ -1,5 +1,4 @@
 using System.Text.Json;
-using System.Text.RegularExpressions;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -9,6 +8,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
+using Beacon.Core.Services.Security;
 using Beacon.Core.Authorization;
 using Beacon.Core.SecurityAudit;
 
@@ -41,30 +41,8 @@ internal sealed class UpdateMcpProjectSettingsHandler(
             }
         }
 
-        // Same row-cap floor as the global handler; null keeps the global value.
-        if (data.MaxRowLimit is < 1)
-        {
-            throw new InvalidOperationException("MaxRowLimit must be at least 1.");
-        }
-
-        // Same retention floor as the global handler; null keeps the global window.
-        if (data.LearningSignalRetentionDays is < 1)
-        {
-            throw new InvalidOperationException("LearningSignalRetentionDays must be at least 1.");
-        }
-
-        // Same write-time regex validation as the global handler — an unparseable pattern must never be persisted.
-        foreach (var pattern in data.CustomPiiPatterns ?? [])
-        {
-            try
-            {
-                _ = Regex.Match(string.Empty, pattern, RegexOptions.None, TimeSpan.FromSeconds(1));
-            }
-            catch (ArgumentException ex)
-            {
-                throw new InvalidOperationException($"Custom PII pattern is not a valid regular expression: {ex.Message}");
-            }
-        }
+        // The same ranges as the global handler; null keeps the global value.
+        McpSettingsRanges.Check(data);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         var projectExists = await context.Projects
@@ -79,6 +57,22 @@ internal sealed class UpdateMcpProjectSettingsHandler(
         var entity = await context.McpProjectSettings
             .Where(x => x.ProjectId == request.ProjectId)
             .FirstOrDefaultAsync(cancellationToken);
+
+        // The same checks as the global handler on a custom PII pattern the save adds; one already stored, for the project
+        // or globally (the page may start an override from the global list), is not checked again.
+        if (data.CustomPiiPatterns is { Count: > 0 } patterns)
+        {
+            var added = patterns
+                .Except(CustomPiiPattern.Stored(entity?.CustomPiiPatterns), StringComparer.Ordinal)
+                .ToList();
+            if (added.Count > 0)
+            {
+                var global = await context.McpSettings
+                    .Select(x => x.CustomPiiPatterns)
+                    .FirstOrDefaultAsync(cancellationToken);
+                CustomPiiPattern.CheckAdded(added, CustomPiiPattern.Stored(global));
+            }
+        }
 
         // The page never sends a locked field, so an unrelated save would otherwise clear its stored override: keep it, so
         // lifting the lock restores the project's configuration (as the global handler keeps the global row's value).

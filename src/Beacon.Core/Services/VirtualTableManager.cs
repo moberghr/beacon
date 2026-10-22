@@ -22,6 +22,9 @@ public class VirtualTableManager : IDisposable
     /// <summary>How long the final query may run on the in-memory store. Settable for tests.</summary>
     internal int StatementTimeoutSeconds { get; init; } = Constants.Query.StatementTimeoutSeconds;
 
+    /// <summary>The most bytes the final query's result may hold while it is read (<c>Beacon:Query:MaxResultBytes</c>).</summary>
+    internal long MaxResultBytes { get; init; } = Constants.Query.MaxResultBytes;
+
     public void AddVirtualTable(string name, List<IDictionary<string, object?>> data, ProjectInfo projectInfo)
     {
         _virtualTables[name] = data;
@@ -44,7 +47,8 @@ public class VirtualTableManager : IDisposable
     /// ATTACH never reaches SQLite (it would create files on the host) — and its <see cref="SqlGateReport.FinalSql"/> (the
     /// row cap the gate placed) is what runs, within <see cref="StatementTimeoutSeconds"/> and the caller's cancellation,
     /// reading at most <paramref name="maxRows"/> rows (a result holding exactly that many may have had more). A statement
-    /// that runs out of time is reported with <see cref="QueryResult.TimedOut"/> and no rows — never a result to act on.
+    /// that runs out of time is reported with <see cref="QueryResult.TimedOut"/> and no rows — never a result to act on; a
+    /// result past <see cref="MaxResultBytes"/> throws <see cref="Providers.ResultTooLargeException"/>.
     /// </summary>
     public async Task<QueryResult> ExecuteFinalQueryWithInMemoryDatabase(
         string finalQuery,
@@ -53,7 +57,7 @@ public class VirtualTableManager : IDisposable
         int maxRows,
         CancellationToken cancellationToken)
     {
-        using var inMemoryDb = new InMemoryDatabaseManager(inMemoryDbLogger);
+        using var inMemoryDb = new InMemoryDatabaseManager(inMemoryDbLogger) { MaxResultBytes = MaxResultBytes };
 
         // Translate the final query to use actual table names
         var translatedQuery = inMemoryDb.TranslateFinalQuery(finalQuery);

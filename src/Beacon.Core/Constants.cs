@@ -28,6 +28,12 @@ public static class Constants
         /// long one such statement may run before it is cancelled.
         /// </summary>
         public const int StatementTimeoutSeconds = 120;
+
+        /// <summary>
+        /// The default of <c>Beacon:Query:MaxResultBytes</c> (<see cref="Configuration.QueryExecutionOptions"/>): the most
+        /// bytes one such statement's result may hold as it is read (256 MiB). A larger result fails, it is never cut short.
+        /// </summary>
+        public const long MaxResultBytes = 268_435_456;
     }
 
     /// <summary>

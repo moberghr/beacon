@@ -12,10 +12,26 @@ public static class ServiceCollectionExtensions
 {
     public static BeaconBuilder AddAzureSynapseConnector(this BeaconBuilder builder)
     {
-        DbConnectionFactory.Register(DatabaseEngineType.AzureSynapse, cs => new SqlConnection(cs), x => SqlConnection.ClearPool((SqlConnection)x));
+        DbConnectionFactory.Register(DatabaseEngineType.AzureSynapse, cs => new SqlConnection(WithConnectTimeout(cs)), x => SqlConnection.ClearPool((SqlConnection)x));
         ConnectorRegistry.RegisterDatabaseEngine(DatabaseEngineType.AzureSynapse, "Azure Synapse");
         builder.Services.AddTransient<IDatabaseMetadataExtractor, AzureSynapseMetadataExtractor>();
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceTransportInspector, AzureSynapseTransportInspector>());
         return builder;
+    }
+
+    // The connect timeout (Connect Timeout) bounded as DbConnectionFactory.ConnectTimeoutSeconds sets it; a string already
+    // within the bounds is used as it is.
+    private static string WithConnectTimeout(string connectionString)
+    {
+        var builder = new SqlConnectionStringBuilder(connectionString);
+        var timeout = DbConnectionFactory.ConnectTimeoutSeconds(builder.ConnectTimeout);
+        if (timeout == builder.ConnectTimeout)
+        {
+            return connectionString;
+        }
+
+        builder.ConnectTimeout = timeout;
+
+        return builder.ConnectionString;
     }
 }

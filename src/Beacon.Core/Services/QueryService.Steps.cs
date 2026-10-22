@@ -154,7 +154,8 @@ internal partial class QueryService
         var stepResults = new List<QueryStepResult>();
         using var virtualTableManager = new VirtualTableManager(loggerFactory.CreateLogger<VirtualTableManager>())
         {
-            StatementTimeoutSeconds = FinalQueryTimeout(statementTimeout)
+            StatementTimeoutSeconds = FinalQueryTimeout(statementTimeout),
+            MaxResultBytes = FinalQueryMaxResultBytes
         };
         var totalExecutionTime = 0.0;
         var dataSourceExecutionTimes = new Dictionary<string, double>();
