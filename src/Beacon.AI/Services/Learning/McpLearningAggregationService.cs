@@ -488,8 +488,9 @@ internal sealed class McpLearningAggregationService(
             clusters.Add(cluster);
         }
 
-        // The per-project cap is spent on clusters without an extracted lesson first, then in the order they have.
-        foreach (var cluster in clusters.OrderBy(x => x.Lesson == null ? 0 : 1))
+        // The per-project cap is spent on clusters without an extracted lesson first, then on lessons with new evidence,
+        // then in the order they have.
+        foreach (var cluster in clusters.OrderBy(x => x.Lesson == null ? 0 : x.Lesson.SignalCount == x.SignalCount ? 2 : 1))
         {
             // LLM-PRIMARY: extract a structured lesson from the representative failure. On a non-null
             // lesson use the LLM's content/example/type; on null (or no extractor) fall back below.
@@ -503,7 +504,7 @@ internal sealed class McpLearningAggregationService(
                 // (no new evidence; an equal count is the rule for "unchanged"): only its statistics refresh, no LLM call.
                 if (cluster.Lesson is { } kept && kept.SignalCount == cluster.SignalCount)
                 {
-                    if (await RefreshLessonStatisticsAsync(context, kept, cluster, ct))
+                    if (await RefreshLessonAsync(context, kept, cluster, advance: true, ct))
                     {
                         extraction.ReusedExtractions++;
                         continue;
@@ -552,8 +553,9 @@ internal sealed class McpLearningAggregationService(
                     extraction.CappedExtractions++;
                 }
 
-                // A cluster that gets no new lesson never replaces the one it has: its statistics refresh and it stays.
-                if (cluster.Lesson is { } existingLesson && await RefreshLessonStatisticsAsync(context, existingLesson, cluster, ct))
+                // A cluster that gets no new lesson never replaces the one it has, and its stored signal count does not move, so
+                // the next run still sees the new evidence and tries again: only the refresh time is written.
+                if (cluster.Lesson is { } existingLesson && await RefreshLessonAsync(context, existingLesson, cluster, advance: false, ct))
                 {
                     continue;
                 }
@@ -705,13 +707,29 @@ internal sealed class McpLearningAggregationService(
             ? $"NEVER use '{wrongColumn}' on {schema}.{table} — correct column is '{correctColumn}'"
             : $"Column '{wrongColumn}' does not exist on {schema}.{table} — check schema";
 
-    // The lesson the extractor wrote for the cluster's column: a pattern of the column whose content is neither of the
-    // two deterministic texts this cluster can have (with its correct column, and without one).
+    // True when the content is the fallback's own text for the cluster's column: with any replacement column (the one
+    // found when the pattern was written may be an older one) or without one.
+    private static bool IsDeterministicContent(string content, string schema, string table, string wrongColumn)
+    {
+        if (content == DeterministicContent(schema, table, wrongColumn, null))
+        {
+            return true;
+        }
+
+        var prefix = DeterministicContent(schema, table, wrongColumn, "\u0001");
+        var parts = prefix.Split("\u0001");
+
+        return content.Length > parts[0].Length + parts[1].Length
+            && content.StartsWith(parts[0], StringComparison.Ordinal)
+            && content.EndsWith(parts[1], StringComparison.Ordinal)
+            && !content[parts[0].Length..^parts[1].Length].Contains('\'');
+    }
+
+    // The lesson the extractor wrote for the cluster's column: a pattern of the column whose content is not the
+    // deterministic text for it.
     private static async Task<StoredLesson?> FindExtractedLessonAsync(
         BeaconContext context, int projectId, int dataSourceId, SchemaCorrectionCluster cluster, CancellationToken ct)
     {
-        var withCorrectColumn = DeterministicContent(cluster.Schema, cluster.Table, cluster.WrongColumn, cluster.CorrectColumn);
-        var withoutCorrectColumn = DeterministicContent(cluster.Schema, cluster.Table, cluster.WrongColumn, null);
         var existing = await context.McpLearnedPatterns
             .Where(x => x.ProjectId == projectId)
             .Where(x => x.DataSourceId == dataSourceId)
@@ -724,26 +742,28 @@ internal sealed class McpLearningAggregationService(
             .ToListAsync(ct);
 
         return existing
-            .Where(x => x.Content != withCorrectColumn)
-            .Where(x => x.Content != withoutCorrectColumn)
+            .Where(x => !IsDeterministicContent(x.Content, cluster.Schema, cluster.Table, cluster.WrongColumn))
             .FirstOrDefault();
     }
 
-    // Refreshes a lesson's statistics only, conditional on the status it was read with (a person's decision in between is
-    // never overwritten). False when nothing was written.
-    private static async Task<bool> RefreshLessonStatisticsAsync(
-        BeaconContext context, StoredLesson lesson, SchemaCorrectionCluster cluster, CancellationToken ct)
+    // Refreshes a lesson, conditional on the status it was read with (a person's decision in between is never
+    // overwritten): its statistics too when the evidence is the same, only the refresh time otherwise. False when nothing
+    // was written.
+    private static async Task<bool> RefreshLessonAsync(
+        BeaconContext context, StoredLesson lesson, SchemaCorrectionCluster cluster, bool advance, CancellationToken ct)
     {
         var refreshedAt = DateTime.UtcNow;
-        var written = await context.McpLearnedPatterns
+        var query = context.McpLearnedPatterns
             .Where(x => x.Id == lesson.Id)
-            .Where(x => x.Status == lesson.Status)
-            .ExecuteUpdateAsync(
+            .Where(x => x.Status == lesson.Status);
+        var written = advance
+            ? await query.ExecuteUpdateAsync(
                 x => x
                     .SetProperty(y => y.SignalCount, cluster.SignalCount)
                     .SetProperty(y => y.Confidence, cluster.Confidence)
                     .SetProperty(y => y.LastRefreshedAt, refreshedAt),
-                ct);
+                ct)
+            : await query.ExecuteUpdateAsync(x => x.SetProperty(y => y.LastRefreshedAt, refreshedAt), ct);
 
         return written > 0;
     }
