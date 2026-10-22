@@ -8,6 +8,9 @@ namespace Beacon.AI.Services.Mcp;
 
 internal sealed class DataSourceRouter(ILogger<DataSourceRouter> logger) : IDataSourceRouter
 {
+    // Most sources one ask joins across: each costs a generation (and possibly repairs) and a query against its database.
+    private const int MaxRoutedSources = 4;
+
     public async Task<RoutingResult> RouteAsync(
         ILlmProvider llmProvider,
         List<DataSourceKnowledge> dataSources,
@@ -96,15 +99,29 @@ internal sealed class DataSourceRouter(ILogger<DataSourceRouter> logger) : IData
             var validIds = dataSources
                 .Select(x => x.DataSourceId)
                 .ToHashSet();
-            var legitimateSources = parsed.Sources
+            // Each source once, in the model's order (its first mention), and no more than MaxRoutedSources.
+            var distinctSources = parsed.Sources
                 .Where(x => validIds.Contains(x.DatasourceId))
+                .DistinctBy(x => x.DatasourceId)
                 .ToList();
 
-            if (legitimateSources.Count == 0)
+            if (distinctSources.Count == 0)
             {
                 logger.LogWarning("Routing response contained only unknown data source IDs for this project; treating as undetermined");
                 return new RoutingResult { Sources = [] };
             }
+
+            if (distinctSources.Count > MaxRoutedSources)
+            {
+                logger.LogInformation(
+                    "Routing named {Count} data sources; keeping the first {Kept}",
+                    distinctSources.Count,
+                    MaxRoutedSources);
+            }
+
+            var legitimateSources = distinctSources
+                .Take(MaxRoutedSources)
+                .ToList();
 
             return new RoutingResult
             {

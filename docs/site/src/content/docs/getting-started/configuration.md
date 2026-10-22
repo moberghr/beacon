@@ -689,7 +689,7 @@ Validated at startup. Without the section, `ForceReadOnly` and `ForcePiiDetectio
       "ForcePiiDetection": true,
       "ForceNoContentRetention": false,
       "ForbidRowDataToLlm": false,
-      "Ceilings": { "MaxRowLimit": 1000, "MaxSqlChars": 100000, "MaxQuestionChars": 4000 },
+      "Ceilings": { "MaxRowLimit": 1000, "MaxSqlChars": 100000, "MaxQuestionChars": 4000, "AskTimeoutSeconds": 120, "AskMaxLlmCalls": 12 },
       "Audit": { "Required": true, "RetentionDays": 400, "RequestIdHeader": "X-Request-Id", "RequireContent": false }
     }
   }
@@ -704,6 +704,8 @@ Validated at startup. Without the section, `ForceReadOnly` and `ForcePiiDetectio
 | `Ceilings:MaxExplainCost` | decimal | none | Clamps the MCP `MaxExplainCost` setting, shown on the MCP settings page; greater than 0 when set. The setting is enforced on PostgreSQL data sources: a statement whose planner-estimated total cost (`EXPLAIN`, never run) exceeds it is refused before it runs. Other engines ignore it |
 | `Ceilings:MaxSqlChars` | int | `100000` (always applies) | Longest SQL text the gate evaluates |
 | `Ceilings:MaxQuestionChars` | int | `4000` (always applies) | Longest question `ask` accepts |
+| `Ceilings:AskTimeoutSeconds` | int | `120` (always applies) | Wall-clock time one `ask` call may take, its statements included; past it the call returns an error; 1 to 3600 when set |
+| `Ceilings:AskMaxLlmCalls` | int | `12` (always applies) | Logical LLM calls one `ask` call may make (a provider's transport retries are not counted); fewer self-consistency candidates and skipped repairs keep it within them, and a call with none left before it generated SQL returns an error; at least 2 when set (the intent classification and the first SQL generation) |
 | `Audit:Required` | bool | `false` | Fail closed: withhold a tool result whose audit row could not be written |
 | `Audit:RetentionDays` | int | none (keep forever) | Days audit rows are kept; greater than 0 when set. The sample host purges daily (`PurgeExpiredMcpAuditLogsJob`); other hosts schedule it themselves |
 | `Audit:RequestIdHeader` | string | `X-Request-Id` | Upstream correlation header stored with each audit row; empty reads none |

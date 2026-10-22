@@ -194,11 +194,13 @@ Ask a natural language question about your data. Beacon auto-detects the right d
 | `execute` | boolean | No | `true` | Set to `false` to get the generated SQL without executing it |
 
 **How it works:**
-1. **Routing phase**: The LLM determines which data source(s) to query (skipped for single-source projects)
+1. **Routing phase**: The LLM determines which data source(s) to query (skipped for single-source projects). Each source the model names counts once, and at most four are used
 2. **SQL generation**: Generates SQL using your actual schema as context
 3. **Execution**: Runs the query with safety guardrails (read-only, row limits, PII detection)
 
 **Cross-source queries:** If your question spans multiple data sources, Beacon queries each source separately and joins results in an in-memory SQLite database.
+
+**Budgets:** one `ask` call runs for at most `Beacon:Mcp:Ceilings:AskTimeoutSeconds` (default 120 seconds), its statements included, and makes at most `Ceilings:AskMaxLlmCalls` LLM calls (default 12: intent, routing, generation, self-consistency candidates, repairs and the cross-source join together). The budget counts logical calls; a provider's transport retries of one call are not counted. Self-consistency asks for no more candidates than the calls left after keeping two for repairs, and a repair with no call left is skipped, so the answer is the attempt as it stands. A call that runs out of time, or out of calls before it generated any SQL (a cross-source `ask` needs one call per source plus the join), returns an error naming the budget; it is audited and signalled like every failed call.
 
 ### `query`
 
@@ -478,7 +480,9 @@ Some settings must be non-negotiable no matter what an administrator clicks. The
         "MaxResultBytes": 1048576,
         "MaxConcurrentQueriesPerKey": 8,
         "MaxSqlChars": 100000,
-        "MaxQuestionChars": 4000
+        "MaxQuestionChars": 4000,
+        "AskTimeoutSeconds": 120,
+        "AskMaxLlmCalls": 12
       }
     }
   }
@@ -488,7 +492,7 @@ Some settings must be non-negotiable no matter what an administrator clicks. The
 - A **lock** (`ForceReadOnly` and `ForcePiiDetection`, both on by default; `ForceNoContentRetention`, `ForbidRowDataToLlm` and `Audit:RequireContent`, off by default) pins the effective value for the global settings and every project. `Audit:RequireContent` pins content retention on, the opposite of `ForceNoContentRetention` (the host does not start with both on). `ForbidRowDataToLlm` pins three settings off: sample-value collection, value grounding and the eval judge (see [What reaches the LLM provider](#what-reaches-the-llm-provider)). Nobody can change a locked setting at runtime, an Admin included; only the host's configuration lifts the lock. The global page shows a locked switch disabled with a note, the project scope hides locked fields and names them in a banner, `GET /beacon/api/mcp/settings/locks` lists them (`lockedFields`, and each lock with the setting it pins in `locks`), and an API call that tries to set one gets **HTTP 409** with the RFC 7807 type `/errors/setting-locked`.
 - With `ForceReadOnly` on, the SQL execution gate also judges every statement read-only whatever the settings a caller hands it. This covers the `ask`, `query` and `dry_run` tools and the in-memory join of a cross-source query. Only a deployment that sets `ForceReadOnly: false` lets an Admin turn read-only enforcement off (globally or per project), and only there does the setting reach the gate. The host logs a warning at startup for each of these two locks that is off.
 - A **ceiling** clamps a numeric value downward only. It can lower what an administrator configured, never raise it. Clamped fields are flagged in the UI. `MaxRowLimit` bounds the rows the tools return; `StatementTimeoutSeconds`, `MaxResultBytes`, `MaxExplainCost` and `MaxConcurrentQueriesPerKey` clamp the settings of the same names.
-- `Ceilings:MaxSqlChars` (default `100000`) and `Ceilings:MaxQuestionChars` (default `4000`) cap the length of SQL and of `ask` questions. They **always apply** at their defaults, even when the section is absent. With no section, read-only enforcement and PII detection are locked on, content retention and row data to the LLM are not locked, there are no deployment-set ceilings, and these two length caps hold.
+- `Ceilings:MaxSqlChars` (default `100000`) and `Ceilings:MaxQuestionChars` (default `4000`) cap the length of SQL and of `ask` questions, and `Ceilings:AskTimeoutSeconds` (default `120`, 1 to 3600) and `Ceilings:AskMaxLlmCalls` (default `12`, at least 2: the intent classification and the first SQL generation) cap the wall-clock time and the LLM calls of one `ask` call (see [`ask`](#ask)). They **always apply** at their defaults, even when the section is absent; the length caps must be greater than 0 when set. With no section, read-only enforcement and PII detection are locked on, content retention and row data to the LLM are not locked, there are no deployment-set ceilings, and these length caps and `ask` budgets hold.
 - Settings resolve as **lock → project override → global value → built-in default**, then ceilings are applied.
 - Saving the global page never bakes a locked or clamped value into the stored row, so lifting a lock or raising a ceiling restores what was configured underneath.
 - **Every change is recorded.** Each setting a save changes, globally or for a project, is written to the settings history the [Admin Settings](/security/admin-settings/) page keeps: key `Mcp.{Setting}` or `Mcp.Project.{projectId}.{Setting}`, the value before and after (an empty override is "inherit"; a long prompt or description is cut to 2,000 characters), when, and who (the caller's Beacon user id). The log notes the change by setting name and ids only.

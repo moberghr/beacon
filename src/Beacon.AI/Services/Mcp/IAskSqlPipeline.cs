@@ -39,6 +39,12 @@ public sealed record AskSqlPipelineOptions(
     /// itself; null names the current caller.
     /// </summary>
     public string? CallerId { get; init; }
+
+    /// <summary>
+    /// The LLM calls the caller's request may still make; the pipeline takes one before each call it makes, asks for no
+    /// more self-consistency candidates than are left and skips a repair it has no call for. Null = not limited.
+    /// </summary>
+    public AskLlmBudget? LlmBudget { get; init; }
 }
 
 /// <summary>

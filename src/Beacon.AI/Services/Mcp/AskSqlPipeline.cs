@@ -40,6 +40,9 @@ internal sealed class AskSqlPipeline(
     // Rows an ask execution reads at most, before a lower configured MaxRowLimit.
     private const int AskRowCap = 100;
 
+    // Repair attempts shared by ALL repair triggers (schema, lint, dry-run, execution error, empty result).
+    private const int MaxRepairAttempts = 2;
+
     public async Task<AskSqlOutcome> RunAsync(
         ILlmProvider llmProvider,
         int dataSourceId,
@@ -112,7 +115,9 @@ internal sealed class AskSqlPipeline(
         // The single low-temperature candidate is ALWAYS generated first (spec §⑥b): its distinct
         // table count decides whether self-consistency voting runs at all (R7), and it is itself one
         // of the candidates the vote considers, so a voted winner never loses the single candidate's
-        // chance to be elected.
+        // chance to be elected. Only this first generation fails the call on a spent LLM budget; every later step that
+        // has no call left is skipped instead.
+        options.LlmBudget?.Consume();
         var singleCandidate = await sqlGenerationService.GenerateAsync(
             promptProvider, fullContext, question, settings, ct, options.GenerationTemperature);
         var tableCount = singleCandidate.TablesUsed
@@ -131,25 +136,41 @@ internal sealed class AskSqlPipeline(
 
         if (execute && settings.EnableSelfConsistency && options.AllowSelfConsistency && tableCount >= settings.SelfConsistencyMinTables)
         {
-            try
+            // (SelfConsistencyCandidateCount clamped to [1,8]) - 1 extra candidates, no more than the LLM budget has left
+            // once the repair attempts are kept covered.
+            var wantedExtraCandidates = Math.Clamp(settings.SelfConsistencyCandidateCount, 1, 8) - 1;
+            var extraCandidateCount = options.LlmBudget is { } budget
+                ? budget.ConsumeUpTo(Math.Min(wantedExtraCandidates, budget.Remaining - MaxRepairAttempts))
+                : wantedExtraCandidates;
+
+            if (wantedExtraCandidates > 0 && extraCandidateCount == 0)
             {
-                var vote = await RunSelfConsistencyVoteAsync(
-                    promptProvider, dataSourceId, question, settings, smartContext, rowSecurity, fullContext, executor, singleCandidate, ct);
-                votedWinner = vote.Winner;
-                votingNote = vote.Note;
+                logger.LogInformation(
+                    "LLM call budget spent; self-consistency voting skipped for data source {DataSourceId}",
+                    dataSourceId);
             }
-            catch (OperationCanceledException)
+            else
             {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                // Fail-closed (2026-07-13 lesson): a broken voting path must never fail the ask; it falls
-                // back to the already-validated single candidate. §1.11 — no SQL, no question text, no
-                // provider error detail, just enough to diagnose.
-                logger.LogWarning(
-                    "Self-consistency voting failed for data source {DataSourceId} ({ExceptionType}); using single-candidate generation.",
-                    dataSourceId, ex.GetType().Name);
+                try
+                {
+                    var vote = await RunSelfConsistencyVoteAsync(
+                        promptProvider, dataSourceId, question, settings, smartContext, rowSecurity, fullContext, executor, singleCandidate, extraCandidateCount, ct);
+                    votedWinner = vote.Winner;
+                    votingNote = vote.Note;
+                }
+                catch (OperationCanceledException)
+                {
+                    throw;
+                }
+                catch (Exception ex)
+                {
+                    // Fail-closed (2026-07-13 lesson): a broken voting path must never fail the ask; it falls
+                    // back to the already-validated single candidate. §1.11 — no SQL, no question text, no
+                    // provider error detail, just enough to diagnose.
+                    logger.LogWarning(
+                        "Self-consistency voting failed for data source {DataSourceId} ({ExceptionType}); using single-candidate generation.",
+                        dataSourceId, ex.GetType().Name);
+                }
             }
         }
 
@@ -200,9 +221,21 @@ internal sealed class AskSqlPipeline(
                 null, []);
         }
 
-        // Explicit budget shared by ALL repair triggers (schema, dry-run, execution error, empty result)
         var repairAttempts = 0;
-        const int maxRepairAttempts = 2;
+
+        // Each repair also takes a call from the LLM budget; without one it is skipped, as when the attempts are spent.
+        bool TakeRepairCall(string trigger)
+        {
+            if (options.LlmBudget == null || options.LlmBudget.TryConsume())
+            {
+                return true;
+            }
+
+            logger.LogInformation("LLM call budget spent; {Trigger} repair skipped", trigger);
+
+            return false;
+        }
+
         var systemPrompt = settings.AskSystemPrompt ?? "You are a SQL expert. Return ONLY the SQL query.";
         string? schemaValidationError = null;
         string? dryRunError = null;
@@ -214,7 +247,7 @@ internal sealed class AskSqlPipeline(
         var currentReport = initialReport;
         columnsUsed = currentReport.ColumnsUsed;
         var schemaVerdict = currentReport.Verdicts.Schema;
-        if (schemaVerdict.Status == SqlGateStatus.Fail && repairAttempts < maxRepairAttempts)
+        if (schemaVerdict.Status == SqlGateStatus.Fail && repairAttempts < MaxRepairAttempts && TakeRepairCall("schema"))
         {
             repairAttempts++;
             schemaValidationError = schemaVerdict.Message!;
@@ -267,7 +300,7 @@ internal sealed class AskSqlPipeline(
             var initialLintFindings = currentReport.LintFindings;
             lintFindings = initialLintFindings;
 
-            if (initialLintFindings.Count > 0 && repairAttempts < maxRepairAttempts)
+            if (initialLintFindings.Count > 0 && repairAttempts < MaxRepairAttempts && TakeRepairCall("lint"))
             {
                 repairAttempts++;
                 var lintError = "Semantic check: " + string.Join("; ", initialLintFindings.Select(x => $"{x.Code}: {x.Message}"));
@@ -332,7 +365,7 @@ internal sealed class AskSqlPipeline(
         var rawDryRunError = await TryDryRunAsync(executor, dataSourceId, generatedSql, ct);
         var dryRunSql = generatedSql;
         dryRunError = rawDryRunError == null ? null : RedactedError(rawDryRunError, dryRunSql);
-        if (rawDryRunError != null && repairAttempts < maxRepairAttempts)
+        if (rawDryRunError != null && repairAttempts < MaxRepairAttempts && TakeRepairCall("dry-run"))
         {
             repairAttempts++;
             var redactedDryRunError = dryRunError!;
@@ -365,7 +398,7 @@ internal sealed class AskSqlPipeline(
 
         // A statement Beacon refused before it ran (the execution gate or a cost limit) is not repaired: Beacon's own check,
         // not a database error, stopped it, so the call ends with the refusal.
-        if (!execResult.IsSuccess && !execResult.Refused && execResult.ErrorMessage != null && repairAttempts < maxRepairAttempts)
+        if (!execResult.IsSuccess && !execResult.Refused && execResult.ErrorMessage != null && repairAttempts < MaxRepairAttempts && TakeRepairCall("execution"))
         {
             repairAttempts++;
             var redactedExecutionError = RedactedError(execResult.ErrorMessage, generatedSql);
@@ -399,7 +432,7 @@ internal sealed class AskSqlPipeline(
 
             repairs.Add(new AskRepairStep("execution", redactedExecutionError, null, false));
         }
-        else if (execResult.IsSuccess && execResult.RowCount == 0 && repairAttempts < maxRepairAttempts && !electedByVote && !QuestionExpectsCountOrExistence(question))
+        else if (execResult.IsSuccess && execResult.RowCount == 0 && repairAttempts < MaxRepairAttempts && !electedByVote && !QuestionExpectsCountOrExistence(question) && TakeRepairCall("empty-result"))
         {
             // Empty-result repair: one bounded retry; identical SQL or a second empty result
             // means zero rows is accepted as the answer.
@@ -455,7 +488,7 @@ internal sealed class AskSqlPipeline(
             correctedSql, columnsUsed);
     }
 
-    // Requests (SelfConsistencyCandidateCount clamped to [1,8]) - 1 extra candidates CONCURRENTLY
+    // Requests the extraCandidateCount extra candidates the caller sized CONCURRENTLY
     // (§6.1 — real concurrency is bounded by LlmRequestQueue behind the injected provider), adds
     // `singleCandidate` as one more vote member, validates + executes each read-only, and elects the
     // majority result set. Returns the winning SqlGenerationResult (F001 — so its Assumptions and
@@ -472,11 +505,9 @@ internal sealed class AskSqlPipeline(
         string fullContext,
         IAskSqlExecutor executor,
         SqlGenerationResult singleCandidate,
+        int extraCandidateCount,
         CancellationToken ct)
     {
-        var totalCandidateCount = Math.Clamp(settings.SelfConsistencyCandidateCount, 1, 8);
-        var extraCandidateCount = totalCandidateCount - 1;
-
         var extraCandidates = extraCandidateCount > 0
             ? await sqlGenerationService.GenerateCandidatesAsync(
                 llmProvider, fullContext, question, settings, extraCandidateCount, SelfConsistencyTemperature, ct)

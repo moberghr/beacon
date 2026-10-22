@@ -529,6 +529,7 @@ public class ProjectAskToolRepairFlowTests
             Mock.Of<ICrossSourceQueryService>(),
             Options.Create(new McpDeploymentOptions()),
             new McpQueryConcurrencyLimiter(),
+            TimeProvider.System,
             NullLogger<ProjectAskTool>.Instance);
 
         var result = await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
@@ -588,6 +589,7 @@ public class ProjectAskToolRepairFlowTests
             Mock.Of<ICrossSourceQueryService>(),
             Options.Create(new McpDeploymentOptions()),
             new McpQueryConcurrencyLimiter(),
+            TimeProvider.System,
             NullLogger<ProjectAskTool>.Instance);
 
         await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
@@ -746,12 +748,13 @@ public class ProjectAskToolRepairFlowTests
             Mock.Of<ICrossSourceQueryService>(),
             Options.Create(new McpDeploymentOptions()),
             new McpQueryConcurrencyLimiter(),
+            TimeProvider.System,
             NullLogger<ProjectAskTool>.Instance);
 
         var signal = new McpSignalBuilder().SetTool("ask").SetQuestion(Question);
 
         var (text, succeeded) = await tool.GenerateAndExecuteSqlAsync(
-            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, true, signal, CancellationToken.None);
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, true, signal, null, CancellationToken.None);
 
         succeeded.Should().BeTrue();
         text.Should().Contain(GeneratedSql);
@@ -830,12 +833,13 @@ public class ProjectAskToolRepairFlowTests
             Mock.Of<ICrossSourceQueryService>(),
             Options.Create(new McpDeploymentOptions()),
             new McpQueryConcurrencyLimiter(),
+            TimeProvider.System,
             NullLogger<ProjectAskTool>.Instance);
 
         var signal = new McpSignalBuilder().SetTool("ask").SetQuestion(Question);
 
         var outcome = await tool.GenerateAndExecuteSqlAsync(
-            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, true, signal, CancellationToken.None);
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, true, signal, null, CancellationToken.None);
 
         outcome.GeneratedSql.Should().Be(GeneratedSql);
         outcome.CorrectedSql.Should().BeNull();
@@ -949,6 +953,484 @@ public class ProjectAskToolRepairFlowTests
         ProjectAskTool.BuildAskStructuredContent(null, null, null, null).Should().BeNull();
     }
 
+    [Test]
+    public async Task LlmBudget_SelfConsistency_RequestsOnlyTheCandidatesTheBudgetAllows_KeepingTheRepairsCovered()
+    {
+        _settings.EnableSelfConsistency = true;
+        _settings.SelfConsistencyCandidateCount = 8;
+        _settings.SelfConsistencyMinTables = 1;
+        _executor
+            .SetupSequence(x => x.DryRunAsync(DataSourceId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("dry-run error")
+            .ReturnsAsync((string?)null);
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, It.IsAny<string>(), 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AskExecutionResult("### Results (1 rows)\n", null, 1, true));
+        _sqlGeneration
+            .Setup(x => x.GenerateCandidatesAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(), _settings,
+                It.IsAny<int>(), It.IsAny<decimal>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((ILlmProvider _, string _, string _, McpSettingsData _, int count, decimal _, CancellationToken _) =>
+                Enumerable.Range(0, count)
+                    .Select(_ => new SqlGenerationResult(GeneratedSql, ["orders"]))
+                    .ToList());
+        _sqlGeneration
+            .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CorrectedSql);
+        var budget = new AskLlmBudget(6);
+
+        var outcome = await CreatePipeline().RunAsync(
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, _executor.Object,
+            new AskSqlPipelineOptions { LlmBudget = budget }, CancellationToken.None);
+
+        // The single candidate leaves 5 calls; 2 stay for the repair attempts, so 3 extra candidates instead of the 7 wanted.
+        _sqlGeneration.Verify(x => x.GenerateCandidatesAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(), _settings,
+            3, It.IsAny<decimal>(), It.IsAny<CancellationToken>()), Times.Once);
+        outcome.Repairs.Should().ContainSingle(x => x.Trigger == "dry-run", "a repair still had a call");
+        budget.Used.Should().Be(5);
+    }
+
+    [Test]
+    public async Task LlmBudget_SelfConsistency_WithOnlyTheRepairCallsLeft_SkipsTheVote()
+    {
+        SetupCleanDryRun();
+        _settings.EnableSelfConsistency = true;
+        _settings.SelfConsistencyMinTables = 1;
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, It.IsAny<string>(), 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AskExecutionResult("### Results (1 rows)\n", null, 1, true));
+        var budget = new AskLlmBudget(3);
+
+        await CreatePipeline().RunAsync(
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, _executor.Object,
+            new AskSqlPipelineOptions { LlmBudget = budget }, CancellationToken.None);
+
+        _sqlGeneration.Verify(x => x.GenerateCandidatesAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<McpSettingsData>(), It.IsAny<int>(), It.IsAny<decimal>(), It.IsAny<CancellationToken>()), Times.Never);
+        budget.Used.Should().Be(1);
+    }
+
+    [Test]
+    public async Task LlmBudget_SpentByGeneration_SkipsTheRepairAndReturnsTheUnrepairedAttempt()
+    {
+        SetupCleanDryRun();
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, GeneratedSql, 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AskExecutionResult(null, "42601: syntax error at end of input", 0, false));
+        var budget = new AskLlmBudget(1);
+
+        var outcome = await CreatePipeline().RunAsync(
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, _executor.Object,
+            new AskSqlPipelineOptions { LlmBudget = budget }, CancellationToken.None);
+
+        _sqlGeneration.Verify(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        outcome.Succeeded.Should().BeFalse();
+        outcome.FinalSql.Should().Be(GeneratedSql);
+        outcome.Repairs.Should().BeEmpty();
+        outcome.Text.Should().Contain("**Execution Error:** 42601: syntax error at end of input");
+        budget.Used.Should().Be(1);
+    }
+
+    [Test]
+    public async Task LlmBudget_WithRoomForOneRepair_SpendsItAndSkipsTheNext()
+    {
+        _executor
+            .Setup(x => x.DryRunAsync(DataSourceId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync("dry-run error");
+        _sqlGeneration
+            .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(CorrectedSql);
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, It.IsAny<string>(), 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AskExecutionResult(null, "42601: syntax error at end of input", 0, false));
+        var budget = new AskLlmBudget(2);
+
+        var outcome = await CreatePipeline().RunAsync(
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, _executor.Object,
+            new AskSqlPipelineOptions { LlmBudget = budget }, CancellationToken.None);
+
+        _sqlGeneration.Verify(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
+        outcome.Repairs.Should().ContainSingle(x => x.Trigger == "dry-run");
+        outcome.FinalSql.Should().Be(CorrectedSql);
+        budget.Used.Should().Be(2);
+    }
+
+    [Test]
+    public async Task LlmBudget_SpentBeforeGeneration_FailsWithTheBudgetMessage()
+    {
+        var budget = new AskLlmBudget(1);
+        budget.TryConsume().Should().BeTrue();
+
+        var act = () => CreatePipeline().RunAsync(
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, _executor.Object,
+            new AskSqlPipelineOptions { LlmBudget = budget }, CancellationToken.None);
+
+        (await act.Should().ThrowAsync<AskLlmBudgetExceededException>())
+            .Which.Message.Should().Contain("limit of 1 LLM call");
+        _sqlGeneration.Verify(x => x.GenerateAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
+            It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>(), It.IsAny<decimal?>()), Times.Never);
+    }
+
+    [Test]
+    public async Task ExecuteAsync_TimeBudgetElapses_ReturnsAnAuditedAndSignalledError()
+    {
+        var auditLogs = new List<McpAuditLog>();
+        var signals = new List<McpQuerySignal>();
+        var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider();
+        var llmCalled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var observed = CancellationToken.None;
+        _llmProvider
+            .Setup(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()))
+            .Returns(async (LlmRequest _, CancellationToken ct) =>
+            {
+                observed = ct;
+                llmCalled.SetResult();
+                await Task.Delay(Timeout.Infinite, ct);
+
+                return new Beacon.Core.Models.Ai.LlmResponse { Content = "DATA" };
+            });
+        var serviceProvider = new Mock<IServiceProvider>();
+        serviceProvider.Setup(x => x.GetService(typeof(ILlmProvider))).Returns(_llmProvider.Object);
+        var tool = CreateAuditedTool(auditLogs, signals, serviceProvider, ClassifierCallingTheProvider(), timeProvider: clock);
+
+        var call = tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
+        await llmCalled.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        clock.Advance(TimeSpan.FromSeconds(120));
+        var result = await call.WaitAsync(TimeSpan.FromSeconds(10));
+
+        (result.IsError ?? false).Should().BeTrue();
+        var error = result.Content.OfType<TextContentBlock>().Single().Text;
+        error.Should().Be("ask exceeded its time budget of 120 s; narrow the question or ask again.");
+        observed.IsCancellationRequested.Should().BeTrue("the LLM call runs under the ask's own budget");
+        var audit = auditLogs.Should().ContainSingle().Subject;
+        audit.ProjectId.Should().Be(ProjectId);
+        audit.ErrorMessage.Should().Be(error);
+        signals.Should().ContainSingle().Which.ExecutionFailed.Should().BeTrue();
+    }
+
+    [Test]
+    public async Task ExecuteAsync_ConfiguredTimeBudget_HandsTheSqlPathAToken_ThatFiresAfterIt()
+    {
+        var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider();
+        var serviceProvider = new Mock<IServiceProvider>();
+        serviceProvider.Setup(x => x.GetService(typeof(ILlmProvider))).Returns(_llmProvider.Object);
+        var intentClassifier = new Mock<IIntentClassifier>();
+        intentClassifier
+            .Setup(x => x.ClassifyAsync(It.IsAny<ILlmProvider>(), Question, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(IntentClassification.DataQuery);
+        var knowledgeGraph = new Mock<IKnowledgeGraphService>();
+        knowledgeGraph
+            .Setup(x => x.GetProjectDataSourcesAsync(ProjectId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync([new DataSourceKnowledge { DataSourceId = DataSourceId, Name = "orders" }]);
+        var router = new Mock<IDataSourceRouter>();
+        router
+            .Setup(x => x.RouteAsync(It.IsAny<ILlmProvider>(), It.IsAny<List<DataSourceKnowledge>>(), Question, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new RoutingResult { Sources = [new RoutedSource { DataSourceId = DataSourceId, DataSourceName = "orders" }] });
+        var pipelineEntered = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        var handed = CancellationToken.None;
+        AskSqlPipelineOptions? handedOptions = null;
+        var pipeline = new Mock<IAskSqlPipeline>();
+        pipeline
+            .Setup(x => x.RunAsync(It.IsAny<ILlmProvider>(), DataSourceId, ProjectId, Question, It.IsAny<McpSettingsData>(),
+                It.IsAny<IAskSqlExecutor>(), It.IsAny<AskSqlPipelineOptions>(), It.IsAny<CancellationToken>()))
+            .Returns(async (ILlmProvider _, int _, int _, string _, McpSettingsData _, IAskSqlExecutor _, AskSqlPipelineOptions options, CancellationToken ct) =>
+            {
+                handed = ct;
+                handedOptions = options;
+                pipelineEntered.SetResult();
+                await Task.Delay(Timeout.Infinite, ct);
+
+                return null!;
+            });
+        var deployment = new McpDeploymentOptions { Ceilings = new McpCeilingOptions { AskTimeoutSeconds = 5 } };
+        var tool = CreateAuditedTool([], [], serviceProvider, intentClassifier, deployment, timeProvider: clock,
+            pipeline: pipeline.Object, knowledgeGraph: knowledgeGraph.Object, router: router.Object);
+
+        var call = tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
+        await pipelineEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        clock.Advance(TimeSpan.FromSeconds(4));
+        handed.IsCancellationRequested.Should().BeFalse();
+        clock.Advance(TimeSpan.FromSeconds(1));
+        var result = await call.WaitAsync(TimeSpan.FromSeconds(10));
+
+        handed.IsCancellationRequested.Should().BeTrue();
+        result.Content.OfType<TextContentBlock>().Single().Text.Should().Contain("time budget of 5 s");
+        handedOptions!.LlmBudget.Should().NotBeNull();
+        handedOptions.LlmBudget!.MaxCalls.Should().Be(12);
+    }
+
+    [Test]
+    public async Task ExecuteAsync_CallerCancels_PropagatesTheCancellation_AfterAuditing()
+    {
+        var auditLogs = new List<McpAuditLog>();
+        var signals = new List<McpQuerySignal>();
+        var llmCalled = new TaskCompletionSource(TaskCreationOptions.RunContinuationsAsynchronously);
+        _llmProvider
+            .Setup(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()))
+            .Returns(async (LlmRequest _, CancellationToken ct) =>
+            {
+                llmCalled.SetResult();
+                await Task.Delay(Timeout.Infinite, ct);
+
+                return new Beacon.Core.Models.Ai.LlmResponse { Content = "DATA" };
+            });
+        var serviceProvider = new Mock<IServiceProvider>();
+        serviceProvider.Setup(x => x.GetService(typeof(ILlmProvider))).Returns(_llmProvider.Object);
+        var tool = CreateAuditedTool(auditLogs, signals, serviceProvider, ClassifierCallingTheProvider(),
+            timeProvider: new Microsoft.Extensions.Time.Testing.FakeTimeProvider());
+        using var caller = new CancellationTokenSource();
+
+        var call = tool.ExecuteAsync(Question, cancellationToken: caller.Token);
+        await llmCalled.Task.WaitAsync(TimeSpan.FromSeconds(10));
+        await caller.CancelAsync();
+
+        await FluentActions.Awaiting(() => call).Should().ThrowAsync<OperationCanceledException>();
+        auditLogs.Should().ContainSingle().Which.ErrorMessage.Should().Be("Cancelled by the caller.");
+        auditLogs.Single().ErrorMessage.Should().NotContain("budget");
+        signals.Should().ContainSingle().Which.ExecutionFailed.Should().BeTrue();
+    }
+
+    [Test]
+    public async Task ExecuteAsync_LlmBudgetSpentBeforeRouting_FailsAuditedAndSignalled()
+    {
+        var auditLogs = new List<McpAuditLog>();
+        var signals = new List<McpQuerySignal>();
+        var serviceProvider = new Mock<IServiceProvider>();
+        serviceProvider.Setup(x => x.GetService(typeof(ILlmProvider))).Returns(_llmProvider.Object);
+        var intentClassifier = new Mock<IIntentClassifier>();
+        intentClassifier
+            .Setup(x => x.ClassifyAsync(It.IsAny<ILlmProvider>(), Question, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(IntentClassification.DataQuery);
+        var knowledgeGraph = new Mock<IKnowledgeGraphService>();
+        knowledgeGraph
+            .Setup(x => x.GetProjectDataSourcesAsync(ProjectId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(
+            [
+                new DataSourceKnowledge { DataSourceId = 1, Name = "orders" },
+                new DataSourceKnowledge { DataSourceId = 2, Name = "billing" }
+            ]);
+        var router = new Mock<IDataSourceRouter>();
+        var deployment = new McpDeploymentOptions { Ceilings = new McpCeilingOptions { AskMaxLlmCalls = 1 } };
+        var tool = CreateAuditedTool(auditLogs, signals, serviceProvider, intentClassifier, deployment,
+            knowledgeGraph: knowledgeGraph.Object, router: router.Object);
+
+        var result = await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeTrue();
+        var error = result.Content.OfType<TextContentBlock>().Single().Text;
+        error.Should().Be("ask reached its limit of 1 LLM call before it could answer; narrow the question or ask again.");
+        router.Verify(x => x.RouteAsync(It.IsAny<ILlmProvider>(), It.IsAny<List<DataSourceKnowledge>>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+        auditLogs.Should().ContainSingle().Which.ErrorMessage.Should().Be(error);
+        signals.Should().ContainSingle().Which.ExecutionFailed.Should().BeTrue();
+    }
+
+    [Test]
+    public async Task ExecuteAsync_KnowledgeQuestion_TakesACallForTheAnswer_AndFailsAuditedWithoutOne()
+    {
+        var auditLogs = new List<McpAuditLog>();
+        var signals = new List<McpQuerySignal>();
+        var serviceProvider = new Mock<IServiceProvider>();
+        serviceProvider.Setup(x => x.GetService(typeof(ILlmProvider))).Returns(_llmProvider.Object);
+        var intentClassifier = new Mock<IIntentClassifier>();
+        intentClassifier
+            .Setup(x => x.ClassifyAsync(It.IsAny<ILlmProvider>(), Question, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(IntentClassification.Knowledge);
+        var knowledgeAnswer = new Mock<IKnowledgeAnswerService>();
+        var deployment = new McpDeploymentOptions { Ceilings = new McpCeilingOptions { AskMaxLlmCalls = 1 } };
+        var tool = CreateAuditedTool(auditLogs, signals, serviceProvider, intentClassifier, deployment, knowledgeAnswer: knowledgeAnswer.Object);
+
+        var result = await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
+
+        var error = result.Content.OfType<TextContentBlock>().Single().Text;
+        error.Should().Contain("limit of 1 LLM call");
+        knowledgeAnswer.Verify(x => x.AnswerAsync(It.IsAny<ILlmProvider>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>()), Times.Never);
+        auditLogs.Should().ContainSingle().Which.ErrorMessage.Should().Be(error);
+        signals.Should().ContainSingle().Which.ExecutionFailed.Should().BeTrue();
+    }
+
+    [Test]
+    public async Task ExecuteAsync_OneDataSource_SpendsNoCallOnRouting_AndHandsThePipelineTheCallsBudget()
+    {
+        AskSqlPipelineOptions? handed = null;
+        var pipeline = new Mock<IAskSqlPipeline>();
+        pipeline
+            .Setup(x => x.RunAsync(It.IsAny<ILlmProvider>(), DataSourceId, ProjectId, Question, It.IsAny<McpSettingsData>(),
+                It.IsAny<IAskSqlExecutor>(), It.IsAny<AskSqlPipelineOptions>(), It.IsAny<CancellationToken>()))
+            .Callback<ILlmProvider, int, int, string, McpSettingsData, IAskSqlExecutor, AskSqlPipelineOptions, CancellationToken>((_, _, _, _, _, _, options, _) => handed = options)
+            .ReturnsAsync(CannedOutcome());
+        var router = new Mock<IDataSourceRouter>();
+        router
+            .Setup(x => x.RouteAsync(It.IsAny<ILlmProvider>(), It.IsAny<List<DataSourceKnowledge>>(), Question, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new RoutingResult { Sources = [new RoutedSource { DataSourceId = DataSourceId, DataSourceName = "orders" }] });
+        var tool = DataQueryTool([DataSourceId], pipeline: pipeline.Object, router: router.Object);
+
+        var result = await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeFalse();
+        handed!.LlmBudget.Should().NotBeNull();
+        handed.LlmBudget!.MaxCalls.Should().Be(12);
+        handed.LlmBudget.Used.Should().Be(1, "the intent classification only: one source needs no routing call");
+    }
+
+    [Test]
+    public async Task ExecuteAsync_SeveralDataSources_HandsTheCrossSourceQueryTheCallsBudget_AfterRouting()
+    {
+        AskLlmBudget? handed = null;
+        var crossSource = new Mock<ICrossSourceQueryService>();
+        crossSource
+            .Setup(x => x.ExecuteAsync(It.IsAny<ILlmProvider>(), It.IsAny<List<RoutedSource>>(), ProjectId, Question, It.IsAny<McpSettingsData>(),
+                true, It.IsAny<McpSignalBuilder>(), It.IsAny<AskLlmBudget?>(), It.IsAny<CancellationToken>()))
+            .Callback<ILlmProvider, List<RoutedSource>, int, string, McpSettingsData, bool, McpSignalBuilder, AskLlmBudget?, CancellationToken>((_, _, _, _, _, _, _, budget, _) => handed = budget)
+            .ReturnsAsync(("joined", true));
+        var router = new Mock<IDataSourceRouter>();
+        router
+            .Setup(x => x.RouteAsync(It.IsAny<ILlmProvider>(), It.IsAny<List<DataSourceKnowledge>>(), Question, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new RoutingResult
+            {
+                Sources =
+                [
+                    new RoutedSource { DataSourceId = 1, DataSourceName = "orders" },
+                    new RoutedSource { DataSourceId = 2, DataSourceName = "billing" }
+                ]
+            });
+        var tool = DataQueryTool([1, 2], router: router.Object, crossSource: crossSource.Object);
+
+        var result = await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeFalse();
+        handed.Should().NotBeNull();
+        handed!.MaxCalls.Should().Be(12);
+        handed.Used.Should().Be(2, "the intent classification and the routing call");
+    }
+
+    [Test]
+    public async Task ExecuteAsync_TimeBudgetFiresAndTheFailureIsWrapped_StillAnswersTheTimeBudget()
+    {
+        var auditLogs = new List<McpAuditLog>();
+        var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider();
+        var pipeline = new Mock<IAskSqlPipeline>();
+        pipeline
+            .Setup(x => x.RunAsync(It.IsAny<ILlmProvider>(), DataSourceId, ProjectId, Question, It.IsAny<McpSettingsData>(),
+                It.IsAny<IAskSqlExecutor>(), It.IsAny<AskSqlPipelineOptions>(), It.IsAny<CancellationToken>()))
+            .Callback(() => clock.Advance(TimeSpan.FromSeconds(120)))
+            .ThrowsAsync(new InvalidOperationException("provider failed", new OperationCanceledException()));
+        var tool = DataQueryTool([DataSourceId], auditLogs, pipeline: pipeline.Object, timeProvider: clock);
+
+        var result = await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
+
+        var error = result.Content.OfType<TextContentBlock>().Single().Text;
+        error.Should().Be("ask exceeded its time budget of 120 s; narrow the question or ask again.");
+        auditLogs.Should().ContainSingle().Which.ErrorMessage.Should().Be(error);
+    }
+
+    [Test]
+    public async Task ExecuteAsync_TimeBudgetFiresWhileTheStatementRuns_AnswersTheTimeBudget_NotTheExecutionError()
+    {
+        var auditLogs = new List<McpAuditLog>();
+        var signals = new List<McpQuerySignal>();
+        var clock = new Microsoft.Extensions.Time.Testing.FakeTimeProvider();
+        SetupRealPipelineExecution(() => clock.Advance(TimeSpan.FromSeconds(120)));
+        var tool = DataQueryTool([DataSourceId], auditLogs, signals, pipeline: CreatePipeline(), timeProvider: clock);
+
+        var result = await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeTrue();
+        result.Content.OfType<TextContentBlock>().Single().Text.Should().Be("ask exceeded its time budget of 120 s; narrow the question or ask again.");
+        auditLogs.Should().ContainSingle().Which.ErrorMessage.Should().Contain("time budget");
+        signals.Should().ContainSingle().Which.ExecutionFailed.Should().BeTrue();
+    }
+
+    [Test]
+    public async Task ExecuteAsync_CallerCancelsWhileTheStatementRuns_PropagatesTheCancellation_AfterAuditing()
+    {
+        var auditLogs = new List<McpAuditLog>();
+        using var caller = new CancellationTokenSource();
+        SetupRealPipelineExecution(caller.Cancel);
+        var tool = DataQueryTool([DataSourceId], auditLogs, pipeline: CreatePipeline());
+
+        var act = () => tool.ExecuteAsync(Question, cancellationToken: caller.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        auditLogs.Should().ContainSingle().Which.ErrorMessage.Should().Be("Cancelled by the caller.");
+    }
+
+    // The real pipeline over a statement whose execution comes back failed (as a provider reports a cancelled statement)
+    // after the given action ran; its repair produces nothing.
+    private void SetupRealPipelineExecution(Action whileRunning)
+    {
+        SetupCleanDryRun();
+        _sqlGeneration
+            .Setup(x => x.GenerateAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>(), It.IsAny<decimal?>()))
+            .ReturnsAsync(new SqlGenerationResult(GeneratedSql, ["orders"]));
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, GeneratedSql, It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .Callback(whileRunning)
+            .ReturnsAsync(new AskExecutionResult(null, "57014: canceling statement due to user request", 0, false));
+    }
+
+    private ProjectAskTool DataQueryTool(
+        int[] dataSourceIds,
+        List<McpAuditLog>? auditLogs = null,
+        List<McpQuerySignal>? signals = null,
+        IAskSqlPipeline? pipeline = null,
+        IDataSourceRouter? router = null,
+        ICrossSourceQueryService? crossSource = null,
+        TimeProvider? timeProvider = null)
+    {
+        var serviceProvider = new Mock<IServiceProvider>();
+        serviceProvider.Setup(x => x.GetService(typeof(ILlmProvider))).Returns(_llmProvider.Object);
+        var intentClassifier = new Mock<IIntentClassifier>();
+        intentClassifier
+            .Setup(x => x.ClassifyAsync(It.IsAny<ILlmProvider>(), Question, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(IntentClassification.DataQuery);
+        _knowledgeGraph
+            .Setup(x => x.GetProjectDataSourcesAsync(ProjectId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(dataSourceIds
+                .Select(x =>
+                    new DataSourceKnowledge
+                    {
+                        DataSourceId = x,
+                        Name = $"source {x}"
+                    })
+                .ToList());
+
+        if (router == null)
+        {
+            var singleSource = new Mock<IDataSourceRouter>();
+            singleSource
+                .Setup(x => x.RouteAsync(It.IsAny<ILlmProvider>(), It.IsAny<List<DataSourceKnowledge>>(), Question, It.IsAny<CancellationToken>()))
+                .ReturnsAsync(new RoutingResult { Sources = [new RoutedSource { DataSourceId = DataSourceId, DataSourceName = "orders" }] });
+            router = singleSource.Object;
+        }
+
+        return CreateAuditedTool(auditLogs ?? [], signals ?? [], serviceProvider, intentClassifier, timeProvider: timeProvider,
+            pipeline: pipeline, knowledgeGraph: _knowledgeGraph.Object, router: router, crossSource: crossSource);
+    }
+
+    private static AskSqlOutcome CannedOutcome()
+    {
+        return new AskSqlOutcome(GeneratedSql, GeneratedSql, ["orders"], true, "### Results (1 rows)\n", null, null, null, null,
+            [], false, null, [], null, [], null, []);
+    }
+
+    private static Mock<IIntentClassifier> ClassifierCallingTheProvider()
+    {
+        var intentClassifier = new Mock<IIntentClassifier>();
+        intentClassifier
+            .Setup(x => x.ClassifyAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns(async (ILlmProvider provider, string _, CancellationToken ct) =>
+            {
+                await provider.CompleteAsync(new LlmRequest(), ct);
+
+                return IntentClassification.DataQuery;
+            });
+
+        return intentClassifier;
+    }
+
     private void SetupCleanDryRun()
     {
         _executor
@@ -978,7 +1460,12 @@ public class ProjectAskToolRepairFlowTests
         Mock<IIntentClassifier> intentClassifier,
         McpDeploymentOptions? deploymentOptions = null,
         int? userId = 1,
-        IKnowledgeAnswerService? knowledgeAnswer = null)
+        IKnowledgeAnswerService? knowledgeAnswer = null,
+        TimeProvider? timeProvider = null,
+        IAskSqlPipeline? pipeline = null,
+        IKnowledgeGraphService? knowledgeGraph = null,
+        IDataSourceRouter? router = null,
+        ICrossSourceQueryService? crossSource = null)
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
@@ -987,21 +1474,22 @@ public class ProjectAskToolRepairFlowTests
         var settingsProvider = SettingsProviderMock.Create();
 
         return new ProjectAskTool(
-            Mock.Of<IKnowledgeGraphService>(),
+            knowledgeGraph ?? Mock.Of<IKnowledgeGraphService>(),
             settingsProvider.Object,
             SettingsProviderMock.Unshared(settingsProvider.Object),
             serviceProvider.Object,
             new McpProjectContext { UserId = userId, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId] },
             new McpAuditService(factory.Object, settingsProvider.Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog()),
             new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance),
-            Mock.Of<IAskSqlPipeline>(),
+            pipeline ?? Mock.Of<IAskSqlPipeline>(),
             _executor.Object,
             intentClassifier.Object,
-            Mock.Of<IDataSourceRouter>(),
+            router ?? Mock.Of<IDataSourceRouter>(),
             knowledgeAnswer ?? Mock.Of<IKnowledgeAnswerService>(),
-            Mock.Of<ICrossSourceQueryService>(),
+            crossSource ?? Mock.Of<ICrossSourceQueryService>(),
             Options.Create(deploymentOptions ?? new McpDeploymentOptions()),
             new McpQueryConcurrencyLimiter(),
+            timeProvider ?? TimeProvider.System,
             NullLogger<ProjectAskTool>.Instance);
     }
 

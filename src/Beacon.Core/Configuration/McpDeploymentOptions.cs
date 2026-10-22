@@ -7,7 +7,8 @@ namespace Beacon.Core.Configuration;
 /// every project regardless of what an admin stores — an Admin included (the UI disables the switch, the API answers
 /// 409); only the host's configuration lifts one. Ceilings bound the numeric settings — a stored value above a ceiling
 /// resolves to the ceiling. An absent section means the read-only and PII-detection locks are on, content retention and
-/// row data to the LLM are not locked, and there are no ceilings beyond the built-in SQL / question length caps.
+/// row data to the LLM are not locked, and there are no ceilings beyond the built-in SQL / question length caps and the
+/// built-in <c>ask</c> time and LLM-call budgets.
 /// </summary>
 public sealed class McpDeploymentOptions
 {
@@ -65,12 +66,19 @@ public sealed class McpAuditOptions
 
 /// <summary>
 /// Upper bounds project or global settings cannot exceed. <c>null</c> = no ceiling, except for the input caps
-/// <see cref="MaxSqlChars"/> and <see cref="MaxQuestionChars"/>, which always apply and fall back to a built-in default.
+/// <see cref="MaxSqlChars"/> and <see cref="MaxQuestionChars"/> and the <c>ask</c> budgets <see cref="AskTimeoutSeconds"/>
+/// and <see cref="AskMaxLlmCalls"/>, which always apply and fall back to a built-in default.
 /// </summary>
 public sealed class McpCeilingOptions
 {
     internal const int DefaultMaxSqlChars = 100_000;
     internal const int DefaultMaxQuestionChars = 4_000;
+    internal const int DefaultAskTimeoutSeconds = 120;
+    internal const int DefaultAskMaxLlmCalls = 12;
+    internal const int MaxAskTimeoutSeconds = 3_600;
+
+    // A data question needs at least the intent classification and the first SQL generation.
+    internal const int MinAskMaxLlmCalls = 2;
 
     public int? MaxRowLimit { get; set; }
     public int? StatementTimeoutSeconds { get; set; }
@@ -84,9 +92,24 @@ public sealed class McpCeilingOptions
     /// <summary>Longest question the <c>ask</c> tool accepts; <c>null</c> = 4 000 characters.</summary>
     public int? MaxQuestionChars { get; set; }
 
+    /// <summary>
+    /// Wall-clock time one <c>ask</c> call may take, from its start to its answer; <c>null</c> = 120 seconds. 1 to 3 600.
+    /// </summary>
+    public int? AskTimeoutSeconds { get; set; }
+
+    /// <summary>
+    /// Logical LLM calls one <c>ask</c> call may make, all steps together (a provider's own transport retries are not
+    /// counted); <c>null</c> = 12. At least 2: the intent classification and the first SQL generation.
+    /// </summary>
+    public int? AskMaxLlmCalls { get; set; }
+
     public int EffectiveMaxSqlChars => MaxSqlChars ?? DefaultMaxSqlChars;
 
     public int EffectiveMaxQuestionChars => MaxQuestionChars ?? DefaultMaxQuestionChars;
+
+    public int EffectiveAskTimeoutSeconds => AskTimeoutSeconds ?? DefaultAskTimeoutSeconds;
+
+    public int EffectiveAskMaxLlmCalls => AskMaxLlmCalls ?? DefaultAskMaxLlmCalls;
 }
 
 internal sealed class McpDeploymentOptionsValidator : IValidateOptions<McpDeploymentOptions>
@@ -102,6 +125,16 @@ internal sealed class McpDeploymentOptionsValidator : IValidateOptions<McpDeploy
         RequirePositive(failures, nameof(McpCeilingOptions.MaxConcurrentQueriesPerKey), ceilings.MaxConcurrentQueriesPerKey);
         RequirePositive(failures, nameof(McpCeilingOptions.MaxSqlChars), ceilings.MaxSqlChars);
         RequirePositive(failures, nameof(McpCeilingOptions.MaxQuestionChars), ceilings.MaxQuestionChars);
+
+        if (ceilings.AskTimeoutSeconds is <= 0 or > McpCeilingOptions.MaxAskTimeoutSeconds)
+        {
+            failures.Add($"{McpDeploymentOptions.SectionName}:Ceilings:{nameof(McpCeilingOptions.AskTimeoutSeconds)} must be between 1 and {McpCeilingOptions.MaxAskTimeoutSeconds} when set.");
+        }
+
+        if (ceilings.AskMaxLlmCalls < McpCeilingOptions.MinAskMaxLlmCalls)
+        {
+            failures.Add($"{McpDeploymentOptions.SectionName}:Ceilings:{nameof(McpCeilingOptions.AskMaxLlmCalls)} must be at least {McpCeilingOptions.MinAskMaxLlmCalls} when set (the intent classification and the first SQL generation).");
+        }
 
         if (ceilings.MaxExplainCost is <= 0)
         {

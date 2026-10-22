@@ -32,8 +32,11 @@ internal sealed class ProjectAskTool(
     ICrossSourceQueryService crossSourceQueryService,
     IOptions<McpDeploymentOptions> deploymentOptions,
     McpQueryConcurrencyLimiter concurrencyLimiter,
+    TimeProvider timeProvider,
     ILogger<ProjectAskTool> logger)
 {
+    private const string CallerCancelledMessage = "Cancelled by the caller.";
+
     [McpServerTool(Name = "ask", Title = "Ask a Data Question", ReadOnly = true, Idempotent = false, Destructive = false, OpenWorld = false)]
     [Description("Ask a natural language question about your data or project. For data queries, Beacon auto-detects the right data source(s), generates SQL, and executes it. For conceptual questions (e.g., 'how do notifications work?'), it answers from project documentation and knowledge base.")]
     public async Task<CallToolResult> ExecuteAsync(
@@ -63,15 +66,28 @@ internal sealed class ProjectAskTool(
 
         // After project resolution so the audit row is attributed to the authorized project and that project's
         // content-retention decision governs the stored question.
-        var maxQuestionChars = (deploymentOptions.Value.Ceilings ?? new McpCeilingOptions()).EffectiveMaxQuestionChars;
+        var ceilings = deploymentOptions.Value.Ceilings ?? new McpCeilingOptions();
+        var maxQuestionChars = ceilings.EffectiveMaxQuestionChars;
         if (question.Length > maxQuestionChars)
         {
             return await FailAsync(signal, sw, projectId, question,
                 $"Question is {question.Length} characters long; the limit is {maxQuestionChars}.", cancellationToken);
         }
 
+        // The whole call — LLM calls, metadata reads and SQL alike — runs under the deployment's time budget, linked to the
+        // caller's own cancellation, and makes at most the deployment's number of LLM calls. Built inside the try so a
+        // failure to build them is audited like any other.
+        var timeoutSeconds = ceilings.EffectiveAskTimeoutSeconds;
+        CancellationTokenSource? timeBudget = null;
+        CancellationTokenSource? askCancellation = null;
+
         try
         {
+            timeBudget = new CancellationTokenSource(TimeSpan.FromSeconds(timeoutSeconds), timeProvider);
+            askCancellation = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeBudget.Token);
+            var askToken = askCancellation.Token;
+            var llmBudget = new AskLlmBudget(ceilings.EffectiveAskMaxLlmCalls);
+
             var llmProvider = serviceProvider.GetService(typeof(ILlmProvider)) as ILlmProvider;
             if (llmProvider == null)
             {
@@ -79,7 +95,7 @@ internal sealed class ProjectAskTool(
                     "AI features not configured. Add LLM configuration to use the 'ask' tool.", CancellationToken.None);
             }
 
-            var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId, cancellationToken);
+            var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId, askToken);
 
             // MaxConcurrentQueriesPerKey: refused at once, never queued, and audited like every other refusal (§1.7/§9.5).
             using var lease = concurrencyLimiter.TryAcquire(McpQueryConcurrencyLimiter.CallerKeyOf(projectContext), settings.MaxConcurrentQueriesPerKey);
@@ -89,12 +105,14 @@ internal sealed class ProjectAskTool(
             }
 
             // Classify intent — data query vs knowledge question
-            var intent = await intentClassifier.ClassifyAsync(llmProvider, question, cancellationToken);
+            llmBudget.Consume();
+            var intent = await intentClassifier.ClassifyAsync(llmProvider, question, askToken);
             signal.SetIntent(intent == IntentClassification.Knowledge ? "Knowledge" : "DataQuery");
 
             if (intent == IntentClassification.Knowledge)
             {
-                var knowledgeResult = await knowledgeAnswerService.AnswerAsync(llmProvider, projectId, question, settings, cancellationToken);
+                llmBudget.Consume();
+                var knowledgeResult = await knowledgeAnswerService.AnswerAsync(llmProvider, projectId, question, settings, askToken);
                 sw.Stop();
                 signal.SetResult(null, (int)sw.ElapsedMilliseconds, true);
                 await auditService.LogToolCallAsync(projectContext.UserId, "ask",
@@ -103,7 +121,7 @@ internal sealed class ProjectAskTool(
                 return ToolHelper.Success(knowledgeResult);
             }
 
-            var dataSources = await knowledgeGraph.GetProjectDataSourcesAsync(projectId, cancellationToken);
+            var dataSources = await knowledgeGraph.GetProjectDataSourcesAsync(projectId, askToken);
 
             if (dataSources.Count == 0)
             {
@@ -111,8 +129,13 @@ internal sealed class ProjectAskTool(
                     "This project has no data sources configured.", cancellationToken);
             }
 
-            // Route to the right data source(s)
-            var routing = await dataSourceRouter.RouteAsync(llmProvider, dataSources, question, cancellationToken);
+            // Route to the right data source(s); the router asks the LLM only when there is more than one to choose from.
+            if (dataSources.Count > 1)
+            {
+                llmBudget.Consume();
+            }
+
+            var routing = await dataSourceRouter.RouteAsync(llmProvider, dataSources, question, askToken);
             signal.SetRouting(routing.Sources.Select(x => (x.DataSourceId, x.DataSourceName, x.Reason)).ToList());
 
             var text = $"# Question: {question}\n\n";
@@ -130,7 +153,7 @@ internal sealed class ProjectAskTool(
                     .Select(x => x.DataSourceId)
                     .Distinct()
                     .ToList(),
-                cancellationToken);
+                askToken);
 
             var askSucceeded = true;
             JsonNode? resultPayload = null;
@@ -151,7 +174,10 @@ internal sealed class ProjectAskTool(
                 text += $"**Reasoning:** {source.Reason}\n\n";
 
                 var outcome = await GenerateAndExecuteSqlAsync(
-                    llmProvider, source.DataSourceId, projectId, question, sourceSettings, execute, signal, cancellationToken);
+                    llmProvider, source.DataSourceId, projectId, question, sourceSettings, execute, signal, llmBudget, askToken);
+
+                // A provider reports a cancelled statement as a failed result: the call's own cancellation ends the call.
+                askToken.ThrowIfCancellationRequested();
                 text += outcome.Text;
                 askSucceeded = outcome.Succeeded;
                 resultPayload = outcome.ResultPayload;
@@ -169,7 +195,8 @@ internal sealed class ProjectAskTool(
                 text += "\n";
 
                 var (crossText, crossSucceeded) = await crossSourceQueryService.ExecuteAsync(
-                    llmProvider, routing.Sources, projectId, question, sourceSettings, execute, signal, cancellationToken);
+                    llmProvider, routing.Sources, projectId, question, sourceSettings, execute, signal, llmBudget, askToken);
+                askToken.ThrowIfCancellationRequested();
                 text += crossText;
                 askSucceeded = crossSucceeded;
                 // Cross-source flow builds its markdown internally; structured content for this path
@@ -188,6 +215,31 @@ internal sealed class ProjectAskTool(
             }
             return ToolHelper.Success(text, BuildAskStructuredContent(signalId, generatedSql, correctedSql, resultPayload));
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The caller's own cancellation stays a cancellation; the call is still audited and signalled (§1.7/§9.5), and
+            // a failure to record it never replaces the cancellation.
+            try
+            {
+                await FailAsync(signal, sw, projectId, question, CallerCancelledMessage, CancellationToken.None);
+            }
+            catch (Exception recordingFailure)
+            {
+                logger.LogWarning("MCP tool {Tool} could not record a cancelled call ({ExceptionType})", "ask", recordingFailure.GetType().Name);
+            }
+
+            throw;
+        }
+        catch (AskLlmBudgetExceededException ex)
+        {
+            return await FailAsync(signal, sw, projectId, question, ex.Message, CancellationToken.None);
+        }
+        catch (Exception) when (timeBudget?.IsCancellationRequested == true && !cancellationToken.IsCancellationRequested)
+        {
+            // Whatever the cancellation surfaced as (an OperationCanceledException or a provider's wrapper around one).
+            return await FailAsync(signal, sw, projectId, question,
+                $"ask exceeded its time budget of {timeoutSeconds} s; narrow the question or ask again.", CancellationToken.None);
+        }
         catch (Exception ex)
         {
             sw.Stop();
@@ -200,6 +252,11 @@ internal sealed class ProjectAskTool(
             // §1.11 — ex.Message can quote user input; type only here, full detail is in the audit log.
             logger.LogError("MCP tool {Tool} failed with {ExceptionType} (detail in MCP audit log)", "ask", ex.GetType().Name);
             return ToolHelper.Error(ToolHelper.CallerSafeMessage(ex, "ask"));
+        }
+        finally
+        {
+            askCancellation?.Dispose();
+            timeBudget?.Dispose();
         }
     }
 
@@ -217,13 +274,14 @@ internal sealed class ProjectAskTool(
         Core.Models.McpSettingsData settings,
         bool execute,
         McpSignalBuilder signal,
+        AskLlmBudget? llmBudget,
         CancellationToken ct)
     {
         signal.SetDataSourceId(dataSourceId);
 
         var outcome = await askSqlPipeline.RunAsync(
             llmProvider, dataSourceId, projectId, question, settings, askSqlExecutor,
-            new AskSqlPipelineOptions(Execute: execute), ct);
+            new AskSqlPipelineOptions(Execute: execute) { LlmBudget = llmBudget }, ct);
 
         signal.SetGeneratedSql(outcome.GeneratedSql, outcome.TablesUsed.ToList());
 

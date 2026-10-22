@@ -483,6 +483,7 @@ public class AskStatementAuditTests
             Mock.Of<ICrossSourceQueryService>(),
             Options.Create(new McpDeploymentOptions()),
             limiter ?? new McpQueryConcurrencyLimiter(),
+            TimeProvider.System,
             NullLogger<ProjectAskTool>.Instance);
 
         return await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);

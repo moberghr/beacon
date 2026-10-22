@@ -315,10 +315,10 @@ public class CrossDatabaseCallSiteTests
         var service = CrossSource(provider, generation);
 
         Generates(generation, Foreign);
-        var (foreignText, foreignRan) = await service.ExecuteAsync(JoiningLlm(), [Routed()], ProjectId, "orders?", new McpSettingsData(), true, new McpSignalBuilder(), CancellationToken.None);
+        var (foreignText, foreignRan) = await service.ExecuteAsync(JoiningLlm(), [Routed()], ProjectId, "orders?", new McpSettingsData(), true, new McpSignalBuilder(), null, CancellationToken.None);
         ProviderRan(provider).Should().BeFalse();
         Generates(generation, Matching);
-        await service.ExecuteAsync(JoiningLlm(), [Routed()], ProjectId, "orders?", new McpSettingsData(), true, new McpSignalBuilder(), CancellationToken.None);
+        await service.ExecuteAsync(JoiningLlm(), [Routed()], ProjectId, "orders?", new McpSettingsData(), true, new McpSignalBuilder(), null, CancellationToken.None);
 
         foreignRan.Should().BeFalse();
         foreignText.Should().Contain("another database");
@@ -340,7 +340,7 @@ public class CrossDatabaseCallSiteTests
             .ReturnsAsync(repaired);
         Generates(generation, Matching);
 
-        await CrossSource(provider, generation).ExecuteAsync(JoiningLlm(), [Routed()], ProjectId, "orders?", new McpSettingsData(), true, new McpSignalBuilder(), CancellationToken.None);
+        await CrossSource(provider, generation).ExecuteAsync(JoiningLlm(), [Routed()], ProjectId, "orders?", new McpSettingsData(), true, new McpSignalBuilder(), null, CancellationToken.None);
 
         var executed = adopted ? "id, status FROM sales.public.orders" : "SELECT id FROM sales.public.orders";
         provider.Verify(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.Is<string>(y => y.Contains(executed)), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()), Times.Once);
