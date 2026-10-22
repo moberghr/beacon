@@ -151,10 +151,12 @@ plan is the path that **executes** actions.
 For an actor that requires approval, the initial setup, a think cycle and a refinement that propose at least one action
 store them as one `PendingApproval` plan, saved together with the cycle's execution, whose analysis names the plan. A
 cycle that proposes nothing creates no plan. While the actor has a plan pending, it does not propose another: a think
-cycle is recorded as `Skipped` naming the pending plan and a refinement answers `409`, both before any LLM call. Should
-a plan become pending while a cycle runs, that cycle adds none: its proposals stay on its execution record, which names
-the pending plan. A revision of a plan creates a new plan too; a revision for which the model proposes no action it
-can take creates none and fails. There is no plan review page in the UI yet; use the API:
+cycle is recorded as `Skipped` naming the pending plan and a refinement answers `409`, both before any LLM call. A plan
+is added only in a serializable transaction that first checks the actor has no plan pending, so two cycles,
+refinements or revisions finishing together never leave two pending plans. The one refused completes all the same: a
+think cycle or the initial setup keeps its proposals on its execution record, which names the pending plan; a
+refinement answers `409` naming it; a revision answers `409` saying the original plan was sent back but no revised plan
+was created. A revision for which the model proposes no action it can take creates no plan and fails. There is no plan review page in the UI yet; use the API:
 
 | Route | What it does |
 |---|---|

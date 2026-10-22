@@ -1,3 +1,4 @@
+using System.Data;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -50,10 +51,13 @@ public class AiActorService : IAiActorServiceExtended
     public const string PlanExpiredMessage = "This plan expired before it was decided: it can no longer be approved, rejected or revised.";
 
     /// <summary>
-    /// Why an actor that requires approval does not refine or think while one of its plans waits for a decision; the plan
-    /// id follows.
+    /// Why an actor that requires approval does not refine, think or get a new plan while one of its plans waits for a
+    /// decision; followed by the plan when it is known.
     /// </summary>
-    public const string PlanPendingMessage = "This AI actor has a plan pending approval; decide it, or let it expire, first. Plan";
+    public const string PlanPendingMessage = "This AI actor has a plan pending approval; decide it, or let it expire, first.";
+
+    /// <summary>Why a revision was asked for but no revised plan was created; the reason follows.</summary>
+    public const string RevisionNotCreatedMessage = "The plan was sent back for revision, but no revised plan was created.";
 
     /// <summary>Why a cycle's proposed actions were not submitted: another plan of the actor became pending meanwhile.</summary>
     public const string ProposalsNotSubmittedMessage = "The proposed actions were not submitted for approval: another plan of this AI actor is pending.";
@@ -353,7 +357,7 @@ public class AiActorService : IAiActorServiceExtended
         // recorded as skipped before any LLM call.
         if (actor.RequiresApproval && await PendingPlanIdAsync(context, actorId, cancellationToken) is { } pendingPlanId)
         {
-            return await RecordSkippedCycleAsync(context, actorId, triggeringSubscriptionId, startTime, $"Skipped: {PlanPendingMessage} {pendingPlanId}.", cancellationToken);
+            return await RecordSkippedCycleAsync(context, actorId, triggeringSubscriptionId, startTime, $"Skipped: {PendingPlanMessage(pendingPlanId)}", cancellationToken);
         }
 
         // SaveChanges checkpoints in this method are deliberate:
@@ -487,7 +491,7 @@ public class AiActorService : IAiActorServiceExtended
 
             var result = AiActorThinkResult.CreateSuccess(execution.Id, execution.DecisionSummary);
             result.PlanId = submission.PlanId;
-            result.ProposalsNotSubmittedReason = submission.NotSubmittedReason;
+            result.ProposalsNotSubmittedReason = submission.Refused ? ProposalsNotSubmittedMessage : null;
             result.Findings = planResponse.Findings;
             result.Actions = executedActions;
             result.QueriesAnalyzed = execution.QueriesAnalyzed;
@@ -615,7 +619,7 @@ public class AiActorService : IAiActorServiceExtended
         // LLM call, naming the plan.
         if (actor.RequiresApproval && await PendingPlanIdAsync(context, actorId, cancellationToken) is { } pendingPlanId)
         {
-            throw new BeaconConflictException($"{PlanPendingMessage} {pendingPlanId}.");
+            throw new BeaconConflictException(PendingPlanMessage(pendingPlanId));
         }
 
         // Create execution record
@@ -725,10 +729,14 @@ public class AiActorService : IAiActorServiceExtended
             actor.TotalCost += execution.EstimatedCost;
 
             var submission = await SaveCycleAsync(context, execution, planResponse, proposals, existingQueries, feedback, cancellationToken);
+            if (submission.Refused)
+            {
+                // The refinement completed and is on record, but what it proposed waits nowhere: the caller is told.
+                throw new BeaconConflictException(PendingPlanMessage(submission.PendingPlanId));
+            }
 
             var result = AiActorThinkResult.CreateSuccess(execution.Id, execution.DecisionSummary);
             result.PlanId = submission.PlanId;
-            result.ProposalsNotSubmittedReason = submission.NotSubmittedReason;
             result.Findings = planResponse.Findings;
             result.Actions = executedActions;
             result.QueriesCreated = execution.QueriesCreated;
@@ -743,6 +751,10 @@ public class AiActorService : IAiActorServiceExtended
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
             await RecordCancelledAsync(context, execution);
+            throw;
+        }
+        catch (BeaconConflictException)
+        {
             throw;
         }
         catch (Exception ex)
@@ -924,12 +936,12 @@ public class AiActorService : IAiActorServiceExtended
     private DateTime PlanExpiryCutoff() =>
         _timeProvider.GetUtcNow().UtcDateTime - TimeSpan.FromDays(CurrentOptions.PlanExpiryDays);
 
-    // The end of a cycle. With approval required, the actions the cycle proposed wait for a person as one PendingApproval
-    // plan, saved with the cycle's completion and its submission event; approving it runs them through the executor's
-    // guards. Think and refine do not start while a plan is pending; should one have become pending meanwhile (another
-    // cycle finished first), no second plan is added: the pending plan stays as it is, and the execution names it.
-    // Returns the plan this cycle created, or why its proposals were not submitted.
-    private async Task<(int? PlanId, string? NotSubmittedReason)> SaveCycleAsync(
+    // The end of a cycle. Its completion (execution, actor totals) is saved first, whatever becomes of its proposals. With
+    // approval required, the actions the cycle proposed then wait for a person as one PendingApproval plan, admitted with
+    // the execution's note of it and its submission event (AdmitPlanAsync); approving it runs them through the executor's
+    // guards. Think and refine do not start while a plan is pending; a plan that became pending meanwhile (or a
+    // concurrent admission) refuses this one: no plan, no event, and the execution notes the proposals were not submitted.
+    private async Task<CycleSubmission> SaveCycleAsync(
         BeaconContext context,
         AiActorExecution execution,
         AiActorPlanResponse planResponse,
@@ -938,22 +950,10 @@ public class AiActorService : IAiActorServiceExtended
         string? userInstruction,
         CancellationToken cancellationToken)
     {
+        await context.SaveChangesAsync(cancellationToken);
         if (proposals.Count == 0)
         {
-            await context.SaveChangesAsync(cancellationToken);
-
-            return (null, null);
-        }
-
-        if (await PendingPlanIdAsync(context, execution.AiActorId, cancellationToken) is { } pendingPlanId)
-        {
-            execution.DetailedAnalysis = $"{ProposalsNotSubmittedMessage} Plan {pendingPlanId}.";
-            await context.SaveChangesAsync(cancellationToken);
-
-            _logger.LogInformation("Actor {ActorId} proposed {ActionCount} actions while plan {PlanId} is pending; no plan was added",
-                execution.AiActorId, proposals.Count, pendingPlanId);
-
-            return (null, ProposalsNotSubmittedMessage);
+            return CycleSubmission.None;
         }
 
         // The cycle's tokens and cost stay on its execution, already in the actor's totals: approving a plan adds the plan's
@@ -973,31 +973,94 @@ public class AiActorService : IAiActorServiceExtended
             Model = execution.Model
         };
 
-        context.AiActorPlans.Add(plan);
-        await _securityAudit.SaveWithEventsAsync(
+        var admission = await AdmitPlanAsync(
             context,
-            () =>
-            {
-                // The plan's id exists once the cycle's save produced it; the recorder's save of this event writes it on
-                // the execution, in the same transaction.
-                execution.DetailedAnalysis = $"Proposed actions wait for approval in plan {plan.Id}.";
-
-                return
-                [
-                    new SecurityAuditEntry(SecurityAuditActions.AiPlanSubmitted)
-                        .On(SecurityAuditResources.AiActorPlan, plan.Id)
-                        .With(new SecurityAuditDetails()
-                            .Add("aiActorId", plan.AiActorId)
-                            .Add("parentPlanId", plan.ParentPlanId)
-                            .Add("version", plan.Version)
-                            .Add("proposedActionCount", proposedActions.Count))
-                ];
-            },
+            plan,
+            proposedActions.Count,
+            () => execution.DetailedAnalysis = $"Proposed actions wait for approval in plan {plan.Id}.",
             cancellationToken);
+        if (admission.Refused)
+        {
+            execution.DetailedAnalysis = admission.PendingPlanId is { } pendingPlanId
+                ? $"{ProposalsNotSubmittedMessage} Plan {pendingPlanId}."
+                : ProposalsNotSubmittedMessage;
+            await context.SaveChangesAsync(cancellationToken);
+
+            _logger.LogInformation("Actor {ActorId} proposed {ActionCount} actions while another plan ({PlanId}) is pending; no plan was added",
+                execution.AiActorId, proposals.Count, admission.PendingPlanId);
+
+            return admission;
+        }
 
         _logger.LogInformation("Actor {ActorId} proposed plan {PlanId} with {ActionCount} actions", execution.AiActorId, plan.Id, proposedActions.Count);
 
-        return (plan.Id, null);
+        return admission;
+    }
+
+    // Admits a new plan: whether the actor has a plan pending (and not expired) and the plan's insert, with its submission
+    // event (the recorder joins the open transaction), run in one serializable transaction, so two producers (cycles,
+    // refinements, revisions) can never both add one. A pending plan, or losing a serialization conflict to a concurrent
+    // admission, refuses it: nothing of it is written. onSaved runs once the plan has its id, inside the transaction, for
+    // changes that must commit with it.
+    private async Task<CycleSubmission> AdmitPlanAsync(
+        BeaconContext context,
+        AiActorPlan plan,
+        int proposedActionCount,
+        Action? onSaved,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+            if (await PendingPlanIdAsync(context, plan.AiActorId, cancellationToken) is { } pendingPlanId)
+            {
+                return CycleSubmission.RefusedBy(pendingPlanId);
+            }
+
+            context.AiActorPlans.Add(plan);
+            await _securityAudit.SaveWithEventsAsync(
+                context,
+                () =>
+                {
+                    onSaved?.Invoke();
+
+                    return
+                    [
+                        new SecurityAuditEntry(SecurityAuditActions.AiPlanSubmitted)
+                            .On(SecurityAuditResources.AiActorPlan, plan.Id)
+                            .With(new SecurityAuditDetails()
+                                .Add("aiActorId", plan.AiActorId)
+                                .Add("parentPlanId", plan.ParentPlanId)
+                                .Add("version", plan.Version)
+                                .Add("proposedActionCount", proposedActionCount))
+                    ];
+                },
+                cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+
+            return CycleSubmission.Admitted(plan.Id);
+        }
+        catch (Exception ex) when (DbSerializationConflict.IsSerializationConflict(ex))
+        {
+            // Rolled back: neither the plan nor its event exists, whatever the tracker says.
+            DetachUnsavedProposal(context);
+            _logger.LogInformation("A plan for actor {ActorId} lost a concurrent admission and was not added", plan.AiActorId);
+
+            return CycleSubmission.RefusedBy(null);
+        }
+    }
+
+    private static string PendingPlanMessage(int? pendingPlanId) =>
+        pendingPlanId is { } id ? $"{PlanPendingMessage} Plan {id}." : PlanPendingMessage;
+
+    // What became of a cycle's proposals: the plan admitted for them, or the refusal (and the pending plan, when known).
+    private sealed record CycleSubmission(int? PlanId, bool Refused, int? PendingPlanId)
+    {
+        public static CycleSubmission None { get; } = new(null, false, null);
+
+        public static CycleSubmission Admitted(int planId) => new(planId, false, null);
+
+        public static CycleSubmission RefusedBy(int? pendingPlanId) => new(null, true, pendingPlanId);
     }
 
     // The newest plan of the actor still pending approval and not expired, if any.
@@ -2199,20 +2262,11 @@ public class AiActorService : IAiActorServiceExtended
                 ParentPlanId = options.ParentPlanId
             };
 
-            context.AiActorPlans.Add(plan);
-            await _securityAudit.SaveWithEventsAsync(
-                context,
-                () =>
-                [
-                    new SecurityAuditEntry(SecurityAuditActions.AiPlanSubmitted)
-                        .On(SecurityAuditResources.AiActorPlan, plan.Id)
-                        .With(new SecurityAuditDetails()
-                            .Add("aiActorId", plan.AiActorId)
-                            .Add("parentPlanId", plan.ParentPlanId)
-                            .Add("version", plan.Version)
-                            .Add("proposedActionCount", proposedActions.Count))
-                ],
-                cancellationToken);
+            var admission = await AdmitPlanAsync(context, plan, proposedActions.Count, null, cancellationToken);
+            if (admission.Refused)
+            {
+                throw new BeaconConflictException(PendingPlanMessage(admission.PendingPlanId));
+            }
 
             _logger.LogInformation("Generated plan {PlanId} for actor {ActorId} with {ActionCount} proposed actions",
                 plan.Id, actor.Id, proposedActions.Count);
@@ -2224,6 +2278,10 @@ public class AiActorService : IAiActorServiceExtended
                 proposedActions,
                 llmResponse.TotalTokens,
                 llmResponse.Cost);
+        }
+        catch (BeaconConflictException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -2434,7 +2492,15 @@ public class AiActorService : IAiActorServiceExtended
             PreviousFeedback = options.Feedback
         };
 
-        return await GeneratePlanAsync(newPlanOptions, cancellationToken);
+        try
+        {
+            return await GeneratePlanAsync(newPlanOptions, cancellationToken);
+        }
+        catch (BeaconConflictException ex)
+        {
+            // The original plan is decided already; the revision itself was refused (another plan is pending).
+            throw new BeaconConflictException($"{RevisionNotCreatedMessage} {ex.Message}");
+        }
     }
 
     public async Task<List<PendingPlanSummary>> GetPendingPlansAsync(

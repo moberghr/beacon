@@ -1,5 +1,6 @@
 using Beacon.Core.Models;
 using Beacon.Core.Authorization;
+using System.Data;
 using System.Text.Json;
 using Beacon.AI.Handlers.AiActors;
 using Beacon.AI.Services.Ai.AiActor;
@@ -23,6 +24,7 @@ using Microsoft.Extensions.Options;
 using Beacon.Core.Configuration;
 using Moq;
 using NUnit.Framework;
+using Npgsql;
 using ActorEntity = Beacon.Core.Data.Entities.AiActor;
 using Beacon.Core.SecurityAudit;
 
@@ -182,6 +184,7 @@ public class AiActorCycleProposeOnlyTests
             x => x.ExcludingMissingMembers());
         submitted.DetailsJson.Should().Be("{\"aiActorId\":5,\"parentPlanId\":null,\"version\":1,\"proposedActionCount\":2}");
         _audit.Ways.Should().Equal("saved");
+        _store.Offline.TransactionIsolationLevels.Should().Equal(IsolationLevel.Serializable);
     }
 
     [Test]
@@ -197,6 +200,7 @@ public class AiActorCycleProposeOnlyTests
         var execution = SingleCompletedExecution();
         AssertProposedAndNothingExecuted(execution);
         result.PlanId.Should().Be(AssertOnePendingPlan(execution).Id);
+        _store.Offline.TransactionIsolationLevels.Should().Equal(IsolationLevel.Serializable);
     }
 
     [Test]
@@ -270,9 +274,78 @@ public class AiActorCycleProposeOnlyTests
         result.PlanId.Should().BeNull();
         result.ProposalsNotSubmittedReason.Should().Be(AiActorService.ProposalsNotSubmittedMessage);
         _store.Plans.Should().ContainSingle().Which.Id.Should().Be(40);
+        _store.Offline.TransactionIsolationLevels.Should().Equal(IsolationLevel.Serializable);
         var execution = SingleCompletedExecution();
         execution.DetailedAnalysis.Should().Contain("Plan 40");
+        actor.ThinkCount.Should().Be(1, "the cycle's completion is saved although its plan was refused");
         AssertProposedAndNothingExecuted(execution);
+        _audit.Of(SecurityAuditActions.AiPlanSubmitted).Should().BeEmpty();
+    }
+
+    // A plan became pending while the refinement ran: the refinement is on record, its plan is refused with a 409.
+    [Test]
+    public async Task RefineActorAsync_WhenAPlanBecamePendingDuringTheRefinement_Is409AndAddsNoPlan()
+    {
+        var actor = SeedActor();
+        var service = BuildService(PlanJson, () => SeedPlan(actor, 40, DateTime.UtcNow));
+
+        var act = () => service.RefineActorAsync(ActorId, "also watch failed payments", CancellationToken.None);
+
+        (await act.Should().ThrowAsync<BeaconConflictException>()).Which.Message
+            .Should().Be($"{AiActorService.PlanPendingMessage} Plan 40.");
+        _store.Plans.Should().ContainSingle().Which.Id.Should().Be(40);
+        _store.Offline.TransactionIsolationLevels.Should().Equal(IsolationLevel.Serializable);
+        SingleCompletedExecution().DetailedAnalysis.Should().Contain("Plan 40");
+        _audit.Of(SecurityAuditActions.AiPlanSubmitted).Should().BeEmpty();
+    }
+
+    // A concurrent admission wins the serializable transaction: the cycle completes, its plan and event are not written.
+    [Test]
+    public async Task ExecuteThinkCycleAsync_WhenThePlansAdmissionLosesASerializationConflict_SubmitsNoPlan()
+    {
+        var actor = SeedActor();
+        var service = BuildService(PlanJson, audit: new FailingSubmissionAudit(_store, SerializationFailure()));
+
+        var result = await service.ExecuteThinkCycleAsync(ActorId, cancellationToken: CancellationToken.None);
+
+        result.Success.Should().BeTrue(result.ErrorMessage);
+        result.PlanId.Should().BeNull();
+        result.ProposalsNotSubmittedReason.Should().Be(AiActorService.ProposalsNotSubmittedMessage);
+        actor.Status.Should().Be(AiActorStatus.Active);
+        var execution = SingleCompletedExecution();
+        execution.DetailedAnalysis.Should().Be(AiActorService.ProposalsNotSubmittedMessage);
+        _store.TrackedTypesAtSave.Last().Should().NotContain(typeof(AiActorPlan)).And.NotContain(typeof(SecurityAuditEvent));
+    }
+
+    [Test]
+    public async Task RequestPlanRevisionAsync_WhenTheRevisionLosesASerializationConflict_Is409()
+    {
+        var actor = SeedActor();
+        var plan = SeedPlan(actor, 40, DateTime.UtcNow.AddDays(-1));
+        var service = BuildService(PlanJson, audit: new FailingSubmissionAudit(_store, SerializationFailure()));
+
+        var act = () => service.RequestPlanRevisionAsync(new RequestRevisionOptions { PlanId = 40, UserId = "ext-ben", Feedback = "narrower" }, CancellationToken.None);
+
+        (await act.Should().ThrowAsync<BeaconConflictException>()).Which.Message
+            .Should().Be($"{AiActorService.RevisionNotCreatedMessage} {AiActorService.PlanPendingMessage}");
+        plan.Status.Should().Be(AiActorPlanStatus.RevisionRequested, "the original plan was decided before the revision was generated");
+        _store.Offline.TransactionIsolationLevels.Should().Equal(IsolationLevel.Serializable);
+    }
+
+    // A plan that became pending while the revision was generated refuses it, naming that plan.
+    [Test]
+    public async Task RequestPlanRevisionAsync_WhenAnotherPlanBecamePending_Is409NamingIt()
+    {
+        var actor = SeedActor();
+        var plan = SeedPlan(actor, 40, DateTime.UtcNow.AddDays(-1));
+        var service = BuildService(PlanJson, () => SeedPlan(actor, 41, DateTime.UtcNow));
+
+        var act = () => service.RequestPlanRevisionAsync(new RequestRevisionOptions { PlanId = 40, UserId = "ext-ben", Feedback = "narrower" }, CancellationToken.None);
+
+        (await act.Should().ThrowAsync<BeaconConflictException>()).Which.Message
+            .Should().Be($"{AiActorService.RevisionNotCreatedMessage} {AiActorService.PlanPendingMessage} Plan 41.");
+        _store.Plans.Select(x => x.Id).Should().BeEquivalentTo([40, 41]);
+        plan.Status.Should().Be(AiActorPlanStatus.RevisionRequested);
         _audit.Of(SecurityAuditActions.AiPlanSubmitted).Should().BeEmpty();
     }
 
@@ -287,7 +360,7 @@ public class AiActorCycleProposeOnlyTests
         var act = () => service.RefineActorAsync(ActorId, "also watch failed payments", CancellationToken.None);
 
         (await act.Should().ThrowAsync<BeaconConflictException>()).Which.Message
-            .Should().Be($"{AiActorService.PlanPendingMessage} 40.");
+            .Should().Be($"{AiActorService.PlanPendingMessage} Plan 40.");
         llmCalls.Should().Be(0);
         _store.Executions.Should().BeEmpty();
         _store.Conversations.Should().BeEmpty();
@@ -949,6 +1022,9 @@ public class AiActorCycleProposeOnlyTests
     }
 
     // The actor's own query gets SQL, and a second, locked query of its own.
+    private static DbUpdateException SerializationFailure() =>
+        new("save failed", new PostgresException("could not serialize access", "ERROR", "ERROR", "40001"));
+
     private void SeedQueries()
     {
         _store.Queries.Single(x => x.Id == OwnedQueryId).Steps = [new QueryStep { QueryId = OwnedQueryId, DataSourceId = DataSourceId, StepOrder = 1, SqlValue = "SELECT old" }];
@@ -1170,11 +1246,14 @@ public class AiActorCycleProposeOnlyTests
         public int NextId { get; set; } = 100;
 
         public List<List<Type>> TrackedTypesAtSave { get; } = [];
+
+        // Transactions are stand-ins recorded here; nothing connects.
+        public SqlCapture Offline { get; } = new();
     }
 
     // Saves the cycle's change, stages the plan's events and the plan as the real recorder's context would hold them, then
     // fails the events' save.
-    private sealed class FailingSubmissionAudit(Store store) : ISecurityAuditRecorder
+    private sealed class FailingSubmissionAudit(Store store, Exception? failure = null) : ISecurityAuditRecorder
     {
         public Task StageAsync(BeaconContext context, SecurityAuditEntry entry, CancellationToken cancellationToken) => Task.CompletedTask;
 
@@ -1200,23 +1279,25 @@ public class AiActorCycleProposeOnlyTests
                 context.Entry(plan).State = EntityState.Added;
             }
 
-            throw new DbUpdateException("the events could not be saved");
+            throw failure ?? new DbUpdateException("the events could not be saved");
         }
 
+        // A decision on a plan: its change runs, its events are not kept.
         public Task<T> SaveWithEventsAsync<T>(BeaconContext context, Func<Task<T>> change, Func<T, IEnumerable<SecurityAuditEntry>> events, CancellationToken cancellationToken) =>
-            throw new NotSupportedException();
+            change();
 
         public Task RecordAsync(SecurityAuditEntry entry, CancellationToken cancellationToken) => Task.CompletedTask;
 
         public string CallerHashOf(string tenantOrIssuer, string subject) => subject;
     }
 
-    private sealed class CycleContext(IReadOnlyDictionary<Type, object> sets, Store store) : BeaconContext(Options, "beacon")
+    private sealed class CycleContext(IReadOnlyDictionary<Type, object> sets, Store store) : BeaconContext(OptionsFor(store), "beacon")
     {
-        private static readonly DbContextOptions<CycleContext> Options =
+        private static DbContextOptions<CycleContext> OptionsFor(Store store) =>
             new DbContextOptionsBuilder<CycleContext>()
                 .UseNpgsql("Host=localhost;Database=unused")
                 .UseSnakeCaseNamingConvention()
+                .AddInterceptors(store.Offline.OfflineInterceptors())
                 .Options;
 
         public override DbSet<TEntity> Set<TEntity>() where TEntity : class
