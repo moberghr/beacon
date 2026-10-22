@@ -47,6 +47,9 @@ public sealed record ChangeApprovalDetail
 
     public string? ReviewedByUserName { get; init; }
 
+    /// <summary>The reviewer's <c>Users.Id</c>, which names them when the label is a display name they can change; null while pending or when the user no longer resolves.</summary>
+    public int? ReviewedByBeaconUserId { get; init; }
+
     public DateTime? ReviewedAt { get; init; }
 
     public string? ReviewComment { get; init; }

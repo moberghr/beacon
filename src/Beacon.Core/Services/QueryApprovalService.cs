@@ -165,6 +165,13 @@ internal class QueryApprovalService(
                 ?? (isLegacy ? LegacyRequestMessage : null)
                 ?? (isStale ? StaleMessage : null);
 
+        var reviewerId = request.ReviewedByUserId == null
+            ? null
+            : await context.Users
+                .Where(x => x.ExternalId == request.ReviewedByUserId)
+                .Select(x => (int?)x.Id)
+                .FirstOrDefaultAsync(cancellationToken);
+
         return new ApprovalRequestDetail
         {
             Id = request.Id,
@@ -175,6 +182,7 @@ internal class QueryApprovalService(
             RequestedByUserId = request.RequestedByUserId,
             RequestedByUserName = request.RequestedByUserName,
             ReviewedByUserName = request.ReviewedByUserName,
+            ReviewedByBeaconUserId = reviewerId,
             ReviewedAt = request.ReviewedAt,
             ReviewComment = request.ReviewComment,
             ChangeSummary = request.ChangeSummary,

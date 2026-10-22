@@ -102,7 +102,7 @@ The query page (`/beacon/queries/{id}`) shows the steps, the final query and run
 | **Execute query** | Runs the saved query now and shows the result (`⌘`+`↵`). Needs the Run action on the query. |
 | **Add subscription** | Opens the new-subscription dialog for this query. |
 | **Edit SQL** | Opens the editor (`/beacon/queries/{id}/edit`). |
-| **Lock** / **Unlock** | Locks the query against other people's changes. Locking needs Write; while a query is locked, changing, restoring or unlocking it needs Manage, except for the lock holder. |
+| **Lock** / **Unlock** | Locks the query against AI actor changes and against restores by anyone but the lock holder or a caller who may manage it; it does not block a person's ordinary edits. Locking needs Write; while a query is locked, restoring it needs Manage, except for the lock holder. Only the lock holder or an Admin can unlock it (`403` for anyone else); a lock with no recorded holder is lifted by anyone with Manage. |
 
 The tabs below list the query's **Subscriptions**, **Executions**, **Versions** and **Change history**. The **MCP tool**
 card shows whether the query is exposed as a [saved-query MCP tool](/mcp/saved-query-tools/); a SecurityAdmin (or an

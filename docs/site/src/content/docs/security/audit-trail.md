@@ -99,6 +99,7 @@ Every action belongs to one category, the part of its name before the dot.
 | `identity.user_provisioned` | Single sign-on created a user at their first sign-in. |
 | `identity.user_updated` | A user's account changed (which fields changed, as flags, and whether their sessions and API keys ended with it). |
 | `identity.user_enabled`, `identity.user_disabled`, `identity.user_archived` | A user was enabled, disabled or archived (with how many of their API keys were revoked). |
+| `identity.last_super_admin_change_refused` | Disabling or archiving the last (enabled) super admin was refused; the event is `refused` and carries the attempt as a code. |
 | `identity.password_changed` | A user changed their own password. |
 | `identity.password_reset` | An administrator set a user's password. |
 | `identity.roles_changed` | A user's roles changed (role ids added and removed). |

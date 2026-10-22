@@ -1,4 +1,6 @@
+using System.Data;
 using FluentAssertions;
+using Npgsql;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
@@ -12,6 +14,8 @@ using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Handlers.Setup;
+using Beacon.Core.Helpers;
+using Beacon.Core.Models;
 using Beacon.Core.Models.UserManagement;
 using Beacon.Core.SecurityAudit;
 using Beacon.Core.Services;
@@ -115,6 +119,131 @@ public class IdentityEventTests
             "{\"userNameChanged\":true,\"emailChanged\":false,\"displayNameChanged\":false,\"enabledBefore\":true,\"enabledAfter\":false," +
             "\"sessionsSignedOut\":true,\"apiKeysRevoked\":1}");
         _audit.Ways.Should().Equal("staged");
+    }
+
+    [Test]
+    public async Task UpdatingASuperAdmin_ToDisabled_WhenAnotherIsEnabled_Succeeds()
+    {
+        _users.Add(new BeaconUser { Id = 8, ExternalId = "ext-root2", UserName = "root2", IsSuperAdmin = true, IsEnabled = true, IsInternalUser = true });
+
+        var response = await Users().UpdateUserAsync(new UpdateUserRequest { UserId = 1, UserName = "root", IsEnabled = false });
+
+        response.Success.Should().BeTrue();
+        _users.Single(x => x.Id == 1).IsEnabled.Should().BeFalse();
+    }
+
+    [Test]
+    public async Task UpdatingTheLastEnabledSuperAdmin_KeepingItEnabled_Succeeds()
+    {
+        (await Users().UpdateUserAsync(new UpdateUserRequest { UserId = 1, UserName = "root", DisplayName = "Root", IsEnabled = true })).Success.Should().BeTrue();
+    }
+
+    [Test]
+    public async Task DisablingTheLastEnabledSuperAdmin_ByToggle_IsRefused_AndRecorded()
+    {
+        var capture = new SqlCapture();
+
+        var response = await Users(offline: capture).ToggleUserEnabledAsync(1);
+
+        response.Should().BeEquivalentTo(new { Success = false, Message = "Cannot disable the last super admin." });
+        _users.Single(x => x.Id == 1).IsEnabled.Should().BeTrue();
+        capture.TransactionIsolationLevels.Should().Equal(IsolationLevel.Serializable);
+        AssertRefusal("disable");
+    }
+
+    [Test]
+    public async Task UpdatingTheLastEnabledSuperAdmin_ToDisabled_IsRefused_AndRecorded()
+    {
+        var capture = new SqlCapture();
+
+        var response = await Users(offline: capture).UpdateUserAsync(new UpdateUserRequest { UserId = 1, UserName = "root", IsEnabled = false });
+
+        response.Should().BeEquivalentTo(new { Success = false, Message = "Cannot disable the last super admin." });
+        _users.Single(x => x.Id == 1).IsEnabled.Should().BeTrue();
+        capture.TransactionIsolationLevels.Should().Equal(IsolationLevel.Serializable);
+        AssertRefusal("disable");
+    }
+
+    [Test]
+    public async Task DeletingTheLastSuperAdmin_IsRefused_AndRecorded()
+    {
+        var capture = new SqlCapture();
+
+        var response = await Users(offline: capture).DeleteUserAsync(1);
+
+        response.Should().BeEquivalentTo(new { Success = false, Message = "Cannot delete the last super admin." });
+        _users.Single(x => x.Id == 1).ArchivedTime.Should().BeNull();
+        capture.TransactionIsolationLevels.Should().Equal(IsolationLevel.Serializable);
+        AssertRefusal("archive");
+    }
+
+    [Test]
+    public async Task ChangingASuperAdmin_WhenAnotherIsEnabled_Succeeds_OnEveryPath()
+    {
+        _users.Add(new BeaconUser { Id = 8, ExternalId = "ext-root2", UserName = "root2", IsSuperAdmin = true, IsEnabled = true, IsInternalUser = true });
+        var capture = new SqlCapture();
+        var users = Users(offline: capture);
+
+        (await users.ToggleUserEnabledAsync(1)).Success.Should().BeTrue();
+        (await users.ToggleUserEnabledAsync(1)).Success.Should().BeTrue();
+        (await users.UpdateUserAsync(new UpdateUserRequest { UserId = 1, UserName = "root", IsEnabled = false })).Success.Should().BeTrue();
+        (await users.DeleteUserAsync(1)).Success.Should().BeTrue();
+
+        _audit.Events.Should().NotContain(x => x.Action == SecurityAuditActions.LastSuperAdminChangeRefused);
+    }
+
+    [Test]
+    public async Task ArchivingTheOnlyEnabledSuperAdmin_WhileAnotherIsDisabled_IsRefused_AndRecorded()
+    {
+        _users.Add(new BeaconUser { Id = 8, ExternalId = "ext-root2", UserName = "root2", IsSuperAdmin = true, IsEnabled = false, IsInternalUser = true });
+
+        var response = await Users().DeleteUserAsync(1);
+
+        response.Should().BeEquivalentTo(new { Success = false, Message = "Cannot delete the last super admin." });
+        _users.Single(x => x.Id == 1).ArchivedTime.Should().BeNull();
+        AssertRefusal("archive");
+    }
+
+    [Test]
+    public async Task ArchivingADisabledSuperAdmin_WhileAnotherIsEnabled_Succeeds()
+    {
+        _users.Add(new BeaconUser { Id = 8, ExternalId = "ext-root2", UserName = "root2", IsSuperAdmin = true, IsEnabled = false, IsInternalUser = true });
+
+        (await Users().DeleteUserAsync(8)).Success.Should().BeTrue();
+    }
+
+    [TestCase("toggle")]
+    [TestCase("update")]
+    [TestCase("delete")]
+    public async Task ConcurrentChangeToTheSuperAdmins_IsAConflict_OnEveryPath(string path)
+    {
+        _users.Add(new BeaconUser { Id = 8, ExternalId = "ext-root2", UserName = "root2", IsSuperAdmin = true, IsEnabled = true, IsInternalUser = true });
+        var recorder = new Mock<ISecurityAuditRecorder>();
+        recorder
+            .Setup(x => x.StageAsync(It.IsAny<BeaconContext>(), It.IsAny<SecurityAuditEntry>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new PostgresException("conflict", "ERROR", "ERROR", "40001"));
+        var users = Users(audit: recorder.Object);
+
+        var change = path switch
+        {
+            "toggle" => () => users.ToggleUserEnabledAsync(1),
+            "update" => () => users.UpdateUserAsync(new UpdateUserRequest { UserId = 1, UserName = "root", IsEnabled = false }),
+            _ => (Func<Task<BaseResponse>>)(() => users.DeleteUserAsync(1))
+        };
+
+        await change.Should().ThrowAsync<BeaconConflictException>();
+    }
+
+    [Test]
+    public void TheLastSuperAdminCount_Translates_WithoutAnExplicitArchivedFilter()
+    {
+        using var context = NpgsqlTestContext.Create();
+        var sql = context.Users
+            .Where(x => x.IsSuperAdmin)
+            .Where(x => x.IsEnabled)
+            .ToQueryString();
+
+        sql.Should().Contain("is_super_admin").And.Contain("is_enabled").And.Contain("archived_time IS NULL");
     }
 
     [Test]
@@ -305,13 +434,24 @@ public class IdentityEventTests
         return roles;
     }
 
+    private void AssertRefusal(string attempt)
+    {
+        var refusal = _audit.Events.Should().ContainSingle().Which;
+        refusal.Should().BeEquivalentTo(
+            new { Action = SecurityAuditActions.LastSuperAdminChangeRefused, Outcome = SecurityAuditOutcomes.Refused, ResourceType = SecurityAuditResources.User, ResourceId = "1" },
+            x => x.ExcludingMissingMembers());
+        refusal.DetailsJson.Should().Be($"{{\"attempt\":\"{attempt}\"}}");
+    }
+
     private UserManagementService Users(
         bool passwordMatches = true,
         BeaconConfiguration? configuration = null,
         Mock<IRoleService>? roleService = null,
         SqlCapture? offline = null,
-        List<BeaconRole>? roles = null)
+        List<BeaconRole>? roles = null,
+        ISecurityAuditRecorder? audit = null)
     {
+        offline ??= new SqlCapture();
         var hasher = new Mock<IPasswordHasher>();
         hasher.Setup(x => x.HashPassword(It.IsAny<string>())).Returns(("hash", "salt"));
         hasher.Setup(x => x.VerifyPassword(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>())).Returns(passwordMatches);
@@ -333,7 +473,7 @@ public class IdentityEventTests
             (roleService ?? new Mock<IRoleService>()).Object,
             configuration ?? new BeaconConfiguration(),
             new FakeTimeProvider(new DateTimeOffset(2026, 10, 14, 9, 0, 0, TimeSpan.Zero)),
-            _audit);
+            audit ?? _audit);
     }
 
     private (ApiKeyService Service, List<object> Saved) ApiKeys(BeaconActor caller)
