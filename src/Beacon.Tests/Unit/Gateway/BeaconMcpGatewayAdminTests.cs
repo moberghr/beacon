@@ -99,6 +99,16 @@ public class BeaconMcpGatewayAdminTests
     }
 
     [Test]
+    public void TheToolCatalogue_ListsOnlyTheBuiltInToolsTheGatewayServes()
+    {
+        using var provider = Services().BuildServiceProvider();
+
+        var tools = provider.GetRequiredService<IMcpPlaygroundService>().ToolNames;
+
+        tools.Should().Equal(["get_context", "get_documentation", "search"], "a gateway serves no SQL tools, so the catalogue must not describe them");
+    }
+
+    [Test]
     public async Task AHolderOfTheHostPolicy_BecomesBeaconsAdministrator_AfterTheHostsOwnTransformation()
     {
         var users = Users();

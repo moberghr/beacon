@@ -36,6 +36,12 @@ export const handlers = [
   ),
   // No MCP setting pinned by the deployment unless a test says so.
   http.get('*/beacon/api/mcp/settings/locks', () => HttpResponse.json({ lockedFields: [] })),
+  // Every built-in MCP tool served (as in the full Beacon); the MCP gateway serves the document tools only.
+  http.get('*/beacon/api/mcp/tools', () =>
+    HttpResponse.json({
+      toolNames: ['get_context', 'ask', 'query', 'get_documentation', 'search', 'feedback', 'dry_run', 'get_query_context'],
+    }),
+  ),
   // Match any origin so we don't have to mirror jsdom's default (currently 'http://localhost:3000').
   http.get('*/beacon/api/projects', () =>
     HttpResponse.json({

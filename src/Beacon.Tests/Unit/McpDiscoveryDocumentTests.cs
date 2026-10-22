@@ -220,8 +220,21 @@ public class McpDiscoveryDocumentTests
     [Test]
     public void PlaygroundToolNames_DeriveFromCatalog()
     {
-        var playground = new McpPlaygroundService(Mock.Of<IServiceProvider>());
+        var playground = new McpPlaygroundService(Mock.Of<IServiceProvider>(), new BeaconMcpOptions());
 
         playground.ToolNames.Should().Equal(McpToolCatalog.Names);
+    }
+
+    [Test]
+    public void PlaygroundToolNames_ListOnlyTheBuiltInToolsServed()
+    {
+        // The MCP gateway's set, given out of order: the SQL tools are not served, so the catalogue does not list them.
+        var options = new BeaconMcpOptions();
+        options.BuiltInTools.Clear();
+        options.BuiltInTools.UnionWith(["search", "get_documentation", "get_context"]);
+
+        var playground = new McpPlaygroundService(Mock.Of<IServiceProvider>(), options);
+
+        playground.ToolNames.Should().Equal("get_context", "get_documentation", "search");
     }
 }

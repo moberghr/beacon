@@ -48,4 +48,22 @@ describe('McpPlaygroundPage feedback', () => {
       expect(sent).toMatchObject({ toolName: 'feedback', projectId: 1, arguments: { signal_id: 12, verdict: 'correct', corrected_sql: 'SELECT 1' } }),
     );
   });
+
+  it('starts on a tool the host serves when it left ask out, and runs that tool', async () => {
+    let sent: unknown = null;
+    mswServer.use(
+      http.get('*/beacon/api/mcp/tools', () => HttpResponse.json({ toolNames: ['get_context', 'search'] })),
+      http.post('*/beacon/api/mcp/tools/run', async ({ request }) => {
+        sent = await request.json();
+        return HttpResponse.json({ text: '# Project: Acme Analytics', isError: false });
+      }),
+    );
+
+    renderWithProviders(<McpPlaygroundPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Project' }));
+    fireEvent.click(await screen.findByRole('option', { name: 'Acme Analytics' }));
+    fireEvent.click(await screen.findByRole('button', { name: 'Send' }));
+
+    await waitFor(() => expect(sent).toMatchObject({ toolName: 'get_context', projectId: 1 }));
+  });
 });

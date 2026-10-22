@@ -24,6 +24,7 @@ import {
   useMcpDeploymentLocks,
   useMcpProjectSettings,
   useMcpSettings,
+  useMcpTools,
   useUpdateMcpProjectSettings,
   useUpdateMcpSettings,
   type McpDeploymentLock,
@@ -72,6 +73,16 @@ const ROW_DATA_LABEL = {
   enableSampleValueCollection: 'Collect sample values',
   enableValueGrounding: 'Ground questions in live values (value grounding)',
 } as const;
+
+/** The built-in tools whose description the global settings override, in the order the form lists them. */
+const TOOL_DESCRIPTION_FIELDS = [
+  { tool: 'get_context', name: 'getContextDescription' },
+  { tool: 'ask', name: 'askDescription' },
+  { tool: 'query', name: 'queryDescription' },
+  { tool: 'get_documentation', name: 'getDocumentationDescription' },
+  { tool: 'search', name: 'searchDescription' },
+] as const;
+
 type TabKey = 'prompt' | 'tools' | 'guardrails' | 'context';
 type Scope = 'global' | number;
 
@@ -191,6 +202,10 @@ function McpSettingsForm({ scopeSelector, readOnly, gateway }: { scopeSelector: 
   const rowDataLocked = ROW_DATA_KEYS.some(x => locked.has(x));
   const updateMutation = useUpdateMcpSettings();
   const [tab, setTab] = useState<TabKey>('prompt');
+  // Only the built-in tools the server serves are described (the MCP gateway serves no SQL tools); while the catalogue
+  // is unknown (loading, or not readable by this user), every one.
+  const servedTools = useMcpTools().data?.toolNames;
+  const serves = (tool: string) => servedTools?.includes(tool) ?? true;
 
   const form = useForm<FormValues>({
     resolver: zodResolver(SCHEMA),
@@ -320,16 +335,18 @@ function McpSettingsForm({ scopeSelector, readOnly, gateway }: { scopeSelector: 
           {tab === 'prompt' && (
             <div className="flex flex-col gap-3">
               <p className="text-text-muted text-sm">
-                The Ask system prompt controls how the AI generates SQL from natural language. The
-                global instruction is prepended to every tool's user context.
+                {serves('ask') && 'The Ask system prompt controls how the AI generates SQL from natural language. '}
+                The global instruction is prepended to every tool's user context.
               </p>
-              <Field label="Ask tool system prompt">
-                <Textarea
-                  rows={8}
-                  {...form.register('askSystemPrompt')}
-                  placeholder="Leave blank to use the default system prompt."
-                />
-              </Field>
+              {serves('ask') && (
+                <Field label="Ask tool system prompt">
+                  <Textarea
+                    rows={8}
+                    {...form.register('askSystemPrompt')}
+                    placeholder="Leave blank to use the default system prompt."
+                  />
+                </Field>
+              )}
               <Field label="Global instruction">
                 <Textarea
                   rows={4}
@@ -345,11 +362,9 @@ function McpSettingsForm({ scopeSelector, readOnly, gateway }: { scopeSelector: 
               <p className="text-text-muted text-sm">
                 Override tool descriptions returned by tools/list. Leave blank to use defaults.
               </p>
-              <ToolField label="get_context" name="getContextDescription" form={form} />
-              <ToolField label="ask" name="askDescription" form={form} />
-              <ToolField label="query" name="queryDescription" form={form} />
-              <ToolField label="get_documentation" name="getDocumentationDescription" form={form} />
-              <ToolField label="search" name="searchDescription" form={form} />
+              {TOOL_DESCRIPTION_FIELDS
+                .filter(x => serves(x.tool))
+                .map(x => <ToolField key={x.name} label={x.tool} name={x.name} form={form} />)}
             </div>
           )}
 

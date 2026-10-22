@@ -52,6 +52,43 @@ describe('Sidebar', () => {
     }
   });
 
+  it('offers no Settings in gateway mode, whose server serves no user settings', async () => {
+    sessionOf(true, ['Admin'], 'Tester');
+    mswServer.use(permissionsHandler({ isAdmin: true, gatewayMode: true }));
+
+    renderWithProviders(<Sidebar />);
+    await screen.findByText('MCP Settings');
+    fireEvent.click(screen.getByText('Tester'));
+
+    expect(screen.getByRole('menuitem', { name: 'Sign out' })).toBeInTheDocument();
+    expect(screen.queryByRole('menuitem', { name: 'Settings' })).not.toBeInTheDocument();
+  });
+
+  it('opens no user menu in gateway mode when the host also owns sign-out', async () => {
+    mswServer.use(
+      http.get('*/beacon/api/auth/me', () =>
+        HttpResponse.json({
+          userId: 'u1',
+          displayName: 'Tester',
+          email: null,
+          isAuthenticated: true,
+          roles: ['Admin'],
+          realtimeEnabled: false,
+          externalLogin: { loginUrl: '/account/login', returnUrlParameter: 'returnUrl' },
+        }),
+      ),
+      permissionsHandler({ isAdmin: true, gatewayMode: true }),
+    );
+
+    renderWithProviders(<Sidebar />);
+    await screen.findByText('MCP Settings');
+    const trigger = screen.getByRole('button', { name: /Tester/ });
+    fireEvent.click(trigger);
+
+    expect(trigger).not.toHaveAttribute('aria-haspopup');
+    expect(screen.queryByRole('menu')).not.toBeInTheDocument();
+  });
+
   it('keeps the full navigation without gateway mode', async () => {
     sessionOf(true, ['Admin'], 'Tester');
     mswServer.use(permissionsHandler({ isAdmin: true, gatewayMode: false }));

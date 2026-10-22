@@ -115,12 +115,12 @@ export default function App() {
                     <Route path="/projects/new" element={lazyRoute(NewProjectPage)} />
                   </Route>
                   <Route path="/projects/:id" element={lazyRoute(ProjectDetailPage)} />
-                  <Route path="/settings" element={lazyRoute(SettingsPage)} />
                   <Route path="/mcp-learning" element={lazyRoute(McpLearningPage)} />
                   <Route path="/mcp-settings" element={lazyRoute(McpSettingsPage)} />
                   <Route path="/mcp-audit" element={lazyRoute(McpAuditPage)} />
                   {/* The MCP gateway serves only the projects and MCP pages. */}
                   <Route element={<RequireFullBeacon />}>
+                    <Route path="/settings" element={lazyRoute(SettingsPage)} />
                     <Route path="/notifications" element={lazyRoute(NotificationsPage)} />
                     <Route path="/notifications/:id" element={lazyRoute(NotificationDetailPage)} />
                     <Route path="/control-tower" element={lazyRoute(ControlTowerPage)} />

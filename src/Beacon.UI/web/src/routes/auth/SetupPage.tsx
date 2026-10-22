@@ -1,10 +1,12 @@
 import { useEffect, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, Navigate } from 'react-router-dom';
 import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { User, Mail, IdCard, Lock, ShieldCheck, ArrowRight, KeyRound } from 'lucide-react';
-import { describeError, fetchJson } from '@/lib/api';
+import { useAccess } from '@/auth/useAuth';
+import { GATEWAY_LANDING_PATH } from '@/auth/RequireFullBeacon';
+import { describeError, fetchJson, isNotFound } from '@/lib/api';
 import {
   AuthLayout,
   AuthAlert,
@@ -36,8 +38,19 @@ const SCHEMA = z
   });
 type FormValues = z.infer<typeof SCHEMA>;
 
+/**
+ * First-run setup. The MCP gateway has none (the host owns sign-in, and its server maps no setup endpoint): a signed-in
+ * user there lands on the gateway's pages instead.
+ */
 export default function SetupPage() {
-  const [status, setStatus] = useState<'loading' | 'open' | 'already' | 'done' | 'error'>('loading');
+  const access = useAccess();
+  if (access.isLoading) return null;
+  if (access.gatewayMode) return <Navigate to={GATEWAY_LANDING_PATH} replace />;
+  return <FirstRunSetup />;
+}
+
+function FirstRunSetup() {
+  const [status, setStatus] = useState<'loading' | 'open' | 'already' | 'done' | 'error' | 'none'>('loading');
   const [serverError, setServerError] = useState<string | null>(null);
   const [showPassword, setShowPassword] = useState(false);
 
@@ -51,11 +64,14 @@ export default function SetupPage() {
       try {
         const r = await fetchJson<SetupStatusResponse>('/beacon/api/setup/status');
         setStatus(r.isFirstRun ? 'open' : 'already');
-      } catch {
-        setStatus('error');
+      } catch (e) {
+        // No setup endpoint at all (404): this deployment has no first-run setup, e.g. the MCP gateway seen signed out.
+        setStatus(isNotFound(e) ? 'none' : 'error');
       }
     })();
   }, []);
+
+  if (status === 'none') return <Navigate to="/" replace />;
 
   async function onSubmit(values: FormValues) {
     setServerError(null);

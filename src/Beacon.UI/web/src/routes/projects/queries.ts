@@ -182,6 +182,39 @@ export function useProjectDocumentationQuery(id: number | undefined) {
   });
 }
 
+/** A document the host application imported into the project (`ExposeDocs`), without its content. */
+export interface ImportedDocumentSummaryEntry {
+  id: number;
+  sourceKey: string;
+  path: string;
+  title: string;
+  importedTime: string;
+}
+
+export interface ImportedDocumentContentEntry extends ImportedDocumentSummaryEntry {
+  content: string;
+  frontmatterJson: string | null;
+}
+
+/** The host-imported documents of a project, listed without their content. */
+export function useImportedDocumentsQuery(id: number | undefined) {
+  return useQuery({
+    queryKey: ['projects', id, 'imported-documents'],
+    queryFn: async () =>
+      unwrap<{ documents: ImportedDocumentSummaryEntry[] }>(await beaconApi().getImportedDocuments(id as number)).documents,
+    enabled: typeof id === 'number' && Number.isFinite(id),
+  });
+}
+
+/** One host-imported document with its content, read when it is opened. */
+export function useImportedDocumentQuery(projectId: number, documentId: number) {
+  return useQuery({
+    queryKey: ['projects', projectId, 'imported-documents', documentId],
+    queryFn: async () =>
+      unwrap<{ document: ImportedDocumentContentEntry }>(await beaconApi().getImportedDocument(projectId, documentId)).document,
+  });
+}
+
 export function useUpdateRepositoryToken() {
   const qc = useQueryClient();
   return useMutation(

@@ -10,11 +10,15 @@ using Beacon.MCP.Tools;
 
 namespace Beacon.MCP.Services;
 
-internal sealed class McpPlaygroundService(IServiceProvider serviceProvider) : IMcpPlaygroundService
+internal sealed class McpPlaygroundService(IServiceProvider serviceProvider, BeaconMcpOptions options) : IMcpPlaygroundService
 {
     internal const string NoRequestMessage = "Access denied: the playground runs only for a signed-in request.";
 
-    public IReadOnlyList<string> ToolNames => McpToolCatalog.Names;
+    // The built-in tools this host serves (BeaconMcpOptions.BuiltInTools), in the catalog's order: one the host left out
+    // (the MCP gateway's SQL tools) is not registered with the MCP server, so it is not listed here either.
+    public IReadOnlyList<string> ToolNames { get; } = McpToolCatalog.Names
+        .Where(x => options.BuiltInTools.Contains(x))
+        .ToList();
 
     public async Task<McpPlaygroundResult> ExecuteToolAsync(
         string toolName, Dictionary<string, object?> arguments, int projectId, CancellationToken ct)
@@ -29,6 +33,16 @@ internal sealed class McpPlaygroundService(IServiceProvider serviceProvider) : I
         {
             await AuditRefusalAsync(sp, toolName, null, NoRequestMessage, ct);
             return new McpPlaygroundResult(NoRequestMessage, true);
+        }
+
+        // A built-in tool the host left out (BeaconMcpOptions.BuiltInTools) is not registered with the MCP server, so the
+        // playground does not run it either.
+        if (!ToolNames.Contains(toolName))
+        {
+            var unknown = $"Unknown tool: {toolName}";
+            var unknownCaller = await sp.GetRequiredService<IBeaconActorAccessor>().GetCurrentAsync(ct);
+            await AuditRefusalAsync(sp, toolName, unknownCaller.BeaconUserId, unknown, ct);
+            return new McpPlaygroundResult(unknown, true);
         }
 
         // The caller's project access, as on every other path: the catalog tools read the project, the SQL-carrying

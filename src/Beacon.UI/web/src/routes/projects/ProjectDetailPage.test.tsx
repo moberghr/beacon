@@ -527,6 +527,21 @@ describe('ProjectDetailPage access', () => {
 });
 
 describe('ProjectDetailPage documentation', () => {
+  const RETURNS_POLICY = { id: 3, sourceKey: 'docs', path: 'guides/returns.md', title: 'Returns policy', importedTime: '2026-10-01T10:00:00Z' };
+
+  // No host-imported document unless a test serves some.
+  beforeEach(() => {
+    mswServer.use(http.get('*/beacon/api/projects/5/imported-documents', () => HttpResponse.json({ documents: [] })));
+  });
+
+  function serveImported() {
+    mswServer.use(
+      http.get('*/beacon/api/projects/5/imported-documents', () => HttpResponse.json({ documents: [RETURNS_POLICY] })),
+      http.get('*/beacon/api/projects/5/imported-documents/3', () =>
+        HttpResponse.json({ document: { ...RETURNS_POLICY, content: '# Returns\n\nItems go back within 30 days.', frontmatterJson: null } })),
+    );
+  }
+
   function documentation(canCurate: boolean) {
     return {
       latest: {
@@ -574,5 +589,68 @@ describe('ProjectDetailPage documentation', () => {
     expect(await screen.findByText('The ledger.')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Edit Overview' })).not.toBeInTheDocument();
     expect(screen.getByText('Only a project admin of this project (or an Admin) edits or regenerates its documentation.')).toBeInTheDocument();
+  });
+  it('shows the gateway the documents its host imported, not "no documentation", and opens one', async () => {
+    mswServer.use(
+      signedIn(['Admin']),
+      permissionsHandler({ isAdmin: true, gatewayMode: true }),
+      http.get('*/beacon/api/projects/5', () => HttpResponse.json(project())),
+      http.get('*/beacon/api/projects/5/documentation', () => HttpResponse.json({ latest: null, history: [], canCurate: false })),
+    );
+    serveImported();
+
+    renderPage();
+    fireEvent.click(await screen.findByRole('tab', { name: /documentation/i }));
+
+    fireEvent.click(await screen.findByRole('button', { name: /Returns policy/ }));
+    expect(await screen.findByText('Items go back within 30 days.')).toBeInTheDocument();
+    expect(screen.getByText('guides/returns.md')).toBeInTheDocument();
+    expect(screen.queryByText('No documentation generated yet')).not.toBeInTheDocument();
+  });
+
+  it('lists the imported documents after the generated documentation', async () => {
+    mswServer.use(
+      signedIn([]),
+      http.get('*/beacon/api/projects/5', () => HttpResponse.json(project({ hasDocumentation: true }))),
+      http.get('*/beacon/api/projects/5/documentation', () => HttpResponse.json(documentation(false))),
+    );
+    serveImported();
+
+    renderPage();
+    fireEvent.click(await screen.findByRole('tab', { name: /documentation/i }));
+
+    expect(await screen.findByText('The ledger.')).toBeInTheDocument();
+    expect(screen.getByText('Imported documents')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Returns policy/ })).toHaveAttribute('aria-expanded', 'false');
+  });
+
+  it('still lists the imported documents when the generated documentation fails to load', async () => {
+    mswServer.use(
+      signedIn(['Admin']),
+      permissionsHandler({ isAdmin: true, gatewayMode: true }),
+      http.get('*/beacon/api/projects/5', () => HttpResponse.json(project())),
+      http.get('*/beacon/api/projects/5/documentation', () => HttpResponse.json({ detail: 'boom' }, { status: 500 })),
+    );
+    serveImported();
+
+    renderPage();
+    fireEvent.click(await screen.findByRole('tab', { name: /documentation/i }));
+
+    expect(await screen.findByText('Failed to load documentation')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Returns policy/ })).toBeInTheDocument();
+  });
+
+  it('says no documentation was generated when there is none and the host imported none', async () => {
+    mswServer.use(
+      signedIn([]),
+      http.get('*/beacon/api/projects/5', () => HttpResponse.json(project())),
+      http.get('*/beacon/api/projects/5/documentation', () => HttpResponse.json({ latest: null, history: [], canCurate: false })),
+    );
+
+    renderPage();
+    fireEvent.click(await screen.findByRole('tab', { name: /documentation/i }));
+
+    expect(await screen.findByText('No documentation generated yet')).toBeInTheDocument();
+    expect(screen.queryByText('Imported documents')).not.toBeInTheDocument();
   });
 });

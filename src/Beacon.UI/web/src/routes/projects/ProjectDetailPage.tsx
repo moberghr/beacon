@@ -26,6 +26,7 @@ import { formatNumber, formatRelativeTime, formatDateTime } from '@/lib/format';
 import {
   PROJECT_ROLE_LABEL,
   useProjectDetailQuery,
+  useImportedDocumentsQuery,
   useProjectDocumentationQuery,
   useSetProjectAccess,
   useUnlinkProjectDataSource,
@@ -39,6 +40,7 @@ import {
 import { SetRepositoryTokenDialog } from './SetRepositoryTokenDialog';
 import { EditDocumentationSectionDialog } from './EditDocumentationSectionDialog';
 import { DocSectionContent } from './DocSectionContent';
+import { ImportedDocumentsSection } from './ImportedDocumentsSection';
 import { LinkDataSourcesModal } from './LinkDataSourcesModal';
 import { MembersTab } from './MembersTab';
 import { RestrictedPill } from './RestrictedPill';
@@ -587,12 +589,20 @@ function RepositoriesTab({ repositories, canSetToken }: { repositories: ProjectR
 
 function DocumentationTab({ projectId, canCurateHere }: { projectId: number; canCurateHere: boolean }) {
   const { data, isLoading, isError, error } = useProjectDocumentationQuery(projectId);
+  // The documents the host imported (ExposeDocs) are the project's documentation too: the MCP gateway's only kind.
+  const imported = useImportedDocumentsQuery(projectId);
   const [editing, setEditing] = useState<ProjectDocSectionEntry | null>(null);
 
-  if (isLoading) {
+  if (isLoading || imported.isLoading) {
     return <CardBody><span className="text-text-muted">Loading documentation…</span></CardBody>;
   }
 
+  const importedDocuments = imported.data ?? [];
+  const importedSection = (imported.isError || importedDocuments.length > 0) && (
+    <ImportedDocumentsSection projectId={projectId} documents={importedDocuments} isError={imported.isError} />
+  );
+
+  // A failed load of the generated documentation does not hide the imported documents.
   if (isError) {
     return (
       <CardBody>
@@ -601,6 +611,7 @@ function DocumentationTab({ projectId, canCurateHere }: { projectId: number; can
           title="Failed to load documentation"
           description={error instanceof Error ? error.message : 'Unknown error'}
         />
+        {importedSection}
       </CardBody>
     );
   }
@@ -609,11 +620,13 @@ function DocumentationTab({ projectId, canCurateHere }: { projectId: number; can
   if (!latest) {
     return (
       <CardBody>
-        <EmptyState
-          icon={<BookOpen />}
-          title="No documentation generated yet"
-          description="Documentation will appear here once generated for this project."
-        />
+        {importedSection || (
+          <EmptyState
+            icon={<BookOpen />}
+            title="No documentation generated yet"
+            description="Documentation will appear here once generated for this project."
+          />
+        )}
       </CardBody>
     );
   }
@@ -660,6 +673,7 @@ function DocumentationTab({ projectId, canCurateHere }: { projectId: number; can
               <DocSectionContent content={section.content} />
             </section>
           ))}
+          {importedSection}
         </div>
       </CardBody>
 
