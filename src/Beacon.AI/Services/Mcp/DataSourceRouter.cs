@@ -62,7 +62,8 @@ internal sealed class DataSourceRouter(ILogger<DataSourceRouter> logger) : IData
             SystemPrompt = "You are a data routing assistant. Respond with JSON only.",
             Messages = [new ChatMessage(ConversationRole.User, routingPrompt)],
             Temperature = 0.0m,
-            MaxTokens = 512
+            MaxTokens = 512,
+            Tier = LlmTier.Fast
         };
 
         var response = await llmProvider.CompleteAsync(request, ct);

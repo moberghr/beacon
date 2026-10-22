@@ -19,7 +19,7 @@ public class LlmProviderManager : ILlmConfigurationUpdater
     private readonly ILogger<LlmProviderManager> _logger;
     private readonly object _lock = new();
     private LlmConfiguration _config;
-    private ILlmProvider? _currentProvider;
+    private ActiveProviders _active = ActiveProviders.None;
     private string? _inactiveReason;
 
     public LlmProviderManager(
@@ -41,7 +41,8 @@ public class LlmProviderManager : ILlmConfigurationUpdater
         {
             try
             {
-                _currentProvider = factory.CreateProvider(_config);
+                var main = factory.CreateProvider(_config);
+                _active = new ActiveProviders(main, BuildFastProvider(_config));
             }
             catch (Exception ex)
             {
@@ -54,7 +55,27 @@ public class LlmProviderManager : ILlmConfigurationUpdater
         }
     }
 
-    public ILlmProvider? CurrentProvider => Volatile.Read(ref _currentProvider);
+    public ILlmProvider? CurrentProvider => Volatile.Read(ref _active).Main;
+
+    /// <summary>
+    /// The provider on the configured fast model, for short classification calls; null when no fast model is configured
+    /// (or it equals the main model, or it could not be built), in which case the main provider serves those calls.
+    /// </summary>
+    public ILlmProvider? FastProvider => Volatile.Read(ref _active).Fast;
+
+    /// <summary>
+    /// The main and fast providers of one configuration, read together: a caller that needs both reads this once, so a
+    /// fast provider is never paired with a main provider built from another configuration.
+    /// </summary>
+    public (ILlmProvider? Main, ILlmProvider? Fast) ActiveProvidersSnapshot
+    {
+        get
+        {
+            var active = Volatile.Read(ref _active);
+
+            return (active.Main, active.Fast);
+        }
+    }
 
     /// <summary>
     /// Why there is no active provider when the cause is that the configured provider is not installed: the install
@@ -100,7 +121,7 @@ public class LlmProviderManager : ILlmConfigurationUpdater
 
             // The active provider always matches the published configuration: when the new one cannot build a provider,
             // there is no active provider, never the previous one (which could run under other credentials).
-            ILlmProvider? rebuilt = null;
+            var rebuilt = ActiveProviders.None;
             var inactiveReason = NotInstalledReason(next);
             if (inactiveReason is not null)
             {
@@ -114,7 +135,8 @@ public class LlmProviderManager : ILlmConfigurationUpdater
             {
                 try
                 {
-                    rebuilt = _factory.CreateProvider(next);
+                    var main = _factory.CreateProvider(next);
+                    rebuilt = new ActiveProviders(main, BuildFastProvider(next));
                 }
                 catch (Exception ex)
                 {
@@ -125,8 +147,32 @@ public class LlmProviderManager : ILlmConfigurationUpdater
                 }
             }
 
-            Interlocked.Exchange(ref _currentProvider, rebuilt);
+            Interlocked.Exchange(ref _active, rebuilt);
             Interlocked.Exchange(ref _inactiveReason, inactiveReason);
+        }
+    }
+
+    // A fast-tier request never fails because the fast model is unavailable: a build failure leaves no fast provider.
+    private ILlmProvider? BuildFastProvider(LlmConfiguration config)
+    {
+        if (string.IsNullOrWhiteSpace(config.FastModel)
+            || string.Equals(config.FastModel.Trim(), config.Model?.Trim(), StringComparison.OrdinalIgnoreCase))
+        {
+            return null;
+        }
+
+        try
+        {
+            return _factory.CreateFastProvider(config);
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(
+                "Fast LLM provider construction failed for provider {Provider} ({Failure}). Fast-tier calls use the main provider.",
+                config.Provider,
+                FailureCodes.Describe(ex));
+
+            return null;
         }
     }
 
@@ -148,5 +194,10 @@ public class LlmProviderManager : ILlmConfigurationUpdater
         _logger.LogWarning(
             "LLM provider {Provider} is not installed: its package is not referenced or its registration was not added. No provider is active; install the provider or choose another one in Admin Settings.",
             provider);
+    }
+
+    private sealed record ActiveProviders(ILlmProvider? Main, ILlmProvider? Fast)
+    {
+        public static ActiveProviders None { get; } = new(null, null);
     }
 }
