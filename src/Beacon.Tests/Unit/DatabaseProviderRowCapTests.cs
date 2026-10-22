@@ -232,6 +232,45 @@ public class DatabaseProviderRowCapTests
         result.Rows.Should().OnlyContain(x => ((string)x["body"]!).Length == 1000);
     }
 
+    // A record value arrives as nested arrays: the text it holds counts however deeply it nests (2,000 bytes a row), so a
+    // budget of 10,000 is passed by the fifth row as with plain text.
+    [TestCase(DatabaseEngineType.PostgreSQL)]
+    [TestCase(DatabaseEngineType.MySQL)]
+    [TestCase(DatabaseEngineType.MSSQL)]
+    public async Task AReadOfNestedRecordValues_PastTheByteBudget_StopsAndFails(DatabaseEngineType engine)
+    {
+        var connection = Connect(engine, new RecordingDbConnection
+        {
+            RowCount = 50,
+            Columns = [("record", _ => ResultByteBudgetTests.Nested(new object[] { 1, new string('x', 1000) }, 10))]
+        });
+
+        var result = await ReadCapped(engine, new QueryExecutionOptions { MaxResultBytes = 10_000 });
+
+        result.Success.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("10000-byte limit");
+        connection.RowsRead.Should().Be(5, "the read stops at the first row past the budget");
+        connection.Commits.Should().Be(0);
+    }
+
+    // A value of a type the estimate does not know counts by its text, like a 1,000-character search query object.
+    [TestCase(DatabaseEngineType.PostgreSQL)]
+    [TestCase(DatabaseEngineType.MSSQL)]
+    public async Task AReadOfValuesCountedByTheirText_PastTheByteBudget_StopsAndFails(DatabaseEngineType engine)
+    {
+        var connection = Connect(engine, new RecordingDbConnection
+        {
+            RowCount = 50,
+            Columns = [("query", _ => new TextValue(new string('x', 1000)))]
+        });
+
+        var result = await ReadCapped(engine, new QueryExecutionOptions { MaxResultBytes = 10_000 });
+
+        result.Success.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("10000-byte limit");
+        connection.RowsRead.Should().Be(5);
+    }
+
     // A read without a row cap (an ad-hoc read on the plain path) is held to the same budget as it arrives.
     [Test]
     public async Task AnUncappedRead_PastTheByteBudget_StopsAndFails()
@@ -270,4 +309,9 @@ public class DatabaseProviderRowCapTests
         DatabaseEngineType = engine,
         EncryptedConnectionData = "encrypted"
     };
+
+    private sealed class TextValue(string text)
+    {
+        public override string ToString() => text;
+    }
 }
