@@ -1,0 +1,14 @@
+# Code-to-Data References
+
+## By Service/Class:
+### OrderService
+  - orders: [DapperQuery, EntityModel] methods: Create, Get
+### CustomerApi
+  - customers: [ApiEndpoint] methods: List
+
+## By Table:
+### orders
+  Writers: OrderService.Create
+  Readers: OrderService.Get
+### customers
+  Readers: CustomerApi.List

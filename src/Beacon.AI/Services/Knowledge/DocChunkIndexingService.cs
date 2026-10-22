@@ -214,6 +214,8 @@ internal sealed class DocChunkIndexingService(
         // provider outage can be surfaced as an Error below rather than hidden behind a green job.
         var blurbs = new string?[desired.Count];
         var blurbFailures = 0;
+        var blurbAttempts = 0;
+        var existingByKey = existingChunks.ToDictionary(x => (x.SourceSectionId, x.SortOrder));
         if (settings.EnableContextualRetrieval && desired.Count > 0)
         {
             var sectionsById = sections.ToDictionary(x => x.Id);
@@ -232,6 +234,17 @@ internal sealed class DocChunkIndexingService(
                     continue;
                 }
 
+                // An unchanged chunk keeps its stored blurb without a provider call. The chunk text is the dominant
+                // input of the blurb, so a section whose other text changed but whose chunk did not keeps its blurb.
+                if (existingByKey.TryGetValue((chunk.SourceSectionId, chunk.Index), out var existingRow)
+                    && existingRow.ContextualBlurb != null
+                    && existingRow.ChunkText == chunk.Text)
+                {
+                    blurbs[i] = existingRow.ContextualBlurb;
+                    continue;
+                }
+
+                blurbAttempts++;
                 var blurbResult = await GenerateBlurbAsync(
                     listsValues ? listedValuesProvider : llmProvider, chunk.SourceSectionId, section.Content, chunk.Text, ct);
                 blurbs[i] = blurbResult.Blurb;
@@ -243,7 +256,6 @@ internal sealed class DocChunkIndexingService(
         }
 
         // ---- Unit of work A: upsert McpDocChunk rows keyed by (SourceSectionId, chunk index) ----
-        var existingByKey = existingChunks.ToDictionary(x => (x.SourceSectionId, x.SortOrder));
         var desiredKeys = desired
             .Select(x => (x.SourceSectionId, x.Index))
             .ToHashSet();
@@ -387,11 +399,11 @@ internal sealed class DocChunkIndexingService(
         // the raw chunks were still embedded (never dropped), but a total provider outage would otherwise be
         // invisible — an Information-level withBlurb==0 is indistinguishable from contextual retrieval being
         // off. Surface it as an Error so the failure is visible even though the job itself stays green.
-        if (settings.EnableContextualRetrieval && desired.Count > 0 && blurbFailures == desired.Count)
+        if (settings.EnableContextualRetrieval && blurbAttempts > 0 && blurbFailures == blurbAttempts)
         {
             logger.LogError(
-                "Contextual retrieval enabled but blurb generation failed for all {Failed}/{Total} chunk(s) of project {ProjectId} — embedded raw chunks; check the LLM provider.",
-                blurbFailures, desired.Count, projectId);
+                "Contextual retrieval enabled but blurb generation failed for all {Failed}/{Total} attempted chunk(s) of project {ProjectId} — embedded raw chunks; check the LLM provider.",
+                blurbFailures, blurbAttempts, projectId);
         }
     }
 

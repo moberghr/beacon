@@ -54,6 +54,49 @@ public class DocumentationEnumDiscoveryTests
         statements.Should().ContainSingle(x => x.Sql.Contains("\"orders\"") && x.Sql.Contains("\"status\""));
     }
 
+    [Test]
+    public async Task ASmallProjectsPrompts_AreUnchangedByThePromptBudget()
+    {
+        var prompts = new List<string>();
+        var service = Service(RecordingProvider().Object, [Table("public", "orders", "id", "status"), Table("public", "events", "id")], prompts: prompts);
+
+        await GenerateIgnoringLaterFailures(service);
+
+        var nl = Environment.NewLine;
+        var dataModel = prompts.Should().ContainSingle(x => x.StartsWith("# Full Schema Metadata")).Subject;
+        dataModel.Should().Be(string.Join(nl, "# Full Schema Metadata", "", "## Data Source: core", "### public.events", "Columns:", "  - id integer", "",
+            "### public.orders", "Columns:", "  - id integer", "  - status integer", "", ""));
+        var domains = prompts.Should().ContainSingle(x => x.StartsWith("# Tables and Relationships")).Subject;
+        domains.Should().Be(string.Join(nl, "# Tables and Relationships", "", "## Data Source: core", "### public.events", "  Columns: id", "### public.orders",
+            "  Columns: id, status", "", "# Code References by Class", ""));
+        prompts.Should().NotContain(x => x.Contains("not shown"));
+    }
+
+    [Test]
+    public async Task AProjectBeyondThePromptBudget_GetsPromptsCutAtATableBoundary_WithTheCountOfTheRest()
+    {
+        const int tableCount = 800;
+        var tables = Enumerable.Range(0, tableCount)
+            .Select(i => Table("public", $"table_{i:D4}", Enumerable.Range(0, 12).Select(c => $"column_{c}_of_table_{i:D4}_with_a_long_name").ToArray()))
+            .ToList();
+        var prompts = new List<string>();
+        var service = Service(RecordingProvider().Object, tables, prompts: prompts);
+
+        await GenerateIgnoringLaterFailures(service);
+
+        var dataModel = prompts.Should().ContainSingle(x => x.StartsWith("# Full Schema Metadata")).Subject;
+        var shown = dataModel.Split("### public.").Length - 1;
+        shown.Should().BeInRange(1, tableCount - 1);
+        var note = $"+{tableCount - shown} more not shown (prompt size limit)";
+        dataModel.TrimEnd().Should().EndWith(note);
+        dataModel.Length.Should().BeLessThanOrEqualTo(DocumentationPromptBudget.DefaultLimit);
+        // The cut falls between tables: the last shown table is whole, in its order.
+        dataModel.Should().Contain($"### public.table_{shown - 1:D4}");
+        dataModel.Should().NotContain($"### public.table_{shown:D4}");
+        dataModel.Should().Contain($"column_11_of_table_{shown - 1:D4}_with_a_long_name");
+        prompts.Where(x => x.StartsWith("# Tables and Relationships")).Single().Length.Should().BeLessThanOrEqualTo(DocumentationPromptBudget.DefaultLimit);
+    }
+
     [TestCase(DatabaseEngineType.PostgreSQL, "\"we\"\"ird\"", "\"pub\"\"lic\".\"ord\"\"ers\"", "TEXT")]
     [TestCase(DatabaseEngineType.Snowflake, "\"we\"\"ird\"", "\"pub\"\"lic\".\"ord\"\"ers\"", "TEXT")]
     [TestCase(DatabaseEngineType.MSSQL, "[we\"ird]", "[pub\"lic].[ord\"ers]", "VARCHAR(MAX)")]

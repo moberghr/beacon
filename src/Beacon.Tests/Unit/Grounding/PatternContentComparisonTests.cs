@@ -29,6 +29,7 @@ public class PatternContentComparisonTests
     private const string Question = "orders last week";
 
     // A lesson is prose a person approved as written: a changed number in it is a changed lesson.
+    // Two signals against the stored lesson's one: more evidence than the lesson was extracted from, so the extractor is asked again.
     [TestCase("Divide total by 1000 to get dollars", McpPatternStatus.NeedsEvidence)]
     [TestCase("Divide total by 100 to get dollars", McpPatternStatus.AutoApproved)]
     public async Task ALessonWhoseNumberChanges_GoesBackToNeedsEvidence(string minedLesson, McpPatternStatus after)
@@ -41,10 +42,26 @@ public class PatternContentComparisonTests
             .ReturnsAsync(new ExtractedLesson(McpPatternType.SchemaCorrection, minedLesson, null, null, "symptom", "cause", "rule", null, null));
         var (service, context) = Build(pattern, extractor.Object);
 
-        await service.DetectSchemaCorrectionsAsync(context, ProjectId, DataSourceId, [CorrectionSignal()], new McpLearningAggregationService.ExtractionStats(), retainContent: true, CancellationToken.None);
+        await service.DetectSchemaCorrectionsAsync(context, ProjectId, DataSourceId, [CorrectionSignal(), CorrectionSignal()], new McpLearningAggregationService.ExtractionStats(), retainContent: true, CancellationToken.None);
 
         pattern.Status.Should().Be(after);
         pattern.PatternContent.Should().Be(minedLesson);
+    }
+
+    // The same number of signals as the stored lesson was extracted from is no new evidence: no extractor call, no demotion.
+    [Test]
+    public async Task ALessonWhoseSignalCountIsUnchanged_IsNotExtractedAgain_AndStaysApproved()
+    {
+        var pattern = Pattern(McpPatternType.SchemaCorrection, "Divide total by 100 to get dollars", null, null, column: "amount");
+        var extractor = new Mock<ILessonExtractor>();
+        extractor.SetupGet(x => x.IsAvailable).Returns(true);
+        var (service, context) = Build(pattern, extractor.Object);
+
+        await service.DetectSchemaCorrectionsAsync(context, ProjectId, DataSourceId, [CorrectionSignal()], new McpLearningAggregationService.ExtractionStats(), retainContent: true, CancellationToken.None);
+
+        extractor.Verify(x => x.ExtractAsync(It.IsAny<FailureCluster>(), It.IsAny<CancellationToken>()), Times.Never);
+        pattern.Status.Should().Be(McpPatternStatus.AutoApproved);
+        pattern.PatternContent.Should().Be("Divide total by 100 to get dollars");
     }
 
     // Example SQL compares exactly but for comments and the whitespace between tokens: a literal's whitespace, a number and an

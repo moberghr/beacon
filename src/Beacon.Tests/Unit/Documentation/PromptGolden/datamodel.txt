@@ -1,0 +1,25 @@
+# Full Schema Metadata
+
+## Data Source: core
+### public.orders
+Description: Customer orders
+Columns:
+  - id integer PK NOT NULL — Primary key
+  - customer_id integer NOT NULL FK→public.customers.id
+  - status text
+Indexes:
+  - ix_orders_customer (customer_id)
+  - ux_orders_ref (ref) UNIQUE
+Enum/Status Values:
+  - status: [open (10 rows), closed (2,500 rows)]
+
+### public.customers
+Columns:
+  - id integer PK NOT NULL
+
+## Data Source: billing-api
+### api.GET /invoices
+Description: Invoices
+Columns:
+  - number string NOT NULL — Invoice number
+

@@ -1,0 +1,15 @@
+# Project: Shop
+Description: A small shop
+
+## Data Sources:
+- core (PostgreSQL) — 2 tables
+- billing-api (Api) — 1 tables
+- empty-api (Api) — 0 tables
+
+## Repositories:
+- https://example.test/shop.git (branch: main, files scanned: 120, references found: 14)
+
+Total tables: 3
+Total code references: 4
+Average quality score: 66%
+Active data contracts: 1

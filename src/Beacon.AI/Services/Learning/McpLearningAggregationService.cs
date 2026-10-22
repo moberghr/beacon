@@ -20,6 +20,9 @@ internal sealed class McpLearningAggregationService(
     // The tool of a signal that answers a natural-language question.
     private const string AskTool = "ask";
 
+    // LLM lesson extractions per project and run; further clusters take the deterministic content.
+    internal const int MaxLessonExtractionsPerRun = 20;
+
     // The sentences the detectors write a pattern's statistics into — a count, or an error rate and a count, the numbers
     // SignalCount and Confidence also hold — matched against the whole content, each with what replaces the statistics
     // when content is compared. Content of any other shape (a lesson, numbers in it included) is compared as written.
@@ -88,6 +91,13 @@ internal sealed class McpLearningAggregationService(
             logger.LogError(
                 "LLM lesson extraction returned no result for all {Count} cluster(s) this run — LLM-primary path may be misconfigured; using regex fallback",
                 extraction.Attempts);
+        }
+
+        if (extraction.ReusedExtractions > 0 || extraction.CappedExtractions > 0)
+        {
+            logger.LogInformation(
+                "Lesson extraction this run: {Attempts} LLM call(s), {Reused} cluster(s) reused an extracted lesson, {Capped} cluster(s) past the per-project cap of {Cap} used the deterministic content",
+                extraction.Attempts, extraction.ReusedExtractions, extraction.CappedExtractions, MaxLessonExtractionsPerRun);
         }
 
         if (extraction.BlockedExampleSql > 0)
@@ -458,6 +468,7 @@ internal sealed class McpLearningAggregationService(
         var grouped = mappings
             .GroupBy(m => $"{m.Schema}.{m.Table}.{m.WrongColumn}", StringComparer.OrdinalIgnoreCase);
 
+        var clusters = new List<SchemaCorrectionCluster>();
         foreach (var group in grouped)
         {
             var first = group.First();
@@ -467,8 +478,20 @@ internal sealed class McpLearningAggregationService(
 
             // The linear count-based confidence is retained ONLY as a prior/tiebreak — it is still passed
             // through regardless of which path builds the pattern (§ Architecture ⑦).
-            var confidence = Math.Min(1.0, 0.5 + (group.Count() * 0.15));
+            var cluster = new SchemaCorrectionCluster(first.Schema, first.Table, first.WrongColumn, correctCol, first.Signal, group.Count(),
+                Math.Min(1.0, 0.5 + (group.Count() * 0.15)));
+            if (retainContent && lessonExtractor is { IsAvailable: true })
+            {
+                cluster.Lesson = await FindExtractedLessonAsync(context, projectId, dataSourceId, cluster, ct);
+            }
 
+            clusters.Add(cluster);
+        }
+
+        // The per-project cap is spent on clusters without an extracted lesson first, then on lessons with new evidence,
+        // then in the order they have.
+        foreach (var cluster in clusters.OrderBy(x => x.Lesson == null ? 0 : x.Lesson.SignalCount == x.SignalCount ? 2 : 1))
+        {
             // LLM-PRIMARY: extract a structured lesson from the representative failure. On a non-null
             // lesson use the LLM's content/example/type; on null (or no extractor) fall back below.
             // Under the content lock the extractor is never invoked — its FailureCluster carries
@@ -477,45 +500,71 @@ internal sealed class McpLearningAggregationService(
             // deterministic template built from schema/table/column names).
             if (retainContent && lessonExtractor is { IsAvailable: true })
             {
-                var representative = first.Signal;
-                var cluster = new FailureCluster(
-                    dataSourceId,
-                    first.Schema,
-                    first.Table,
-                    first.WrongColumn,
-                    representative.Question,
-                    representative.GeneratedSql,
-                    representative.SchemaValidationError ?? representative.ExecutionError,
-                    representative.CorrectedSql,
-                    null)
+                // A lesson already extracted for this column is kept while its cluster has the same number of signals
+                // (no new evidence; an equal count is the rule for "unchanged"): only its statistics refresh, no LLM call.
+                if (cluster.Lesson is { } kept && kept.SignalCount == cluster.SignalCount)
                 {
-                    ProjectId = projectId
-                };
+                    if (await RefreshLessonAsync(context, kept, cluster, advance: true, ct))
+                    {
+                        extraction.ReusedExtractions++;
+                        continue;
+                    }
 
-                extraction.Attempts++;
-                var lesson = await lessonExtractor.ExtractAsync(cluster, ct);
-                if (lesson != null)
-                {
-                    // An example question only from an answer to a question: a query signal's "question" is SQL.
-                    var lessonQuestion = representative.Tool == AskTool ? GroundingText.Question(lesson.ExampleQuestion) : null;
-                    await UpsertPatternAsync(context, projectId, dataSourceId, first.Schema, first.Table, first.WrongColumn,
-                        lesson.PatternType, lesson.PatternContent, lessonQuestion, lesson.ExampleSql,
-                        group.Count(), confidence, extraction, ct);
-                    continue;
+                    cluster.Lesson = null;
                 }
 
-                // Extractor was tried but produced nothing usable — record it so an all-null run is visible.
-                extraction.NullResults++;
+                extraction.ExtractionsByProject.TryGetValue(projectId, out var extractedForProject);
+                if (extractedForProject < MaxLessonExtractionsPerRun)
+                {
+                    extraction.ExtractionsByProject[projectId] = extractedForProject + 1;
+                    var representative = cluster.Signal;
+                    var failure = new FailureCluster(
+                        dataSourceId,
+                        cluster.Schema,
+                        cluster.Table,
+                        cluster.WrongColumn,
+                        representative.Question,
+                        representative.GeneratedSql,
+                        representative.SchemaValidationError ?? representative.ExecutionError,
+                        representative.CorrectedSql,
+                        null)
+                    {
+                        ProjectId = projectId
+                    };
+
+                    extraction.Attempts++;
+                    var lesson = await lessonExtractor.ExtractAsync(failure, ct);
+                    if (lesson != null)
+                    {
+                        // An example question only from an answer to a question: a query signal's "question" is SQL.
+                        var lessonQuestion = representative.Tool == AskTool ? GroundingText.Question(lesson.ExampleQuestion) : null;
+                        await UpsertPatternAsync(context, projectId, dataSourceId, cluster.Schema, cluster.Table, cluster.WrongColumn,
+                            lesson.PatternType, lesson.PatternContent, lessonQuestion, lesson.ExampleSql,
+                            cluster.SignalCount, cluster.Confidence, extraction, ct);
+                        continue;
+                    }
+
+                    // Extractor was tried but produced nothing usable — record it so an all-null run is visible.
+                    extraction.NullResults++;
+                }
+                else
+                {
+                    // Past the per-run cap the cluster takes the deterministic content below.
+                    extraction.CappedExtractions++;
+                }
+
+                // A cluster that gets no new lesson never replaces the one it has, and its stored signal count does not move, so
+                // the next run still sees the new evidence and tries again: only the refresh time is written.
+                if (cluster.Lesson is { } existingLesson && await RefreshLessonAsync(context, existingLesson, cluster, advance: false, ct))
+                {
+                    continue;
+                }
             }
 
             // FALLBACK: deterministic regex + ColumnSimilarity content (unchanged).
-            var content = correctCol != null
-                ? $"NEVER use '{first.WrongColumn}' on {first.Schema}.{first.Table} — correct column is '{correctCol}'"
-                : $"Column '{first.WrongColumn}' does not exist on {first.Schema}.{first.Table} — check schema";
-
-            await UpsertPatternAsync(context, projectId, dataSourceId, first.Schema, first.Table, first.WrongColumn,
-                McpPatternType.SchemaCorrection, content, null, null,
-                group.Count(), confidence, extraction, ct);
+            await UpsertPatternAsync(context, projectId, dataSourceId, cluster.Schema, cluster.Table, cluster.WrongColumn,
+                McpPatternType.SchemaCorrection, DeterministicContent(cluster.Schema, cluster.Table, cluster.WrongColumn, cluster.CorrectColumn), null, null,
+                cluster.SignalCount, cluster.Confidence, extraction, ct);
         }
     }
 
@@ -649,6 +698,74 @@ internal sealed class McpLearningAggregationService(
                 McpPatternType.DocumentationGap, content, null, null,
                 tableStats.Total, confidence, extraction, ct);
         }
+    }
+
+    // The deterministic content of a schema correction: the one text the fallback branch writes, and the only text
+    // that tells a stored pattern apart from a lesson the extractor wrote.
+    private static string DeterministicContent(string schema, string table, string wrongColumn, string? correctColumn) =>
+        correctColumn != null
+            ? $"NEVER use '{wrongColumn}' on {schema}.{table} — correct column is '{correctColumn}'"
+            : $"Column '{wrongColumn}' does not exist on {schema}.{table} — check schema";
+
+    // True when the content is the fallback's own text for the cluster's column: with any replacement column (the one
+    // found when the pattern was written may be an older one) or without one.
+    private static bool IsDeterministicContent(string content, string schema, string table, string wrongColumn)
+    {
+        if (content == DeterministicContent(schema, table, wrongColumn, null))
+        {
+            return true;
+        }
+
+        var prefix = DeterministicContent(schema, table, wrongColumn, "\u0001");
+        var parts = prefix.Split("\u0001");
+
+        return content.Length > parts[0].Length + parts[1].Length
+            && content.StartsWith(parts[0], StringComparison.Ordinal)
+            && content.EndsWith(parts[1], StringComparison.Ordinal)
+            && !content[parts[0].Length..^parts[1].Length].Contains('\'');
+    }
+
+    // The lesson the extractor wrote for the cluster's column: a pattern of the column whose content is not the
+    // deterministic text for it.
+    private static async Task<StoredLesson?> FindExtractedLessonAsync(
+        BeaconContext context, int projectId, int dataSourceId, SchemaCorrectionCluster cluster, CancellationToken ct)
+    {
+        var existing = await context.McpLearnedPatterns
+            .Where(x => x.ProjectId == projectId)
+            .Where(x => x.DataSourceId == dataSourceId)
+            .Where(x => x.TableName == cluster.Table)
+            .Where(x => x.SchemaName == cluster.Schema)
+            .Where(x => x.ColumnName == cluster.WrongColumn)
+            .OrderBy(x => x.Id)
+            .Select(x =>
+                new StoredLesson(x.Id, x.Status, x.SignalCount, x.PatternContent))
+            .ToListAsync(ct);
+
+        return existing
+            .Where(x => !IsDeterministicContent(x.Content, cluster.Schema, cluster.Table, cluster.WrongColumn))
+            .FirstOrDefault();
+    }
+
+    // Refreshes a lesson, conditional on the status it was read with (a person's decision in between is never
+    // overwritten): its statistics too when the evidence is the same, only the refresh time otherwise. False when nothing
+    // was written.
+    private static async Task<bool> RefreshLessonAsync(
+        BeaconContext context, StoredLesson lesson, SchemaCorrectionCluster cluster, bool advance, CancellationToken ct)
+    {
+        var refreshedAt = DateTime.UtcNow;
+        var query = context.McpLearnedPatterns
+            .Where(x => x.Id == lesson.Id)
+            .Where(x => x.Status == lesson.Status);
+        var written = advance
+            ? await query.ExecuteUpdateAsync(
+                x => x
+                    .SetProperty(y => y.SignalCount, cluster.SignalCount)
+                    .SetProperty(y => y.Confidence, cluster.Confidence)
+                    .SetProperty(y => y.LastRefreshedAt, refreshedAt),
+                ct)
+            : await query.ExecuteUpdateAsync(x => x.SetProperty(y => y.LastRefreshedAt, refreshedAt), ct);
+
+        return written > 0;
     }
 
     // Every example SQL a pattern stores passes the grounding SQL check first and is stored without its comments; SQL the
@@ -1192,6 +1309,21 @@ internal sealed class McpLearningAggregationService(
         "ROW_NUMBER", "RANK", "DENSE_RANK"
     };
 
+    private sealed record StoredLesson(int Id, McpPatternStatus Status, int SignalCount, string Content);
+
+    private sealed class SchemaCorrectionCluster(
+        string schema, string table, string wrongColumn, string? correctColumn, McpQuerySignal signal, int signalCount, double confidence)
+    {
+        public string Schema { get; } = schema;
+        public string Table { get; } = table;
+        public string WrongColumn { get; } = wrongColumn;
+        public string? CorrectColumn { get; } = correctColumn;
+        public McpQuerySignal Signal { get; } = signal;
+        public int SignalCount { get; } = signalCount;
+        public double Confidence { get; } = confidence;
+        public StoredLesson? Lesson { get; set; }
+    }
+
     // A candidate's content as the replay measured it.
     private sealed record MeasuredContent(string PatternContent, string? ExampleQuestion, string? ExampleSql);
 
@@ -1208,6 +1340,9 @@ internal sealed class McpLearningAggregationService(
         public int BlockedExampleSql { get; set; }
         public int BlockedPromotions { get; set; }
         public int Demotions { get; set; }
+        public int ReusedExtractions { get; set; }
+        public int CappedExtractions { get; set; }
+        public Dictionary<int, int> ExtractionsByProject { get; } = [];
         public IGroundingSqlCheck? SqlCheck { get; init; }
     }
 }

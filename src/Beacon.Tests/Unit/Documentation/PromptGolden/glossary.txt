@@ -1,0 +1,14 @@
+# Context for Glossary Generation
+
+## Table and Column Names:
+- public.orders: id, customer_id, status
+- public.customers: id
+- api.GET /invoices: number
+
+## Enum/Status Column Values:
+- public.orders.status: [open, closed]
+
+## Key Terms from Generated Documentation:
+### Project Overview:
+An overview long enough to be excerpted into the glossary prompt of this small project.
+
