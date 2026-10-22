@@ -11,7 +11,7 @@ Indexes:
   - ix_orders_customer (customer_id)
   - ux_orders_ref (ref) UNIQUE
 Enum/Status Values:
-  - status: [open (10 rows), closed (2.500 rows)]
+  - status: [open (10 rows), closed (2,500 rows)]
 
 ### public.customers
 Columns:

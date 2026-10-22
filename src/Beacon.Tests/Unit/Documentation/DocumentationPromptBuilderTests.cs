@@ -16,6 +16,7 @@ namespace Beacon.Tests.Unit.Documentation;
 /// beyond the budget gets prompts cut at item boundaries with the count of what was left out. No database (§4.7).
 /// </summary>
 [TestFixture]
+[SetCulture("")]
 public class DocumentationPromptBuilderTests
 {
     private static readonly (string Name, Func<Doc.DocumentationContext, string> Build)[] Builders =
