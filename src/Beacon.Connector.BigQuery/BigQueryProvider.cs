@@ -1,8 +1,11 @@
 using System.Diagnostics;
+using System.Globalization;
 using System.Text.Json;
+using Google;
 using Google.Apis.Auth.OAuth2;
 using Google.Cloud.BigQuery.V2;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.HostData;
@@ -18,9 +21,25 @@ namespace Beacon.Connector.BigQuery;
 public class BigQueryProvider(
     IDataSourceConnectionResolver connectionResolver,
     SqlReadOnlyAstValidator readOnlyValidator,
-    ILogger<BigQueryProvider> logger) : IDataSourceProvider
+    ILogger<BigQueryProvider> logger,
+    IOptions<BigQueryOptions> options) : IDataSourceProvider, IRowCappedReadOnlyExecution
 {
     private const int MaxResultRows = 10000;
+
+    // BigQuery's reason for a job that would bill more than its MaximumBytesBilled.
+    private const string BytesBilledLimitExceeded = "bytesBilledLimitExceeded";
+
+    // How long a best-effort job cancellation may take once the wait for it has ended.
+    private static readonly TimeSpan CancelTimeout = TimeSpan.FromSeconds(10);
+
+    [Obsolete("Pass the BigQueryOptions as well; this constructor applies no deployment ceiling on bytes billed.")]
+    public BigQueryProvider(
+        IDataSourceConnectionResolver connectionResolver,
+        SqlReadOnlyAstValidator readOnlyValidator,
+        ILogger<BigQueryProvider> logger)
+        : this(connectionResolver, readOnlyValidator, logger, Options.Create(new BigQueryOptions()))
+    {
+    }
 
     public DataSourceType SupportedType => DataSourceType.BigQuery;
     public string GetQueryLanguageName() => "BigQuery SQL";
@@ -63,7 +82,19 @@ public class BigQueryProvider(
         }
     }
 
-    public async Task<ProviderQueryResult> ExecuteQueryAsync(DataSource dataSource, string query, Dictionary<string, object?> parameters, CancellationToken cancellationToken = default)
+    public Task<ProviderQueryResult> ExecuteQueryAsync(DataSource dataSource, string query, Dictionary<string, object?> parameters, CancellationToken cancellationToken = default)
+    {
+        return ExecuteQueryCoreAsync(dataSource, query, parameters, rowLimit: null, cancellationToken);
+    }
+
+    // With a row limit the read stops at it (the caller judges a result that reaches it); without one, a result over
+    // MaxResultRows fails rather than being returned cut short.
+    private async Task<ProviderQueryResult> ExecuteQueryCoreAsync(
+        DataSource dataSource,
+        string query,
+        Dictionary<string, object?> parameters,
+        int? rowLimit,
+        CancellationToken cancellationToken)
     {
         var stopwatch = Stopwatch.StartNew();
         try
@@ -71,9 +102,11 @@ public class BigQueryProvider(
             var config = ParseConfiguration(dataSource);
             using var client = CreateClient(config);
 
+            var maximumBytesBilled = MaximumBytesBilledOf(config);
             var queryOptions = new QueryOptions
             {
-                UseQueryCache = true
+                UseQueryCache = true,
+                MaximumBytesBilled = maximumBytesBilled
             };
 
             if (!string.IsNullOrEmpty(config.DatasetId))
@@ -86,22 +119,42 @@ public class BigQueryProvider(
 
             var job = await client.CreateQueryJobAsync(query, queryParameters, queryOptions, cancellationToken);
 
-            // Honor the configured query timeout (defaults to ~5 minutes when unset).
+            // The configured query timeout, at most DataSourceQueryTimeout.MaxSeconds. A wait that ends before the job does —
+            // the timeout or the caller's cancellation — cancels the job, so it stops running (and billing) on BigQuery.
+            var timeoutSeconds = DataSourceQueryTimeout.Clamp(config.QueryTimeoutSeconds);
             var resultOptions = new GetQueryResultsOptions
             {
-                Timeout = TimeSpan.FromSeconds(config.QueryTimeoutSeconds)
+                Timeout = TimeSpan.FromSeconds(timeoutSeconds)
             };
-            var result = await client.GetQueryResultsAsync(job.Reference, resultOptions, cancellationToken);
+            BigQueryResults result;
+            try
+            {
+                result = await client.GetQueryResultsAsync(job.Reference, resultOptions, cancellationToken);
+            }
+            catch (Exception ex) when (ex is OperationCanceledException or TimeoutException)
+            {
+                await TryCancelJobAsync(client, job, dataSource);
+                if (ex is TimeoutException)
+                {
+                    throw new BeaconException($"BigQuery query timed out after {timeoutSeconds} seconds", ex);
+                }
+
+                throw;
+            }
 
             var rows = new List<Dictionary<string, object?>>();
             var schema = result.Schema;
-            var truncated = false;
+            var readLimit = rowLimit ?? MaxResultRows;
 
             await foreach (var row in result.GetRowsAsync().WithCancellation(cancellationToken))
             {
-                if (rows.Count >= MaxResultRows)
+                if (rows.Count >= readLimit)
                 {
-                    truncated = true;
+                    if (rowLimit == null)
+                    {
+                        throw new BeaconException($"The BigQuery result has more than {MaxResultRows.ToString("N0", CultureInfo.InvariantCulture)} rows, the most Beacon reads from one statement without a row cap. Narrow the query.");
+                    }
+
                     break;
                 }
 
@@ -124,10 +177,13 @@ public class BigQueryProvider(
                 {
                     ["JobId"] = job.Reference.JobId,
                     ["BytesProcessed"] = job.Statistics?.TotalBytesProcessed,
-                    ["Truncated"] = truncated,
-                    ["RowLimit"] = MaxResultRows
+                    ["RowLimit"] = readLimit
                 }
             };
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -143,7 +199,7 @@ public class BigQueryProvider(
                 TotalRows = 0,
                 ExecutionTimeMs = stopwatch.Elapsed.TotalMilliseconds,
                 Success = false,
-                ErrorMessage = ex.Message
+                ErrorMessage = IsBytesBilledLimitExceeded(ex) ? BytesBilledLimitMessage(dataSource) : ex.Message
             };
         }
     }
@@ -156,7 +212,28 @@ public class BigQueryProvider(
     /// <see cref="SupportsDatabaseReadOnlyEnforcement"/> stays false: the service account's IAM grants remain the database's
     /// own boundary.
     /// </summary>
-    public async Task<ProviderQueryResult> ExecuteReadOnlyQueryAsync(DataSource dataSource, string query, Dictionary<string, object?> parameters, CancellationToken cancellationToken = default)
+    public Task<ProviderQueryResult> ExecuteReadOnlyQueryAsync(DataSource dataSource, string query, Dictionary<string, object?> parameters, CancellationToken cancellationToken = default)
+    {
+        return ExecuteReadOnlyQueryCoreAsync(dataSource, query, parameters, rowLimit: null, cancellationToken);
+    }
+
+    // The read-only path above, reading at most maxRows rows: the job's result is paged, so the read stops there.
+    Task<ProviderQueryResult> IRowCappedReadOnlyExecution.ExecuteReadOnlyQueryAsync(
+        DataSource dataSource,
+        string query,
+        Dictionary<string, object?> parameters,
+        int maxRows,
+        CancellationToken cancellationToken)
+    {
+        return ExecuteReadOnlyQueryCoreAsync(dataSource, query, parameters, Math.Max(1, maxRows), cancellationToken);
+    }
+
+    private async Task<ProviderQueryResult> ExecuteReadOnlyQueryCoreAsync(
+        DataSource dataSource,
+        string query,
+        Dictionary<string, object?> parameters,
+        int? rowLimit,
+        CancellationToken cancellationToken)
     {
         var validation = await ValidateQueryAsync(dataSource, query, cancellationToken);
         if (!validation.IsValid)
@@ -189,6 +266,10 @@ public class BigQueryProvider(
                 return Refused($"BigQuery reports this statement as {statementType ?? "an unknown type"}; only a SELECT runs on the read-only path.");
             }
         }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             // The dry run's message can quote the SQL or values (§1.11): the exception type only.
@@ -197,7 +278,7 @@ public class BigQueryProvider(
             return Refused($"The read-only dry run failed: {ex.Message}");
         }
 
-        return await ExecuteQueryAsync(dataSource, query, parameters, cancellationToken);
+        return await ExecuteQueryCoreAsync(dataSource, query, parameters, rowLimit, cancellationToken);
     }
 
     public Task<DataSourceMetadata> GetMetadataAsync(DataSource dataSource, CancellationToken cancellationToken = default)
@@ -251,6 +332,47 @@ public class BigQueryProvider(
         }
 
         return result;
+    }
+
+    // The source's own limit (the default when it sets none), lowered to the deployment's ceiling when one is set.
+    private long MaximumBytesBilledOf(BigQueryConfiguration config)
+    {
+        var limit = config.MaximumBytesBilled is > 0 and var own ? own : BigQueryConfiguration.DefaultMaximumBytesBilled;
+
+        return options.Value.MaxBytesBilled is > 0 and var ceiling ? Math.Min(limit, ceiling) : limit;
+    }
+
+    private static bool IsBytesBilledLimitExceeded(Exception ex)
+    {
+        return ex is GoogleApiException { Error.Errors: { } errors }
+            && errors.Any(x => x.Reason == BytesBilledLimitExceeded);
+    }
+
+    // Names the limit only: BigQuery's own message can quote the statement.
+    private string BytesBilledLimitMessage(DataSource dataSource)
+    {
+        var limit = MaximumBytesBilledOf(ParseConfiguration(dataSource));
+
+        return $"The query would bill more than {limit.ToString("N0", CultureInfo.InvariantCulture)} bytes, the data source's or the deployment's limit. "
+            + $"Read less (fewer columns, a partition or date filter), or ask an administrator to raise the data source's MaximumBytesBilled or {BigQueryOptions.SectionName}:{nameof(BigQueryOptions.MaxBytesBilled)}.";
+    }
+
+    // Best effort, on its own short deadline: the caller's token may already be cancelled.
+    private async Task TryCancelJobAsync(BigQueryClient client, BigQueryJob job, DataSource dataSource)
+    {
+        try
+        {
+            using var cancel = new CancellationTokenSource(CancelTimeout);
+            await client.CancelJobAsync(job.Reference, null, cancel.Token);
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                "Failed to cancel BigQuery job {JobId} of data source {DataSourceId} with {Failure}",
+                job.Reference.JobId,
+                dataSource.Id,
+                FailureCodes.Describe(ex));
+        }
     }
 
     // The project the source is configured for; undetermined (no project may be named) when its settings cannot be read.

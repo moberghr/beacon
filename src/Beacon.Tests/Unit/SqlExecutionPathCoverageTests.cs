@@ -90,6 +90,8 @@ public class SqlExecutionPathCoverageTests
     private static readonly Dictionary<string, (int Calls, string Reason)> ExecuteCallers = new(StringComparer.Ordinal)
     {
         ["src/Beacon.Core/Services/GatedSqlRunner.cs"] = (3, "the row-capped and the plain read of the gate's FinalSql, and the non-executing validation after the gate's verdict"),
+        ["src/Beacon.Connector.BigQuery/BigQueryProvider.cs"] = (1, "declares the row-capped read the runner calls (the gate's FinalSql), not a call of its own"),
+        ["src/Beacon.Connector.Databricks/DatabricksProvider.cs"] = (1, "declares the row-capped read the runner calls (the gate's FinalSql), not a call of its own"),
         ["src/Beacon.Core/Services/QueryCostLimit.cs"] = (1, "the planner's estimate (EXPLAIN without ANALYZE) of a statement its callers gated"),
         ["src/Beacon.Core/Services/VirtualTableManager.cs"] = (1, "the in-memory join on Beacon's own SQLite store, of the SQL its caller's gate wrote"),
         ["src/Beacon.Core/Services/DataQualityEvaluationService.cs"] = (1, "a Custom SQL rule's FinalSql"),

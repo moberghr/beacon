@@ -48,7 +48,7 @@ public class LlmProviderNotInstalledTests
         var start = new LlmConfiguration { Provider = AiProvider.OpenAI, ApiKey = TestCredentials.ProviderSecretKey, Model = "gpt-4o-mini" };
         var factory = BuiltInsOnly(() => manager?.CurrentConfiguration ?? start);
         manager = new LlmProviderManager(start, factory, logger);
-        manager.CurrentProvider.Should().BeOfType<OpenAiProvider>();
+        manager.CurrentProvider.Should().BeOfType<OpenAiCompatibleProvider>();
         logger.Entries.Should().BeEmpty();
 
         manager.UpdateConfiguration(new AppSettingsData
@@ -101,7 +101,7 @@ public class LlmProviderNotInstalledTests
 
         manager.UpdateConfiguration(new AppSettingsData { LlmProvider = AiProvider.OpenAI, LlmModel = "gpt-4o-mini", LlmApiKey = TestCredentials.ProviderSecretKey });
 
-        manager.CurrentProvider.Should().BeOfType<OpenAiProvider>();
+        manager.CurrentProvider.Should().BeOfType<OpenAiCompatibleProvider>();
         manager.InactiveReason.Should().BeNull();
         logger.Entries.Should().ContainSingle("only the construction on the provider that is not installed warns");
     }

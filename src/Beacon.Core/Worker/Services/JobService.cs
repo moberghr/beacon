@@ -1,9 +1,11 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Beacon.Core.Adapters;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.ChangeApprovals;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.DataQuality;
@@ -44,7 +46,8 @@ internal class JobService(
     IMcpLearningAggregationService? mcpLearningService = null,
     IEmbeddingIndexingService? embeddingIndexingService = null,
     IDocChunkIndexingService? docChunkIndexingService = null,
-    IMcpEvalService? mcpEvalService = null)
+    IMcpEvalService? mcpEvalService = null,
+    IOptions<SubscriptionOptions>? subscriptionOptions = null)
     : IJobService
 {
     // AI Actor service is optional - only available if Beacon.AI is added
@@ -241,7 +244,26 @@ internal class JobService(
         // Notification row exists, so a failure here leaves no recipient recorded as notified.
         if (subscription.IncludeAttachment && subscription.ResultAttachmentType.HasValue)
         {
-            resultFile = await ExportProvider.GetReport(subscription.ResultAttachmentType.Value, queryResult.AllRecords);
+            // Within Beacon:Subscriptions:MaxAttachmentBytes: a larger export keeps its first rows that fit, and the message
+            // says so.
+            var maxAttachmentBytes = (subscriptionOptions?.Value ?? new SubscriptionOptions()).MaxAttachmentBytes;
+            resultFile = await ExportProvider.GetReport(subscription.ResultAttachmentType.Value, queryResult.AllRecords, maxAttachmentBytes, cancellationToken);
+            if (resultFile.Omitted)
+            {
+                logger.LogWarning(
+                    "Subscription {SubscriptionId} attachment omitted: its column headers alone exceed {MaxAttachmentBytes} bytes",
+                    subscriptionId,
+                    maxAttachmentBytes);
+            }
+            else if (resultFile.Truncated)
+            {
+                logger.LogWarning(
+                    "Subscription {SubscriptionId} attachment truncated to {RowCount} of {SourceRowCount} rows to stay within {MaxAttachmentBytes} bytes",
+                    subscriptionId,
+                    resultFile.RowCount,
+                    resultFile.SourceRowCount,
+                    maxAttachmentBytes);
+            }
         }
 
         // One Notification row per recipient, saved just before sending because its id goes into the message (the

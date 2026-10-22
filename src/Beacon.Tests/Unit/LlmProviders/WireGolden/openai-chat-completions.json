@@ -1,0 +1,30 @@
+{
+  "recordedWith": "OpenAI 2.14.0",
+  "method": "POST",
+  "url": "https://api.openai.com/v1/chat/completions",
+  "authHeader": "Authorization",
+  "authScheme": "Bearer",
+  "body": {
+    "temperature": 0.2,
+    "messages": [
+      {
+        "role": "system",
+        "content": "You are terse."
+      },
+      {
+        "role": "user",
+        "content": "Hi"
+      },
+      {
+        "role": "assistant",
+        "content": "Hello"
+      },
+      {
+        "role": "user",
+        "content": "Count tables"
+      }
+    ],
+    "model": "gpt-4o-mini",
+    "max_completion_tokens": 256
+  }
+}

@@ -114,13 +114,15 @@ internal partial class QueryService
         // The subscription's own timeout bounds each statement when it is shorter than Beacon's.
         var statementTimeout = subscription.TimeoutSeconds is > 0 ? TimeSpan.FromSeconds(subscription.TimeoutSeconds.Value) : (TimeSpan?)null;
 
+        // A subscription run is recorded in its run history, not as a manual execution.
         var executionResult = await ExecuteQuerySteps(
             subscription.Query,
             subscription.Query.FinalQuery,
             null,
             pii,
             statementTimeout,
-            cancellationToken);
+            cancellationToken,
+            recordManualExecution: false);
 
         // Convert QueryExecutionResult to QueryResult for backward compatibility
         QueryResult queryResult;

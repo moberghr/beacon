@@ -1,6 +1,7 @@
 using System.Collections;
 using System.Collections.Concurrent;
 using System.Collections.Immutable;
+using System.Globalization;
 using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
@@ -77,13 +78,16 @@ public sealed record HostOutputColumn(string? Name, bool Masked);
 /// <item>every relation is an allow-listed, schema-qualified table or view, a CTE in scope, or a derived table;</item>
 /// <item>every column reference resolves to an exposed column of a relation in scope — unqualified names only
 /// against the SELECT's own FROM, outer (correlated) references only when qualified; output aliases are visible only
-/// to the same SELECT's ORDER BY (and PostgreSQL's GROUP BY) and to outer queries through the derived table's / CTE's
-/// column list; a bare relation name is never a column (no whole-row references); unknown columns are rejected;</item>
+/// to the same SELECT's ORDER BY (and PostgreSQL's GROUP BY, only when no table of that SELECT could have a column of
+/// the name, since the server reads the column first) and to outer queries through the derived table's / CTE's column
+/// list; a bare relation name is never a column (no whole-row references); unknown columns are rejected;</item>
 /// <item>identifiers compare the way the dialect does (PostgreSQL: unquoted folded to lower case, shortened to 63 bytes
 /// as the server shortens them, then exact; SQL Server: case-insensitive); on PostgreSQL two different identifiers of a
 /// statement that are the same in their first 63 bytes, or an unquoted identifier with a non-ASCII letter that changes
 /// case, are refused — the server would read them as one, or keep the letter where this check folds it;</item>
-/// <item>functions must be on the dialect's allow-list (<see cref="HostSqlFunctions"/>);</item>
+/// <item>functions must be on the dialect's allow-list (<see cref="HostSqlFunctions"/>), and a string-building
+/// function's length must be a number literal within <see cref="HostSqlFunctions.MaxLengthArgument"/>;</item>
+/// <item>PostgreSQL catalog types (<c>reg*</c>) are refused as casts and typed literals;</item>
 /// <item>a masked column may appear only as a direct projection (which stays masked, through CTEs, derived tables
 /// and UNION ALL — the result is masked by output position), inside <c>COUNT(col)</c>, or in <c>col IS [NOT] NULL</c> —
 /// never in a predicate, join, grouping, ordering, window, function or subquery value, so its value cannot be probed.</item>
@@ -102,6 +106,21 @@ internal static class HostQueryPolicyValidator
     // Npgsql rewrites @name placeholders to $n only when a parameter of that name is supplied; Beacon's binders emit
     // @p0, @p1 …, so only that shape is recognised (and FindUnboundParameter makes sure it is supplied).
     private static readonly Regex PostgresParameterName = new("^p[0-9]{1,4}$", RegexOptions.CultureInvariant);
+
+    // One conversion specifier of PostgreSQL's format(): %[position$][flags][width]type, where the width is digits, * or
+    // *position$ (both taking the width from an argument) and the type s, I or L; %% is a literal percent sign.
+    private static readonly Regex FormatSpecifier = new(@"%(?:%|(?<position>[0-9]+\$)?-*(?<width>\*(?:[0-9]+\$)?|[0-9]+)?(?<type>[A-Za-z]?))", RegexOptions.CultureInvariant);
+
+    // A number in SQL Server's FORMAT format string; a standard format's precision (N999) sets the result's length.
+    private static readonly Regex FormatNumber = new("[0-9]+", RegexOptions.CultureInvariant);
+
+    // PostgreSQL's catalog (reg*) types and, with a leading underscore, their array types: each looks a name up in the
+    // system catalogs.
+    private static readonly HashSet<string> CatalogTypes = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "regclass", "regcollation", "regconfig", "regdictionary", "regnamespace", "regoper", "regoperator", "regproc",
+        "regprocedure", "regrole", "regtype"
+    };
 
     // T-SQL date-part functions take a bare keyword (year, month, dd …) as their first argument; the parser reads it
     // as an identifier. Only that first argument, and only a real date-part keyword, is exempt from the column check.
@@ -277,6 +296,9 @@ internal static class HostQueryPolicyValidator
         // PostgreSQL only: every identifier of the statement by the name the server gives it (folded, shortened to 63
         // bytes), with the identifier as written — two different identifiers that share a name would be read as one.
         private readonly Dictionary<string, string> _serverNames = new(StringComparer.Ordinal);
+
+        // How many length-multiplying calls (repeat, replace …) enclose the node being walked.
+        private int _lengthMultipliers;
 
         public HostPolicyResult Run(Query query)
         {
@@ -874,16 +896,26 @@ internal static class HostQueryPolicyValidator
                 return;
             }
 
-            // A bare name in GROUP BY is an input column; PostgreSQL falls back to an output column name.
-            if (_postgres && expression is Expression.Identifier { Ident: var ident } && !ResolveUnqualified(ident, scope).Found)
+            // A bare name in GROUP BY is an input column; PostgreSQL falls back to an output column name only when no
+            // relation of this SELECT has a column of that name. A table may have columns the policy excludes or the model
+            // does not map, so the fallback is accepted only when every relation is a derived table or CTE, whose columns
+            // are all known; over a table the server could group by a column this check cannot see.
+            if (_postgres && expression is Expression.Identifier { Ident: var ident })
             {
                 var name = Normalize(ident);
+                var isInputColumn = scope.Relations.Any(x => Lookup(x, name).Found);
                 var matches = outputs
                     .Where(x => x.Name != null && NameEquals(x.Name, name))
                     .ToList();
 
-                if (matches.Count > 0)
+                if (!isInputColumn && matches.Count > 0)
                 {
+                    if (scope.Relations.Any(x => x.Table != null))
+                    {
+                        Error($"GROUP BY {ident.Value} names an output column, but PostgreSQL reads a GROUP BY name as a column of the tables read first, which may be one this host data source does not expose — group by the expression itself or by its position (for example GROUP BY 1).");
+                        return;
+                    }
+
                     if (matches.Any(x => x.Masked))
                     {
                         Error($"Masked column '{ident.Value}' {MaskedUseMessage}.");
@@ -957,8 +989,9 @@ internal static class HostQueryPolicyValidator
                     }
 
                     return;
-                case Expression.Cast cast when _postgres && IsCatalogType(cast.DataType):
-                    Error("Casts to catalog types (regclass, regproc …) are not allowed on host data sources.");
+                // Every type the walk reaches: casts (CAST, ::), typed literals (regclass 'x') and array element types.
+                case DataType dataType when _postgres && IsCatalogType(dataType):
+                    Error("Casts and typed literals of catalog types (regclass, regrole …) are not allowed on host data sources.");
                     return;
                 case Expression.Wildcard or Expression.QualifiedWildcard or FunctionArgExpression.QualifiedWildcard:
                     WildcardError(scope);
@@ -1049,6 +1082,34 @@ internal static class HostQueryPolicyValidator
             var arguments = function.Args is FunctionArguments.List list ? list.ArgumentList : null;
             var args = arguments?.Args?.ToList() ?? [];
 
+            CheckLengthArguments(nameParts[0].Value, name, args);
+
+            var multiplies = MultipliesLength(name, args);
+            if (multiplies && _lengthMultipliers > 0)
+            {
+                Error($"{nameParts[0].Value}() may not be used inside another call that lengthens its input (repeat, REPLICATE, replace, regexp_replace or a quoting format()) on host data sources — the lengths would multiply.");
+            }
+
+            _lengthMultipliers += multiplies ? 1 : 0;
+            try
+            {
+                WalkFunctionArguments(function, name, arguments, args, scope, ctes, depth);
+            }
+            finally
+            {
+                _lengthMultipliers -= multiplies ? 1 : 0;
+            }
+        }
+
+        private void WalkFunctionArguments(
+            Expression.Function function,
+            string name,
+            FunctionArgumentList? arguments,
+            List<FunctionArg> args,
+            Scope scope,
+            ImmutableDictionary<string, IReadOnlyList<OutputColumn>> ctes,
+            int depth)
+        {
             // COUNT(col) — not COUNT(DISTINCT col), which leaks cardinality — is the one aggregate a masked column may feed.
             if (HostSqlFunctions.IsCount(name)
                 && arguments is { DuplicateTreatment: not DuplicateTreatment.Distinct }
@@ -1079,6 +1140,76 @@ internal static class HostQueryPolicyValidator
             }
 
             WalkProperties(function, scope, ctes, depth + 1, nameof(Expression.Function.Name));
+        }
+
+        // A string-building function's arguments must be literals with a bound: repeat's / REPLICATE's count and lpad's /
+        // rpad's width a number of at most HostSqlFunctions.MaxLengthArgument, the string repeat / REPLICATE repeats a
+        // short string (a column or a nested call would multiply the length), and a format string a string whose field
+        // widths (PostgreSQL) or numbers (SQL Server precision) stay within their bound. Work the bounds do not cover
+        // (regular expressions, aggregates, joins) is left to the statement timeout and the row cap.
+        private void CheckLengthArguments(string written, string name, List<FunctionArg> args)
+        {
+            var bounded = HostSqlFunctions.StringBuilderArguments(policy.Engine, name);
+            if (bounded == null)
+            {
+                return;
+            }
+
+            if (Argument(args, bounded.Length) is { } lengthArgument
+                && NumberLiteral(lengthArgument) is not <= HostSqlFunctions.MaxLengthArgument)
+            {
+                Error($"The length argument of {written}() must be a number literal no larger than {HostSqlFunctions.MaxLengthArgument} on host data sources.");
+            }
+
+            if (Argument(args, bounded.Repeated) is { } repeatedArgument
+                && StringLiteral(repeatedArgument) is not { Length: <= HostSqlFunctions.MaxRepeatedStringLength })
+            {
+                Error($"The string {written}() repeats must be a plain string literal of at most {HostSqlFunctions.MaxRepeatedStringLength} characters on host data sources.");
+            }
+
+            if (Argument(args, bounded.Format) is not { } formatArgument)
+            {
+                return;
+            }
+
+            if (StringLiteral(formatArgument) is not { } format)
+            {
+                Error($"The format string of {written}() must be a plain string literal on host data sources.");
+                return;
+            }
+
+            var formatError = _postgres ? PostgresFormatError(written, format) : SqlServerFormatError(written, format);
+            if (formatError != null)
+            {
+                Error(formatError);
+            }
+        }
+
+        // A call whose result can be many times longer than its input: repeat, replace … and a format() that quotes its
+        // values (%I / %L double every quote character in them).
+        private bool MultipliesLength(string name, List<FunctionArg> args)
+        {
+            if (HostSqlFunctions.MultipliesLength(policy.Engine, name))
+            {
+                return true;
+            }
+
+            return _postgres
+                && Argument(args, HostSqlFunctions.StringBuilderArguments(policy.Engine, name)?.Format) is { } formatArgument
+                && StringLiteral(formatArgument) is { } format
+                && FormatSpecifier.Matches(format).Any(x => x.Groups["type"].Value is "I" or "L");
+        }
+
+        // The expression passed at a bounded position; null when the function has no such argument or the call omits it
+        // (the server refuses that call). A named argument comes back as NULL, which no bound accepts.
+        private static Expression? Argument(List<FunctionArg> args, int? position)
+        {
+            if (position is not { } index || index >= args.Count)
+            {
+                return null;
+            }
+
+            return ArgumentExpression(args[index]) ?? new Expression.LiteralValue(new Value.Null());
         }
 
         private ColumnHit Resolve(List<Ident> reference, Scope scope, bool allowMasked)
@@ -1314,9 +1445,19 @@ internal static class HostQueryPolicyValidator
         // PostgreSQL's reg* types (regclass, regproc, regtype …) look names up in the system catalogs.
         private static bool IsCatalogType(DataType dataType)
         {
-            return dataType.GetType().Name.StartsWith("Reg", StringComparison.Ordinal)
-                || (dataType is DataType.Custom custom
-                    && custom.Name.Values.Any(x => x.Value.StartsWith("reg", StringComparison.OrdinalIgnoreCase)));
+            if (dataType is DataType.Regclass)
+            {
+                return true;
+            }
+
+            if (dataType is not DataType.Custom { Name.Values: { Count: > 0 } parts })
+            {
+                return false;
+            }
+
+            var name = parts[^1].Value;
+
+            return CatalogTypes.Contains(name.StartsWith('_') ? name[1..] : name);
         }
 
         private static Expression? ArgumentExpression(FunctionArg argument)
@@ -1324,6 +1465,95 @@ internal static class HostQueryPolicyValidator
             return argument is FunctionArg.Unnamed { FunctionArgExpression: FunctionArgExpression.FunctionExpression { Expression: var expression } }
                 ? expression
                 : null;
+        }
+
+        // The value of a number literal ('5' included), optionally signed or parenthesised, or of ONE cast straight over
+        // such a literal to an integer or numeric type ('100'::int); null for anything else. A cast to another type, or a
+        // cast of a cast (CAST(CAST(-1 AS bit(29)) AS int)), can make the server read a different number.
+        private static decimal? NumberLiteral(Expression expression)
+        {
+            return expression switch
+            {
+                Expression.Nested nested => NumberLiteral(nested.Expression),
+                Expression.UnaryOp { Op: UnaryOperator.Plus or UnaryOperator.Minus } => SignedLiteral(expression),
+                Expression.Cast cast when IsPlainNumberType(cast.DataType) => SignedLiteral(cast.Expression),
+                _ => SignedLiteral(expression)
+            };
+        }
+
+        private static decimal? SignedLiteral(Expression expression)
+        {
+            return expression switch
+            {
+                Expression.LiteralValue { Value: Value.Number number } => ParseNumber(number.Value),
+                Expression.LiteralValue { Value: Value.SingleQuotedString text } => ParseNumber(text.Value),
+                Expression.UnaryOp { Op: UnaryOperator.Plus, Expression: Expression.LiteralValue literal } => SignedLiteral(literal),
+                Expression.UnaryOp { Op: UnaryOperator.Minus, Expression: Expression.LiteralValue literal } => -SignedLiteral(literal),
+                Expression.UnaryOp { Op: UnaryOperator.Minus, Expression: Expression.Cast cast } => -NumberLiteral(cast),
+                _ => null
+            };
+        }
+
+        private static bool IsPlainNumberType(DataType dataType)
+        {
+            return dataType is DataType.Int or DataType.Integer or DataType.Int2 or DataType.Int4 or DataType.Int8
+                or DataType.SmallInt or DataType.BigInt or DataType.TinyInt or DataType.Numeric or DataType.Decimal;
+        }
+
+        // The text of a plain string literal (optionally parenthesised); null for anything else.
+        private static string? StringLiteral(Expression expression)
+        {
+            return expression switch
+            {
+                Expression.LiteralValue { Value: Value.SingleQuotedString text } => text.Value,
+                Expression.LiteralValue { Value: Value.NationalStringLiteral text } => text.Value,
+                Expression.Nested nested => StringLiteral(nested.Expression),
+                _ => null
+            };
+        }
+
+        // Sequential specifiers use each argument once, so the result grows with the query text; a positional one (%1$s)
+        // can repeat an argument any number of times.
+        private static string? PostgresFormatError(string written, string format)
+        {
+            var total = 0;
+            foreach (Match specifier in FormatSpecifier.Matches(format))
+            {
+                if (specifier.Groups["position"].Success)
+                {
+                    return $"Positional references (%1$s) in {written}() are not allowed on host data sources — use sequential %s, so each argument is used once.";
+                }
+
+                var width = specifier.Groups["width"];
+                if (!width.Success)
+                {
+                    continue;
+                }
+
+                total += width.Value.StartsWith('*') || width.Value.Length > 9
+                    ? HostSqlFunctions.MaxLengthArgument + 1
+                    : int.Parse(width.Value, CultureInfo.InvariantCulture);
+
+                if (total > HostSqlFunctions.MaxLengthArgument)
+                {
+                    return $"The field widths in {written}() must be numbers written in the format string that add up to no more than {HostSqlFunctions.MaxLengthArgument} on host data sources.";
+                }
+            }
+
+            return null;
+        }
+
+        private static string? SqlServerFormatError(string written, string format)
+        {
+            var bounded = FormatNumber.Matches(format)
+                .All(x => x.Value.Length <= 9 && int.Parse(x.Value, CultureInfo.InvariantCulture) <= HostSqlFunctions.MaxFormatNumber);
+
+            return bounded ? null : $"The format string of {written}() may hold no number above {HostSqlFunctions.MaxFormatNumber} on host data sources.";
+        }
+
+        private static decimal? ParseNumber(string value)
+        {
+            return decimal.TryParse(value.Trim(), NumberStyles.Float, CultureInfo.InvariantCulture, out var number) ? number : null;
         }
 
         private static int? Ordinal(Expression expression)
@@ -1400,6 +1630,7 @@ internal static class HostQueryPolicyValidator
             }
 
             RefuseUnquotedNonAsciiCaseChange(ident);
+            RefuseStringAsName(ident);
 
             var folded = ident.QuoteStyle == null ? ident.Value.ToLowerInvariant() : ident.Value;
             var serverName = PostgresServerName(folded);
@@ -1419,6 +1650,17 @@ internal static class HostQueryPolicyValidator
             if (ident.QuoteStyle == null && !string.Equals(AsciiLower(ident.Value), ident.Value.ToLowerInvariant(), StringComparison.Ordinal))
             {
                 Error($"Unquoted identifier '{ident.Value}' has a non-ASCII letter PostgreSQL does not fold to lower case — write it in lower case or quote it.");
+            }
+        }
+
+        // The parser accepts a string literal as an alias (name 'text'), which PostgreSQL never does: the server reads the
+        // word before it as a type and the string as a literal of that type — a catalog lookup for regrole 'x' — so this
+        // check would judge a column where the server evaluates a literal.
+        private void RefuseStringAsName(Ident ident)
+        {
+            if (ident.QuoteStyle == '\'')
+            {
+                Error($"'{Shown(ident.Value)}' is a string where PostgreSQL expects a name (it reads name 'text' as a typed literal) — quote names with double quotes.");
             }
         }
 

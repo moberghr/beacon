@@ -14,14 +14,16 @@ Beacon is published to nuget.org as `Moberg.Beacon.*` packages. Package IDs carr
 | `Moberg.Beacon.Core.SqlServer` | Beacon's metadata database on SQL Server: `UseSqlServer(...)`, migrations | Beacon's own data lives in SQL Server |
 | `Moberg.Beacon.Api` | REST endpoints under `/beacon/api`, the SignalR hub, cookie/OIDC/JWT/API-key authentication, login and first-run setup endpoints, antiforgery, Data Protection helpers | You serve the UI or the REST API (in practice always) |
 | `Moberg.Beacon.UI` | The built React app as a Razor Class Library, served at `/beacon` | You want the UI |
-| `Moberg.Beacon.AI` | LLM providers, the request queue, documentation generation, grounding, learning loop, AI actors | AI features, and always with MCP (MCP depends on it) |
+| `Moberg.Beacon.AI` | LLM providers (OpenAI, Azure OpenAI and Claude over plain HTTP, no vendor SDK), the request queue, documentation generation, grounding, learning loop, AI actors | AI features, and always with MCP (MCP depends on it) |
 | `Moberg.Beacon.AI.Bedrock` | The Amazon Bedrock LLM provider (`AddBeaconBedrock()`) | You use Bedrock as the LLM provider |
 | `Moberg.Beacon.AI.Embeddings.Onnx` | Local in-process ONNX embeddings (`AddBeaconOnnxEmbeddings()`) | You want semantic retrieval; without it retrieval stays keyword-based |
 | `Moberg.Beacon.MCP` | The MCP server at `/beacon/mcp`, its tools, filters, discovery documents, host endpoint tools | You expose Beacon to AI clients |
 | `Moberg.Beacon.Gateway` | `AddBeaconMcpGateway`: Beacon as the MCP gateway of your own application — its users as callers, its endpoints as tools, its documents as grounding, no data sources | You want an MCP server for your application rather than Beacon's data product |
-| `Moberg.Beacon.Connector.PostgreSql` | PostgreSQL connector | You monitor PostgreSQL |
-| `Moberg.Beacon.Connector.SqlServer` | SQL Server connector | You monitor SQL Server |
-| `Moberg.Beacon.Connector.MySql` | MySQL connector (also the MySQL migration-write path) | You monitor MySQL |
+| `Moberg.Beacon.Testing` | Test helpers for a gateway host: Entra-shaped test tokens, an in-memory user resolver, an MCP client over your test server | You test a gateway host's MCP tools |
+| `Moberg.Beacon.Doctor` | The `beacon-doctor` .NET tool: checks a deployed MCP endpoint the way an MCP client sees it | You deploy an MCP endpoint (a tool, not a library reference) |
+| `Moberg.Beacon.Connector.PostgreSql` | PostgreSQL connector, and the PostgreSQL migration writer | You monitor PostgreSQL, or migrate data into it |
+| `Moberg.Beacon.Connector.SqlServer` | SQL Server connector, and the SQL Server migration writer | You monitor SQL Server, or migrate data into it |
+| `Moberg.Beacon.Connector.MySql` | MySQL connector, and the MySQL migration writer | You monitor MySQL, or migrate data into it |
 | `Moberg.Beacon.Connector.AzureSynapse` | Azure Synapse connector | You monitor Synapse |
 | `Moberg.Beacon.Connector.Snowflake` | Snowflake connector | You monitor Snowflake |
 | `Moberg.Beacon.Connector.BigQuery` | Google BigQuery connector | You monitor BigQuery |
@@ -64,13 +66,19 @@ Add your job runner too. For the reference implementation, use the `Moberg.Warp.
 ```text
 Moberg.Beacon.Api            → Core
 Moberg.Beacon.AI             → Core
+Moberg.Beacon.AI.Bedrock     → AI
+Moberg.Beacon.AI.Embeddings.Onnx → AI
 Moberg.Beacon.MCP            → Core, AI
+Moberg.Beacon.Gateway        → Core, Api, AI, MCP, UI
+Moberg.Beacon.Testing        → Gateway
 Moberg.Beacon.Core.*         → Core
 Moberg.Beacon.Connector.*    → Core
 Moberg.Beacon.UI             → (nothing; static web assets)
 ```
 
-`Moberg.Beacon.Core` itself references no server database driver or EF Core provider (it carries `Microsoft.Data.Sqlite` for the in-memory joins of cross-source queries). The SQL Server EF provider comes only with `Moberg.Beacon.Core.SqlServer`; Npgsql and pgvector only with `Moberg.Beacon.Core.PostgreSql` or the PostgreSQL connector; each connector brings its own driver.
+`Moberg.Beacon.Core` itself references no server database driver or EF Core provider (it carries `Microsoft.Data.Sqlite` for the in-memory joins of cross-source queries). The SQL Server EF provider comes only with `Moberg.Beacon.Core.SqlServer`; Npgsql and pgvector only with `Moberg.Beacon.Core.PostgreSql` or the PostgreSQL connector; each connector brings its own driver. Data-migration writes go through the destination's connector (`IMigrationBulkWriter`, registered by `Add<Engine>Connector()`), so Core carries no bulk-copy library either.
+
+For scale: a PostgreSQL host with Core, Core.PostgreSql, Api, UI, AI, MCP and Connector.PostgreSql restores 45 third-party packages. The ONNX runtime's native binaries and the AWS SDK arrive only with their optional packages.
 
 ## Versions
 
@@ -94,6 +102,7 @@ If you use central package management, pin one version for all of them:
 ## Build-time notes
 
 - **`Microsoft.AspNetCore.OpenApi`.** If your host calls `AddOpenApi()`/`MapOpenApi()`, reference `Microsoft.AspNetCore.OpenApi` directly; relying on the copy that comes with `Moberg.Beacon.Api` fails the build with `CS9137` (interceptors).
+- **Package downgrade (`NU1109`).** Under central package management, restore fails with "Detected package downgrade" when your `Directory.Packages.props` pins a package lower than a Beacon package needs (for example EF Core or `Microsoft.Extensions.*` one patch behind, or an older `ClosedXML`). Raise each pin to the version the message names.
 - **Transitive package advisories.** If restore reports `NU1902`/`NU1903` for a transitive dependency and you treat warnings as errors, add a direct `PackageReference` to the patched version of that package in your project.
 - **The UI package** contains the production React build. You do not need Node.js to consume it. The host must call `app.UseStaticFiles()` so the assets are served.
 - **Building from source** (project references instead of packages): `Beacon.UI` builds the React app only in `Release`, or in `Debug` with `-p:BuildReactInDebug=true`. Node.js 22 and npm 11 match the CI build.

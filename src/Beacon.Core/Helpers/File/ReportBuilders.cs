@@ -35,6 +35,111 @@ internal static class ExportProvider
 
         throw new ArgumentOutOfRangeException("Unkown export type");
     }
+
+    // The XLSX builds a search for the largest fitting prefix may make after the whole file and the headers alone.
+    private const int MaxXlsxSearchBuilds = 5;
+
+    /// <summary>
+    /// The report of <paramref name="data"/> within <paramref name="maxBytes"/>: a larger one keeps only its longest prefix
+    /// of rows that fits, and the file records how many rows it holds of how many (<see cref="QueryResultFile.Truncated"/>).
+    /// A CSV keeps exactly as many rows as fit (it counts each row's bytes as it writes it); an XLSX file compresses
+    /// unevenly, so its prefix is searched with at most a few builds and can keep somewhat fewer rows than would fit. A
+    /// first row larger than the limit on its own leaves the column headers only; headers larger than the limit leave no
+    /// file (<see cref="QueryResultFile.Omitted"/>).
+    /// </summary>
+    public static async Task<QueryResultFile> GetReport(FileType exportType, List<IDictionary<string, object?>>? data, int maxBytes, CancellationToken cancellationToken)
+    {
+        var rows = data ?? [];
+        IReadOnlyList<string> columns = rows.FirstOrDefault()?.Keys.ToList() ?? [];
+
+        return exportType switch
+        {
+            FileType.Csv => await CsvWithin(rows, columns, maxBytes, cancellationToken),
+            FileType.Xlsx => XlsxWithin(rows, columns, maxBytes, cancellationToken),
+            _ => throw new ArgumentOutOfRangeException(nameof(exportType), exportType, "Unknown export type")
+        };
+    }
+
+    private static async Task<QueryResultFile> CsvWithin(List<IDictionary<string, object?>> rows, IReadOnlyList<string> columns, int maxBytes, CancellationToken cancellationToken)
+    {
+        var (report, kept) = await CsvBuilder.GetReportWithin(rows, columns, maxBytes, cancellationToken);
+
+        return report == null
+            ? OmittedFile(FileType.Csv, rows.Count)
+            : ReportFile(FileType.Csv, report, kept, rows.Count);
+    }
+
+    private static QueryResultFile XlsxWithin(List<IDictionary<string, object?>> rows, IReadOnlyList<string> columns, int maxBytes, CancellationToken cancellationToken)
+    {
+        var whole = XlsxBuilder.GetReport(rows, columns, cancellationToken);
+        if (whole.Length <= maxBytes)
+        {
+            return ReportFile(FileType.Xlsx, whole, rows.Count, rows.Count);
+        }
+
+        var headers = XlsxBuilder.GetReport([], columns, cancellationToken);
+        if (headers.Length > maxBytes)
+        {
+            return OmittedFile(FileType.Xlsx, rows.Count);
+        }
+
+        // The largest fitting prefix lies between lo rows (fits) and hi rows (does not). Probes alternate between the
+        // estimate from the sizes at both ends (close when rows are alike) and the midpoint (progress whatever one row
+        // weighs, an outlier included).
+        var lo = 0;
+        var loReport = headers;
+        var hi = rows.Count;
+        long hiSize = whole.Length;
+        for (var build = 0; build < MaxXlsxSearchBuilds && hi - lo > 1; build++)
+        {
+            var probe = build % 2 == 0
+                ? lo + (int)Math.Floor((maxBytes - loReport.Length) / ((double)(hiSize - loReport.Length) / (hi - lo)))
+                : lo + (hi - lo) / 2;
+            probe = Math.Clamp(probe, lo + 1, hi - 1);
+            var report = XlsxBuilder.GetReport(rows.Take(probe).ToList(), columns, cancellationToken);
+            if (report.Length <= maxBytes)
+            {
+                lo = probe;
+                loReport = report;
+            }
+            else
+            {
+                hi = probe;
+                hiSize = report.Length;
+            }
+        }
+
+        return ReportFile(FileType.Xlsx, loReport, lo, rows.Count);
+    }
+
+    private static QueryResultFile OmittedFile(FileType exportType, int sourceRowCount)
+    {
+        var (contentType, name) = FileHelper.GetContentTypeAndFilename(exportType);
+
+        return new QueryResultFile
+        {
+            Data = [],
+            Name = name,
+            ContentType = contentType,
+            RowCount = 0,
+            SourceRowCount = sourceRowCount,
+            Omitted = true
+        };
+    }
+
+    private static QueryResultFile ReportFile(FileType exportType, byte[] data, int rowCount, int sourceRowCount)
+    {
+        var (contentType, name) = FileHelper.GetContentTypeAndFilename(exportType);
+
+        return new QueryResultFile
+        {
+            Data = data,
+            Name = name,
+            ContentType = contentType,
+            RowCount = rowCount,
+            SourceRowCount = sourceRowCount
+        };
+    }
 }
 
 internal static class CsvBuilder
@@ -43,7 +148,25 @@ internal static class CsvBuilder
     private const string _csvDelimiter = ",";
     private const string _newLine = "\r\n";
 
-    public static async Task<byte[]> GetReport(List<IDictionary<string, object?>>? data)
+    public static Task<byte[]> GetReport(List<IDictionary<string, object?>>? data)
+    {
+        return GetReport(data, data?.FirstOrDefault()?.Keys.ToList() ?? [], CancellationToken.None);
+    }
+
+    /// <summary>The CSV of <paramref name="data"/> under the header <paramref name="columns"/> (written also without rows).</summary>
+    public static async Task<byte[]> GetReport(List<IDictionary<string, object?>>? data, IReadOnlyList<string> columns, CancellationToken cancellationToken)
+    {
+        var (report, _) = await GetReportWithin(data, columns, long.MaxValue, cancellationToken);
+
+        return report!;
+    }
+
+    /// <summary>
+    /// The CSV of the longest prefix of <paramref name="data"/> within <paramref name="maxBytes"/>, and how many rows it
+    /// holds: each row's encoded size is counted before it is written, so the file holds exactly the rows that fit. Null
+    /// when the header alone is larger.
+    /// </summary>
+    public static async Task<(byte[]? Report, int Rows)> GetReportWithin(List<IDictionary<string, object?>>? data, IReadOnlyList<string> columns, long maxBytes, CancellationToken cancellationToken)
     {
         using var memoryStream = new MemoryStream();
         using var streamWriter = new StreamWriter(memoryStream, Encoding.UTF8) { NewLine = _newLine };
@@ -51,33 +174,40 @@ internal static class CsvBuilder
         var preambleBytes = Encoding.UTF8.GetPreamble();
         streamWriter.BaseStream.Write(preambleBytes, 0, preambleBytes.Length);
 
-        await WriteRecordAsync(streamWriter, (data?.FirstOrDefault()?.Select(x => x.Key) ?? []).Select(x => (string?)x));
+        // The size so far is what the stream holds (the writer adds the encoding's own preamble on its first flush); each
+        // row then adds exactly its encoded bytes.
+        await streamWriter.WriteAsync(Record(columns.Select(x => (string?)x)));
+        await streamWriter.FlushAsync();
+        var size = memoryStream.Length;
+        if (size > maxBytes)
+        {
+            return (null, 0);
+        }
 
+        var rows = 0;
         foreach (var item in data ?? [])
         {
-            await WriteRecordAsync(streamWriter, (item?.Select(x => x.Value) ?? []).Select(Format));
+            cancellationToken.ThrowIfCancellationRequested();
+            var record = Record((item?.Select(x => x.Value) ?? []).Select(Format));
+            var recordSize = Encoding.UTF8.GetByteCount(record);
+            if (size + recordSize > maxBytes)
+            {
+                break;
+            }
+
+            await streamWriter.WriteAsync(record);
+            size += recordSize;
+            rows++;
         }
 
         await streamWriter.FlushAsync();
 
-        return memoryStream.ToArray();
+        return (memoryStream.ToArray(), rows);
     }
 
-    private static async Task WriteRecordAsync(StreamWriter writer, IEnumerable<string?> fields)
+    private static string Record(IEnumerable<string?> fields)
     {
-        var first = true;
-        foreach (var field in fields)
-        {
-            if (!first)
-            {
-                await writer.WriteAsync(_csvDelimiter);
-            }
-
-            first = false;
-            await writer.WriteAsync(Escape(field));
-        }
-
-        await writer.WriteAsync(_newLine);
+        return string.Join(_csvDelimiter, fields.Select(Escape)) + _newLine;
     }
 
     private static string? Format(object? value)
@@ -118,25 +248,31 @@ public static class XlsxBuilder
 
     public static Task<byte[]> GetReport(List<IDictionary<string, object?>>? data)
     {
+        return Task.FromResult(data?.Count > 0
+            ? GetReport(data, data[0].Keys.ToList(), CancellationToken.None)
+            : GetReport([], [], CancellationToken.None));
+    }
+
+    /// <summary>The workbook of <paramref name="data"/> under the header <paramref name="columns"/> (written also without rows).</summary>
+    internal static byte[] GetReport(List<IDictionary<string, object?>> data, IReadOnlyList<string> columns, CancellationToken cancellationToken)
+    {
         using var workbook = FileHelper.CreateWorkbook();
 
         var worksheet = workbook.Worksheets.Add();
-        if (data?.Count > 0)
+        if (columns.Count > 0)
         {
-            WriteData(worksheet, data);
+            WriteData(worksheet, columns, data, cancellationToken);
             worksheet.Columns().AdjustToContents(1, 2);
         }
 
         using var memoryStream = new MemoryStream();
         workbook.SaveAs(memoryStream);
 
-        return Task.FromResult(memoryStream.ToArray());
+        return memoryStream.ToArray();
     }
 
-    private static void WriteData(IXLWorksheet worksheet, List<IDictionary<string, object?>> data)
+    private static void WriteData(IXLWorksheet worksheet, IReadOnlyList<string> columns, List<IDictionary<string, object?>> data, CancellationToken cancellationToken)
     {
-        var columns = data[0].Keys.ToList();
-
         for (var column = 0; column < columns.Count; column++)
         {
             worksheet.Cell(1, column + 1).Value = columns[column] ?? "";
@@ -150,6 +286,7 @@ public static class XlsxBuilder
 
         for (var row = 0; row < data.Count; row++)
         {
+            cancellationToken.ThrowIfCancellationRequested();
             var values = data[row]?.Values.ToList() ?? [];
 
             for (var column = 0; column < values.Count; column++)

@@ -9,6 +9,7 @@ using Beacon.Core.Worker;
 using Beacon.Tests.Common;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Time.Testing;
 using Moq;
 using NUnit.Framework;
 using Beacon.Core.Models;
@@ -25,6 +26,8 @@ namespace Beacon.Tests.Unit;
 public class SubscriptionLifecycleTests
 {
     private static readonly DateTime ArchivedAt = new(2026, 9, 1, 12, 0, 0, DateTimeKind.Utc);
+
+    private static readonly DateTimeOffset Now = new(2026, 10, 21, 13, 37, 0, TimeSpan.Zero);
 
     private Mock<IBeaconScheduler> _scheduler = null!;
 
@@ -140,6 +143,125 @@ public class SubscriptionLifecycleTests
         context.Added.Should().ContainSingle().Which.MaxRows.Should().Be(maxRows);
     }
 
+    // A schedule that fires more often than Beacon:Subscriptions:MinIntervalMinutes is refused on create and when an update
+    // changes it, before anything is saved or scheduled; one at the minimum is kept.
+    [Test]
+    public async Task AScheduleMoreFrequentThanTheMinimum_IsRefused_OnCreate()
+    {
+        var query = new Query { Id = 3, Name = "Overdue invoices" };
+        var context = new SubscriptionContext([], [query]);
+        var everyMinute = NewSubscriptionData(query.Id);
+        everyMinute.CronExpression = "* * * * *";
+
+        var create = () => BuildService(context).CreateSubscription(everyMinute, CancellationToken.None);
+
+        await create.Should().ThrowAsync<InvalidOperationException>().WithMessage("*every 5 minutes*Beacon:Subscriptions:MinIntervalMinutes*");
+        context.Added.Should().BeEmpty();
+        context.SaveCount.Should().Be(0);
+        _scheduler.Verify(x => x.AddOrUpdate(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    [Test]
+    public async Task AScheduleChangedToOneMoreFrequentThanTheMinimum_IsRefused_OnUpdate()
+    {
+        var subscription = StoredSubscription("0 8 * * *");
+        var context = new SubscriptionContext([subscription], [subscription.Query]);
+        var everyMinute = NewSubscriptionData(subscription.QueryId);
+        everyMinute.SubscriptionId = subscription.Id;
+        everyMinute.CronExpression = "* * * * *";
+
+        var update = () => BuildService(context).UpdateSubscription(everyMinute, CancellationToken.None);
+
+        await update.Should().ThrowAsync<InvalidOperationException>().WithMessage("*every 5 minutes*");
+        context.SaveCount.Should().Be(0);
+        subscription.CronExpression.Should().Be("0 8 * * *");
+        _scheduler.Verify(x => x.AddOrUpdate(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<string>()), Times.Never);
+    }
+
+    // A subscription stored with a faster schedule than the minimum stays editable while its schedule is kept.
+    [Test]
+    public async Task AStoredFastSchedule_KeptByAnUpdate_IsAccepted()
+    {
+        var subscription = StoredSubscription("* * * * *");
+        var context = new SubscriptionContext([subscription], [subscription.Query]);
+        var data = NewSubscriptionData(subscription.QueryId);
+        data.SubscriptionId = subscription.Id;
+        data.CronExpression = "* * * * *";
+        data.MaxRows = 25;
+
+        await BuildService(context).UpdateSubscription(data, CancellationToken.None);
+
+        subscription.MaxRows.Should().Be(25);
+        subscription.CronExpression.Should().Be("* * * * *");
+        context.SaveCount.Should().BeGreaterThan(0);
+    }
+
+    [Test]
+    public async Task AnUpdate_StillRefusesAScheduleThatIsNotAFiveFieldCron()
+    {
+        var subscription = StoredSubscription("0 8 * * *");
+        var context = new SubscriptionContext([subscription], [subscription.Query]);
+        var data = NewSubscriptionData(subscription.QueryId);
+        data.SubscriptionId = subscription.Id;
+        data.CronExpression = "0 */10 * * * *";
+
+        var update = () => BuildService(context).UpdateSubscription(data, CancellationToken.None);
+
+        await update.Should().ThrowAsync<InvalidOperationException>().WithMessage("*five fields*");
+        context.SaveCount.Should().Be(0);
+    }
+
+    // Reactivation is not an edit: a stored schedule faster than the minimum goes back on the scheduler unchanged.
+    [Test]
+    public async Task AStoredFastSchedule_IsReactivatedUnchanged()
+    {
+        var subscription = ArchivedSubscription();
+        subscription.CronExpression = "* * * * *";
+        var context = new SubscriptionContext([subscription], [subscription.Query]);
+
+        await BuildService(context).ReactivateSubscription(subscription.Id, CancellationToken.None);
+
+        subscription.ArchivedTime.Should().BeNull();
+        _scheduler.Verify(x => x.AddOrUpdate(subscription.Id, subscription.Query.Name, "* * * * *"), Times.Once);
+    }
+
+    [Test]
+    public async Task AScheduleAtTheMinimum_IsKept_OnCreateAndUpdate()
+    {
+        var subscription = new Subscription
+        {
+            Id = 37,
+            QueryId = 3,
+            CronExpression = "0 8 * * *",
+            Query = new Query { Id = 3, Name = "Overdue invoices" }
+        };
+        var context = new SubscriptionContext([subscription], [subscription.Query]);
+        var service = BuildService(context);
+        var everyFive = NewSubscriptionData(subscription.QueryId);
+        everyFive.SubscriptionId = subscription.Id;
+        everyFive.CronExpression = "*/5 * * * *";
+
+        (await service.CreateSubscription(everyFive, CancellationToken.None)).Success.Should().BeTrue();
+        await service.UpdateSubscription(everyFive, CancellationToken.None);
+
+        context.Added.Should().ContainSingle().Which.CronExpression.Should().Be("*/5 * * * *");
+        subscription.CronExpression.Should().Be("*/5 * * * *");
+    }
+
+    [Test]
+    public async Task TheMinimumInterval_IsTheConfiguredOne()
+    {
+        var query = new Query { Id = 3, Name = "Overdue invoices" };
+        var context = new SubscriptionContext([], [query]);
+        var service = BuildService(context, subscriptionOptions: new SubscriptionOptions { MinIntervalMinutes = 30 });
+        var everyFifteen = NewSubscriptionData(query.Id);
+        everyFifteen.CronExpression = "*/15 * * * *";
+
+        var create = () => service.CreateSubscription(everyFifteen, CancellationToken.None);
+
+        await create.Should().ThrowAsync<InvalidOperationException>().WithMessage("*every 30 minutes*Beacon:Subscriptions:MinIntervalMinutes*");
+    }
+
     [TestCase(true, false)]
     [TestCase(false, true)]
     public async Task CreateSubscription_ByACallerWithoutAStoredUser_NeedsAHostWithoutUserManagement(bool userManagement, bool created)
@@ -248,7 +370,8 @@ public class SubscriptionLifecycleTests
         SubscriptionContext context,
         IBeaconActorAccessor? actors = null,
         BeaconConfiguration? configuration = null,
-        QueryExecutionOptions? queryOptions = null)
+        QueryExecutionOptions? queryOptions = null,
+        SubscriptionOptions? subscriptionOptions = null)
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
@@ -261,8 +384,18 @@ public class SubscriptionLifecycleTests
             Mock.Of<IAnomalyDetectionService>(),
             actors ?? TestProjectAccess.Actors(),
             configuration ?? new BeaconConfiguration(),
-            Microsoft.Extensions.Options.Options.Create(queryOptions ?? new QueryExecutionOptions()), new RecordingSecurityAudit(), TimeProvider.System);
+            Microsoft.Extensions.Options.Options.Create(queryOptions ?? new QueryExecutionOptions()), new RecordingSecurityAudit(), new FakeTimeProvider(Now),
+            Microsoft.Extensions.Options.Options.Create(subscriptionOptions ?? new SubscriptionOptions()));
     }
+
+    private static Subscription StoredSubscription(string cron) =>
+        new()
+        {
+            Id = 37,
+            QueryId = 3,
+            CronExpression = cron,
+            Query = new Query { Id = 3, Name = "Overdue invoices" }
+        };
 
     private static SubscriptionData NewSubscriptionData(int queryId) =>
         new()

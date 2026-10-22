@@ -324,7 +324,8 @@ public class CloudWatchProvider(
         logger.LogInformation("Started CloudWatch Logs Insights query {QueryId}", queryId);
 
         // Poll for results with a wall-clock timeout measured by a Stopwatch.
-        var timeout = TimeSpan.FromSeconds(config.QueryTimeoutSeconds);
+        var timeoutSeconds = DataSourceQueryTimeout.Clamp(config.QueryTimeoutSeconds);
+        var timeout = TimeSpan.FromSeconds(timeoutSeconds);
         var pollIntervalMs = 500;
         var pollStopwatch = Stopwatch.StartNew();
 
@@ -359,7 +360,7 @@ public class CloudWatchProvider(
         if (queryResults?.Status != QueryStatus.Complete)
         {
             await TryStopQueryAsync(client, queryId);
-            throw new BeaconException($"CloudWatch query {queryId} timed out after {config.QueryTimeoutSeconds} seconds");
+            throw new BeaconException($"CloudWatch query {queryId} timed out after {timeoutSeconds} seconds");
         }
 
         // Convert CloudWatch results to normalized format
@@ -391,9 +392,10 @@ public class CloudWatchProvider(
     {
         try
         {
-            // Best-effort stop so an abandoned query doesn't keep scanning (and billing).
-            // Not passing the caller's token — it may already be cancelled.
-            await client.StopQueryAsync(new StopQueryRequest { QueryId = queryId });
+            // Best-effort stop so an abandoned query doesn't keep scanning (and billing), on its own short deadline:
+            // the caller's token may already be cancelled.
+            using var stop = new CancellationTokenSource(TimeSpan.FromSeconds(10));
+            await client.StopQueryAsync(new StopQueryRequest { QueryId = queryId }, stop.Token);
         }
         catch (Exception ex)
         {

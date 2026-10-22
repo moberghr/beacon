@@ -78,10 +78,9 @@ public class SecurityAuditCoverageTests
     [TestCase(false)]
     public async Task ChangingAQuerysLock_IsRecorded_AndAttributedToTheCaller(bool locking)
     {
-        var query = new Query { Id = 5, Name = "loan book", IsLocked = !locking, LockedByUserId = locking ? null : "ext-ben" };
+        var capture = new SqlCapture().ThenRow(!locking, locking ? DBNull.Value : "ext-ada").ThenRowsAffected(1);
         var audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(3, "ext-ada"));
-        var time = new FakeTimeProvider(Now);
-        var handler = new ToggleQueryLockHandler(Factory(new Dictionary<Type, object> { [typeof(Query)] = Set([query]) }), TestProjectAccess.Actors(3, "ext-ada"), audit, time, NullLogger<ToggleQueryLockHandler>.Instance);
+        var handler = LockHandler(capture, audit, TestProjectAccess.Actors(3, "ext-ada"));
 
         var result = await handler.Handle(new ToggleQueryLockCommand { QueryId = 5, Lock = locking, UserId = "ext-ada" }, CancellationToken.None);
 
@@ -91,8 +90,90 @@ public class SecurityAuditCoverageTests
             new { Action = SecurityAuditActions.QueryLockChanged, ResourceType = SecurityAuditResources.Query, ResourceId = "5", ActorUserId = (int?)3 },
             x => x.ExcludingMissingMembers());
         changed.DetailsJson.Should().Be($"{{\"locked\":{locking.ToString().ToLowerInvariant()}}}");
-        query.ModifiedByUserId.Should().Be("ext-ada");
-        query.ModifiedTime.Should().Be(Now.UtcDateTime);
+        var update = capture.Commands[1];
+        update.Should().StartWith("UPDATE beacon.queries");
+        update.Should().Contain("modified_by_user_id").And.Contain("modified_time");
+        capture.CommandParameters[1].Values.Should().Contain("ext-ada").And.Contain(Now.UtcDateTime);
+    }
+
+    [TestCase("ext-ben")]
+    [TestCase("3")]
+    [TestCase("EXT-ADA")]
+    public async Task UnlockingAQueryAnotherUserLocked_IsRefused_AndChangesNothing(string holder)
+    {
+        var capture = new SqlCapture().ThenRow(true, holder);
+        var audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(3, "ext-ada"));
+        var handler = LockHandler(capture, audit, TestProjectAccess.Actors(3, "ext-ada"));
+
+        var act = () => handler.Handle(new ToggleQueryLockCommand { QueryId = 5, Lock = false, UserId = "ext-ada" }, CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconForbiddenException>();
+        capture.Commands.Should().HaveCount(1, "nothing is written");
+        audit.Events.Should().BeEmpty();
+    }
+
+    [TestCase("ext-ben", true)]
+    [TestCase(null, false)]
+    public async Task UnlockingAQuery_IsAllowed_ForAnAdminOrWhenNoHolderIsRecorded(string? holder, bool asAdmin)
+    {
+        var capture = new SqlCapture().ThenRow(true, holder ?? (object)DBNull.Value).ThenRowsAffected(1);
+        var actor = new BeaconActor("ext-ada", asAdmin) { Kind = BeaconPrincipalKind.User, BeaconUserId = 3, IsActiveUser = true, RoleLevel = asAdmin ? 3 : 2 };
+        var actors = new Mock<IBeaconActorAccessor>();
+        actors.Setup(x => x.GetCurrentAsync(It.IsAny<CancellationToken>())).ReturnsAsync(actor);
+
+        var result = await LockHandler(capture, new RecordingSecurityAudit(RecordingSecurityAudit.User(3, "ext-ada")), actors.Object)
+            .Handle(new ToggleQueryLockCommand { QueryId = 5, Lock = false, UserId = "ext-ada" }, CancellationToken.None);
+
+        result.IsLocked.Should().BeFalse();
+    }
+
+    // Another unlock and a relock by someone else landed between this request's read and its write: the write finds the
+    // lock no longer in the observed state, changes nothing and records nothing, and the newer lock stands.
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task ALockChange_ThatLostARace_IsAConflict_AndRecordsNothing(bool locking)
+    {
+        var capture = new SqlCapture().ThenRow(!locking, locking ? DBNull.Value : "ext-ada").ThenRowsAffected(0);
+        var audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(3, "ext-ada"));
+        var handler = LockHandler(capture, audit, TestProjectAccess.Actors(3, "ext-ada"));
+
+        var act = () => handler.Handle(new ToggleQueryLockCommand { QueryId = 5, Lock = locking, UserId = "ext-ada" }, CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconConflictException>();
+        audit.Events.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task UnlockingAQuery_WritesOnlyWhileTheObservedLockStands_Translates()
+    {
+        var capture = new SqlCapture().ThenRow(true, "ext-ada").ThenRowsAffected(1);
+        await LockHandler(capture, new RecordingSecurityAudit(RecordingSecurityAudit.User(3, "ext-ada")), TestProjectAccess.Actors(3, "ext-ada"))
+            .Handle(new ToggleQueryLockCommand { QueryId = 5, Lock = false, UserId = "ext-ada" }, CancellationToken.None);
+
+        var update = capture.Commands[1];
+        update.Should().Contain("is_locked").And.Contain("locked_by_user_id = @");
+        capture.CommandParameters[1].Values.Should().Contain("ext-ada").And.Contain(5);
+
+        var holderless = new SqlCapture().ThenRow(true, DBNull.Value).ThenRowsAffected(1);
+        await LockHandler(holderless, new RecordingSecurityAudit(RecordingSecurityAudit.User(3, "ext-ada")), TestProjectAccess.Actors(3, "ext-ada"))
+            .Handle(new ToggleQueryLockCommand { QueryId = 5, Lock = false, UserId = "ext-ada" }, CancellationToken.None);
+
+        holderless.Commands[1].Should().Contain("locked_by_user_id IS NULL");
+    }
+
+    [Test]
+    public async Task LockingAQuery_WritesOnlyWhileItIsUnlocked_Translates()
+    {
+        var capture = new SqlCapture().ThenRow(false, DBNull.Value).ThenRowsAffected(1);
+        await LockHandler(capture, new RecordingSecurityAudit(RecordingSecurityAudit.User(3, "ext-ada")), TestProjectAccess.Actors(3, "ext-ada"))
+            .Handle(new ToggleQueryLockCommand { QueryId = 5, Lock = true, UserId = "ext-ada" }, CancellationToken.None);
+
+        capture.Commands[1].Should().Contain("NOT (").And.Contain("is_locked");
+    }
+
+    private ToggleQueryLockHandler LockHandler(SqlCapture capture, ISecurityAuditRecorder audit, IBeaconActorAccessor actors)
+    {
+        return new ToggleQueryLockHandler(capture.Factory(), actors, audit, new FakeTimeProvider(Now), NullLogger<ToggleQueryLockHandler>.Instance);
     }
 
     [Test]

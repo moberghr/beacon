@@ -84,6 +84,34 @@ internal static class HostSqlFunctions
         "ISJSON", "JSON_VALUE", "JSON_QUERY"
     };
 
+    // Functions that build a string as long as an argument says. Each argument must be a literal the validator can bound
+    // (see HostQueryPolicyValidator); anything else is refused before it runs.
+    private static readonly Dictionary<string, HostStringBuilderArguments> PostgreSqlStringBuilders = new(StringComparer.Ordinal)
+    {
+        ["repeat"] = new(Length: 1, Repeated: 0),
+        ["lpad"] = new(Length: 1),
+        ["rpad"] = new(Length: 1),
+        ["format"] = new(Format: 0)
+    };
+
+    private static readonly Dictionary<string, HostStringBuilderArguments> SqlServerStringBuilders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        ["REPLICATE"] = new(Length: 1, Repeated: 0),
+        ["FORMAT"] = new(Format: 1)
+    };
+
+    // Functions whose result can be many times longer than their input. A call to one may not take another's result as
+    // an argument, at any depth, so lengths add up instead of multiplying (format() joins them when it quotes).
+    private static readonly HashSet<string> PostgreSqlLengthMultipliers = new(StringComparer.Ordinal)
+    {
+        "repeat", "replace", "regexp_replace"
+    };
+
+    private static readonly HashSet<string> SqlServerLengthMultipliers = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "REPLICATE", "REPLACE"
+    };
+
     // Never allowed, not even through AllowFunctions: they read files, settings, catalogs or other servers.
     private static readonly string[] HardDeniedPrefixes = ["pg_", "dblink", "lo_", "xp_", "sp_", "fn_"];
 
@@ -96,6 +124,33 @@ internal static class HostSqlFunctions
         "row_to_json", "to_json", "to_jsonb", "json_populate_record", "jsonb_populate_record",
         "object_definition", "object_name", "object_id", "has_perms_by_name", "serverproperty", "databasepropertyex"
     };
+
+    /// <summary>
+    /// The largest length a host query may ask a string-building function for (<c>repeat</c>, <c>lpad</c>, <c>rpad</c>,
+    /// <c>REPLICATE</c>, the field widths of one <c>format()</c> call together): enough for any padding or separator, too
+    /// small to build values that exhaust the host database's or Beacon's memory row by row.
+    /// </summary>
+    public const int MaxLengthArgument = 10_000;
+
+    /// <summary>The longest string <c>repeat</c> / <c>REPLICATE</c> may repeat, so the result stays near the length bound.</summary>
+    public const int MaxRepeatedStringLength = 100;
+
+    /// <summary>The largest number SQL Server's <c>FORMAT</c> format string may hold (a precision such as <c>N999</c>).</summary>
+    public const int MaxFormatNumber = 999;
+
+    /// <summary>The bounded arguments of <paramref name="name"/> when it builds a string of a chosen length, else null.</summary>
+    public static HostStringBuilderArguments? StringBuilderArguments(DatabaseEngineType engine, string name)
+    {
+        var builders = engine == DatabaseEngineType.PostgreSQL ? PostgreSqlStringBuilders : SqlServerStringBuilders;
+
+        return builders.GetValueOrDefault(name);
+    }
+
+    /// <summary>True for a function whose result can be many times longer than its input (<c>repeat</c>, <c>replace</c> …).</summary>
+    public static bool MultipliesLength(DatabaseEngineType engine, string name)
+    {
+        return (engine == DatabaseEngineType.PostgreSQL ? PostgreSqlLengthMultipliers : SqlServerLengthMultipliers).Contains(name);
+    }
 
     /// <summary>True for the COUNT aggregates — the only function a masked column may feed.</summary>
     public static bool IsCount(string name)
@@ -123,3 +178,9 @@ internal static class HostSqlFunctions
         return builtIns.Contains(name) || hostAllowed.Contains(name);
     }
 }
+
+/// <summary>
+/// Zero-based positions of a string-building function's bounded arguments: the result length, the string it repeats and
+/// its format string.
+/// </summary>
+internal sealed record HostStringBuilderArguments(int? Length = null, int? Repeated = null, int? Format = null);
