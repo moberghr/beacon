@@ -238,6 +238,22 @@ public class McpPlaygroundServiceTests
     }
 
     [Test]
+    public async Task ATool_TheHostLeftOut_IsRefusedAsUnknown_AndAudited()
+    {
+        var options = new BeaconMcpOptions();
+        options.BuiltInTools.Remove("query");
+        var service = new McpPlaygroundService(BuildServiceProvider(), options);
+
+        var result = await service.ExecuteToolAsync(
+            "query", new Dictionary<string, object?> { ["sql"] = "SELECT 1" }, ProjectId, CancellationToken.None);
+
+        result.IsError.Should().BeTrue();
+        result.Text.Should().Be("Unknown tool: query");
+        _recorded.OfType<McpAuditLog>().Should().ContainSingle("the refusal is a tool invocation and is audited")
+            .Which.Should().Match<McpAuditLog>(x => x.Tool == "query" && x.ErrorMessage != null);
+    }
+
+    [Test]
     public async Task Viewer_ReadsTheCatalog_ButCannotRunSqlCarryingTools()
     {
         var access = TestProjectAccess.Scope(new Dictionary<int, ProjectRole> { [ProjectId] = ProjectRole.Viewer }, includesOpen: false, notOpen: []);

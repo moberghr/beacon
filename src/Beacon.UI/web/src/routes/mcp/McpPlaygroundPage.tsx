@@ -37,6 +37,13 @@ export default function McpPlaygroundPage() {
 
   const toolNames = toolsQ.data?.toolNames ?? [];
 
+  // The host may leave a built-in tool out (ask, say): start on one it serves.
+  useEffect(() => {
+    if (toolNames.length > 0 && !toolNames.includes(tool)) {
+      setTool(toolNames[0]);
+    }
+  }, [toolNames, tool]);
+
   // Auto-select sole project.
   useEffect(() => {
     if (projectId === null && soleProject) {

@@ -597,6 +597,12 @@ function DocumentationTab({ projectId, canCurateHere }: { projectId: number; can
     return <CardBody><span className="text-text-muted">Loading documentation…</span></CardBody>;
   }
 
+  const importedDocuments = imported.data ?? [];
+  const importedSection = (imported.isError || importedDocuments.length > 0) && (
+    <ImportedDocumentsSection projectId={projectId} documents={importedDocuments} isError={imported.isError} />
+  );
+
+  // A failed load of the generated documentation does not hide the imported documents.
   if (isError) {
     return (
       <CardBody>
@@ -605,14 +611,10 @@ function DocumentationTab({ projectId, canCurateHere }: { projectId: number; can
           title="Failed to load documentation"
           description={error instanceof Error ? error.message : 'Unknown error'}
         />
+        {importedSection}
       </CardBody>
     );
   }
-
-  const importedDocuments = imported.data ?? [];
-  const importedSection = (imported.isError || importedDocuments.length > 0) && (
-    <ImportedDocumentsSection projectId={projectId} documents={importedDocuments} isError={imported.isError} />
-  );
 
   const latest = data?.latest;
   if (!latest) {

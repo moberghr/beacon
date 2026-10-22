@@ -35,6 +35,16 @@ internal sealed class McpPlaygroundService(IServiceProvider serviceProvider, Bea
             return new McpPlaygroundResult(NoRequestMessage, true);
         }
 
+        // A built-in tool the host left out (BeaconMcpOptions.BuiltInTools) is not registered with the MCP server, so the
+        // playground does not run it either.
+        if (!ToolNames.Contains(toolName))
+        {
+            var unknown = $"Unknown tool: {toolName}";
+            var unknownCaller = await sp.GetRequiredService<IBeaconActorAccessor>().GetCurrentAsync(ct);
+            await AuditRefusalAsync(sp, toolName, unknownCaller.BeaconUserId, unknown, ct);
+            return new McpPlaygroundResult(unknown, true);
+        }
+
         // The caller's project access, as on every other path: the catalog tools read the project, the SQL-carrying
         // tools and feedback work ad hoc in it (Query). A restricted project the caller is not a member of, and a
         // project outside an API key's list, are refused before any tool runs — audited all the same (§1.7).

@@ -624,6 +624,22 @@ describe('ProjectDetailPage documentation', () => {
     expect(screen.getByRole('button', { name: /Returns policy/ })).toHaveAttribute('aria-expanded', 'false');
   });
 
+  it('still lists the imported documents when the generated documentation fails to load', async () => {
+    mswServer.use(
+      signedIn(['Admin']),
+      permissionsHandler({ isAdmin: true, gatewayMode: true }),
+      http.get('*/beacon/api/projects/5', () => HttpResponse.json(project())),
+      http.get('*/beacon/api/projects/5/documentation', () => HttpResponse.json({ detail: 'boom' }, { status: 500 })),
+    );
+    serveImported();
+
+    renderPage();
+    fireEvent.click(await screen.findByRole('tab', { name: /documentation/i }));
+
+    expect(await screen.findByText('Failed to load documentation')).toBeInTheDocument();
+    expect(screen.getByRole('button', { name: /Returns policy/ })).toBeInTheDocument();
+  });
+
   it('says no documentation was generated when there is none and the host imported none', async () => {
     mswServer.use(
       signedIn([]),
