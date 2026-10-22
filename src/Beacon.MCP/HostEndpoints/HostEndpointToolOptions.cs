@@ -50,6 +50,15 @@ public sealed class HostEndpointToolOptions
     /// </summary>
     public bool UseHostExceptionHandlers { get; set; } = true;
 
+    /// <summary>
+    /// The note each tool's description ends with, after the endpoint's summary. Unset, it is Beacon's
+    /// (<see cref="HostEndpointToolNote.DefaultNote"/>): the method and route, run with the caller's host permissions, and
+    /// for a write tool that it changes data and is to be called only when the user asked. Set it when the endpoints run
+    /// with less than the caller's own permissions (a self-service API, say) or the host words it otherwise; returning
+    /// null or an empty string ends the description at the summary. Default null.
+    /// </summary>
+    public Func<HostEndpointToolNote, string?>? DescriptionNote { get; set; }
+
     private readonly Dictionary<string, Func<ClaimsPrincipal, string?>> _callerBindings = new(StringComparer.OrdinalIgnoreCase);
 
     /// <summary>The arguments filled from the caller (<see cref="BindFromCaller(string, string)"/>), by name.</summary>
@@ -110,4 +119,17 @@ public sealed class HostEndpointToolOptions
             throw new InvalidOperationException("AddHostEndpointTools: RequestTimeout must be positive.");
         }
     }
+}
+
+/// <summary>One exposed endpoint, as <see cref="HostEndpointToolOptions.DescriptionNote"/> sees it.</summary>
+/// <param name="Name">The declared tool name, without the <c>api_</c> prefix.</param>
+/// <param name="HttpMethod">The HTTP method the tool calls.</param>
+/// <param name="Route">The endpoint's route pattern, starting with <c>/</c>.</param>
+/// <param name="ReadOnly">False for a write tool.</param>
+public sealed record HostEndpointToolNote(string Name, string HttpMethod, string Route, bool ReadOnly)
+{
+    /// <summary>Beacon's note, used unless <see cref="HostEndpointToolOptions.DescriptionNote"/> is set.</summary>
+    public string DefaultNote => ReadOnly
+        ? $"Read-only host endpoint {HttpMethod} {Route}, run with your host permissions."
+        : $"Write host endpoint {HttpMethod} {Route}: it changes data in the host application, as you, with your host permissions. Call it only when the user asked for this change.";
 }

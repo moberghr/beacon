@@ -69,6 +69,7 @@ internal sealed partial class HostEndpointToolDiscovery(
     /// <param name="trustedAuthenticationSchemes"><see cref="HostEndpointToolOptions.TrustedAuthenticationSchemes"/>.</param>
     /// <param name="allowWriteTools"><see cref="HostEndpointToolOptions.AllowWriteTools"/>.</param>
     /// <param name="callerBoundArguments">The argument names <see cref="HostEndpointToolOptions.BindFromCaller(string, string)"/> fills.</param>
+    /// <param name="descriptionNote"><see cref="HostEndpointToolOptions.DescriptionNote"/>.</param>
     public IReadOnlyList<HostEndpointToolDescriptor> Discover(
         IEnumerable<Endpoint> endpoints,
         IReadOnlyList<ApiDescription> apiDescriptions,
@@ -76,7 +77,8 @@ internal sealed partial class HostEndpointToolDiscovery(
         Func<Endpoint, IReadOnlyCollection<string>>? authenticationSchemes = null,
         IReadOnlyCollection<string>? trustedAuthenticationSchemes = null,
         bool allowWriteTools = false,
-        IReadOnlyCollection<string>? callerBoundArguments = null)
+        IReadOnlyCollection<string>? callerBoundArguments = null,
+        Func<HostEndpointToolNote, string?>? descriptionNote = null)
     {
         var trusted = new HashSet<string>(trustedAuthenticationSchemes ?? [], StringComparer.Ordinal);
         var callerBound = new HashSet<string>(callerBoundArguments ?? [], StringComparer.OrdinalIgnoreCase);
@@ -149,7 +151,7 @@ internal sealed partial class HostEndpointToolDiscovery(
             {
                 try
                 {
-                    tools.Add(Describe(routeEndpoint, metadata, apiDescriptions, callerBound));
+                    tools.Add(Describe(routeEndpoint, metadata, apiDescriptions, callerBound, descriptionNote));
                 }
                 catch (HostEndpointToolDefinitionException ex)
                 {
@@ -188,7 +190,8 @@ internal sealed partial class HostEndpointToolDiscovery(
         RouteEndpoint endpoint,
         IBeaconToolMetadata metadata,
         IReadOnlyList<ApiDescription> apiDescriptions,
-        IReadOnlySet<string> callerBound)
+        IReadOnlySet<string> callerBound,
+        Func<HostEndpointToolNote, string?>? descriptionNote)
     {
         var httpMethod = ChooseHttpMethod(endpoint);
         var method = ResolveMethod(endpoint);
@@ -230,9 +233,11 @@ internal sealed partial class HostEndpointToolDiscovery(
             endpoint.Metadata.GetMetadata<IEndpointDescriptionMetadata>()?.Description)
             ?? $"Calls {httpMethod} {route} on the host application.";
 
-        var description = metadata.ReadOnly
-            ? $"{summary.Trim()}\n\nRead-only host endpoint {httpMethod} {route}, run with your host permissions."
-            : $"{summary.Trim()}\n\nWrite host endpoint {httpMethod} {route}: it changes data in the host application, as you, with your host permissions. Call it only when the user asked for this change.";
+        var tool = new HostEndpointToolNote(metadata.Name, httpMethod, route, metadata.ReadOnly);
+        var note = descriptionNote == null ? tool.DefaultNote : NoteOf(descriptionNote, tool);
+        var description = string.IsNullOrWhiteSpace(note)
+            ? summary.Trim()
+            : $"{summary.Trim()}\n\n{note.Trim()}";
 
         return new HostEndpointToolDescriptor(
             metadata.Name,
@@ -249,6 +254,20 @@ internal sealed partial class HostEndpointToolDiscovery(
             CallerBindings = callerBindings,
             CallerBoundNames = callerBound
         };
+    }
+
+    // The host's function runs once per tool at startup; a throw is reported like any other definition error, naming the
+    // endpoint, instead of failing startup with the host's bare exception.
+    private static string? NoteOf(Func<HostEndpointToolNote, string?> descriptionNote, HostEndpointToolNote tool)
+    {
+        try
+        {
+            return descriptionNote(tool);
+        }
+        catch (Exception ex)
+        {
+            throw new HostEndpointToolDefinitionException($"HostEndpointToolOptions.DescriptionNote threw {ex.GetType().Name}: {ex.Message}");
+        }
     }
 
     /// <summary>

@@ -170,7 +170,9 @@ public static class McpDiscoveryEndpoints
         var document = McpDiscoveryDocuments.BuildProtectedResourceMetadata(
             baseUrl,
             authorizationServers,
-            McpDiscoveryDocuments.ResolveScopesSupported(options));
+            McpDiscoveryDocuments.ResolveScopesSupported(options),
+            options.ResourceName,
+            options.ResourceDocumentation);
         context.Response.Headers.CacheControl = CacheControlValue;
         return Results.Text(document.ToJsonString(), "application/json");
     }
@@ -178,10 +180,11 @@ public static class McpDiscoveryEndpoints
     private static IResult HandleServerCard(HttpContext context, IConfiguration configuration)
     {
         var baseUrl = ResolvePublicBaseUrl(context.Request, configuration);
-        var scopes = McpDiscoveryDocuments.ResolveScopesSupported(GetProtectedResourceOptions(context.RequestServices, configuration));
+        var options = GetProtectedResourceOptions(context.RequestServices, configuration);
+        var scopes = McpDiscoveryDocuments.ResolveScopesSupported(options);
 
         var builtInTools = context.RequestServices.GetService<BeaconMcpOptions>()?.BuiltInTools.ToList();
-        var document = McpDiscoveryDocuments.BuildServerCard(baseUrl, scopes, builtInTools);
+        var document = McpDiscoveryDocuments.BuildServerCard(baseUrl, scopes, builtInTools, options.ResourceDocumentation);
         context.Response.Headers.CacheControl = CacheControlValue;
         return Results.Text(document.ToJsonString(), "application/json");
     }

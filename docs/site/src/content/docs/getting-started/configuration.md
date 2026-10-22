@@ -724,6 +724,8 @@ Read at request time.
 | `AuthorizationServers` | string[] | empty | Issuers published in `/.well-known/oauth-protected-resource`; each must equal its server metadata's `issuer` |
 | `DeriveAuthorizationServerFromJwtIssuer` | bool | `false` | When `AuthorizationServers` is empty, publish the bearer JWT issuer |
 | `ScopesSupported` | string[] | empty | Scopes published for an external identity provider (for example `api://{id}/mcp.access`) |
+| `ResourceName` | string | empty | The `resource_name` MCP clients show; empty publishes `Beacon MCP` |
+| `ResourceDocumentation` | string | empty | The `resource_documentation` URL, also the server card's `documentation`; empty publishes Beacon's MCP docs |
 
 Without the section, the authority published is `Beacon:Authentication:Oidc:Authority` when SSO is enabled. Startup warns about a derived issuer that is not absolute, and about an external server published without `ScopesSupported`.
 

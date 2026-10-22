@@ -158,6 +158,23 @@ public class McpBearerChallengeHostTests
     }
 
     [Test]
+    public async Task ResourceNameAndDocumentation_AreTheHosts_WhenConfigured()
+    {
+        await using var host = await TestHost.StartAsync(settings: new Dictionary<string, string?>
+        {
+            ["Beacon:Mcp:ProtectedResource:ResourceName"] = "Leave Desk",
+            ["Beacon:Mcp:ProtectedResource:ResourceDocumentation"] = "https://help.example.com/mcp"
+        });
+
+        var metadata = await host.GetJsonAsync("/.well-known/oauth-protected-resource");
+        var card = await host.GetJsonAsync("/.well-known/mcp/server-card.json");
+
+        metadata["resource_name"]!.GetValue<string>().Should().Be("Leave Desk");
+        metadata["resource_documentation"]!.GetValue<string>().Should().Be("https://help.example.com/mcp");
+        card["documentation"]!.GetValue<string>().Should().Be("https://help.example.com/mcp");
+    }
+
+    [Test]
     public async Task DeriveFromJwtIssuer_PublishesTheV2Issuer()
     {
         await using var host = await TestHost.StartAsync(settings: new Dictionary<string, string?>
@@ -180,6 +197,9 @@ public class McpBearerChallengeHostTests
         var card = await host.GetJsonAsync("/.well-known/mcp/server-card.json");
 
         metadata.ContainsKey("authorization_servers").Should().BeFalse("no Beacon OIDC and nothing configured");
+        metadata["resource_name"]!.GetValue<string>().Should().Be(McpDiscoveryDocuments.DefaultResourceName);
+        metadata["resource_documentation"]!.GetValue<string>().Should().Be(McpDiscoveryDocuments.DocumentationUrl);
+        card["documentation"]!.GetValue<string>().Should().Be(McpDiscoveryDocuments.DocumentationUrl);
         Strings(metadata["scopes_supported"]).Should().Equal("Execute");
         Strings(card["authentication"]!["scopes_supported"]).Should().Equal("Execute");
         metadata["resource"]!.GetValue<string>().Should().Be(card["endpoint"]!.GetValue<string>());

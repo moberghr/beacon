@@ -43,6 +43,10 @@ public static class McpContentRedactor
         ClassUnknown
     };
 
+    // A tool's own argument errors, recognised by how Beacon words them: they name the argument, and an argument may be
+    // called anything ("timeout", "column_name", ...), so no keyword its name carries may classify them.
+    private static readonly string[] ArgumentErrorPrefixes = ["Invalid arguments:", "Missing required argument", "Missing required parameter"];
+
     // Ordered: the first matching row wins, so the more specific causes (cancellation, timeout, permission) are
     // tested before the broad schema/not-found keywords that almost every provider message also contains.
     private static readonly (string Class, string[] Keywords)[] Classifiers =
@@ -60,7 +64,8 @@ public static class McpContentRedactor
         // validation bucket's "invalid" keyword would otherwise swallow. MySQL contracts the verb
         // ("Table 'x' doesn't exist"), so both spellings are listed (review note, 2026-09-11).
         (ClassNotFound, ["not found", "no such", "does not exist", "doesn't exist", "invalid object name", "unknown table", "missing"]),
-        (ClassValidation, ["invalid", "validation", "not allowed", "read-only", "read only"]),
+        // "Bad Request" and "Unprocessable" are a host endpoint's 400 and 422 (audited as "HTTP 400 Bad Request").
+        (ClassValidation, ["invalid", "validation", "not allowed", "read-only", "read only", "bad request", "unprocessable"]),
         (ClassExecution, ["execution", "deadlock", "constraint", "division by zero", "conversion failed"])
     ];
 
@@ -75,6 +80,11 @@ public static class McpContentRedactor
         if (message.Length == 0 || ErrorClasses.Contains(message))
         {
             return message;
+        }
+
+        if (ArgumentErrorPrefixes.Any(x => message.StartsWith(x, StringComparison.OrdinalIgnoreCase)))
+        {
+            return ClassValidation;
         }
 
         foreach (var classifier in Classifiers)

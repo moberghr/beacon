@@ -29,6 +29,16 @@ public class McpContentRedactorTests
     [TestCase("Table 'beacon.orders' doesn't exist", McpContentRedactor.ClassNotFound)]
     [TestCase("Unknown column 'revenu' in 'field list'", McpContentRedactor.ClassSchema)]
     [TestCase("Unknown table 'beacon.orders'", McpContentRedactor.ClassNotFound)]
+    [TestCase("Invalid arguments: missing required argument(s) employee_id.", McpContentRedactor.ClassValidation)]
+    [TestCase("Invalid arguments: missing required argument(s) timeout, column_name.", McpContentRedactor.ClassValidation)]
+    [TestCase("Invalid arguments: unknown argument(s) colour.", McpContentRedactor.ClassValidation)]
+    [TestCase("Missing required argument 'from' (date).", McpContentRedactor.ClassValidation)]
+    [TestCase("Missing required parameter: query", McpContentRedactor.ClassValidation)]
+    [TestCase("HTTP 400 Bad Request", McpContentRedactor.ClassValidation)]
+    [TestCase("HTTP 422 Unprocessable Entity", McpContentRedactor.ClassValidation)]
+    [TestCase("HTTP 404 Not Found", McpContentRedactor.ClassNotFound)]
+    [TestCase("HTTP 403 Forbidden", McpContentRedactor.ClassPermission)]
+    [TestCase("invalid input syntax for type integer: \"required argument\"", McpContentRedactor.ClassSyntax)]
     public void ErrorClassOf_MapsProviderMessagesOntoTheVocabulary(string message, string expected)
     {
         McpContentRedactor.ErrorClassOf(message).Should().Be(expected);

@@ -386,7 +386,7 @@ An audit row is still written for **every** tool call, success or failure. The l
 
 While content is retained, the audit keeps the SQL of **every statement** a call ran (an `ask`'s first execution, repairs, self-consistency candidates, value-grounding probes and dry runs) beside the question; see [The statements a call ran](/mcp/observability-and-audit/#the-statements-a-call-ran). A deployment that must keep this evidence pins retention on with `Beacon:Mcp:Audit:RequireContent` (see [Keeping audit content](/mcp/observability-and-audit/#keeping-audit-content-the-requirecontent-lock)).
 
-**Error classes.** Instead of the provider's message, Beacon stores one of nine values: `schema`, `syntax`, `permission`, `timeout`, `not_found`, `validation`, `execution`, `cancelled`, `unknown`. You keep the ability to chart failure modes without keeping text that may quote customer data.
+**Error classes.** Instead of the provider's message, Beacon stores one of nine values: `schema`, `syntax`, `permission`, `timeout`, `not_found`, `validation`, `execution`, `cancelled`, `unknown`. A tool's own argument errors (an invalid, unknown or missing argument) and a host endpoint's `400` or `422` are `validation`, whatever the argument is called. You keep the ability to chart failure modes without keeping text that may quote customer data.
 
 **Audit parameters** become a structural summary: which tool ran, how many bytes of input it received, and which tables it touched:
 
