@@ -780,6 +780,7 @@ public class DataSourceDisableTests
                 Graph.Object,
                 audit,
                 transport ?? TestTransport.Policy(),
+                TestEngineVerifier.Passing,
                 logger ?? NullLogger<DataSourceService>.Instance,
                 scheduler: scheduler);
         }
