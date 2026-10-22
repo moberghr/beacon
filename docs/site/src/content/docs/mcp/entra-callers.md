@@ -259,6 +259,8 @@ builder.Services.AddBeaconJwtAuthentication(x =>
 | `AuthorizationServers` | empty | Issuers published as `authorization_servers`, verbatim and in order (clients use the first). Use the **v2** issuer: it equals the `issuer` in Entra's v2 metadata and the `iss` of the tokens. Wins over everything below |
 | `DeriveAuthorizationServerFromJwtIssuer` | `false` | With no explicit list, publish the bearer JWT issuer (`Validation.ValidIssuer(s)`). With several, the one ending in `/v2.0` is chosen; templated issuers (`{tenantid}`) are skipped |
 | `ScopesSupported` | empty | Scopes published in `scopes_supported` (and the server card) instead of `Execute` |
+| `ResourceName` | empty | The `resource_name` clients show; empty publishes `Beacon MCP` |
+| `ResourceDocumentation` | empty | The `resource_documentation` URL (and the server card's `documentation`); empty publishes Beacon's MCP docs |
 
 With none of these set the document lists Beacon's OIDC authority when SSO is on, and the `Execute` scope. An explicit authorization server without `ScopesSupported`, or derivation with no usable
 issuer, is logged as a warning at startup. The `WWW-Authenticate` challenge, the `resource` in the metadata and the

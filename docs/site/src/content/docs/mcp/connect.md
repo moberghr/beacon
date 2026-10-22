@@ -70,6 +70,8 @@ To point OAuth-capable clients at your identity provider:
 | `AuthorizationServers` | None | Issuers published as `authorization_servers` (each must equal the server metadata's `issuer`). Takes precedence. |
 | `DeriveAuthorizationServerFromJwtIssuer` | `false` | Publish the bearer-JWT issuer instead (prefers an Entra `/v2.0` issuer). |
 | `ScopesSupported` | `["Execute"]` | Scopes published to clients. Set your identity provider's scope when you publish an external authorization server, and add `offline_access` so clients get a refresh token instead of asking people to sign in every hour (Beacon warns at startup when an `api://` scope is published without it). A configured list replaces the default whole. |
+| `ResourceName` | `Beacon MCP` | The `resource_name` an MCP client shows for the server. A host serving Beacon as its own MCP server names its application. |
+| `ResourceDocumentation` | Beacon's MCP docs | The `resource_documentation` URL, also the server card's `documentation`. |
 
 Code can complete these settings too: `services.PostConfigure<McpProtectedResourceOptions>(...)` runs after the configuration is bound, on every request.
 

@@ -24,6 +24,7 @@ builder.Services.AddBeaconMcp()
         o.RequestTimeout = TimeSpan.FromSeconds(30);   // default 30 s
         // o.TrustedAuthenticationSchemes = ["..."];   // default none; see "Authentication schemes" below
         // o.AllowWriteTools = true;                   // default false; see "Write tools" below
+        // o.DescriptionNote = tool => "...";          // default Beacon's note; see "Description" below
     });
 ```
 
@@ -112,7 +113,17 @@ MFA or partner scheme.
   attributes. Swagger / Swashbuckle is never needed.
 - **Description**: the attribute's `Description`, else the action's XML doc `<summary>` (enable
   `GenerateDocumentationFile`; `<param>` docs describe the arguments), else the endpoint's summary/description
-  metadata, else a generic "Calls POST /route" line. Every description ends with the method and route.
+  metadata, else a generic "Calls POST /route" line. Every description ends with a note naming the method and route
+  and saying the tool runs with the caller's host permissions (a write tool's also says it changes data and is to be
+  called only when the user asked). When the endpoints run with less than the caller's own permissions, or you word it
+  otherwise, set `DescriptionNote`: it gets each tool's name, method, route and `ReadOnly` flag and returns the note,
+  `null` or an empty string ends the description at the summary, and `tool.DefaultNote` is Beacon's own text:
+
+  ```csharp
+  o.DescriptionNote = tool => tool.ReadOnly
+      ? $"Self-service endpoint {tool.HttpMethod} {tool.Route}: it sees only your own records."
+      : tool.DefaultNote;
+  ```
 
 ### Arguments
 

@@ -116,12 +116,16 @@ What you get, and what you do not have to write:
   whose person your resolver knows. App-only tokens, ID tokens, other tenants and other scopes are refused. Entra roles and
   groups are never read.
 - **Tools:** your marked endpoints as `api_<name>`, plus `get_context`, `search` and `get_documentation` for your docs. No
-  SQL tools, no saved-query tools, no data sources.
+  SQL tools, no saved-query tools, no data sources. Each tool's description ends with a note that it runs with the
+  caller's permissions in your application; when your endpoints run with less (self-service only, say), word it yourself
+  with `y.DescriptionNote` in `x.Tools(...)` (see [Host endpoint tools](/mcp/host-endpoint-tools/)).
 - **Locks:** read-only and no content retention are pinned in code (`RetainToolContent = true` keeps call content).
 - **Your session never counts on `/beacon/mcp`,** and a bearer token never counts on your routes. The MCP route answers
   401/403 itself, never your sign-in redirect: you edit no cookie events.
 - **Discovery:** `/.well-known/oauth-protected-resource` publishes your tenant's v2 issuer and
-  `api://<ClientId>/mcp.access` plus `offline_access` (so clients refresh instead of re-prompting hourly).
+  `api://<ClientId>/mcp.access` plus `offline_access` (so clients refresh instead of re-prompting hourly). It names the
+  server `Beacon MCP` and links Beacon's docs unless you set `Beacon:Mcp:ProtectedResource:ResourceName` and
+  `ResourceDocumentation` to your application's.
 - **The host project** is synced the first time it is needed; the `beacon-mcp-gateway` health check reports Degraded until
   then. No hosted service, no startup step.
 - **Admin UI** at `/beacon`: the MCP audit, the MCP settings, the learning views and your project, for holders of
