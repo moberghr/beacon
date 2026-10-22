@@ -8,6 +8,8 @@ using Beacon.AI.Services.Knowledge;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.HostDocs;
+using Beacon.Core.HostEndpoints;
+using Beacon.MCP.HostEndpoints;
 using Beacon.MCP.Services;
 
 namespace Beacon.MCP.Tools;
@@ -19,13 +21,15 @@ internal sealed class GetContextTool(
     IProjectBriefService projectBriefService,
     IProjectContext projectContext,
     McpAuditService auditService,
-    ILogger<GetContextTool> logger)
+    ILogger<GetContextTool> logger,
+    IEnumerable<IHostEndpointToolCatalog>? endpointToolCatalogs = null)
 {
     internal const string OverviewFormat = "overview";
     internal const string AgentsMdFormat = "agents_md";
+    internal const int MaxDocuments = 50;
 
     [McpServerTool(Name = "get_context", Title = "Project Overview", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
-    [Description("Get an overview of the project: its data sources, schemas, tables, quality scores, and documentation status. This is the starting point for understanding what data is available. format='agents_md' returns a project brief in markdown for an agent workspace's AGENTS.md instead.")]
+    [Description("Get an overview of the project: its data sources, schemas, tables, quality scores and documentation status, the host application tools it serves and its imported documents. This is the starting point for understanding what the project offers. format='agents_md' returns a project brief in markdown for an agent workspace's AGENTS.md instead.")]
     public async Task<CallToolResult> ExecuteAsync(
         [Description("Optional. If your API key has access to multiple projects, specify which one.")]
         int? project_id = null,
@@ -87,16 +91,56 @@ internal sealed class GetContextTool(
             var repoCount = await context.GitHubRepositories
                 .CountAsync(r => r.ProjectId == projectId, cancellationToken);
 
+            var documents = await ImportedDocumentQueries.ListForProject(context, projectId)
+                .Take(MaxDocuments)
+                .ToListAsync(cancellationToken);
+
+            var documentCount = documents.Count < MaxDocuments
+                ? documents.Count
+                : await context.ProjectImportedDocuments
+                    .Where(x => x.ProjectId == projectId)
+                    .CountAsync(cancellationToken);
+
+            var endpointTools = await GetEndpointToolsAsync(projectId, cancellationToken);
+
             var text = $"# Project: {project.Name}\n";
             if (!string.IsNullOrEmpty(project.Description))
                 text += $"{project.Description}\n";
             text += "\n";
 
-            text += $"**Data Sources:** {dataSources.Count}\n";
-            text += $"**Documentation:** {(hasDoc ? "Generated" : "Not yet generated")}\n";
-            text += $"**Repositories:** {repoCount}\n\n";
+            // A project without data sources (an MCP gateway's, or one of documents only) has no SQL side to report: its
+            // overview is the host application tools and the documents it serves.
+            var summary = "";
+            if (dataSources.Count > 0)
+            {
+                summary += $"**Data Sources:** {dataSources.Count}\n";
+                summary += $"**Documentation:** {(hasDoc ? "Generated" : "Not yet generated")}\n";
+                summary += $"**Repositories:** {repoCount}\n";
+            }
+            else if (hasDoc)
+            {
+                summary += "**Documentation:** Generated\n";
+            }
 
-            text += "## Data Sources\n\n";
+            if (endpointTools != null)
+            {
+                summary += $"**Host application tools:** {endpointTools.Tools.Count}\n";
+            }
+
+            if (documentCount > 0)
+            {
+                summary += $"**Imported documents:** {documentCount}\n";
+            }
+
+            text += summary.Length > 0
+                ? summary + "\n"
+                : "This project has no data sources, host application tools or imported documents yet.\n";
+
+            if (dataSources.Count > 0)
+            {
+                text += "## Data Sources\n\n";
+            }
+
             foreach (var ds in dataSources)
             {
                 var isApi = ds.DataSourceType == DataSourceType.Api;
@@ -116,6 +160,9 @@ internal sealed class GetContextTool(
                 }
                 text += "\n";
             }
+
+            text += EndpointToolsSection(endpointTools);
+            text += DocumentsSection(documents, documentCount);
 
             sw.Stop();
             await auditService.LogToolCallAsync(projectContext.UserId, "get_context",
@@ -156,5 +203,62 @@ internal sealed class GetContextTool(
             logger.LogError("MCP tool {Tool} failed with {ExceptionType} (detail in MCP audit log)", "get_context", ex.GetType().Name);
             return ToolHelper.Error(ToolHelper.CallerSafeMessage(ex, "get_context"));
         }
+    }
+
+    private async Task<HostEndpointToolListing?> GetEndpointToolsAsync(int projectId, CancellationToken cancellationToken)
+    {
+        foreach (var catalog in endpointToolCatalogs ?? [])
+        {
+            var listing = await catalog.GetForProjectAsync(projectId, cancellationToken);
+            if (listing is { Tools.Count: > 0 })
+            {
+                return listing;
+            }
+        }
+
+        return null;
+    }
+
+    private static string EndpointToolsSection(HostEndpointToolListing? listing)
+    {
+        if (listing == null)
+        {
+            return string.Empty;
+        }
+
+        var text = "## Host application tools\n\n";
+        text += listing.CatalogMode
+            ? $"Find one with `{HostEndpointToolService.SearchToolName}` and run it with `{HostEndpointToolService.CallToolName}`. Tools marked (writes) change data.\n\n"
+            : "Call them by name. Tools marked (writes) change data.\n\n";
+
+        foreach (var tool in listing.Tools)
+        {
+            text += $"- `{(listing.CatalogMode ? tool.Name : tool.ToolName)}`{(tool.ReadOnly ? "" : " (writes)")}";
+            text += string.IsNullOrWhiteSpace(tool.Description) ? "\n" : $" — {tool.Description.Trim()}\n";
+        }
+
+        return text + "\n";
+    }
+
+    private static string DocumentsSection(IReadOnlyList<ImportedDocumentSummary> documents, int documentCount)
+    {
+        if (documents.Count == 0)
+        {
+            return string.Empty;
+        }
+
+        var text = "## Imported documents\n\n";
+        text += "Read one with `get_documentation` and `document: \"<path>\"`; `search` matches their text.\n\n";
+        foreach (var document in documents)
+        {
+            text += $"- {document.Title} — `{document.Path}`\n";
+        }
+
+        if (documentCount > documents.Count)
+        {
+            text += $"- … {documentCount - documents.Count} more; `get_documentation` lists them all.\n";
+        }
+
+        return text + "\n";
     }
 }

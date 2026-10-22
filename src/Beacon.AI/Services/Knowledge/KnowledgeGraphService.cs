@@ -798,11 +798,12 @@ internal sealed class KnowledgeGraphService(
 
         var results = new List<SearchResult>();
         var queryLower = query.ToLower();
+        var terms = SearchTermsOf(query);
 
         // Search tables (a project with only imported documents has no data sources — skip the catalog queries)
         var matchingTables = dsIds.Count == 0
             ? []
-            : await BuildMatchingTablesQuery(context, dsIds, queryLower, maxResults)
+            : await BuildMatchingTablesQuery(context, dsIds, terms, maxResults)
                 .ToListAsync(ct);
 
         foreach (var table in matchingTables)
@@ -815,14 +816,14 @@ internal sealed class KnowledgeGraphService(
                 SchemaName = table.SchemaName,
                 TableName = table.TableName,
                 Description = table.TableDescription,
-                Relevance = table.TableName.Equals(query, StringComparison.OrdinalIgnoreCase) ? 1.0 : 0.8
+                Relevance = (table.TableName.Equals(query, StringComparison.OrdinalIgnoreCase) ? 1.0 : 0.8) * TermShare(table.Hits, terms)
             });
         }
 
         // Search columns
         var matchingColumns = dsIds.Count == 0
             ? []
-            : await BuildMatchingColumnsQuery(context, dsIds, queryLower, maxResults)
+            : await BuildMatchingColumnsQuery(context, dsIds, terms, maxResults)
                 .ToListAsync(ct);
 
         foreach (var col in matchingColumns)
@@ -836,12 +837,12 @@ internal sealed class KnowledgeGraphService(
                 TableName = col.TableName,
                 ColumnName = col.ColumnName,
                 Description = col.Description,
-                Relevance = col.ColumnName.Equals(query, StringComparison.OrdinalIgnoreCase) ? 0.9 : 0.6
+                Relevance = (col.ColumnName.Equals(query, StringComparison.OrdinalIgnoreCase) ? 0.9 : 0.6) * TermShare(col.Hits, terms)
             });
         }
 
         // Search project documentation
-        var docSections = await BuildDocSectionsQuery(context, projectId, queryLower, maxResults / 2)
+        var docSections = await BuildDocSectionsQuery(context, projectId, terms, maxResults / 2)
             .ToListAsync(ct);
 
         foreach (var doc in docSections)
@@ -853,14 +854,14 @@ internal sealed class KnowledgeGraphService(
                 SchemaName = string.Empty,
                 TableName = string.Empty,
                 Description = TruncateContent(doc.Content, 200),
-                Relevance = 0.5,
+                Relevance = 0.5 * TermShare(doc.Hits, terms),
                 DocIdentity = $"docsection:{doc.Id}",
                 SectionType = doc.SectionType
             });
         }
 
         // Search host-imported documents (ExposeDocs) — title/path, or any of their chunks. Works with no embedder.
-        var importedDocs = await BuildImportedDocsQuery(context, projectId, queryLower, maxResults / 2)
+        var importedDocs = await BuildImportedDocsQuery(context, projectId, terms, maxResults / 2)
             .ToListAsync(ct);
 
         foreach (var doc in importedDocs)
@@ -872,7 +873,7 @@ internal sealed class KnowledgeGraphService(
                 SchemaName = string.Empty,
                 TableName = string.Empty,
                 Description = doc.MatchingChunk != null ? TruncateContent(doc.MatchingChunk, 200) : null,
-                Relevance = doc.Title.ToLower().Contains(queryLower) ? 0.55 : 0.5,
+                Relevance = (doc.Title.ToLower().Contains(queryLower) ? 0.55 : 0.5) * TermShare(doc.Hits, terms),
                 DocIdentity = $"importeddoc:{doc.Id}",
                 DocumentPath = doc.Path,
                 DocumentTitle = doc.Title
@@ -1098,87 +1099,169 @@ internal sealed class KnowledgeGraphService(
     }
 
     // SearchProjectAsync sub-queries, exposed as IQueryable builders so translation tests can run
-    // ToQueryString() on the REAL query shapes (InternalsVisibleTo Beacon.Tests). Projections target
-    // named row records instead of anonymous types — EF projects into the ctor identically. Ordering
-    // sits BEFORE the projection because EF cannot compose OrderBy over ctor-projected members; the
-    // sort keys are the same columns, so the generated ORDER BY is unchanged.
-    internal static IQueryable<TableSearchRow> BuildMatchingTablesQuery(BeaconContext context, List<int> dsIds, string queryLower, int maxResults)
+    // ToQueryString() on the REAL query shapes (InternalsVisibleTo Beacon.Tests). A row matches when it contains any of
+    // the search terms (SearchTermsOf); Hits counts the terms it contains and is the first sort key, so the rows that hit
+    // the most terms survive the Take. Projections target named row records instead of anonymous types — EF projects
+    // into the ctor identically. Ordering sits BEFORE the final projection because EF cannot compose OrderBy over
+    // ctor-projected members.
+    internal static IQueryable<TableSearchRow> BuildMatchingTablesQuery(BeaconContext context, List<int> dsIds, List<string> terms, int maxResults)
     {
         return context.DatabaseMetadata
             .Where(x => dsIds.Contains(x.DataSourceId))
-            .Where(x => x.TableName.ToLower().Contains(queryLower) ||
-                        (x.TableDescription != null && x.TableDescription.ToLower().Contains(queryLower)))
-            .OrderBy(x => x.SchemaName)
-            .ThenBy(x => x.TableName)
-            .ThenBy(x => x.DataSourceId)
-            .ThenBy(x => x.Id)
             .Select(x =>
-                new TableSearchRow(x.DataSourceId, x.DataSource.Name, x.SchemaName, x.TableName, x.TableDescription))
+                new
+                {
+                    Table = x,
+                    Hits = terms.Count(y => x.TableName.ToLower().Contains(y) ||
+                                            (x.TableDescription != null && x.TableDescription.ToLower().Contains(y)))
+                })
+            .Where(x => x.Hits > 0)
+            .OrderByDescending(x => x.Hits)
+            .ThenBy(x => x.Table.SchemaName)
+            .ThenBy(x => x.Table.TableName)
+            .ThenBy(x => x.Table.DataSourceId)
+            .ThenBy(x => x.Table.Id)
+            .Select(x =>
+                new TableSearchRow(
+                    x.Table.DataSourceId,
+                    x.Table.DataSource.Name,
+                    x.Table.SchemaName,
+                    x.Table.TableName,
+                    x.Table.TableDescription,
+                    x.Hits))
             .Take(maxResults);
     }
 
-    internal static IQueryable<ColumnSearchRow> BuildMatchingColumnsQuery(BeaconContext context, List<int> dsIds, string queryLower, int maxResults)
+    internal static IQueryable<ColumnSearchRow> BuildMatchingColumnsQuery(BeaconContext context, List<int> dsIds, List<string> terms, int maxResults)
     {
         return context.ColumnMetadata
             .Where(x => dsIds.Contains(x.DatabaseMetadata.DataSourceId))
-            .Where(x => x.ColumnName.ToLower().Contains(queryLower) ||
-                        (x.Description != null && x.Description.ToLower().Contains(queryLower)))
-            .OrderBy(x => x.DatabaseMetadata.SchemaName)
-            .ThenBy(x => x.DatabaseMetadata.TableName)
-            .ThenBy(x => x.ColumnName)
-            .ThenBy(x => x.DatabaseMetadata.DataSourceId)
-            .ThenBy(x => x.Id)
+            .Select(x =>
+                new
+                {
+                    Column = x,
+                    Hits = terms.Count(y => x.ColumnName.ToLower().Contains(y) ||
+                                            (x.Description != null && x.Description.ToLower().Contains(y)))
+                })
+            .Where(x => x.Hits > 0)
+            .OrderByDescending(x => x.Hits)
+            .ThenBy(x => x.Column.DatabaseMetadata.SchemaName)
+            .ThenBy(x => x.Column.DatabaseMetadata.TableName)
+            .ThenBy(x => x.Column.ColumnName)
+            .ThenBy(x => x.Column.DatabaseMetadata.DataSourceId)
+            .ThenBy(x => x.Column.Id)
             .Select(x =>
                 new ColumnSearchRow(
-                    x.DatabaseMetadata.DataSourceId,
-                    x.DatabaseMetadata.DataSource.Name,
-                    x.DatabaseMetadata.SchemaName,
-                    x.DatabaseMetadata.TableName,
-                    x.ColumnName,
-                    x.Description))
+                    x.Column.DatabaseMetadata.DataSourceId,
+                    x.Column.DatabaseMetadata.DataSource.Name,
+                    x.Column.DatabaseMetadata.SchemaName,
+                    x.Column.DatabaseMetadata.TableName,
+                    x.Column.ColumnName,
+                    x.Column.Description,
+                    x.Hits))
             .Take(maxResults);
     }
 
-    internal static IQueryable<DocSectionSearchRow> BuildDocSectionsQuery(BeaconContext context, int projectId, string queryLower, int maxResults)
+    internal static IQueryable<DocSectionSearchRow> BuildDocSectionsQuery(BeaconContext context, int projectId, List<string> terms, int maxResults)
     {
         return context.ProjectDocumentationSections
             .Where(x => x.Documentation.ProjectId == projectId)
-            .Where(x => x.Content.ToLower().Contains(queryLower))
-            .OrderBy(x => x.Title)
-            .ThenBy(x => x.Id)
             .Select(x =>
-                new DocSectionSearchRow(x.Id, x.Documentation.Project.Name, x.Title, x.Content, x.SectionType))
+                new
+                {
+                    Section = x,
+                    Hits = terms.Count(y => x.Content.ToLower().Contains(y))
+                })
+            .Where(x => x.Hits > 0)
+            .OrderByDescending(x => x.Hits)
+            .ThenBy(x => x.Section.Title)
+            .ThenBy(x => x.Section.Id)
+            .Select(x =>
+                new DocSectionSearchRow(
+                    x.Section.Id,
+                    x.Section.Documentation.Project.Name,
+                    x.Section.Title,
+                    x.Section.Content,
+                    x.Section.SectionType,
+                    x.Hits))
             .Take(maxResults);
     }
 
-    // Host-imported documents whose title or path matches, or that have a chunk containing the keyword. The first
-    // matching chunk (in document order) is the result's snippet. Project-scoped (§1.12); archived documents are
-    // excluded by the soft-delete filter.
-    internal static IQueryable<ImportedDocSearchRow> BuildImportedDocsQuery(BeaconContext context, int projectId, string queryLower, int maxResults)
+    // Host-imported documents whose title, path or chunks contain a search term; a term counts once whichever of them
+    // holds it. The chunk holding the most terms (the first in document order on a tie) is the result's snippet.
+    // Project-scoped (§1.12); archived documents are excluded by the soft-delete filter.
+    internal static IQueryable<ImportedDocSearchRow> BuildImportedDocsQuery(BeaconContext context, int projectId, List<string> terms, int maxResults)
     {
         return context.ProjectImportedDocuments
             .Where(x => x.ProjectId == projectId)
-            .Where(x => x.Title.ToLower().Contains(queryLower) ||
-                        x.Path.ToLower().Contains(queryLower) ||
-                        context.McpDocChunks
-                            .Where(y => y.ImportedDocumentId == x.Id)
-                            .Any(y => y.ChunkText.ToLower().Contains(queryLower)))
-            .OrderBy(x => x.Path)
-            .ThenBy(x => x.Id)
+            .Select(x =>
+                new
+                {
+                    Document = x,
+                    Hits = terms.Count(y => x.Title.ToLower().Contains(y) ||
+                                            x.Path.ToLower().Contains(y) ||
+                                            context.McpDocChunks
+                                                .Where(z => z.ImportedDocumentId == x.Id)
+                                                .Any(z => z.ChunkText.ToLower().Contains(y)))
+                })
+            .Where(x => x.Hits > 0)
+            .OrderByDescending(x => x.Hits)
+            .ThenBy(x => x.Document.Path)
+            .ThenBy(x => x.Document.Id)
             .Select(x =>
                 new ImportedDocSearchRow(
-                    x.Id,
-                    x.Project.Name,
-                    x.Path,
-                    x.Title,
+                    x.Document.Id,
+                    x.Document.Project.Name,
+                    x.Document.Path,
+                    x.Document.Title,
                     context.McpDocChunks
-                        .Where(y => y.ImportedDocumentId == x.Id)
-                        .Where(y => y.ChunkText.ToLower().Contains(queryLower))
-                        .OrderBy(y => y.SortOrder)
+                        .Where(y => y.ImportedDocumentId == x.Document.Id)
+                        .Select(y =>
+                            new
+                            {
+                                y.ChunkText,
+                                y.SortOrder,
+                                Hits = terms.Count(z => y.ChunkText.ToLower().Contains(z))
+                            })
+                        .Where(y => y.Hits > 0)
+                        .OrderByDescending(y => y.Hits)
+                        .ThenBy(y => y.SortOrder)
                         .Select(y => y.ChunkText)
-                        .FirstOrDefault()))
+                        .FirstOrDefault(),
+                    x.Hits))
             .Take(maxResults);
     }
+
+    // The search terms of a free-text query: its lower-cased words (letters, digits and underscores, so an identifier
+    // like order_items stays one term) without single characters and function words, at most MaxSearchTerms of them.
+    // "how do I request annual leave" searches for request, annual and leave. A query with no such word searches for
+    // the whole query, as one term.
+    internal static List<string> SearchTermsOf(string query)
+    {
+        var phrase = query.Trim().ToLowerInvariant();
+        var terms = System.Text.RegularExpressions.Regex
+            .Split(phrase, @"[^\p{L}\p{N}_]+")
+            .Where(x => x.Length > 1)
+            .Where(x => !SearchStopWords.Contains(x))
+            .Distinct()
+            .Take(MaxSearchTerms)
+            .ToList();
+
+        return terms.Count == 0 ? [phrase] : terms;
+    }
+
+    private const int MaxSearchTerms = 8;
+
+    private static readonly HashSet<string> SearchStopWords = new(StringComparer.Ordinal)
+    {
+        "an", "the", "and", "or", "of", "to", "in", "on", "at", "for", "from", "by", "with", "about", "into", "is",
+        "are", "was", "were", "be", "do", "does", "did", "how", "what", "which", "who", "where", "when", "why", "can",
+        "could", "should", "would", "will", "me", "my", "we", "our", "you", "your", "it", "its", "this", "that", "there",
+        "as", "if"
+    };
+
+    // The share of the search terms a row contains, which scales its relevance band: a one-term query keeps the band.
+    private static double TermShare(int hits, List<string> terms) => (double)hits / terms.Count;
 
     // Deterministic paging: ties inside a coarse relevance band must not reshuffle between calls.
     // DataSourceId disambiguates two data sources sharing a display name, so the chain is unique for
@@ -2748,10 +2831,10 @@ internal sealed class KnowledgeGraphService(
 }
 
 // Row shapes of the SearchProjectAsync sub-queries (see the Build*Query methods above).
-internal sealed record TableSearchRow(int DataSourceId, string DataSourceName, string SchemaName, string TableName, string? TableDescription);
+internal sealed record TableSearchRow(int DataSourceId, string DataSourceName, string SchemaName, string TableName, string? TableDescription, int Hits);
 
-internal sealed record ColumnSearchRow(int DataSourceId, string DataSourceName, string SchemaName, string TableName, string ColumnName, string? Description);
+internal sealed record ColumnSearchRow(int DataSourceId, string DataSourceName, string SchemaName, string TableName, string ColumnName, string? Description, int Hits);
 
-internal sealed record DocSectionSearchRow(int Id, string ProjectName, string Title, string Content, ProjectDocSectionType SectionType);
+internal sealed record DocSectionSearchRow(int Id, string ProjectName, string Title, string Content, ProjectDocSectionType SectionType, int Hits);
 
-internal sealed record ImportedDocSearchRow(int Id, string ProjectName, string Path, string Title, string? MatchingChunk);
+internal sealed record ImportedDocSearchRow(int Id, string ProjectName, string Path, string Title, string? MatchingChunk, int Hits);

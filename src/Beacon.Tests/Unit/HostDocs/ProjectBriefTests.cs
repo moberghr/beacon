@@ -7,6 +7,7 @@ using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.HostData;
 using Beacon.Core.HostDocs;
+using Beacon.Core.HostEndpoints;
 using Beacon.MCP.Services;
 using Beacon.MCP.Tools;
 using Beacon.Tests.Common;
@@ -125,7 +126,49 @@ public class ProjectBriefTests
         brief.Should().NotContain("## Key tables");
         brief.Should().NotContain("## Glossary");
         brief.Should().NotContain("## Documents");
-        brief.Should().Contain("`get_documentation` (documentation, table detail)");
+        brief.Should().Contain("It has no data sources, host application tools or documents yet.");
+        brief.Should().NotContain("dry_run", "a project without data sources runs no SQL");
+    }
+
+    [Test]
+    public void Render_ProjectWithoutDataSources_GuidesToTheDocumentAndHostTools_NotSql()
+    {
+        var tools = new HostEndpointToolListing(
+            [new HostEndpointToolSummary("leave_balance", "api_leave_balance", "Your remaining annual leave.")],
+            false);
+        var data = new ProjectBriefData(
+            "Handbook",
+            null,
+            [],
+            [],
+            0,
+            [],
+            [],
+            0,
+            [new ImportedDocumentSummary(1, "docs:dir:docs", "hr/leave.md", "Annual leave", DateTime.UnixEpoch)],
+            1,
+            tools);
+
+        var brief = ProjectBriefService.Render(data);
+
+        brief.Should().Contain("""
+            ## Working with this project through Beacon
+
+            Beacon exposes this project over MCP: the host application tools and the documents listed below.
+
+            - `get_context` — the project overview.
+            - `search` — find documents by keyword.
+            - `get_documentation` — read one document with `document: "<path>"`.
+
+            Rules:
+
+            - Pass `project_id` on every call when your credentials reach more than one project.
+
+            ## Host application tools
+            """.ReplaceLineEndings("\n"));
+        brief.Should().Contain("- `api_leave_balance` — Your remaining annual leave.");
+        brief.Should().Contain("- Annual leave — `hr/leave.md`");
+        brief.Should().NotContainAny(["get_query_context", "dry_run", "SELECT", "Masked columns"]);
     }
 
     [Test]

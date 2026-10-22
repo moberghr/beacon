@@ -48,7 +48,7 @@ public class HostDocsTranslationTests : QueryTranslationTestBase
     [Test]
     public void ImportedDocsSearchQuery_Translates()
     {
-        var sql = KnowledgeGraphService.BuildImportedDocsQuery(Context, 1, "loan", 10).ToQueryString();
+        var sql = KnowledgeGraphService.BuildImportedDocsQuery(Context, 1, ["loan"], 10).ToQueryString();
 
         sql.Should().Contain("project_imported_documents");
         sql.Should().Contain("mcp_doc_chunks");
