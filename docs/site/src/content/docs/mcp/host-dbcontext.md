@@ -166,10 +166,10 @@ UI is refused; restart the host (or call the sync again) instead.
   read-only login can write, with fixed catalog statements outside the SQL gate (the exposed tables' names are
   parameters):
   - **PostgreSQL:** whether the login is a superuser (`rolsuper`) or holds `INSERT`, `UPDATE` or `DELETE` on an exposed
-    table (`has_table_privilege`).
+    table (`has_table_privilege`), including column-level `INSERT` or `UPDATE` (`has_any_column_privilege`).
   - **SQL Server and Azure Synapse:** whether the login is in `db_owner` or `db_datawriter`, holds a database-wide
     `INSERT`, `UPDATE` or `DELETE` permission, or holds one of them on an exposed table
-    (`HAS_PERMS_BY_NAME(..., 'OBJECT', ...)`).
+    (`HAS_PERMS_BY_NAME(..., 'OBJECT', ...)`); the database-wide probes name the current database (`DB_NAME()`).
 
   Only those privileges are asked about (not `TRUNCATE`, DDL or other schemas' tables). A login that can write gets one
   Warning per data source naming it by id, never the connection string or the login. A check that cannot run, an answer

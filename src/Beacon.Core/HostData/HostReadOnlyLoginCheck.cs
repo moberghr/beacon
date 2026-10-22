@@ -32,7 +32,7 @@ internal readonly record struct HostLoginWriteAccess(HostLoginWriteVerdict Verdi
 
     /// <summary>
     /// PostgreSQL: the login is a superuser (<c>rolsuper</c>) or holds INSERT, UPDATE or DELETE on an exposed table
-    /// (<c>has_table_privilege</c>). Either answer true is write access, whatever the other; otherwise a missing answer, or
+    /// (<c>has_table_privilege</c>, or <c>has_any_column_privilege</c> for column-level INSERT or UPDATE). Either answer true is write access, whatever the other; otherwise a missing answer, or
     /// no exposed table found in the catalog (<paramref name="tablesFound"/>, also when none was exposed), is
     /// <see cref="HostLoginWriteVerdict.Unverified"/>: nothing checked is not read-only.
     /// </summary>
@@ -60,7 +60,7 @@ internal readonly record struct HostLoginWriteAccess(HostLoginWriteVerdict Verdi
 
     /// <summary>
     /// SQL Server and Azure Synapse: <c>IS_ROLEMEMBER('db_owner')</c>, <c>IS_ROLEMEMBER('db_datawriter')</c>,
-    /// <c>HAS_PERMS_BY_NAME(NULL, 'DATABASE', ...)</c> for INSERT, UPDATE and DELETE (1 granted, 0 not, NULL unknown), and
+    /// <c>HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', ...)</c> for INSERT, UPDATE and DELETE (1 granted, 0 not, NULL unknown), and
     /// <c>HAS_PERMS_BY_NAME(..., 'OBJECT', ...)</c> on each exposed table (<paramref name="exposedTableWrite"/>: 1 when any is
     /// granted). Any 1 is write access; otherwise a NULL, or no exposed table found (<paramref name="tablesFound"/>, also
     /// when none was exposed), is <see cref="HostLoginWriteVerdict.Unverified"/>.
@@ -145,6 +145,7 @@ internal sealed class HostReadOnlyLoginCheck(
                 SELECT 1
                 FROM exposed e
                 WHERE pg_catalog.has_table_privilege(e.oid, 'INSERT, UPDATE, DELETE')
+                    OR pg_catalog.has_any_column_privilege(e.oid, 'INSERT, UPDATE')
             ) AS can_write,
             (SELECT count(*) FROM exposed) AS tables_found
         """;
@@ -153,9 +154,9 @@ internal sealed class HostReadOnlyLoginCheck(
         SELECT
             CAST(IS_ROLEMEMBER('db_owner') AS int),
             CAST(IS_ROLEMEMBER('db_datawriter') AS int),
-            CAST(HAS_PERMS_BY_NAME(NULL, 'DATABASE', 'INSERT') AS int),
-            CAST(HAS_PERMS_BY_NAME(NULL, 'DATABASE', 'UPDATE') AS int),
-            CAST(HAS_PERMS_BY_NAME(NULL, 'DATABASE', 'DELETE') AS int)
+            CAST(HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'INSERT') AS int),
+            CAST(HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'UPDATE') AS int),
+            CAST(HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', 'DELETE') AS int)
         """;
 
     public async Task WarnIfWritableAsync(DataSource dataSource, IReadOnlyList<HostExposedTable> exposedTables, CancellationToken cancellationToken)

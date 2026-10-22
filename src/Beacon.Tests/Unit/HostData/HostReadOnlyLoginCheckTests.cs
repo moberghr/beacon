@@ -64,6 +64,24 @@ public class HostReadOnlyLoginCheckTests
         access.Reason.Should().Be(reason);
     }
 
+    [Test]
+    public void PostgreSqlStatement_CountsColumnLevelInsertAndUpdateAsWriteAccess()
+    {
+        HostReadOnlyLoginCheck.PostgreSqlSql.Should().Contain("has_table_privilege(e.oid, 'INSERT, UPDATE, DELETE')");
+        HostReadOnlyLoginCheck.PostgreSqlSql.Should().Contain("OR pg_catalog.has_any_column_privilege(e.oid, 'INSERT, UPDATE')");
+    }
+
+    [Test]
+    public void SqlServerStatement_NamesTheCurrentDatabaseForEveryDatabaseProbe()
+    {
+        foreach (var permission in new[] { "INSERT", "UPDATE", "DELETE" })
+        {
+            HostReadOnlyLoginCheck.SqlServerSql.Should().Contain($"HAS_PERMS_BY_NAME(DB_NAME(), 'DATABASE', '{permission}')");
+        }
+
+        HostReadOnlyLoginCheck.SqlServerSql.Should().NotContain("HAS_PERMS_BY_NAME(NULL");
+    }
+
     [TestCase(1, 0, 0, 0, 0, 2, 0, "CanWrite", "db_owner")]
     [TestCase(0, 1, 0, 0, 0, 2, 0, "CanWrite", "db_datawriter")]
     [TestCase(0, 0, 1, 0, 0, 2, 0, "CanWrite", "a database-wide write permission")]
