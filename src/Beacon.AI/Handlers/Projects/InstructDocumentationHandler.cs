@@ -64,7 +64,8 @@ internal sealed class InstructDocumentationHandler(
             SystemPrompt = systemPrompt,
             Messages = [new ChatMessage(ConversationRole.User, userPrompt)],
             Temperature = 0.3m,
-            MaxTokens = 8192
+            MaxTokens = 8192,
+            Operation = LlmOperations.DocumentationInstruct
         };
 
         var provider = rowDataEgress.Track(

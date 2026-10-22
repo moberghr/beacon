@@ -87,7 +87,7 @@ public class ProjectAskToolRepairFlowTests
             .ReturnsAsync((string?)null);
         _sqlGeneration
             .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), GeneratedSql,
-                "relation \"orders\" does not exist", It.IsAny<string>(), null, Question, It.IsAny<CancellationToken>()))
+                "relation \"orders\" does not exist", It.IsAny<string>(), null, Question, It.IsAny<McpSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(CorrectedSql);
         _executor
             .Setup(x => x.ExecuteAsync(DataSourceId, CorrectedSql, 100, It.IsAny<CancellationToken>()))
@@ -118,8 +118,8 @@ public class ProjectAskToolRepairFlowTests
             .ReturnsAsync(new AskExecutionResult(null, "22P02: invalid input syntax for type integer: \"Ivan Horvat\" in column \"orders\"; DETAIL: Key (id)=(ivan@bank.example)", 0, false));
         _sqlGeneration
             .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), GeneratedSql,
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<CancellationToken>()))
-            .Callback<ILlmProvider, string, string, string, string, string?, string, CancellationToken>((_, _, _, error, _, _, _, _) => prompted = error)
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<McpSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .Callback<ILlmProvider, string, string, string, string, string?, string, McpSettingsData, string?, CancellationToken>((_, _, _, error, _, _, _, _, _, _) => prompted = error)
             .ReturnsAsync((string?)null);
         var pipeline = new AskSqlPipeline(
             _knowledgeGraph.Object,
@@ -152,7 +152,7 @@ public class ProjectAskToolRepairFlowTests
             .ReturnsAsync(new AskExecutionResult(null, ErrorQuotingAValue, 0, false));
         _sqlGeneration
             .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), GeneratedSql,
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<CancellationToken>()))
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<McpSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((string?)null);
 
         var outcome = await CreatePipeline().RunAsync(
@@ -176,7 +176,7 @@ public class ProjectAskToolRepairFlowTests
             .ReturnsAsync(ErrorQuotingAValue);
         _sqlGeneration
             .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), GeneratedSql,
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<CancellationToken>()))
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<McpSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((string?)null);
         _executor
             .Setup(x => x.ExecuteAsync(DataSourceId, GeneratedSql, 100, It.IsAny<CancellationToken>()))
@@ -199,8 +199,8 @@ public class ProjectAskToolRepairFlowTests
         string? repairError = null;
         _sqlGeneration
             .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), GeneratedSql,
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<CancellationToken>()))
-            .Callback<ILlmProvider, string, string, string, string, string?, string, CancellationToken>((_, _, _, error, _, _, _, _) => repairError = error)
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<McpSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .Callback<ILlmProvider, string, string, string, string, string?, string, McpSettingsData, string?, CancellationToken>((_, _, _, error, _, _, _, _, _, _) => repairError = error)
             .ReturnsAsync((string?)null);
         _executor
             .Setup(x => x.ExecuteAsync(DataSourceId, GeneratedSql, 100, It.IsAny<CancellationToken>()))
@@ -244,13 +244,13 @@ public class ProjectAskToolRepairFlowTests
             .ReturnsAsync(new AskExecutionResult(null, ErrorQuotingAValue, 0, false));
         _sqlGeneration
             .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), GeneratedSql,
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<CancellationToken>()))
-            .Callback<ILlmProvider, string, string, string, string, string?, string, CancellationToken>((_, _, _, error, _, _, _, _) => prompts.Add(error))
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<McpSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .Callback<ILlmProvider, string, string, string, string, string?, string, McpSettingsData, string?, CancellationToken>((_, _, _, error, _, _, _, _, _, _) => prompts.Add(error))
             .ReturnsAsync(CorrectedSql);
         _sqlGeneration
             .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), CorrectedSql,
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<CancellationToken>()))
-            .Callback<ILlmProvider, string, string, string, string, string?, string, CancellationToken>((_, _, _, error, _, _, _, _) => prompts.Add(error))
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<McpSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .Callback<ILlmProvider, string, string, string, string, string?, string, McpSettingsData, string?, CancellationToken>((_, _, _, error, _, _, _, _, _, _) => prompts.Add(error))
             .ReturnsAsync((string?)null);
 
         var outcome = await CreatePipeline(forbidRowData: forbidRowData).RunAsync(
@@ -273,8 +273,8 @@ public class ProjectAskToolRepairFlowTests
             .ReturnsAsync(new AskExecutionResult(null, RaisedError, 0, false));
         _sqlGeneration
             .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), GeneratedSql,
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<CancellationToken>()))
-            .Callback<ILlmProvider, string, string, string, string, string?, string, CancellationToken>((_, _, _, error, _, _, _, _) => prompted = error)
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), Question, It.IsAny<McpSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .Callback<ILlmProvider, string, string, string, string, string?, string, McpSettingsData, string?, CancellationToken>((_, _, _, error, _, _, _, _, _, _) => prompted = error)
             .ReturnsAsync((string?)null);
 
         var outcome = await CreatePipeline().RunAsync(
@@ -339,7 +339,7 @@ public class ProjectAskToolRepairFlowTests
             .ReturnsAsync(new AskExecutionResult("No results returned.\n", null, 0, true));
         _sqlGeneration
             .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), GeneratedSql,
-                It.Is<string>(y => y.Contains("zero rows")), It.IsAny<string>(), null, NonCountQuestion, It.IsAny<CancellationToken>()))
+                It.Is<string>(y => y.Contains("zero rows")), It.IsAny<string>(), null, NonCountQuestion, It.IsAny<McpSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(CorrectedSql);
         _executor
             .Setup(x => x.ExecuteAsync(DataSourceId, CorrectedSql, 100, It.IsAny<CancellationToken>()))
@@ -351,7 +351,7 @@ public class ProjectAskToolRepairFlowTests
         outcome.Text.Should().Contain("returned zero rows, retried");
         outcome.Text.Should().Contain("### Results (5 rows)");
         _sqlGeneration.Verify(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<McpSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Once);
         outcome.EmptyResultRetried.Should().BeTrue();
     }
 
@@ -364,7 +364,7 @@ public class ProjectAskToolRepairFlowTests
             .ReturnsAsync(new AskExecutionResult("No results returned.\n", null, 0, true));
         _sqlGeneration
             .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), GeneratedSql,
-                It.Is<string>(y => y.Contains("zero rows")), It.IsAny<string>(), null, NonCountQuestion, It.IsAny<CancellationToken>()))
+                It.Is<string>(y => y.Contains("zero rows")), It.IsAny<string>(), null, NonCountQuestion, It.IsAny<McpSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(GeneratedSql + ";");
 
         var outcome = await CreatePipeline().RunAsync(
@@ -384,7 +384,7 @@ public class ProjectAskToolRepairFlowTests
             .ReturnsAsync(new AskExecutionResult("No results returned.\n", null, 0, true));
         _sqlGeneration
             .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), GeneratedSql,
-                It.Is<string>(y => y.Contains("zero rows")), It.IsAny<string>(), null, NonCountQuestion, It.IsAny<CancellationToken>()))
+                It.Is<string>(y => y.Contains("zero rows")), It.IsAny<string>(), null, NonCountQuestion, It.IsAny<McpSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(CorrectedSql);
         _executor
             .Setup(x => x.ExecuteAsync(DataSourceId, CorrectedSql, 100, It.IsAny<CancellationToken>()))
@@ -408,7 +408,7 @@ public class ProjectAskToolRepairFlowTests
             .ReturnsAsync("dry-run error");
         _sqlGeneration
             .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<McpSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(CorrectedSql);
         _executor
             .Setup(x => x.ExecuteAsync(DataSourceId, It.IsAny<string>(), 100, It.IsAny<CancellationToken>()))
@@ -418,7 +418,7 @@ public class ProjectAskToolRepairFlowTests
             _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, _executor.Object, new AskSqlPipelineOptions(), CancellationToken.None);
 
         _sqlGeneration.Verify(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<McpSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
         outcome.Text.Should().Contain("**Execution Error:** 42601: syntax error at end of input");
         outcome.EmptyResultRetried.Should().BeFalse();
     }
@@ -436,7 +436,7 @@ public class ProjectAskToolRepairFlowTests
 
         outcome.Text.Should().Contain("No results returned.");
         _sqlGeneration.Verify(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<McpSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
         outcome.EmptyResultRetried.Should().BeFalse();
     }
 
@@ -478,7 +478,7 @@ public class ProjectAskToolRepairFlowTests
 
         outcome.Text.Should().Contain("### Results (2 rows)");
         _sqlGeneration.Verify(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<McpSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     // F002: constructs the REAL ProjectAskTool (not the pipeline) with a mocked IAskSqlPipeline
@@ -975,7 +975,7 @@ public class ProjectAskToolRepairFlowTests
                     .ToList());
         _sqlGeneration
             .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<McpSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(CorrectedSql);
         var budget = new AskLlmBudget(6);
 
@@ -1024,7 +1024,7 @@ public class ProjectAskToolRepairFlowTests
             new AskSqlPipelineOptions { LlmBudget = budget }, CancellationToken.None);
 
         _sqlGeneration.Verify(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<McpSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
         outcome.Succeeded.Should().BeFalse();
         outcome.FinalSql.Should().Be(GeneratedSql);
         outcome.Repairs.Should().BeEmpty();
@@ -1040,7 +1040,7 @@ public class ProjectAskToolRepairFlowTests
             .ReturnsAsync("dry-run error");
         _sqlGeneration
             .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<McpSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(CorrectedSql);
         _executor
             .Setup(x => x.ExecuteAsync(DataSourceId, It.IsAny<string>(), 100, It.IsAny<CancellationToken>()))
@@ -1052,7 +1052,7 @@ public class ProjectAskToolRepairFlowTests
             new AskSqlPipelineOptions { LlmBudget = budget }, CancellationToken.None);
 
         _sqlGeneration.Verify(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Once);
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<McpSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Once);
         outcome.Repairs.Should().ContainSingle(x => x.Trigger == "dry-run");
         outcome.FinalSql.Should().Be(CorrectedSql);
         budget.Used.Should().Be(2);
@@ -1411,7 +1411,7 @@ public class ProjectAskToolRepairFlowTests
         signal.ExecutionError.Should().Be(RedactedError);
         signal.IsSuccessful.Should().BeFalse();
         _sqlGeneration.Verify(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<McpSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Test]
@@ -1456,7 +1456,7 @@ public class ProjectAskToolRepairFlowTests
         GeneratesForAnySettings("SELECT bogus FROM orders");
         _sqlGeneration
             .Setup(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
-                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<McpSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync("SELECT id FROM orders");
         _executor
             .Setup(x => x.DryRunAsync(DataSourceId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
@@ -1472,7 +1472,7 @@ public class ProjectAskToolRepairFlowTests
         signal.ExecutionFailed.Should().BeTrue();
         signal.ExecutionError.Should().Be(RedactedError);
         _sqlGeneration.Verify(x => x.RetryWithErrorAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(),
-            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+            It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<McpSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
     }
 
     // Runs the tool's single-source path over the real pipeline (the budget, if any, with some calls already spent, as the

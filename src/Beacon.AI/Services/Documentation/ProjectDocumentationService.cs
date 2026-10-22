@@ -376,7 +376,8 @@ internal sealed class ProjectDocumentationService(
             SystemPrompt = systemPrompt,
             Messages = [new ChatMessage(ConversationRole.User, userPrompt)],
             Temperature = 0.3m,
-            MaxTokens = 8192
+            MaxTokens = 8192,
+            Operation = LlmOperations.Documentation
         };
         return await provider.CompleteAsync(request, ct);
     }

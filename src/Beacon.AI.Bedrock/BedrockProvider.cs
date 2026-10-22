@@ -175,29 +175,7 @@ public class BedrockProvider : ILlmProvider
             using var reader = new StreamReader(response.Body);
             var responseBody = await reader.ReadToEndAsync(cancellationToken);
 
-            var result = JsonSerializer.Deserialize<ClaudeBedrockResponse>(responseBody,
-                new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
-
-            if (result == null)
-                throw new AiServiceException("Failed to parse Bedrock Claude API response");
-
-            var content = result.Content?.FirstOrDefault()?.Text ?? string.Empty;
-
-            // Calculate costs
-            var (inputCostPerMillion, outputCostPerMillion) = GetPricing(_modelId);
-            var inputCost = (result.Usage?.InputTokens / 1_000_000m) * inputCostPerMillion;
-            var outputCost = (result.Usage?.OutputTokens / 1_000_000m) * outputCostPerMillion;
-
-            return new Beacon.Core.Models.Ai.LlmResponse
-            {
-                Content = content,
-                InputTokens = result.Usage?.InputTokens ?? 0,
-                OutputTokens = result.Usage?.OutputTokens ?? 0,
-                Cost = (inputCost ?? 0) + (outputCost ?? 0),
-                Model = _modelId,
-                PromptCacheHit = false,
-                Truncated = result.StopReason == "max_tokens"
-            };
+            return ParseClaudeResponse(responseBody);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -301,6 +279,48 @@ public class BedrockProvider : ILlmProvider
         return Task.FromResult(new TokenCount(estimatedTokens));
     }
 
+    /// <summary>
+    /// The response of a Claude model on Bedrock: content, token counts (prompt cache read and write included, null-safe),
+    /// cost at this model's prices and the truncation flag. Bedrock is sent no cache point yet, but a response that reports
+    /// cache tokens is costed at Anthropic's cache rates.
+    /// </summary>
+    internal Beacon.Core.Models.Ai.LlmResponse ParseClaudeResponse(string responseBody)
+    {
+        var result = JsonSerializer.Deserialize<ClaudeBedrockResponse>(responseBody,
+            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+
+        if (result == null)
+        {
+            throw new AiServiceException("Failed to parse Bedrock Claude API response");
+        }
+
+        var content = result.Content?.FirstOrDefault()?.Text ?? string.Empty;
+
+        // Calculate costs
+        var (inputCostPerMillion, outputCostPerMillion) = GetPricing(_modelId);
+        var inputCost = (result.Usage?.InputTokens / 1_000_000m) * inputCostPerMillion;
+        var outputCost = (result.Usage?.OutputTokens / 1_000_000m) * outputCostPerMillion;
+        var cacheReadTokens = result.Usage?.CacheReadInputTokens ?? 0;
+        var cacheWriteTokens = result.Usage?.CacheCreationInputTokens ?? 0;
+
+        // Anthropic's cache rates: a read at a tenth of the input price, a write at a quarter more.
+        var cacheCost = (cacheReadTokens / 1_000_000m) * inputCostPerMillion * 0.1m
+            + (cacheWriteTokens / 1_000_000m) * inputCostPerMillion * 1.25m;
+
+        return new Beacon.Core.Models.Ai.LlmResponse
+        {
+            Content = content,
+            InputTokens = result.Usage?.InputTokens ?? 0,
+            OutputTokens = result.Usage?.OutputTokens ?? 0,
+            Cost = (inputCost ?? 0) + (outputCost ?? 0) + cacheCost,
+            Model = _modelId,
+            PromptCacheHit = cacheReadTokens > 0,
+            Truncated = result.StopReason == "max_tokens",
+            CacheReadInputTokens = cacheReadTokens,
+            CacheWriteInputTokens = cacheWriteTokens
+        };
+    }
+
     private (decimal input, decimal output) GetPricing(string modelId)
     {
         // Try to find exact match or closest match
@@ -357,6 +377,12 @@ public class BedrockProvider : ILlmProvider
 
         [JsonPropertyName("output_tokens")]
         public int OutputTokens { get; set; }
+
+        [JsonPropertyName("cache_read_input_tokens")]
+        public int? CacheReadInputTokens { get; set; }
+
+        [JsonPropertyName("cache_creation_input_tokens")]
+        public int? CacheCreationInputTokens { get; set; }
     }
 
     // Response models for Llama

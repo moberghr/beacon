@@ -405,7 +405,8 @@ public class AiActorService : IAiActorServiceExtended
                     new(ConversationRole.User, userPrompt)
                 },
                 Temperature = 0.3m,
-                MaxTokens = 4096
+                MaxTokens = 4096,
+                Operation = LlmOperations.ActorThink
             };
 
             var llmResponse = await _llmProvider.CompleteAsync(llmRequest, cancellationToken);
@@ -660,7 +661,8 @@ public class AiActorService : IAiActorServiceExtended
                     new(ConversationRole.User, userPrompt)
                 },
                 Temperature = 0.3m,
-                MaxTokens = 4096
+                MaxTokens = 4096,
+                Operation = LlmOperations.ActorRefine
             };
 
             var llmResponse = await _llmProvider.CompleteAsync(llmRequest, cancellationToken);
@@ -1247,7 +1249,8 @@ public class AiActorService : IAiActorServiceExtended
                     new(ConversationRole.User, userPrompt)
                 },
                 Temperature = 0.3m,
-                MaxTokens = 4096
+                MaxTokens = 4096,
+                Operation = LlmOperations.ActorSetup
             };
 
             execution.Phase = AiActorExecutionPhase.Planning;
@@ -2262,7 +2265,8 @@ public class AiActorService : IAiActorServiceExtended
                     new(ConversationRole.User, userPrompt)
                 },
                 Temperature = 0.3m,
-                MaxTokens = 4096
+                MaxTokens = 4096,
+                Operation = LlmOperations.ActorPlan
             };
 
             var llmResponse = await _llmProvider.CompleteAsync(llmRequest, cancellationToken);

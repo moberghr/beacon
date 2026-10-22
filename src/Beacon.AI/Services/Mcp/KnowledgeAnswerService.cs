@@ -126,7 +126,8 @@ internal sealed class KnowledgeAnswerService(
             SystemPrompt = systemPrompt,
             Messages = [new ChatMessage(ConversationRole.User, userMessage)],
             Temperature = 0.3m,
-            MaxTokens = 2048
+            MaxTokens = 2048,
+            Operation = LlmOperations.AskKnowledgeAnswer
         };
 
         // Stored documentation that can list discovered values is row data: the request carrying it is logged.

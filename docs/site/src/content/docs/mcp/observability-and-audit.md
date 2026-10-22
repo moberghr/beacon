@@ -181,6 +181,51 @@ The audit row itself keeps the tool name as before, unredacted.
 > control that tag. A host worried about cardinality on the SDK's own meter can drop or re-bucket that tag with an
 > OpenTelemetry [View](https://opentelemetry.io/docs/specs/otel/metrics/sdk/#view) in its `MeterProviderBuilder`.
 
+### LLM completions and ask stages
+
+Beacon opens its own spans on the `Beacon` activity source for the work behind a tool call. **No tag carries
+content**: never the prompt, the system prompt, the completion, SQL or the question, whatever
+`Beacon:Telemetry:CaptureContent` says. Tags hold names, counts and flags only.
+
+`beacon.llm.completion` (kind Client): one span per LLM completion, opened around the request queue, so it covers the
+wait for a slot, the retries and the provider call.
+
+| Tag | Meaning |
+|---|---|
+| `gen_ai.provider.name` | The configured provider kind (`openai`, `claude`, `azureopenai`, `bedrock`), read from the same configuration snapshot as the provider that serves the call. |
+| `gen_ai.request.model` | The configured model (a configuration value), from that same snapshot. |
+| `gen_ai.response.model` | The model the provider reports, only when it reads as a model name (at most 128 letters, digits and `. - _ : / @`); absent otherwise. |
+| `beacon.llm.operation` | What the completion is for, a fixed name such as `sql.generation`, `sql.self_consistency`, `sql.repair`, `ask.intent`, `ask.routing`, `ask.knowledge_answer`, `doc.indexing`, `learning.lesson`, `documentation.generate`, `actor.think`. Absent when the caller set none. |
+| `gen_ai.usage.input_tokens`, `gen_ai.usage.output_tokens` | Tokens the provider reports. |
+| `gen_ai.usage.cache_read.input_tokens`, `gen_ai.usage.cache_creation.input_tokens` | Prompt-cache reads and writes, where the provider reports them (Claude, also on Bedrock); otherwise 0. |
+| `beacon.llm.cache_hint` | Whether the request marked any message as a prompt-cache breakpoint. Only the Claude provider acts on it; Bedrock does not request prompt caching yet, and OpenAI and Azure OpenAI cache on their own. |
+| `beacon.llm.truncated` | Whether the answer stopped at the token limit. |
+| `beacon.outcome` | `success`, `error`, or `cancelled` when the call was cancelled (a cancellation sets no error status and no error type). |
+| `error.type`, `beacon.error.root_type` | On an error only: the exception's type name and the innermost exception's type name (a provider wraps its failures, so the root shows the cause). Never a message. The span's status is Error. |
+
+`beacon.ask.<stage>`: one span per stage of an `ask`, tagged `beacon.ask.stage` and counts only. A completion made in
+a stage is its child span. A stage that throws is marked like a completion: `beacon.outcome` `cancelled` on a
+cancellation, otherwise `error` with error status, `error.type` and `beacon.error.root_type` (a failing self-consistency
+vote is marked so although the `ask` goes on with the single candidate).
+
+| Span | Extra tags |
+|---|---|
+| `beacon.ask.intent` | `beacon.ask.intent` (`DataQuery` or `Knowledge`) |
+| `beacon.ask.routing` | `beacon.ask.sources` (data sources considered) |
+| `beacon.ask.generation` | `beacon.ask.tables` (distinct tables the candidate reads) |
+| `beacon.ask.self_consistency` | `beacon.ask.candidates` (candidates voted on) |
+| `beacon.ask.repair` | `beacon.ask.repair.trigger` (`schema`, `lint`, `dry-run`, `execution`, `empty-result`), `beacon.ask.produced_sql` (whether a statement came back) |
+| `beacon.ask.execution` | `beacon.ask.statement.purpose` (`initial`, `repair`, `candidate`), `beacon.result.rows`, `beacon.outcome` |
+
+On the `Beacon` meter:
+
+| Instrument | Kind | Tags |
+|---|---|---|
+| `beacon.llm.calls` | Counter | `gen_ai.provider.name`, `gen_ai.request.model`, `beacon.llm.operation`, `beacon.outcome` (`success`, `error`, `cancelled`), `error.type` (errors only) |
+| `beacon.llm.tokens` | Histogram | `gen_ai.provider.name`, `gen_ai.request.model`, `beacon.llm.operation`, `gen_ai.token.type` (`input`, `output`, `cache_read`, `cache_write`); a type with no tokens records nothing |
+
+A completion made outside a request queue's provider (the admin connection test) has no span.
+
 ### Content on spans is a double opt-in
 
 `beacon.tool.input` is added to the current span only when **both**:

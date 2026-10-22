@@ -89,6 +89,18 @@ public class LlmProviderManager : ILlmConfigurationUpdater
     /// </summary>
     public LlmConfiguration CurrentConfiguration => Volatile.Read(ref _config);
 
+    /// <summary>
+    /// The main and fast providers together with the configuration they were built from, read as one unit: a
+    /// configuration update running at the same time is seen either whole or not at all.
+    /// </summary>
+    internal (ILlmProvider? Main, ILlmProvider? Fast, LlmConfiguration Configuration) ActiveSnapshot()
+    {
+        lock (_lock)
+        {
+            return (_active.Main, _active.Fast, _config);
+        }
+    }
+
     public void UpdateConfiguration(AppSettingsData settings)
     {
         lock (_lock)
