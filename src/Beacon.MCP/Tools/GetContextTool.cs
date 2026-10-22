@@ -22,11 +22,12 @@ internal sealed class GetContextTool(
     IProjectContext projectContext,
     McpAuditService auditService,
     ILogger<GetContextTool> logger,
-    IEnumerable<IHostEndpointToolCatalog>? endpointToolCatalogs = null)
+    IHostEndpointToolOverview? hostEndpointTools = null)
 {
     internal const string OverviewFormat = "overview";
     internal const string AgentsMdFormat = "agents_md";
     internal const int MaxDocuments = 50;
+    internal const int MaxTools = 50;
 
     [McpServerTool(Name = "get_context", Title = "Project Overview", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Get an overview of the project: its data sources, schemas, tables, quality scores and documentation status, the host application tools it serves and its imported documents. This is the starting point for understanding what the project offers. format='agents_md' returns a project brief in markdown for an agent workspace's AGENTS.md instead.")]
@@ -101,7 +102,11 @@ internal sealed class GetContextTool(
                     .Where(x => x.ProjectId == projectId)
                     .CountAsync(cancellationToken);
 
-            var endpointTools = await GetEndpointToolsAsync(projectId, cancellationToken);
+            // The tools this caller's tools/list offers: none for a credential that cannot call them, no write tool for a
+            // system caller.
+            var endpointTools = hostEndpointTools == null
+                ? null
+                : await hostEndpointTools.ListForProjectAsync(projectId, cancellationToken);
 
             var text = $"# Project: {project.Name}\n";
             if (!string.IsNullOrEmpty(project.Description))
@@ -205,20 +210,6 @@ internal sealed class GetContextTool(
         }
     }
 
-    private async Task<HostEndpointToolListing?> GetEndpointToolsAsync(int projectId, CancellationToken cancellationToken)
-    {
-        foreach (var catalog in endpointToolCatalogs ?? [])
-        {
-            var listing = await catalog.GetForProjectAsync(projectId, cancellationToken);
-            if (listing is { Tools.Count: > 0 })
-            {
-                return listing;
-            }
-        }
-
-        return null;
-    }
-
     private static string EndpointToolsSection(HostEndpointToolListing? listing)
     {
         if (listing == null)
@@ -231,10 +222,15 @@ internal sealed class GetContextTool(
             ? $"Find one with `{HostEndpointToolService.SearchToolName}` and run it with `{HostEndpointToolService.CallToolName}`. Tools marked (writes) change data.\n\n"
             : "Call them by name. Tools marked (writes) change data.\n\n";
 
-        foreach (var tool in listing.Tools)
+        foreach (var tool in listing.Tools.Take(MaxTools))
         {
             text += $"- `{(listing.CatalogMode ? tool.Name : tool.ToolName)}`{(tool.ReadOnly ? "" : " (writes)")}";
             text += string.IsNullOrWhiteSpace(tool.Description) ? "\n" : $" — {tool.Description.Trim()}\n";
+        }
+
+        if (listing.Tools.Count > MaxTools)
+        {
+            text += $"- … {listing.Tools.Count - MaxTools} more; `{HostEndpointToolService.SearchToolName}` finds them.\n";
         }
 
         return text + "\n";

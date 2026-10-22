@@ -5,6 +5,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.HostDocs;
 using Beacon.Core.HostEndpoints;
+using Beacon.MCP.HostEndpoints;
 using Beacon.MCP.Services;
 using Beacon.MCP.Tools;
 using Beacon.Tests.Common;
@@ -211,9 +212,9 @@ public class ImportedDocumentToolTests
     public async Task GetContext_ProjectWithoutDataSources_ListsHostToolsAndImportedDocuments()
     {
         _store.Projects.Add(new Project { Id = ProjectId, Name = "Netgiro" });
-        var catalog = new Mock<IHostEndpointToolCatalog>();
-        catalog
-            .Setup(x => x.GetForProjectAsync(ProjectId, It.IsAny<CancellationToken>()))
+        var tools = new Mock<IHostEndpointToolOverview>();
+        tools
+            .Setup(x => x.ListForProjectAsync(ProjectId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new HostEndpointToolListing(
                 [
                     new HostEndpointToolSummary("leave_balance", "api_leave_balance", "Your remaining annual leave."),
@@ -221,7 +222,7 @@ public class ImportedDocumentToolTests
                 ],
                 false));
 
-        var text = await GetContextAsync(catalog.Object);
+        var text = await GetContextAsync(tools.Object);
 
         text.Should().Be("""
             # Project: Netgiro
@@ -260,7 +261,7 @@ public class ImportedDocumentToolTests
         text.Should().Be("# Project: Netgiro\n\nThis project has no data sources, host application tools or imported documents yet.\n");
     }
 
-    private async Task<string> GetContextAsync(IHostEndpointToolCatalog? catalog)
+    private async Task<string> GetContextAsync(IHostEndpointToolOverview? tools)
     {
         var knowledgeGraph = new Mock<IKnowledgeGraphService>();
         knowledgeGraph
@@ -273,7 +274,7 @@ public class ImportedDocumentToolTests
             ProjectContext(),
             AuditService(),
             NullLogger<GetContextTool>.Instance,
-            catalog == null ? null : [catalog]);
+            tools);
 
         var result = await tool.ExecuteAsync(cancellationToken: CancellationToken.None);
         result.IsError.Should().NotBe(true, Text(result));

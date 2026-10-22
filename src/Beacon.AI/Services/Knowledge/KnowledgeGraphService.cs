@@ -787,6 +787,12 @@ internal sealed class KnowledgeGraphService(
 
     public async Task<List<SearchResult>> SearchProjectAsync(string query, int projectId, int maxResults = 20, CancellationToken ct = default)
     {
+        var terms = SearchTermsOf(query);
+        if (terms.Count == 0)
+        {
+            return [];
+        }
+
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
         // Get all data source IDs for this project
@@ -797,8 +803,8 @@ internal sealed class KnowledgeGraphService(
             .ToListAsync(ct);
 
         var results = new List<SearchResult>();
-        var queryLower = query.ToLower();
-        var terms = SearchTermsOf(query);
+        var phrase = query.Trim();
+        var phraseLower = phrase.ToLowerInvariant();
 
         // Search tables (a project with only imported documents has no data sources — skip the catalog queries)
         var matchingTables = dsIds.Count == 0
@@ -816,7 +822,7 @@ internal sealed class KnowledgeGraphService(
                 SchemaName = table.SchemaName,
                 TableName = table.TableName,
                 Description = table.TableDescription,
-                Relevance = (table.TableName.Equals(query, StringComparison.OrdinalIgnoreCase) ? 1.0 : 0.8) * TermShare(table.Hits, terms)
+                Relevance = (table.TableName.Equals(phrase, StringComparison.OrdinalIgnoreCase) ? 1.0 : 0.8) * TermShare(table.Hits, terms)
             });
         }
 
@@ -837,7 +843,7 @@ internal sealed class KnowledgeGraphService(
                 TableName = col.TableName,
                 ColumnName = col.ColumnName,
                 Description = col.Description,
-                Relevance = (col.ColumnName.Equals(query, StringComparison.OrdinalIgnoreCase) ? 0.9 : 0.6) * TermShare(col.Hits, terms)
+                Relevance = (col.ColumnName.Equals(phrase, StringComparison.OrdinalIgnoreCase) ? 0.9 : 0.6) * TermShare(col.Hits, terms)
             });
         }
 
@@ -873,7 +879,7 @@ internal sealed class KnowledgeGraphService(
                 SchemaName = string.Empty,
                 TableName = string.Empty,
                 Description = doc.MatchingChunk != null ? TruncateContent(doc.MatchingChunk, 200) : null,
-                Relevance = (doc.Title.ToLower().Contains(queryLower) ? 0.55 : 0.5) * TermShare(doc.Hits, terms),
+                Relevance = (doc.Title.ToLowerInvariant().Contains(phraseLower) ? 0.55 : 0.5) * TermShare(doc.Hits, terms),
                 DocIdentity = $"importeddoc:{doc.Id}",
                 DocumentPath = doc.Path,
                 DocumentTitle = doc.Title
@@ -1235,10 +1241,15 @@ internal sealed class KnowledgeGraphService(
     // The search terms of a free-text query: its lower-cased words (letters, digits and underscores, so an identifier
     // like order_items stays one term) without single characters and function words, at most MaxSearchTerms of them.
     // "how do I request annual leave" searches for request, annual and leave. A query with no such word searches for
-    // the whole query, as one term.
+    // the whole query, as one term; a blank query has none.
     internal static List<string> SearchTermsOf(string query)
     {
         var phrase = query.Trim().ToLowerInvariant();
+        if (phrase.Length == 0)
+        {
+            return [];
+        }
+
         var terms = System.Text.RegularExpressions.Regex
             .Split(phrase, @"[^\p{L}\p{N}_]+")
             .Where(x => x.Length > 1)
@@ -1249,19 +1260,6 @@ internal sealed class KnowledgeGraphService(
 
         return terms.Count == 0 ? [phrase] : terms;
     }
-
-    private const int MaxSearchTerms = 8;
-
-    private static readonly HashSet<string> SearchStopWords = new(StringComparer.Ordinal)
-    {
-        "an", "the", "and", "or", "of", "to", "in", "on", "at", "for", "from", "by", "with", "about", "into", "is",
-        "are", "was", "were", "be", "do", "does", "did", "how", "what", "which", "who", "where", "when", "why", "can",
-        "could", "should", "would", "will", "me", "my", "we", "our", "you", "your", "it", "its", "this", "that", "there",
-        "as", "if"
-    };
-
-    // The share of the search terms a row contains, which scales its relevance band: a one-term query keeps the band.
-    private static double TermShare(int hits, List<string> terms) => (double)hits / terms.Count;
 
     // Deterministic paging: ties inside a coarse relevance band must not reshuffle between calls.
     // DataSourceId disambiguates two data sources sharing a display name, so the chain is unique for
@@ -2828,6 +2826,19 @@ internal sealed class KnowledgeGraphService(
             Schemas = schemas
         };
     }
+
+    private const int MaxSearchTerms = 8;
+
+    private static readonly HashSet<string> SearchStopWords = new(StringComparer.Ordinal)
+    {
+        "an", "the", "and", "or", "of", "to", "in", "on", "at", "for", "from", "by", "with", "about", "into", "is",
+        "are", "was", "were", "be", "do", "does", "did", "how", "what", "which", "who", "where", "when", "why", "can",
+        "could", "should", "would", "will", "me", "my", "we", "our", "you", "your", "it", "its", "this", "that", "there",
+        "as", "if"
+    };
+
+    // The share of the search terms a row contains, which scales its relevance band: a one-term query keeps the band.
+    private static double TermShare(int hits, List<string> terms) => (double)hits / terms.Count;
 }
 
 // Row shapes of the SearchProjectAsync sub-queries (see the Build*Query methods above).

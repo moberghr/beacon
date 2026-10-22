@@ -32,6 +32,13 @@ public class SearchProjectTermsTests
         KnowledgeGraphService.SearchTermsOf(query).Should().Equal(expected);
     }
 
+    [TestCase("")]
+    [TestCase("   ")]
+    public void SearchTermsOf_BlankQuery_HasNoTerms(string query)
+    {
+        KnowledgeGraphService.SearchTermsOf(query).Should().BeEmpty("a blank query must not become an empty term that every row contains");
+    }
+
     [Test]
     public void SearchTermsOf_KeepsAtMostEightTerms()
     {

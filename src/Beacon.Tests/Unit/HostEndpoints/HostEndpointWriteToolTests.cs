@@ -131,6 +131,27 @@ public class HostEndpointWriteToolTests
     }
 
     [Test]
+    public async Task ProjectOverview_ListsWhatTheCallersToolListOffers()
+    {
+        var systemCaller = HostEndpointTestHost.SystemCaller(HostEndpointTestClaims.Permission(HostEndpointTestHost.ViewThings));
+
+        // One service per call: every HttpContextAccessor shares one async-local request, so the latest CreateService wins.
+        var forUser = await _host.CreateService(HostEndpointTestHost.OuterRequest(UserWithLeave()))
+            .ListForProjectAsync(HostEndpointTestHost.ProjectId, CancellationToken.None);
+        var forAnotherProject = await _host.CreateService(HostEndpointTestHost.OuterRequest(UserWithLeave()))
+            .ListForProjectAsync(HostEndpointTestHost.ProjectId + 1, CancellationToken.None);
+        var forSystem = await _host.CreateService(HostEndpointTestHost.OuterRequest(systemCaller))
+            .ListForProjectAsync(HostEndpointTestHost.ProjectId, CancellationToken.None);
+        var forApiKey = await _host.CreateService(HostEndpointTestHost.OuterRequest(null))
+            .ListForProjectAsync(HostEndpointTestHost.ProjectId, CancellationToken.None);
+
+        forUser!.Tools.Should().Contain(x => x.ToolName == "api_leave_book" && !x.ReadOnly);
+        forSystem!.Tools.Select(x => x.ToolName).Should().Contain("api_thing_by_id").And.NotContain(x => x.StartsWith("api_leave_"));
+        forApiKey.Should().BeNull("a credential that cannot call the tools is not shown them");
+        forAnotherProject.Should().BeNull("the tools belong to one project");
+    }
+
+    [Test]
     public async Task ASystemCaller_NeitherSeesNorCallsAWriteTool_EvenWithTheHostPermission()
     {
         var caller = HostEndpointTestHost.SystemCaller(HostEndpointTestClaims.Permission(HostEndpointTestHost.ViewThings));

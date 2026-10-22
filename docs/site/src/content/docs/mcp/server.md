@@ -152,7 +152,7 @@ Further tools appear next to them:
 
 ### `get_context`
 
-Get an overview of the project: data sources, schemas, tables, quality scores, and documentation status, plus the [host application tools](/mcp/host-endpoint-tools/) it serves and its [imported documents](/mcp/host-docs/) (up to 50 listed by title and path). **This is the recommended starting point** for understanding what the project offers. A project without data sources, such as an [MCP gateway's](/mcp/gateway/), leaves out the data source, documentation and repository counts and lists its tools and documents.
+Get an overview of the project: data sources, schemas, tables, quality scores, and documentation status, plus the [host application tools](/mcp/host-endpoint-tools/) the caller's tool list offers (none for a credential that cannot call them, no write tool for a system caller) and the project's [imported documents](/mcp/host-docs/), up to 50 of each listed. **This is the recommended starting point** for understanding what the project offers. A project without data sources, such as an [MCP gateway's](/mcp/gateway/), leaves out the data source, documentation and repository counts and lists its tools and documents.
 
 | Parameter | Type | Required | Description |
 |-----------|------|----------|-------------|

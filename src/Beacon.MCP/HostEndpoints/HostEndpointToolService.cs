@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.WebUtilities;
 using ModelContextProtocol.Protocol;
 using Beacon.Core.Authorization;
+using Beacon.Core.HostEndpoints;
 using Beacon.Core.Mcp;
 using Beacon.MCP.Services;
 using Beacon.MCP.Tools;
@@ -29,7 +30,7 @@ internal sealed class HostEndpointToolService(
     IProjectAccessEvaluator projectAccess,
     IHttpContextAccessor httpContextAccessor,
     McpAuditService auditService,
-    HostEndpointToolOptions options)
+    HostEndpointToolOptions options) : IHostEndpointToolOverview
 {
     public const string SearchToolName = "search_api";
     public const string CallToolName = "call_api";
@@ -103,6 +104,26 @@ internal sealed class HostEndpointToolService(
             CatalogTool(SearchToolName, writes.Count == 0 ? "Search the host application's read-only endpoints" : "Search the host application's endpoints", SearchDescription(visible.Count, writes.Count), SearchInputSchema, ReadOnlyAnnotations()),
             CatalogTool(CallToolName, "Call a host application endpoint", CallDescription(writes.Count), CallInputSchema, CallAnnotations(writes))
         ];
+    }
+
+    public async Task<HostEndpointToolListing?> ListForProjectAsync(int projectId, CancellationToken cancellationToken)
+    {
+        if (registry.Tools.Count == 0 || await projectResolver.ResolveAsync(cancellationToken) != projectId)
+        {
+            return null;
+        }
+
+        var access = await ResolveAccessAsync(cancellationToken);
+        if (access.Error != null)
+        {
+            return null;
+        }
+
+        var tools = VisibleTools(access.Caller!)
+            .Select(x => new HostEndpointToolSummary(x.Name, x.ToolName, x.FirstDescriptionLine()) { ReadOnly = x.ReadOnly })
+            .ToList();
+
+        return tools.Count == 0 ? null : new HostEndpointToolListing(tools, registry.IsCatalogMode);
     }
 
     public async Task<CallToolResult> CallAsync(string toolName, IDictionary<string, JsonElement>? arguments, CancellationToken cancellationToken)
@@ -502,4 +523,14 @@ internal sealed class HostEndpointToolService(
         };
 
     private sealed record HostEndpointAccess(int? ProjectId, McpCaller? Caller, System.Security.Claims.ClaimsPrincipal? McpPrincipal, string? Error);
+}
+
+/// <summary>
+/// The host endpoint tools the current MCP caller sees in a project — the ones its <c>tools/list</c> offers — for
+/// <c>get_context</c>. Registered by <c>AddHostEndpointTools</c>; absent otherwise.
+/// </summary>
+internal interface IHostEndpointToolOverview
+{
+    /// <summary>The caller's tools in <paramref name="projectId"/>, or null when it has none there.</summary>
+    Task<HostEndpointToolListing?> ListForProjectAsync(int projectId, CancellationToken cancellationToken);
 }
