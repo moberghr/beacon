@@ -402,6 +402,85 @@ public class NotificationDeliveryTests
         sent.Should().ContainSingle().Which.QueryResult.MaxRows.Should().Be(25);
     }
 
+    // An attachment larger than Beacon:Subscriptions:MaxAttachmentBytes keeps only its first rows that fit, and the file a
+    // recipient gets says how many rows it holds of how many the run delivered.
+    [Test]
+    public async Task ExecuteQuery_AttachmentAboveTheCap_IsTruncatedAndSaysSo()
+    {
+        var store = new JobStore();
+        store.Subscriptions.Single().IncludeAttachment = true;
+        store.Subscriptions.Single().ResultAttachmentType = FileType.Csv;
+        var notifications = new Mock<INotificationService>();
+        var sent = new List<RecipientQueryResult>();
+        notifications
+            .Setup(x => x.SendNotification(It.IsAny<RecipientQueryResult>(), It.IsAny<int?>(), It.IsAny<CancellationToken>()))
+            .Callback<RecipientQueryResult, int?, CancellationToken>((x, _, _) => sent.Add(x));
+        var rows = Enumerable.Range(1, 5_000)
+            .Select(x => (IDictionary<string, object?>)new Dictionary<string, object?> { ["id"] = x, ["note"] = new string('x', 100) })
+            .ToList();
+
+        var logger = new CapturingLogger<JobService>();
+
+        await JobService(store, notifications.Object, logger, recipientIds: [9], allRecords: rows, subscriptions: new SubscriptionOptions { MaxAttachmentBytes = 64 * 1024 })
+            .ExecuteQuery(5, CancellationToken.None);
+
+        var file = sent.Should().ContainSingle().Which.QueryResultFile;
+        file.Should().NotBeNull();
+        file!.Data.Length.Should().BeLessThanOrEqualTo(64 * 1024);
+        file.Truncated.Should().BeTrue();
+        file.SourceRowCount.Should().Be(5_000);
+        file.RowCount.Should().BeLessThan(5_000);
+        logger.Entries.Should().ContainSingle(x => x.Level == LogLevel.Warning)
+            .Which.Message.Should().Be($"Subscription 5 attachment truncated to {file.RowCount} of 5000 rows to stay within 65536 bytes");
+    }
+
+    // Column headers alone over the cap: no file goes out, the recipient is still notified, and the run says so.
+    [Test]
+    public async Task ExecuteQuery_HeadersAboveTheCap_OmitsTheAttachmentAndSaysSo()
+    {
+        var store = new JobStore();
+        store.Subscriptions.Single().IncludeAttachment = true;
+        store.Subscriptions.Single().ResultAttachmentType = FileType.Csv;
+        var notifications = new Mock<INotificationService>();
+        var sent = new List<RecipientQueryResult>();
+        notifications
+            .Setup(x => x.SendNotification(It.IsAny<RecipientQueryResult>(), It.IsAny<int?>(), It.IsAny<CancellationToken>()))
+            .Callback<RecipientQueryResult, int?, CancellationToken>((x, _, _) => sent.Add(x));
+        var row = Enumerable.Range(1, 200).ToDictionary(x => $"{x}_{new string('c', 400)}", x => (object?)x);
+        var logger = new CapturingLogger<JobService>();
+
+        await JobService(store, notifications.Object, logger, recipientIds: [9], allRecords: [row], subscriptions: new SubscriptionOptions { MaxAttachmentBytes = 64 * 1024 })
+            .ExecuteQuery(5, CancellationToken.None);
+
+        sent.Should().ContainSingle().Which.QueryResultFile!.Omitted.Should().BeTrue();
+        logger.Entries.Should().ContainSingle(x => x.Level == LogLevel.Warning)
+            .Which.Message.Should().Be("Subscription 5 attachment omitted: its column headers alone exceed 65536 bytes");
+    }
+
+    // Without configured options the cap is the default, 10 MB.
+    [Test]
+    public async Task ExecuteQuery_WithoutSubscriptionOptions_CapsTheAttachmentAtTenMegabytes()
+    {
+        var store = new JobStore();
+        store.Subscriptions.Single().IncludeAttachment = true;
+        store.Subscriptions.Single().ResultAttachmentType = FileType.Csv;
+        var notifications = new Mock<INotificationService>();
+        var sent = new List<RecipientQueryResult>();
+        notifications
+            .Setup(x => x.SendNotification(It.IsAny<RecipientQueryResult>(), It.IsAny<int?>(), It.IsAny<CancellationToken>()))
+            .Callback<RecipientQueryResult, int?, CancellationToken>((x, _, _) => sent.Add(x));
+        var rows = Enumerable.Range(1, 100_000)
+            .Select(x => (IDictionary<string, object?>)new Dictionary<string, object?> { ["id"] = x, ["note"] = new string('x', 120) })
+            .ToList();
+
+        await JobService(store, notifications.Object, new CapturingLogger<JobService>(), recipientIds: [9], allRecords: rows)
+            .ExecuteQuery(5, CancellationToken.None);
+
+        var file = sent.Should().ContainSingle().Which.QueryResultFile!;
+        file.Truncated.Should().BeTrue();
+        file.Data.Length.Should().BeLessThanOrEqualTo(10 * 1024 * 1024).And.BeGreaterThan(9 * 1024 * 1024);
+    }
+
     [Test]
     public async Task ExecuteQuery_AllRecipientsNotified_KeepsEveryNotification()
     {
@@ -849,7 +928,9 @@ public class NotificationDeliveryTests
         int[]? dataSourceIds = null,
         RecipientDeliveryApproval? deliveries = null,
         IReadOnlyDictionary<int, string>? copies = null,
-        int? maxRows = null)
+        int? maxRows = null,
+        List<IDictionary<string, object?>>? allRecords = null,
+        SubscriptionOptions? subscriptions = null)
     {
         var queryService = new Mock<IQueryService>();
         queryService
@@ -865,6 +946,7 @@ public class NotificationDeliveryTests
                 Recipients = [.. recipientIds.Select(x => new RecipientData { RecipientId = x, Name = $"r{x}", Destination = copies?.GetValueOrDefault(x) ?? HookCopy, NotificationType = NotificationType.Webhook })],
                 DataSourceIds = dataSourceIds ?? [],
                 MaxRows = maxRows,
+                AllRecords = allRecords ?? [],
             });
 
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
@@ -882,7 +964,8 @@ public class NotificationDeliveryTests
             logger,
             new RunAsScope(TestRequestPrincipal.OffRequest()),
             deliveries ?? TestChangeApprovals.Deliveries(),
-            requestPrincipal: TestRequestPrincipal.OffRequest());
+            requestPrincipal: TestRequestPrincipal.OffRequest(),
+            subscriptionOptions: subscriptions == null ? null : Options.Create(subscriptions));
     }
 
     private sealed class RecordingAdapter(NotificationType type) : IAdapter
