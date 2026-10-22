@@ -17,7 +17,12 @@ public class DelegatingLlmProvider : ILlmProvider
     private readonly LlmRequestQueue _queue;
     private readonly ILogger<DelegatingLlmProvider>? _logger;
 
-    public DelegatingLlmProvider(LlmProviderManager manager, LlmRequestQueue queue, ILogger<DelegatingLlmProvider>? logger = null)
+    public DelegatingLlmProvider(LlmProviderManager manager, LlmRequestQueue queue)
+        : this(manager, queue, null)
+    {
+    }
+
+    public DelegatingLlmProvider(LlmProviderManager manager, LlmRequestQueue queue, ILogger<DelegatingLlmProvider>? logger)
     {
         _logger = logger;
         _manager = manager ?? throw new ArgumentNullException(nameof(manager));
@@ -43,6 +48,10 @@ public class DelegatingLlmProvider : ILlmProvider
                     "Fast-tier LLM call failed ({Failure}). Serving the request on the main provider.",
                     FailureCodes.Describe(ex));
             }
+
+            // The configuration may have changed while the fast call ran: the fallback goes to the provider that is
+            // active now, never to the one captured before it (which could hold retired credentials).
+            return await Enqueue(RequireProvider(), request, cancellationToken);
         }
 
         return await Enqueue(main, request, cancellationToken);

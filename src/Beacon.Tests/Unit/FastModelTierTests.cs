@@ -191,6 +191,58 @@ public class FastModelTierTests
     }
 
     [Test]
+    public async Task Delegating_WhenTheConfigurationChangesDuringAFailingFastCall_FallsBackOnTheProviderActiveNow()
+    {
+        var gate = new TaskCompletionSource();
+        var registration = new FakeRegistration
+        {
+            FastSetup = x =>
+            {
+                x.Gate = gate.Task;
+                x.Failure = new InvalidOperationException("x");
+            }
+        };
+        var manager = NewManager(registration, Config(fastModel: "small"));
+        var delegating = new DelegatingLlmProvider(manager, new LlmRequestQueue(1, 1));
+        var retiredMain = registration.Main;
+
+        var call = delegating.CompleteAsync(new LlmRequest { Tier = LlmTier.Fast });
+        manager.UpdateConfiguration(Settings(fastModel: "small", apiKey: TestCredentials.ProviderSecretKey + "2"));
+        gate.SetResult();
+        var response = await call;
+
+        response.Content.Should().Be("main");
+        retiredMain.Requests.Should().BeEmpty();
+        registration.Main.Should().NotBeSameAs(retiredMain);
+        registration.Main.Requests.Should().ContainSingle();
+    }
+
+    [Test]
+    public async Task Delegating_WhenTheProviderIsRemovedDuringAFailingFastCall_DoesNotFallBackOnTheRetiredProvider()
+    {
+        var gate = new TaskCompletionSource();
+        var registration = new FakeRegistration
+        {
+            FastSetup = x =>
+            {
+                x.Gate = gate.Task;
+                x.Failure = new InvalidOperationException("x");
+            }
+        };
+        var manager = NewManager(registration, Config(fastModel: "small"));
+        var delegating = new DelegatingLlmProvider(manager, new LlmRequestQueue(1, 1));
+        var retiredMain = registration.Main;
+
+        var call = delegating.CompleteAsync(new LlmRequest { Tier = LlmTier.Fast });
+        manager.UpdateConfiguration(Settings(fastModel: "small", apiKey: ""));
+        gate.SetResult();
+        var act = () => call;
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*not configured*");
+        retiredMain.Requests.Should().BeEmpty();
+    }
+
+    [Test]
     public async Task Delegating_WhenTheCallerCancelsDuringTheFastCall_DoesNotRetryOnTheMainProvider()
     {
         using var cts = new CancellationTokenSource();
