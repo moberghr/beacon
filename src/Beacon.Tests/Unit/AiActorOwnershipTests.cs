@@ -88,6 +88,44 @@ public class AiActorOwnershipTests
         created!.CreatedByUserId.Should().Be("ext-ben");
     }
 
+    // Whether the actor's changes wait for approval comes from the body, and is on when the body does not say; only an
+    // Admin turns it off.
+    [TestCase("", "ext-ben", null, true)]
+    [TestCase(",\"requiresApproval\":true", "ext-ben", null, true)]
+    [TestCase(",\"requiresApproval\":false", "ext-admin", RoleService.RoleNames.Admin, false)]
+    public async Task Create_RequiresApproval_RoundTripsThroughTheHandler(string field, string caller, string? role, bool expected)
+    {
+        CreateAiActorOptions? created = null;
+        _service
+            .Setup(x => x.CreateActorAsync(It.IsAny<CreateAiActorOptions>(), It.IsAny<CancellationToken>()))
+            .Callback<CreateAiActorOptions, CancellationToken>((options, _) => created = options)
+            .ReturnsAsync((CreateAiActorOptions options, CancellationToken _) =>
+                new AiActor { Id = ActorId, Name = options.Name, Instructions = options.Instructions, DataSourceId = 1, RequiresApproval = options.RequiresApproval });
+        var command = JsonSerializer.Deserialize<CreateAiActorCommand>(
+            $$"""{"name":"watcher","instructions":"watch","dataSourceId":1{{field}}}""",
+            new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
+        var handler = new CreateAiActorHandler(_service.Object, NullLogger<CreateAiActorHandler>.Instance, Actor(Interactive(caller, role)), new BeaconConfiguration());
+
+        var result = await handler.Handle(command, CancellationToken.None);
+
+        created!.RequiresApproval.Should().Be(expected);
+        result.RequiresApproval.Should().Be(expected);
+    }
+
+    // An actor whose changes do not wait for approval runs what the model decides: a caller who is not an Admin (here the
+    // project writer creating it) cannot create one, and nothing is created.
+    [Test]
+    public async Task Create_WithApprovalOff_ByACallerWhoIsNotAnAdmin_IsForbidden()
+    {
+        var command = new CreateAiActorCommand { Name = "watcher", Instructions = "watch", DataSourceId = 1, RequiresApproval = false };
+        var handler = new CreateAiActorHandler(_service.Object, NullLogger<CreateAiActorHandler>.Instance, Actor(Interactive("ext-ben")), new BeaconConfiguration());
+
+        var act = () => handler.Handle(command, CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(CreateAiActorHandler.ApprovalOffRefusal);
+        _service.Verify(x => x.CreateActorAsync(It.IsAny<CreateAiActorOptions>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     [Test]
     public async Task Create_ByACallerWithoutAResolvableUser_IsRefused_AndNoActorIsStoredWithoutACreator()
     {

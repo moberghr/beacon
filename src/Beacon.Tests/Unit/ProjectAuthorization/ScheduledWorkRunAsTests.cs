@@ -532,6 +532,7 @@ public class ScheduledWorkRunAsTests
         };
         _world.Serve(new List<ActorEntity> { actor });
         _world.Serve(new List<Query>());
+        _world.Serve(new List<AiActorPlan>());
 
         return actor;
     }

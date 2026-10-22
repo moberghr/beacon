@@ -179,6 +179,7 @@ public static class SecurityAuditActions
     public const string AiPlanApproved = "approvals.ai_plan_approved";
     public const string AiPlanRejected = "approvals.ai_plan_rejected";
     public const string AiPlanRevisionRequested = "approvals.ai_plan_revision_requested";
+    public const string AiActorCreated = "approvals.ai_actor_created";
 
     // Ownership
     public const string OwnerChanged = "ownership.owner_changed";

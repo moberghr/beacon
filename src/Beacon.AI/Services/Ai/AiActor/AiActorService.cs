@@ -1,3 +1,4 @@
+using System.Data;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -45,6 +46,24 @@ public class AiActorService : IAiActorServiceExtended
 
     /// <summary>Why a decision on a plan that is no longer pending approval is refused.</summary>
     public const string PlanNotPendingMessage = "This plan is no longer pending approval: it was decided already.";
+
+    /// <summary>Why a decision on a plan that expired before anyone decided it is refused.</summary>
+    public const string PlanExpiredMessage = "This plan expired before it was decided: it can no longer be approved, rejected or revised.";
+
+    /// <summary>
+    /// Why an actor that requires approval does not refine, think or get a new plan while one of its plans waits for a
+    /// decision; followed by the plan when it is known.
+    /// </summary>
+    public const string PlanPendingMessage = "This AI actor has a plan pending approval; decide it, or let it expire, first.";
+
+    /// <summary>Why a revision was asked for but no revised plan was created; the reason follows.</summary>
+    public const string RevisionNotCreatedMessage = "The plan was sent back for revision, but no revised plan was created.";
+
+    /// <summary>Why a cycle's proposed actions were not submitted: another plan of the actor became pending meanwhile.</summary>
+    public const string ProposalsNotSubmittedMessage = "The proposed actions were not submitted for approval: another plan of this AI actor is pending.";
+
+    /// <summary>Why no plan was generated: the model proposed no action of a known type.</summary>
+    public const string NoActionsProposedMessage = "The model proposed no action this AI actor can take; no plan was created.";
 
     /// <summary>Why, with the approval workflow on, an AI actor does not subscribe to a query whose SQL nobody approved.</summary>
     public const string NotApprovedForSubscriptionMessage =
@@ -179,11 +198,24 @@ public class AiActorService : IAiActorServiceExtended
             Status = options.ActivateImmediately ? AiActorStatus.Active : AiActorStatus.Draft,
             MaxQueries = options.MaxQueries,
             MaxSubscriptionsPerQuery = options.MaxSubscriptionsPerQuery,
-            CreatedByUserId = options.CreatedByUserId
+            CreatedByUserId = options.CreatedByUserId,
+            RequiresApproval = options.RequiresApproval
         };
 
+        // The creation is on record with whether the actor's changes wait for approval: an actor that does not runs them
+        // as it decides them.
         context.AiActors.Add(actor);
-        await context.SaveChangesAsync(cancellationToken);
+        await _securityAudit.SaveWithEventsAsync(
+            context,
+            () =>
+            [
+                new SecurityAuditEntry(SecurityAuditActions.AiActorCreated)
+                    .On(SecurityAuditResources.AiActor, actor.Id)
+                    .With(new SecurityAuditDetails()
+                        .Add("dataSourceId", actor.DataSourceId)
+                        .Add("requiresApproval", actor.RequiresApproval))
+            ],
+            cancellationToken);
 
         _logger.LogInformation("Created AI Actor {ActorId} '{ActorName}' for DataSource {DataSourceId}",
             actor.Id, actor.Name, actor.DataSourceId);
@@ -297,7 +329,7 @@ public class AiActorService : IAiActorServiceExtended
                 throw new BeaconForbiddenException("Working with this AI actor's data source is not allowed.");
             }
 
-            return await RecordSkippedCycleAsync(context, actorId, triggeringSubscriptionId, startTime, cancellationToken);
+            return await RecordSkippedCycleAsync(context, actorId, triggeringSubscriptionId, startTime, OwnerNotAuthorizedMessage, cancellationToken);
         }
 
         // At most one cycle per actor per cooldown. The in-memory check answers the common case; the conditional claim
@@ -319,6 +351,13 @@ public class AiActorService : IAiActorServiceExtended
             return AiActorThinkResult.CreateFailure(
                 0,
                 claim == ThinkClaimResult.Missing ? ActorUnavailableMessage : CooldownMessage(remaining));
+        }
+
+        // An actor that requires approval proposes nothing new while one of its plans waits for a decision: the cycle is
+        // recorded as skipped before any LLM call.
+        if (actor.RequiresApproval && await PendingPlanIdAsync(context, actorId, cancellationToken) is { } pendingPlanId)
+        {
+            return await RecordSkippedCycleAsync(context, actorId, triggeringSubscriptionId, startTime, $"Skipped: {PendingPlanMessage(pendingPlanId)}", cancellationToken);
         }
 
         // SaveChanges checkpoints in this method are deliberate:
@@ -383,6 +422,7 @@ public class AiActorService : IAiActorServiceExtended
             await context.SaveChangesAsync(cancellationToken);
 
             var executedActions = new List<AiActorAction>();
+            var proposals = new List<AiActorActionPlan>();
             var newlyCreatedQueries = new Dictionary<string, int>(); // Map query names to IDs
 
             foreach (var actionPlan in planResponse.Actions)
@@ -390,6 +430,10 @@ public class AiActorService : IAiActorServiceExtended
                 var action = await ExecuteOrProposeAsync(
                     actor, actionPlan, newlyCreatedQueries, cancellationToken);
                 executedActions.Add(action);
+                if (action.Proposed)
+                {
+                    proposals.Add(actionPlan);
+                }
 
                 // Track newly created query IDs
                 if (action.ActionType == AiActorActionType.CreateQuery &&
@@ -443,9 +487,11 @@ public class AiActorService : IAiActorServiceExtended
             actor.TotalTokensUsed += execution.TokensUsed;
             actor.TotalCost += execution.EstimatedCost;
 
-            await context.SaveChangesAsync(cancellationToken);
+            var submission = await SaveCycleAsync(context, execution, planResponse, proposals, existingQueries, null, cancellationToken);
 
             var result = AiActorThinkResult.CreateSuccess(execution.Id, execution.DecisionSummary);
+            result.PlanId = submission.PlanId;
+            result.ProposalsNotSubmittedReason = submission.Refused ? ProposalsNotSubmittedMessage : null;
             result.Findings = planResponse.Findings;
             result.Actions = executedActions;
             result.QueriesAnalyzed = execution.QueriesAnalyzed;
@@ -473,6 +519,7 @@ public class AiActorService : IAiActorServiceExtended
             actor.Status = AiActorStatus.Failed;
             actor.LastError = ex.Message;
 
+            DetachUnsavedProposal(context);
             await TrySaveFailureAsync(context);
 
             _logger.LogError("Think cycle failed for actor {ActorId} ({Failure})", actorId, FailureCodes.Describe(ex));
@@ -568,6 +615,13 @@ public class AiActorService : IAiActorServiceExtended
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"AI Actor with ID {actorId} not found");
 
+        // An actor that requires approval is not refined while one of its plans waits for a decision: refused before any
+        // LLM call, naming the plan.
+        if (actor.RequiresApproval && await PendingPlanIdAsync(context, actorId, cancellationToken) is { } pendingPlanId)
+        {
+            throw new BeaconConflictException(PendingPlanMessage(pendingPlanId));
+        }
+
         // Create execution record
         var execution = new AiActorExecution
         {
@@ -634,12 +688,17 @@ public class AiActorService : IAiActorServiceExtended
             // Execute actions
             execution.Phase = AiActorExecutionPhase.Executing;
             var executedActions = new List<AiActorAction>();
+            var proposals = new List<AiActorActionPlan>();
             var newlyCreatedQueries = new Dictionary<string, int>();
 
             foreach (var actionPlan in planResponse.Actions)
             {
                 var action = await ExecuteOrProposeAsync(actor, actionPlan, newlyCreatedQueries, cancellationToken);
                 executedActions.Add(action);
+                if (action.Proposed)
+                {
+                    proposals.Add(actionPlan);
+                }
 
                 if (action.ActionType == AiActorActionType.CreateQuery &&
                     action.Success && action.ResultEntityId.HasValue &&
@@ -669,9 +728,15 @@ public class AiActorService : IAiActorServiceExtended
             actor.TotalTokensUsed += execution.TokensUsed;
             actor.TotalCost += execution.EstimatedCost;
 
-            await context.SaveChangesAsync(cancellationToken);
+            var submission = await SaveCycleAsync(context, execution, planResponse, proposals, existingQueries, feedback, cancellationToken);
+            if (submission.Refused)
+            {
+                // The refinement completed and is on record, but what it proposed waits nowhere: the caller is told.
+                throw new BeaconConflictException(PendingPlanMessage(submission.PendingPlanId));
+            }
 
             var result = AiActorThinkResult.CreateSuccess(execution.Id, execution.DecisionSummary);
+            result.PlanId = submission.PlanId;
             result.Findings = planResponse.Findings;
             result.Actions = executedActions;
             result.QueriesCreated = execution.QueriesCreated;
@@ -688,11 +753,16 @@ public class AiActorService : IAiActorServiceExtended
             await RecordCancelledAsync(context, execution);
             throw;
         }
+        catch (BeaconConflictException)
+        {
+            throw;
+        }
         catch (Exception ex)
         {
             execution.Phase = AiActorExecutionPhase.Failed;
             execution.ErrorMessage = ex.Message;
             execution.CompletedAt = DateTime.UtcNow;
+            DetachUnsavedProposal(context);
             await TrySaveFailureAsync(context);
 
             _logger.LogError("Refinement failed for actor {ActorId} ({Failure})", actorId, FailureCodes.Describe(ex));
@@ -860,6 +930,219 @@ public class AiActorService : IAiActorServiceExtended
     private TimeSpan Cooldown =>
         TimeSpan.FromMinutes((_options?.CurrentValue ?? new AiActorOptions()).ThinkCooldownMinutes);
 
+    private AiActorOptions CurrentOptions => _options?.CurrentValue ?? new AiActorOptions();
+
+    // A plan proposed at or before this moment has expired: it is no longer pending, whatever its stored status says.
+    private DateTime PlanExpiryCutoff() =>
+        _timeProvider.GetUtcNow().UtcDateTime - TimeSpan.FromDays(CurrentOptions.PlanExpiryDays);
+
+    // The end of a cycle. Its completion (execution, actor totals) is saved first, whatever becomes of its proposals. With
+    // approval required, the actions the cycle proposed then wait for a person as one PendingApproval plan, admitted with
+    // the execution's note of it and its submission event (AdmitPlanAsync); approving it runs them through the executor's
+    // guards. Think and refine do not start while a plan is pending; a plan that became pending meanwhile (or a
+    // concurrent admission) refuses this one: no plan, no event, and the execution notes the proposals were not submitted.
+    private async Task<CycleSubmission> SaveCycleAsync(
+        BeaconContext context,
+        AiActorExecution execution,
+        AiActorPlanResponse planResponse,
+        IReadOnlyList<AiActorActionPlan> proposals,
+        IReadOnlyList<AiActorPrompts.QueryContext> existingQueries,
+        string? userInstruction,
+        CancellationToken cancellationToken)
+    {
+        await context.SaveChangesAsync(cancellationToken);
+        if (proposals.Count == 0)
+        {
+            return CycleSubmission.None;
+        }
+
+        // The cycle's tokens and cost stay on its execution, already in the actor's totals: approving a plan adds the plan's
+        // own to them, so this plan carries none.
+        var proposedActions = await ToProposedActionsAsync(context, proposals, existingQueries, cancellationToken);
+        var plan = new AiActorPlan
+        {
+            AiActorId = execution.AiActorId,
+            Status = AiActorPlanStatus.PendingApproval,
+            UserInstruction = userInstruction,
+            Analysis = planResponse.Analysis ?? string.Empty,
+            FindingsJson = planResponse.Findings?.Count > 0
+                ? JsonSerializer.Serialize(planResponse.Findings, JsonOptions)
+                : null,
+            ActionsJson = JsonSerializer.Serialize(proposedActions, JsonOptions),
+            ProposedAt = _timeProvider.GetUtcNow().UtcDateTime,
+            Model = execution.Model
+        };
+
+        var admission = await AdmitPlanAsync(
+            context,
+            plan,
+            proposedActions.Count,
+            () => execution.DetailedAnalysis = $"Proposed actions wait for approval in plan {plan.Id}.",
+            cancellationToken);
+        if (admission.Refused)
+        {
+            execution.DetailedAnalysis = admission.PendingPlanId is { } pendingPlanId
+                ? $"{ProposalsNotSubmittedMessage} Plan {pendingPlanId}."
+                : ProposalsNotSubmittedMessage;
+            await context.SaveChangesAsync(cancellationToken);
+
+            _logger.LogInformation("Actor {ActorId} proposed {ActionCount} actions while another plan ({PlanId}) is pending; no plan was added",
+                execution.AiActorId, proposals.Count, admission.PendingPlanId);
+
+            return admission;
+        }
+
+        _logger.LogInformation("Actor {ActorId} proposed plan {PlanId} with {ActionCount} actions", execution.AiActorId, plan.Id, proposedActions.Count);
+
+        return admission;
+    }
+
+    // Admits a new plan: whether the actor has a plan pending (and not expired) and the plan's insert, with its submission
+    // event (the recorder joins the open transaction), run in one serializable transaction, so two producers (cycles,
+    // refinements, revisions) can never both add one. A pending plan, or losing a serialization conflict to a concurrent
+    // admission, refuses it: nothing of it is written. onSaved runs once the plan has its id, inside the transaction, for
+    // changes that must commit with it.
+    private async Task<CycleSubmission> AdmitPlanAsync(
+        BeaconContext context,
+        AiActorPlan plan,
+        int proposedActionCount,
+        Action? onSaved,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            await using var transaction = await context.Database.BeginTransactionAsync(IsolationLevel.Serializable, cancellationToken);
+            if (await PendingPlanIdAsync(context, plan.AiActorId, cancellationToken) is { } pendingPlanId)
+            {
+                return CycleSubmission.RefusedBy(pendingPlanId);
+            }
+
+            context.AiActorPlans.Add(plan);
+            await _securityAudit.SaveWithEventsAsync(
+                context,
+                () =>
+                {
+                    onSaved?.Invoke();
+
+                    return
+                    [
+                        new SecurityAuditEntry(SecurityAuditActions.AiPlanSubmitted)
+                            .On(SecurityAuditResources.AiActorPlan, plan.Id)
+                            .With(new SecurityAuditDetails()
+                                .Add("aiActorId", plan.AiActorId)
+                                .Add("parentPlanId", plan.ParentPlanId)
+                                .Add("version", plan.Version)
+                                .Add("proposedActionCount", proposedActionCount))
+                    ];
+                },
+                cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+
+            return CycleSubmission.Admitted(plan.Id);
+        }
+        catch (Exception ex) when (DbSerializationConflict.IsSerializationConflict(ex))
+        {
+            // Rolled back: neither the plan nor its event exists, whatever the tracker says.
+            DetachUnsavedProposal(context);
+            _logger.LogInformation("A plan for actor {ActorId} lost a concurrent admission and was not added", plan.AiActorId);
+
+            return CycleSubmission.RefusedBy(null);
+        }
+    }
+
+    private static string PendingPlanMessage(int? pendingPlanId) =>
+        pendingPlanId is { } id ? $"{PlanPendingMessage} Plan {id}." : PlanPendingMessage;
+
+    // What became of a cycle's proposals: the plan admitted for them, or the refusal (and the pending plan, when known).
+    private sealed record CycleSubmission(int? PlanId, bool Refused, int? PendingPlanId)
+    {
+        public static CycleSubmission None { get; } = new(null, false, null);
+
+        public static CycleSubmission Admitted(int planId) => new(planId, false, null);
+
+        public static CycleSubmission RefusedBy(int? pendingPlanId) => new(null, true, pendingPlanId);
+    }
+
+    // The newest plan of the actor still pending approval and not expired, if any.
+    private async Task<int?> PendingPlanIdAsync(BeaconContext context, int actorId, CancellationToken cancellationToken)
+    {
+        var cutoff = PlanExpiryCutoff();
+
+        return await context.AiActorPlans
+            .Where(x => x.AiActorId == actorId)
+            .Where(x => x.Status == AiActorPlanStatus.PendingApproval)
+            .Where(x => x.ProposedAt > cutoff)
+            .OrderByDescending(x => x.ProposedAt)
+            .Select(x => (int?)x.Id)
+            .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    // Before a failed cycle's failure record is saved: a plan the cycle added and the security events staged for it are
+    // not written with it (their save failed or was rolled back), so no event names a plan that does not exist.
+    private static void DetachUnsavedProposal(BeaconContext context)
+    {
+        var proposal = context.ChangeTracker.Entries()
+            .Where(x => x.Entity is AiActorPlan or SecurityAuditEvent)
+            .ToList();
+        foreach (var entry in proposal)
+        {
+            entry.State = EntityState.Detached;
+        }
+    }
+
+    // A plan's actions as ApprovePlanAsync executes them: each action of a known type with its parameters, and for a
+    // refinement the query it targets as the actor saw it (its SQL, whether it is locked). Other actions are not proposed.
+    private static async Task<List<ProposedAction>> ToProposedActionsAsync(
+        BeaconContext context,
+        IEnumerable<AiActorActionPlan?> actions,
+        IReadOnlyList<AiActorPrompts.QueryContext> existingQueries,
+        CancellationToken cancellationToken)
+    {
+        var proposedActions = new List<ProposedAction>();
+        foreach (var actionPlan in actions)
+        {
+            if (actionPlan == null)
+            {
+                continue;
+            }
+
+            var proposed = AiActorActionGuard.ToProposed(actionPlan);
+            if (!proposed.Proposed)
+            {
+                continue;
+            }
+
+            var proposedAction = new ProposedAction
+            {
+                ActionType = proposed.ActionType,
+                Reasoning = actionPlan.Reasoning ?? string.Empty,
+                Parameters = actionPlan.Parameters
+            };
+
+            if (proposed.ActionType == AiActorActionType.RefineQuery && proposed.TargetQueryId is { } queryId)
+            {
+                var target = existingQueries
+                    .Where(x => x.QueryId == queryId)
+                    .FirstOrDefault();
+                proposedAction = proposedAction with
+                {
+                    TargetQueryId = queryId,
+                    TargetQueryName = target?.QueryName,
+                    CurrentSql = target?.Sql,
+                    ProposedSql = proposed.SqlQuery,
+                    IsLocked = await context.Queries
+                        .Where(x => x.Id == queryId)
+                        .Where(x => x.IsLocked)
+                        .AnyAsync(cancellationToken)
+                };
+            }
+
+            proposedActions.Add(proposedAction);
+        }
+
+        return proposedActions;
+    }
+
     // Null when a cycle may start now; otherwise the time left of the cooldown since the actor last thought.
     private TimeSpan? CooldownRemaining(DateTime? lastThinkTime)
     {
@@ -900,13 +1183,14 @@ public class AiActorService : IAiActorServiceExtended
         }
     }
 
-    // A background cycle its creator may no longer run: recorded as a skipped execution (no LLM call, no SQL, no change
-    // to the actor), not as a failure.
+    // A cycle that does not run (its creator may no longer run it, or a plan of the actor waits for a decision): recorded
+    // as a skipped execution (no LLM call, no SQL, no change to the actor), not as a failure.
     private static async Task<AiActorThinkResult> RecordSkippedCycleAsync(
         BeaconContext context,
         int actorId,
         int? triggeringSubscriptionId,
         DateTime startTime,
+        string reason,
         CancellationToken cancellationToken)
     {
         var execution = new AiActorExecution
@@ -916,12 +1200,12 @@ public class AiActorService : IAiActorServiceExtended
             Phase = AiActorExecutionPhase.Skipped,
             StartedAt = startTime,
             CompletedAt = DateTime.UtcNow,
-            ErrorMessage = OwnerNotAuthorizedMessage
+            ErrorMessage = reason
         };
         context.AiActorExecutions.Add(execution);
         await context.SaveChangesAsync(cancellationToken);
 
-        var result = AiActorThinkResult.CreateFailure(execution.Id, OwnerNotAuthorizedMessage);
+        var result = AiActorThinkResult.CreateFailure(execution.Id, reason);
         result.Phase = AiActorExecutionPhase.Skipped;
 
         return result;
@@ -981,12 +1265,17 @@ public class AiActorService : IAiActorServiceExtended
             await context.SaveChangesAsync(cancellationToken);
 
             var executedActions = new List<AiActorAction>();
+            var proposals = new List<AiActorActionPlan>();
             var newlyCreatedQueries = new Dictionary<string, int>();
 
             foreach (var actionPlan in planResponse.Actions)
             {
                 var action = await ExecuteOrProposeAsync(actor, actionPlan, newlyCreatedQueries, cancellationToken);
                 executedActions.Add(action);
+                if (action.Proposed)
+                {
+                    proposals.Add(actionPlan);
+                }
 
                 if (action.ActionType == AiActorActionType.CreateQuery &&
                     action.Success && action.ResultEntityId.HasValue &&
@@ -1015,7 +1304,7 @@ public class AiActorService : IAiActorServiceExtended
             actor.TotalTokensUsed += execution.TokensUsed;
             actor.TotalCost += execution.EstimatedCost;
 
-            await context.SaveChangesAsync(cancellationToken);
+            await SaveCycleAsync(context, execution, planResponse, proposals, [], null, cancellationToken);
 
             _logger.LogInformation("Initial setup completed for actor {ActorId}: {QueriesCreated} queries, {SubscriptionsCreated} subscriptions",
                 actorId, execution.QueriesCreated, execution.SubscriptionsCreated);
@@ -1030,6 +1319,7 @@ public class AiActorService : IAiActorServiceExtended
             execution.Phase = AiActorExecutionPhase.Failed;
             execution.ErrorMessage = ex.Message;
             execution.CompletedAt = DateTime.UtcNow;
+            DetachUnsavedProposal(context);
             await TrySaveFailureAsync(context);
             throw;
         }
@@ -1154,7 +1444,8 @@ public class AiActorService : IAiActorServiceExtended
     }
 
     // Used by the think / refine / initial-setup loops. Actors that require approval only record
-    // what they would do; the approve path calls ExecuteActionAsync directly.
+    // what they would do (the cycle then saves its proposals as a plan, SaveCycleAsync); the approve path calls
+    // ExecuteActionAsync directly.
     internal Task<AiActorAction> ExecuteOrProposeAsync(
         Beacon.Core.Data.Entities.AiActor actor,
         AiActorActionPlan plan,
@@ -1944,34 +2235,12 @@ public class AiActorService : IAiActorServiceExtended
             var planResponse = ParseLlmResponse(llmResponse.Content);
 
             // Convert actions to ProposedAction list with additional context
-            var proposedActions = new List<ProposedAction>();
-            foreach (var actionPlan in planResponse.Actions)
+            var proposedActions = await ToProposedActionsAsync(context, planResponse.Actions, existingQueries, cancellationToken);
+            if (proposedActions.Count == 0)
             {
-                var proposedAction = new ProposedAction
-                {
-                    ActionType = Enum.TryParse<AiActorActionType>(actionPlan.ActionType, true, out var at)
-                        ? at : AiActorActionType.CreateQuery,
-                    Reasoning = actionPlan.Reasoning,
-                    Parameters = actionPlan.Parameters
-                };
+                _logger.LogInformation("No plan was generated for actor {ActorId}: the model proposed no action of a known type", actor.Id);
 
-                // For refine actions, add current SQL and locked status
-                if (actionPlan.ActionType.Equals("REFINE_QUERY", StringComparison.OrdinalIgnoreCase) &&
-                    actionPlan.Parameters.TryGetValue("queryId", out var queryIdObj) &&
-                    int.TryParse(queryIdObj?.ToString(), out var queryId))
-                {
-                    var targetQuery = existingQueries.FirstOrDefault(q => q.QueryId == queryId);
-                    proposedAction = proposedAction with
-                    {
-                        TargetQueryId = queryId,
-                        TargetQueryName = targetQuery?.QueryName,
-                        CurrentSql = targetQuery?.Sql,
-                        ProposedSql = actionPlan.Parameters.GetValueOrDefault("newSql")?.ToString(),
-                        IsLocked = await context.Queries.AnyAsync(q => q.Id == queryId && q.IsLocked, cancellationToken)
-                    };
-                }
-
-                proposedActions.Add(proposedAction);
+                return AiActorPlanResult.CreateFailure(NoActionsProposedMessage);
             }
 
             // Create the plan record
@@ -1985,7 +2254,7 @@ public class AiActorService : IAiActorServiceExtended
                     ? JsonSerializer.Serialize(planResponse.Findings, JsonOptions)
                     : null,
                 ActionsJson = JsonSerializer.Serialize(proposedActions, JsonOptions),
-                ProposedAt = DateTime.UtcNow,
+                ProposedAt = _timeProvider.GetUtcNow().UtcDateTime,
                 TokensUsed = llmResponse.TotalTokens,
                 EstimatedCost = llmResponse.Cost,
                 Model = llmResponse.Model,
@@ -1993,20 +2262,11 @@ public class AiActorService : IAiActorServiceExtended
                 ParentPlanId = options.ParentPlanId
             };
 
-            context.AiActorPlans.Add(plan);
-            await _securityAudit.SaveWithEventsAsync(
-                context,
-                () =>
-                [
-                    new SecurityAuditEntry(SecurityAuditActions.AiPlanSubmitted)
-                        .On(SecurityAuditResources.AiActorPlan, plan.Id)
-                        .With(new SecurityAuditDetails()
-                            .Add("aiActorId", plan.AiActorId)
-                            .Add("parentPlanId", plan.ParentPlanId)
-                            .Add("version", plan.Version)
-                            .Add("proposedActionCount", proposedActions.Count))
-                ],
-                cancellationToken);
+            var admission = await AdmitPlanAsync(context, plan, proposedActions.Count, null, cancellationToken);
+            if (admission.Refused)
+            {
+                throw new BeaconConflictException(PendingPlanMessage(admission.PendingPlanId));
+            }
 
             _logger.LogInformation("Generated plan {PlanId} for actor {ActorId} with {ActionCount} proposed actions",
                 plan.Id, actor.Id, proposedActions.Count);
@@ -2018,6 +2278,10 @@ public class AiActorService : IAiActorServiceExtended
                 proposedActions,
                 llmResponse.TotalTokens,
                 llmResponse.Cost);
+        }
+        catch (BeaconConflictException)
+        {
+            throw;
         }
         catch (Exception ex)
         {
@@ -2043,7 +2307,7 @@ public class AiActorService : IAiActorServiceExtended
 
         // Decided only from PendingApproval, in one conditional update: a second decision, or one racing this, changes
         // nothing and is refused.
-        var reviewedAt = DateTime.UtcNow;
+        var reviewedAt = _timeProvider.GetUtcNow().UtcDateTime;
         await DecidePlanAsync(context, options.PlanId, AiActorPlanStatus.Executing, options.UserId, options.Comment, reviewedAt, cancellationToken);
         plan.Status = AiActorPlanStatus.Executing;
         plan.ReviewedAt = reviewedAt;
@@ -2193,7 +2457,7 @@ public class AiActorService : IAiActorServiceExtended
     {
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
-        await DecidePlanAsync(context, options.PlanId, AiActorPlanStatus.Rejected, options.UserId, options.Reason, DateTime.UtcNow, cancellationToken);
+        await DecidePlanAsync(context, options.PlanId, AiActorPlanStatus.Rejected, options.UserId, options.Reason, _timeProvider.GetUtcNow().UtcDateTime, cancellationToken);
 
         _logger.LogInformation("Rejected plan {PlanId}", options.PlanId);
     }
@@ -2217,7 +2481,7 @@ public class AiActorService : IAiActorServiceExtended
 
         // Mark original plan as revision requested, only from PendingApproval: the person asking is recorded on it, and
         // the revised plan's chain names them.
-        await DecidePlanAsync(context, options.PlanId, AiActorPlanStatus.RevisionRequested, options.UserId, options.Feedback, DateTime.UtcNow, cancellationToken);
+        await DecidePlanAsync(context, options.PlanId, AiActorPlanStatus.RevisionRequested, options.UserId, options.Feedback, _timeProvider.GetUtcNow().UtcDateTime, cancellationToken);
 
         // Generate new plan with the feedback
         var newPlanOptions = new GeneratePlanOptions
@@ -2228,7 +2492,15 @@ public class AiActorService : IAiActorServiceExtended
             PreviousFeedback = options.Feedback
         };
 
-        return await GeneratePlanAsync(newPlanOptions, cancellationToken);
+        try
+        {
+            return await GeneratePlanAsync(newPlanOptions, cancellationToken);
+        }
+        catch (BeaconConflictException ex)
+        {
+            // The original plan is decided already; the revision itself was refused (another plan is pending).
+            throw new BeaconConflictException($"{RevisionNotCreatedMessage} {ex.Message}");
+        }
     }
 
     public async Task<List<PendingPlanSummary>> GetPendingPlansAsync(
@@ -2237,8 +2509,13 @@ public class AiActorService : IAiActorServiceExtended
     {
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
+        // An expired plan is no longer pending: it can no longer be approved or revised.
+        var cutoff = PlanExpiryCutoff();
+        var options = CurrentOptions;
+
         return await context.AiActorPlans
             .Where(p => p.AiActorId == actorId && p.Status == AiActorPlanStatus.PendingApproval)
+            .Where(x => x.ProposedAt > cutoff)
             .OrderByDescending(p => p.ProposedAt)
             .Select(p => new PendingPlanSummary
             {
@@ -2249,6 +2526,7 @@ public class AiActorService : IAiActorServiceExtended
                 Analysis = p.Analysis,
                 ActionCount = CountJsonArrayElements(p.ActionsJson),
                 ProposedAt = p.ProposedAt,
+                ExpiresAt = options.PlanExpiresAt(p.ProposedAt),
                 Version = p.Version,
                 TokensUsed = p.TokensUsed,
                 EstimatedCost = p.EstimatedCost
@@ -2270,9 +2548,9 @@ public class AiActorService : IAiActorServiceExtended
             .FirstOrDefaultAsync(cancellationToken);
     }
 
-    // A plan is approved, rejected or sent back for revision only from PendingApproval, as one conditional update that
-    // records who decided: a decision on a plan that is no longer pending (decided, or decided concurrently) changes
-    // nothing and is refused.
+    // A plan is approved, rejected or sent back for revision only from PendingApproval and before it expired, as one
+    // conditional update that records who decided: a decision on a plan that is no longer pending (decided, decided
+    // concurrently, or expired) changes nothing and is refused.
     private async Task DecidePlanAsync(
         BeaconContext context,
         int planId,
@@ -2290,10 +2568,12 @@ public class AiActorService : IAiActorServiceExtended
             AiActorPlanStatus.RevisionRequested => SecurityAuditActions.AiPlanRevisionRequested,
             _ => SecurityAuditActions.AiPlanApproved
         };
+        var cutoff = PlanExpiryCutoff();
         var decided = await _securityAudit.SaveWithEventsAsync(
             context,
             () => context.AiActorPlans
                 .Where(x => x.Id == planId)
+                .Where(x => x.ProposedAt > cutoff)
                 .Where(x => x.Status == AiActorPlanStatus.PendingApproval)
                 .ExecuteUpdateAsync(
                     x => x
@@ -2313,7 +2593,14 @@ public class AiActorService : IAiActorServiceExtended
             cancellationToken);
         if (decided == 0)
         {
-            throw new BeaconConflictException(PlanNotPendingMessage);
+            // Nothing changed: say whether the plan expired undecided or was decided already.
+            var expired = await context.AiActorPlans
+                .Where(x => x.Id == planId)
+                .Where(x => x.Status == AiActorPlanStatus.PendingApproval)
+                .Where(x => x.ProposedAt <= cutoff)
+                .AnyAsync(cancellationToken);
+
+            throw new BeaconConflictException(expired ? PlanExpiredMessage : PlanNotPendingMessage);
         }
     }
 

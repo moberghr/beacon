@@ -28,6 +28,9 @@ internal sealed class CreateAiActorHandler : IRequestHandler<CreateAiActorComman
         _configuration = configuration;
     }
 
+    /// <summary>Why a caller who is not an Admin cannot create an actor whose changes do not wait for approval.</summary>
+    public const string ApprovalOffRefusal = "Only an Admin can create an AI actor whose changes do not wait for approval.";
+
     public async Task<CreateAiActorResult> Handle(
         CreateAiActorCommand request,
         CancellationToken cancellationToken)
@@ -37,7 +40,15 @@ internal sealed class CreateAiActorHandler : IRequestHandler<CreateAiActorComman
 
         // The creator is the signed-in caller, never a value from the request; an actor is never stored without one, and
         // with user management on its creator is a stored Beacon user (its think cycles act with the creator's access).
-        var creatorUserId = ScheduledWorkOwner.Require(await _actorAccessor.GetCurrentAsync(cancellationToken), _configuration);
+        var caller = await _actorAccessor.GetCurrentAsync(cancellationToken);
+        var creatorUserId = ScheduledWorkOwner.Require(caller, _configuration);
+
+        // An actor whose changes do not wait for approval runs what the model decides; no path changes that afterwards,
+        // so only an Admin (live standing) creates one.
+        if (request.RequiresApproval == false && !caller.IsAdmin)
+        {
+            throw AccessRefusal.Of(_logger, caller, "AI actor", null, ApprovalOffRefusal);
+        }
 
         var options = new CreateAiActorOptions
         {
@@ -49,7 +60,8 @@ internal sealed class CreateAiActorHandler : IRequestHandler<CreateAiActorComman
             MaxSubscriptionsPerQuery = request.MaxSubscriptionsPerQuery ?? 3,
             CreatedByUserId = creatorUserId,
             DefaultRecipientIds = request.DefaultRecipientIds,
-            ActivateImmediately = request.ActivateImmediately ?? true
+            ActivateImmediately = request.ActivateImmediately ?? true,
+            RequiresApproval = request.RequiresApproval ?? true
         };
 
         var actor = await _aiActorService.CreateActorAsync(options, cancellationToken);
@@ -60,6 +72,7 @@ internal sealed class CreateAiActorHandler : IRequestHandler<CreateAiActorComman
             Name = actor.Name,
             Status = actor.Status,
             DataSourceId = actor.DataSourceId,
+            RequiresApproval = actor.RequiresApproval,
             CreatedTime = actor.CreatedTime
         };
     }

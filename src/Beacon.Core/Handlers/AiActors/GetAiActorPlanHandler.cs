@@ -29,6 +29,13 @@ public record GetAiActorPlanResult
     public List<string> Findings { get; init; } = [];
     public List<ProposedAction> ProposedActions { get; init; } = [];
     public DateTime ProposedAt { get; init; }
+
+    /// <summary>When the plan expires (<c>Beacon:AiActors:PlanExpiryDays</c> after it was proposed) unless decided first.</summary>
+    public DateTime ExpiresAt { get; init; }
+
+    /// <summary>The plan was not decided before it expired: it can no longer be approved, rejected or revised.</summary>
+    public bool IsExpired { get; init; }
+
     public DateTime? ReviewedAt { get; init; }
     public string? ReviewedByUserId { get; init; }
     public string? ReviewerComment { get; init; }

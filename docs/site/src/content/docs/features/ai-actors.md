@@ -1,6 +1,6 @@
 ---
 title: AI Actors
-description: Experimental LLM-driven monitoring agents attached to a data source. They analyze it and propose queries and subscriptions; the proposals are recorded for review, not executed.
+description: Experimental LLM-driven monitoring agents attached to a data source. They analyze it and propose queries and subscriptions; the proposals wait in a plan until a person approves them.
 ---
 
 :::caution[Experimental feature]
@@ -12,10 +12,13 @@ An **AI actor** is an LLM-driven monitoring agent attached to one data source. Y
 ("monitor transactions for unusual activity"); on each **think cycle** it reads the schema, its queries and recent
 results, writes an analysis, and chooses actions such as creating a query or a subscription.
 
-**Actions are proposed, not executed.** Every actor has **Requires approval** on (the default, which the create
-request cannot change). In that mode the initial setup, a think cycle and a refinement only **record** the actions the
-LLM chose: each is marked proposed on the cycle's execution record, and nothing is created, refined or archived. An
-actor therefore produces analysis and proposals, never changes to your queries or subscriptions.
+**Actions are proposed, not executed.** An actor has **Requires approval** on by default (the create request's
+`requiresApproval`; it cannot be changed afterwards). In that mode the initial setup, a think cycle and a refinement
+only **record** the actions the LLM chose: each is marked proposed on the cycle's execution record, the proposals are
+stored together as one [plan](#plans) awaiting approval, and nothing is created, refined or archived until a person
+approves that plan. An actor created with `requiresApproval: false` runs the actions it chooses as it chooses them;
+only an Admin can create one (anyone else gets `403`), and every creation is recorded in the security audit trail as
+`approvals.ai_actor_created` with the flag.
 
 AI actors need the AI layer and a configured provider (see [AI Integration](/features/ai-integration/)).
 
@@ -32,8 +35,9 @@ Go to **AI Actors** (`/beacon/ai-actors`) and choose **New actor**:
 | **Max queries (optional)** | Most queries the actor may create | 10 when left blank |
 | **Activate immediately** | Run the initial setup now | on |
 
-The REST endpoint is `POST /beacon/api/ai-actors`; it also takes `maxSubscriptionsPerQuery` (default 3) and
-`defaultRecipientIds`, which the dialog does not show.
+The REST endpoint is `POST /beacon/api/ai-actors`; it also takes `maxSubscriptionsPerQuery` (default 3),
+`defaultRecipientIds` and `requiresApproval` (default `true`; `false` takes an Admin; the response returns it), which
+the dialog does not show.
 
 With **Activate immediately** on, the actor becomes `Active` and runs its **initial setup**: the LLM reads the schema
 and your instructions and proposes a first set of queries and subscriptions. If setup fails, the actor moves to
@@ -82,11 +86,11 @@ A think cycle is one reasoning pass, recorded as an execution:
 |---|---|
 | `Analyzing` | Gathers the schema, the actor's queries and recent subscription results |
 | `Planning` | Sends that context to the LLM, which returns an analysis, findings and actions |
-| `Executing` | Records each chosen action as proposed |
+| `Executing` | Records each chosen action as proposed (or runs it, for an actor that does not require approval) |
 | `Notifying` | Records notification intent when the LLM flagged important findings |
 | `Completed` | The cycle finished |
 | `Failed` | The cycle failed; the error is stored and the actor moves to `Failed` |
-| `Skipped` | A background cycle whose creator may no longer work with the data source; nothing ran |
+| `Skipped` | Nothing ran: a background cycle whose creator may no longer work with the data source, or a cycle of an actor that requires approval while one of its plans is pending (the reason names the plan) |
 
 Phase checkpoints are saved before and after each LLM call, so a cycle that hangs or whose worker dies still shows
 where it stopped.
@@ -134,7 +138,9 @@ Steer an actor with feedback on its edit page (**Refine actor**, field **Refinem
 > "Focus on orders over $10,000 and check for duplicate payment attempts"
 
 The feedback is stored in the actor's conversation history and sent to the LLM with the schema and query context. Like
-a think cycle, the refinement records the actions the LLM chose as proposed.
+a think cycle, the refinement records the actions the LLM chose as proposed, in a plan that keeps the feedback as its
+instruction (a revision of the plan carries it on). While the actor has a plan pending, a refinement is refused with
+`409` naming that plan, before anything reaches the LLM.
 
 ## Plans
 
@@ -142,10 +148,15 @@ A **plan** is a stored bundle of analysis, key findings and proposed actions (fo
 proposed SQL and whether the query is locked) that a reviewer approves, rejects or sends back for revision. Approving a
 plan is the path that **executes** actions.
 
-In this version, think cycles, refinements and the initial setup record proposals on their execution and **create no
-plan**; the only code that creates a plan is a revision of an existing one. A new deployment therefore has no plans to
-review, and there is no plan review page in the UI. The plan API works on plan rows that exist, for example ones
-stored by an earlier version:
+For an actor that requires approval, the initial setup, a think cycle and a refinement that propose at least one action
+store them as one `PendingApproval` plan, saved together with the cycle's execution, whose analysis names the plan. A
+cycle that proposes nothing creates no plan. While the actor has a plan pending, it does not propose another: a think
+cycle is recorded as `Skipped` naming the pending plan and a refinement answers `409`, both before any LLM call. A plan
+is added only in a serializable transaction that first checks the actor has no plan pending, so two cycles,
+refinements or revisions finishing together never leave two pending plans. The one refused completes all the same: a
+think cycle or the initial setup keeps its proposals on its execution record, which names the pending plan; a
+refinement answers `409` naming it; a revision answers `409` saying the original plan was sent back but no revised plan
+was created. A revision for which the model proposes no action it can take creates no plan and fails. There is no plan review page in the UI yet; use the API:
 
 | Route | What it does |
 |---|---|
@@ -158,6 +169,12 @@ stored by an earlier version:
 Plan statuses: `PendingApproval`, `Executing`, `Executed`, `Rejected`, `Expired`, `RevisionRequested`. Only a
 `PendingApproval` plan accepts a decision; the decision is a conditional update from that status, so a plan already
 decided (or decided by someone else at the same moment) answers `409`.
+
+A plan expires `Beacon:AiActors:PlanExpiryDays` days (default `7`, 1–365, validated at startup) after it was proposed.
+Expiry is computed when a plan is read, not written to the plan: an expired plan keeps the status `PendingApproval` in
+its row, but it is left out of `pending-plans`, approving, rejecting or revising it answers `409` saying it expired, and
+it no longer holds back the actor's next cycle. A plan read and each pending-plan summary carry `expiresAt`; a plan
+read also carries `isExpired`.
 
 The creator or an Admin decides a plan. While the [approval workflow](/security/approvals/) is enabled, approving takes
 a second person: an Approver (an Admin holds the permission) with write access to the data source, other than the
@@ -193,7 +210,11 @@ have an Admin or UserAdmin change the owner.
 **No automatic think cycles.** Background cycles follow runs of subscriptions linked to the actor, and an actor whose
 actions are proposed has none. Start cycles with `POST /beacon/api/ai-actors/{id}/think`.
 
-**"Plan is not pending approval".** The plan was already decided, revised or expired. Fetch the actor's pending plans.
+**"This plan is no longer pending approval".** The plan was already decided or revised. **"This plan expired before it
+was decided"**: it passed `Beacon:AiActors:PlanExpiryDays`. Fetch the actor's pending plans.
+
+**"This AI actor has a plan pending approval".** Decide that plan (or let it expire) before refining the actor; its
+think cycles are skipped meanwhile.
 
 ## Related features
 

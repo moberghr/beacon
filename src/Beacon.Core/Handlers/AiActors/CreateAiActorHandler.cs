@@ -24,6 +24,9 @@ public record CreateAiActorCommand : IRequest<CreateAiActorResult>, IProjectAuth
     public List<int>? DefaultRecipientIds { get; init; }
     public bool? ActivateImmediately { get; init; }
 
+    /// <summary>Whether the actor's changes wait for approval as a plan; true when not given.</summary>
+    public bool? RequiresApproval { get; init; }
+
     IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
     [
         new(ProjectResource.DataSource(DataSourceId), ProjectAction.Write)
@@ -36,5 +39,6 @@ public record CreateAiActorResult
     public string Name { get; init; } = null!;
     public AiActorStatus Status { get; init; }
     public int DataSourceId { get; init; }
+    public bool RequiresApproval { get; init; }
     public DateTime CreatedTime { get; init; }
 }

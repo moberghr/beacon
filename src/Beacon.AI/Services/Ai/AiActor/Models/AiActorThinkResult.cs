@@ -83,6 +83,18 @@ public class AiActorThinkResult
     public TimeSpan Duration { get; set; }
 
     /// <summary>
+    /// For an actor that requires approval: the plan this cycle created, in which its proposed actions wait for a
+    /// decision. Null when the cycle created none.
+    /// </summary>
+    public int? PlanId { get; set; }
+
+    /// <summary>
+    /// Why the cycle's proposed actions were not submitted for approval (another plan of the actor became pending while
+    /// the cycle ran); null when they were, or when there were none.
+    /// </summary>
+    public string? ProposalsNotSubmittedReason { get; set; }
+
+    /// <summary>
     /// Creates a success result
     /// </summary>
     public static AiActorThinkResult CreateSuccess(int executionId, string? summary = null) => new()
