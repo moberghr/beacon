@@ -28,6 +28,8 @@ public class VirtualTableManagerTests
     // "nothing loaded"; ExecuteFinalQueryPaged_SuccessfulLoad_LogsTheTableLoadMessage keeps that absence meaningful.
     private const string TableLoadedLogPrefix = "Created table";
 
+    private const int MaxRows = 1000;
+
     [Test]
     public async Task ExecuteFinalQuery_NestedCommentSmuggle_IsRejected()
     {
@@ -38,6 +40,7 @@ public class VirtualTableManagerTests
             NestedCommentSmuggle,
             TestQueryServices.JoinGate(),
             NullLogger<InMemoryDatabaseManager>.Instance,
+            MaxRows,
             CancellationToken.None);
 
         await act.Should().ThrowAsync<InvalidOperationException>();
@@ -78,6 +81,7 @@ public class VirtualTableManagerTests
             + "SELECT c.name, t.total, RANK() OVER (ORDER BY t.total DESC) AS position FROM @result1 c JOIN totals t ON t.customer_id = c.id",
             TestQueryServices.JoinGate(),
             NullLogger<InMemoryDatabaseManager>.Instance,
+            MaxRows,
             CancellationToken.None);
 
         result.AllRecords.Should().ContainSingle();
@@ -97,11 +101,75 @@ public class VirtualTableManagerTests
             $"ATTACH '{attachPath}' AS x",
             TestQueryServices.JoinGate(),
             NullLogger<InMemoryDatabaseManager>.Instance,
+            MaxRows,
             CancellationToken.None);
 
         await act.Should().ThrowAsync<InvalidOperationException>();
         File.Exists(attachPath).Should().BeFalse();
     }
+
+    [Test]
+    public async Task ExecuteFinalQueryPaged_RunawayJoin_TimesOutWithinTheStatementTimeout()
+    {
+        using var manager = new VirtualTableManager(NullLogger<VirtualTableManager>.Instance) { StatementTimeoutSeconds = 1 };
+        manager.AddVirtualTable("@result1", [new Dictionary<string, object?> { ["id"] = 1L }], Project("orders"));
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+
+        var act = () => manager.ExecuteFinalQueryPagedAsync(
+            "WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r WHERE i < 1000000000) SELECT COUNT(*) AS n FROM r CROSS JOIN @result1",
+            TestQueryServices.JoinGate(),
+            NullLogger<InMemoryDatabaseManager>.Instance,
+            new Paging(),
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<TimeoutException>();
+        stopwatch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10));
+    }
+
+    [Test]
+    public async Task ExecuteFinalQuery_ResultAboveTheRowCap_IsReadOnlyToTheCap()
+    {
+        using var manager = new VirtualTableManager(NullLogger<VirtualTableManager>.Instance);
+        manager.AddVirtualTable(
+            "@result1",
+            Enumerable.Range(1, 10)
+                .Select(x => (IDictionary<string, object?>)new Dictionary<string, object?> { ["id"] = (long)x })
+                .ToList(),
+            Project("orders"));
+
+        var result = await manager.ExecuteFinalQueryWithInMemoryDatabase(
+            "SELECT id FROM @result1",
+            TestQueryServices.JoinGate(),
+            NullLogger<InMemoryDatabaseManager>.Instance,
+            4,
+            CancellationToken.None);
+
+        result.TimedOut.Should().BeFalse();
+        result.AllRecords.Should().HaveCount(4);
+    }
+
+#pragma warning disable CS0618 // The obsolete overload stays for hosts built against the earlier signature.
+    [Test]
+    public async Task ExecuteFinalQuery_ObsoleteOverload_ReadsTheWholeResult()
+    {
+        using var manager = new VirtualTableManager(NullLogger<VirtualTableManager>.Instance);
+        manager.AddVirtualTable(
+            "@result1",
+            Enumerable.Range(1, 10)
+                .Select(x => (IDictionary<string, object?>)new Dictionary<string, object?> { ["id"] = (long)x })
+                .ToList(),
+            Project("orders"));
+
+        var result = await manager.ExecuteFinalQueryWithInMemoryDatabase(
+            "SELECT id FROM @result1",
+            TestQueryServices.JoinGate(),
+            NullLogger<InMemoryDatabaseManager>.Instance,
+            CancellationToken.None);
+
+        result.TimedOut.Should().BeFalse();
+        result.AllRecords.Should().HaveCount(10);
+    }
+#pragma warning restore CS0618
 
     [Test]
     public async Task ExecuteFinalQuery_ReadOnlyJoin_PassesTheGateAndJoinsVirtualTables()
@@ -114,6 +182,7 @@ public class VirtualTableManagerTests
             "SELECT c.name, o.total FROM @result1 c JOIN @result2 o ON o.customer_id = c.id",
             TestQueryServices.JoinGate(),
             NullLogger<InMemoryDatabaseManager>.Instance,
+            MaxRows,
             CancellationToken.None);
 
         result.TimedOut.Should().BeFalse();
@@ -222,6 +291,7 @@ public class VirtualTableManagerTests
             "SELECT * FROM @result1",
             TestQueryServices.JoinGate(),
             NullLogger<InMemoryDatabaseManager>.Instance,
+            MaxRows,
             CancellationToken.None);
 
         result.AllRecords.Should().ContainSingle();
@@ -258,6 +328,7 @@ public class VirtualTableManagerTests
             "SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name",
             TestQueryServices.JoinGate(),
             NullLogger<InMemoryDatabaseManager>.Instance,
+            MaxRows,
             CancellationToken.None);
 
         result.AllRecords.Select(x => x["name"]).Should().Equal("result1");

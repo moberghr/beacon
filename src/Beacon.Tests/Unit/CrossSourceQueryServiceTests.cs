@@ -51,6 +51,9 @@ public class CrossSourceQueryServiceTests
     private const string CrmContext = "crm schema context";
     private const string HostKey = "efcore:Warehouse";
 
+    // Counts to a billion one row at a time: far past every deadline in these tests.
+    private const string LongRunningJoin = "WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r WHERE i < 1000000000) SELECT COUNT(*) AS n FROM r";
+
     private Mock<IDataSourceProvider> _provider = null!;
     private Mock<ISqlGenerationService> _sqlGen = null!;
     private Mock<ILlmProvider> _llm = null!;
@@ -316,6 +319,69 @@ public class CrossSourceQueryServiceTests
 
         succeeded.Should().BeFalse();
         text.Should().Contain("Validation Error for join query");
+    }
+
+    [Test]
+    public async Task JoinSql_PastTheStatementTimeout_FailsTheCall()
+    {
+        Generates("SELECT id FROM orders");
+        ReturnsRows(new Dictionary<string, object?> { ["id"] = 1L });
+        JoinsWith(LongRunningJoin);
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+
+        var (text, succeeded) = await CreateService().ExecuteAsync(
+            _llm.Object, Sources(), ProjectId, "q", Settings(statementTimeoutSeconds: 1), execute: true, _signal, CancellationToken.None);
+
+        succeeded.Should().BeFalse();
+        text.Should().Contain("Join query timed out").And.NotContain("### Final Results");
+        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10), "the 1 s statement timeout stopped the join");
+    }
+
+    [Test]
+    public async Task JoinSql_StopsWhenTheCallerCancels()
+    {
+        Generates("SELECT id FROM orders");
+        ReturnsRows(new Dictionary<string, object?> { ["id"] = 1L });
+        JoinsWith(LongRunningJoin);
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(300));
+        var watch = System.Diagnostics.Stopwatch.StartNew();
+
+        var act = () => CreateService().ExecuteAsync(
+            _llm.Object, Sources(), ProjectId, "q", Settings(statementTimeoutSeconds: 30), execute: true, _signal, cts.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10), "the caller's token stopped the join, not the 30 s timeout");
+    }
+
+    [Test]
+    public async Task JoinResult_IsCappedAtMaxRowLimit_AndSaysSo()
+    {
+        Generates("SELECT id FROM orders");
+        ReturnsRows(new Dictionary<string, object?> { ["id"] = 1L });
+        JoinsWith("WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r) SELECT i FROM r");
+
+        var (text, succeeded) = await CreateService().ExecuteAsync(
+            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, CancellationToken.None);
+
+        succeeded.Should().BeTrue(text);
+        text.Should().Contain($"### Final Results ({MaxRowLimit} rows");
+        text.Should().Contain($"more than the row limit of {MaxRowLimit}");
+        _gate.Evaluations.Should().Contain(x => x.Request.InMemoryJoin && x.Report.FinalSql.Contains($"LIMIT {MaxRowLimit + 1}"), "the join SQL asks for one row past the cap");
+    }
+
+    [Test]
+    public async Task JoinResult_OfExactlyMaxRowLimit_IsNotReportedAsTruncated()
+    {
+        Generates("SELECT id FROM orders");
+        ReturnsRows(new Dictionary<string, object?> { ["id"] = 1L });
+        JoinsWith($"WITH RECURSIVE r(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM r WHERE i < {MaxRowLimit}) SELECT i FROM r");
+
+        var (text, succeeded) = await CreateService().ExecuteAsync(
+            _llm.Object, Sources(), ProjectId, "q", Settings(), execute: true, _signal, CancellationToken.None);
+
+        succeeded.Should().BeTrue(text);
+        text.Should().Contain($"### Final Results ({MaxRowLimit} rows");
+        text.Should().NotContain("more than the row limit");
     }
 
     [Test]
@@ -662,7 +728,8 @@ public class CrossSourceQueryServiceTests
         new RoutedSource { DataSourceId = CrmDataSourceId, DataSourceName = "crm", Reason = "test" }
     ];
 
-    private static McpSettingsData Settings() => new() { MaxRowLimit = MaxRowLimit, EnableSemanticLint = false };
+    private static McpSettingsData Settings(int statementTimeoutSeconds = 30) =>
+        new() { MaxRowLimit = MaxRowLimit, EnableSemanticLint = false, StatementTimeoutSeconds = statementTimeoutSeconds };
 
     private static Dictionary<string, HashSet<string>> Catalog() => new(StringComparer.OrdinalIgnoreCase)
     {
