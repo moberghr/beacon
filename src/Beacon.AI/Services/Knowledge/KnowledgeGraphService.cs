@@ -1598,14 +1598,15 @@ internal sealed class KnowledgeGraphService(
     {
         var budgetChars = (deploymentOptions?.Value.Ceilings ?? new McpCeilingOptions()).EffectiveAskSchemaContextChars;
         var budgeted = AskSchemaContextBudget.Assemble(head, sections, parts, rankedNames, budgetChars);
-        if (budgeted.PartsLeftOut.Count > 0 || budgeted.OverBudget)
+        if (budgeted.PartsLeftOut.Count > 0 || budgeted.TopTableCut)
         {
             logger.LogWarning(
                 "Ask schema context for data source {DataSourceId} does not fit its budget of {BudgetChars} characters: "
-                    + "{GroundingSectionsLeftOut} grounding section(s) left out, {TablesShown} table(s) shown, {TablesNotShown} left out, {ContextChars} characters sent.",
+                    + "{GroundingSectionsLeftOut} grounding section(s) left out, {TopTableCut} top table cut, {TablesShown} table(s) shown, {TablesNotShown} left out, {ContextChars} characters sent.",
                 dataSourceId,
                 budgetChars,
                 budgeted.PartsLeftOut.Count,
+                budgeted.TopTableCut,
                 budgeted.TablesShown,
                 budgeted.TablesNotShown.Count,
                 budgeted.Text.Length);

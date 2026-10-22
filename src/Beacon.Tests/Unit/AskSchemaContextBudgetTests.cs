@@ -102,17 +102,18 @@ public class AskSchemaContextBudgetTests
         var result = AskSchemaContextBudget.Assemble("", sections, parts, ["public.top"], AskSchemaContextBudget.OmittedTablesLineMaxChars(2) + 250);
 
         result.PartsLeftOut.Should().Equal(SchemaContextPartKind.LearnedPatterns, SchemaContextPartKind.Glossary);
-        result.OverBudget.Should().BeFalse();
+        result.TopTableCut.Should().BeFalse();
         result.TablesNotShown.Should().Equal("public.big");
         result.Text.Should().Contain(top.Text).And.Contain(Text('j', 50)).And.Contain(Text('v', 50)).And.Contain(Text('g', 50));
         result.Text.Should().NotContain(Text('l', 50)).And.NotContain(Text('o', 50));
     }
 
     [Test]
-    public void Assemble_TheTopTableAloneOverTheBudget_IsShownAnyway_WithEveryOptionalSectionLeftOut()
+    public void Assemble_TheTopTableOverTheBudget_IsSkipped_AndASmallerBlockThatFitsIsShown()
     {
         var top = Block("top", 5_000);
-        var sections = new[] { new SchemaContextSection("", [top, Block("other", 100)], HeadingWhenEmpty: false) };
+        var small = Block("other", 100);
+        var sections = new[] { new SchemaContextSection("", [top, small], HeadingWhenEmpty: false) };
         SchemaContextPart[] parts =
         [
             Part(SchemaContextPartKind.JoinPaths, Text('j', 50)),
@@ -121,14 +122,64 @@ public class AskSchemaContextBudgetTests
             Part(SchemaContextPartKind.LearnedPatterns, Text('l', 50)),
             Part(SchemaContextPartKind.Glossary, Text('o', 50))
         ];
+        var budget = AskSchemaContextBudget.OmittedTablesLineMaxChars(2) + 100;
 
-        var result = AskSchemaContextBudget.Assemble("", sections, parts, [], AskSchemaContextBudget.OmittedTablesLineMaxChars(2) + 100);
+        var result = AskSchemaContextBudget.Assemble("", sections, parts, [], budget);
 
-        result.TablesShown.Should().Be(1, "a context never shows no table when the source has one");
-        result.Text.Should().StartWith(top.Text);
-        result.OverBudget.Should().BeTrue();
+        result.TablesShown.Should().Be(1);
+        result.TopTableCut.Should().BeFalse();
+        result.Text.Should().StartWith(small.Text).And.NotContain(top.Text);
         result.PartsLeftOut.Should().Equal(AskSchemaContextBudget.DropOrder);
+        result.TablesNotShown.Should().Equal("public.top");
+        result.Text.Should().Contain("public.top");
+        result.Text.Length.Should().BeLessThanOrEqualTo(budget);
+    }
+
+    [Test]
+    public void Assemble_EveryBlockOverTheBudget_ShowsTheTopRankedOneCutAtALineBoundaryWithAMarker()
+    {
+        var top = LinesBlock("top", 200, 40);
+        var other = LinesBlock("other", 100, 40);
+        var sections = new[] { new SchemaContextSection("", [other, top], HeadingWhenEmpty: false) };
+        var budget = AskSchemaContextBudget.OmittedTablesLineMaxChars(2) + 1_000;
+
+        var result = AskSchemaContextBudget.Assemble("", sections, [], ["public.top"], budget);
+
+        var marker = $"-- public.top: more columns not shown{Environment.NewLine}";
+        result.TopTableCut.Should().BeTrue();
+        result.TablesShown.Should().Be(1);
         result.TablesNotShown.Should().Equal("public.other");
+        result.Text.Should().StartWith("t");
+        result.Text.Should().Contain(marker);
+        var cutBody = result.Text[..result.Text.IndexOf(marker, StringComparison.Ordinal)];
+        top.Text.Should().StartWith(cutBody);
+        cutBody.Should().EndWith("\n").And.NotBeEmpty();
+        result.Text.Should().Contain(AskSchemaContextBudget.OmittedTablesLine(["public.other"]));
+        result.Text.Length.Should().BeLessThanOrEqualTo(budget);
+    }
+
+    [Test]
+    public void Assemble_RandomBlockSizes_NeverExceedTheBudget()
+    {
+        var random = new Random(12345);
+        for (var round = 0; round < 300; round++)
+        {
+            var blocks = Enumerable.Range(0, random.Next(1, 12))
+                .Select(x => LinesBlock($"t{x}", random.Next(20, 4_000), random.Next(10, 120)))
+                .ToList();
+            var sections = new[] { new SchemaContextSection("## Tables\n", blocks, HeadingWhenEmpty: true) };
+            SchemaContextPart[] parts =
+            [
+                Part(SchemaContextPartKind.JoinPaths, Text('j', random.Next(10, 3_000))),
+                Part(SchemaContextPartKind.Glossary, Text('o', random.Next(10, 3_000)))
+            ];
+            var budget = random.Next(10_000, 20_000) / 10 + AskSchemaContextBudget.OmittedTablesLineMaxChars(blocks.Count);
+
+            var result = AskSchemaContextBudget.Assemble("head\n", sections, parts, [], budget);
+
+            result.Text.Length.Should().BeLessThanOrEqualTo(budget, $"round {round}");
+            result.TablesShown.Should().BeGreaterThan(0);
+        }
     }
 
     [Test]
@@ -377,6 +428,13 @@ public class AskSchemaContextBudgetTests
     private static SchemaContextTableBlock Block(string table, int chars, string schema = "public")
     {
         return new SchemaContextTableBlock($"{schema}.{table}", schema, table, Text(table[0], chars));
+    }
+
+    private static SchemaContextTableBlock LinesBlock(string table, int lines, int lineChars)
+    {
+        var text = string.Concat(Enumerable.Repeat(new string(table[0], lineChars - 1) + "\n", lines));
+
+        return new SchemaContextTableBlock($"public.{table}", "public", table, text);
     }
 
     private static SchemaContextPart Part(SchemaContextPartKind kind, string text)

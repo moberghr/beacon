@@ -35,10 +35,10 @@ internal sealed record BudgetedSchemaContext(string Text, int TablesShown, IRead
     public IReadOnlyList<SchemaContextPartKind> PartsLeftOut { get; init; } = [];
 
     /// <summary>
-    /// The most relevant table did not fit even without the optional grounding sections: it is shown anyway, so the context
-    /// is longer than the budget.
+    /// No whole table fit even without the optional grounding sections: the most relevant one is shown cut at a line
+    /// boundary, followed by a line saying more columns are not shown.
     /// </summary>
-    public bool OverBudget { get; init; }
+    public bool TopTableCut { get; init; }
 }
 
 /// <summary>
@@ -46,8 +46,10 @@ internal sealed record BudgetedSchemaContext(string Text, int TablesShown, IRead
 /// budget the context is rendered exactly as without one. Over it, whole table blocks are kept in rank order — the names
 /// the caller ranks first, then the existing order — skipping each block that would not fit, and one line names the tables
 /// left out, so the model knows they exist; that line is counted inside the budget. When the grounding sections leave no
-/// room for the most relevant table they are left out one kind at a time (<see cref="DropOrder"/>), and that table is shown
-/// even when it does not fit alone: a context never shows no table when the source has one. When tables are left out the
+/// room for the most relevant table they are left out one kind at a time (<see cref="DropOrder"/>). A block is never forced
+/// in whole: when no whole table fits, the most relevant one is shown cut at the last line that fits, followed by a line
+/// saying more columns are not shown, so a context never shows no table when the source has one and is never longer than
+/// the budget. When tables are left out the
 /// coverage note is left out too, so the line naming them is the one statement of what the context does not show.
 /// </summary>
 internal static partial class AskSchemaContextBudget
@@ -121,17 +123,11 @@ internal static partial class AskSchemaContextBudget
         }
 
         var shown = new HashSet<SchemaContextTableBlock>(ReferenceEqualityComparer.Instance);
-        var overBudget = top != null && top.Text.Length > remaining;
-        if (overBudget)
-        {
-            shown.Add(top!);
-            remaining -= top!.Text.Length;
-        }
 
         // A block that does not fit is skipped, not a stop: a shorter one ranked after it may still fit.
         foreach (var block in order)
         {
-            if (shown.Contains(block) || block.Text.Length > remaining)
+            if (block.Text.Length > remaining)
             {
                 continue;
             }
@@ -140,21 +136,42 @@ internal static partial class AskSchemaContextBudget
             remaining -= block.Text.Length;
         }
 
+        var topTableCut = false;
+        var renderedSections = sections;
+        if (shown.Count == 0 && top != null)
+        {
+            var cut = CutBlock(top, remaining);
+            shown.Add(cut);
+            topTableCut = true;
+            renderedSections = sections
+                .Select(x =>
+                    x with
+                    {
+                        Blocks = x.Blocks
+                            .Select(y => ReferenceEquals(y, top) ? cut : y)
+                            .ToList()
+                    })
+                .ToList();
+            order = order
+                .Select(x => ReferenceEquals(x, top) ? cut : x)
+                .ToList();
+        }
+
         var notShown = order
             .Where(x => !shown.Contains(x))
             .Select(x => x.Name)
             .ToList();
-        if (notShown.Count > 0)
+        if (notShown.Count > 0 || topTableCut)
         {
             keptParts.RemoveAll(x => x.Kind == SchemaContextPartKind.Coverage);
         }
 
-        var text = Render(head, sections, keptParts, shown.Contains, notShown.Count > 0 ? OmittedTablesLine(notShown) : null);
+        var text = Render(head, renderedSections, keptParts, shown.Contains, notShown.Count > 0 ? OmittedTablesLine(notShown) : null);
 
         return new BudgetedSchemaContext(text, shown.Count, notShown)
         {
             PartsLeftOut = partsLeftOut,
-            OverBudget = overBudget
+            TopTableCut = topTableCut
         };
     }
 
@@ -221,6 +238,16 @@ internal static partial class AskSchemaContextBudget
 
     [GeneratedRegex(@"[\p{L}\p{N}_]+(?:\.[\p{L}\p{N}_]+)*", RegexOptions.CultureInvariant)]
     private static partial Regex NameRegex();
+
+    private static SchemaContextTableBlock CutBlock(SchemaContextTableBlock block, int room)
+    {
+        var marker = $"-- {block.Name}: more columns not shown{Environment.NewLine}";
+        var fits = Math.Max(0, Math.Min(block.Text.Length, room - marker.Length));
+        var lineEnd = block.Text.LastIndexOf('\n', Math.Max(0, fits - 1), fits);
+        var kept = lineEnd < 0 ? "" : block.Text[..(lineEnd + 1)];
+
+        return block with { Text = kept + marker };
+    }
 
     private static List<SchemaContextTableBlock> RankedOrder(List<SchemaContextTableBlock> blocks, IReadOnlyList<string> rankedNames)
     {
