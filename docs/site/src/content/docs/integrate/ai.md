@@ -60,7 +60,7 @@ The provider is built from `Beacon:LLM` each time the process starts. Keep that 
 }
 ```
 
-`Model` and `FastModel` are free text. Use whatever model ids your provider offers. `Model` does the work (SQL generation, documentation, actors); `FastModel` is stored with the configuration for a smaller model, but no feature uses it yet; every call uses `Model`.
+`Model` and `FastModel` are free text. Use whatever model ids your provider offers. `Model` does the work (SQL generation, documentation, actors); `FastModel` names a smaller model for the short classification calls on the `ask` path (intent classification and data-source routing); every other call uses `Model`. Leave it empty, or equal to `Model`, to use `Model` for all calls; if the fast model cannot be set up or fails when called, those calls also fall back to `Model`.
 
 ### The request queue
 

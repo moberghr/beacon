@@ -19,7 +19,7 @@ internal sealed class SqlGenerationService(TimeProvider? timeProvider = null, IL
         CancellationToken ct,
         decimal? temperature = null)
     {
-        var request = BuildGenerationRequest(schemaContext, question, settings, temperature ?? 0.1m);
+        var request = BuildGenerationRequest(schemaContext, question, settings, temperature ?? 0.1m, LlmOperations.SqlGeneration);
         var response = await llmProvider.CompleteAsync(request, ct);
         return BuildResult(response);
     }
@@ -59,7 +59,7 @@ internal sealed class SqlGenerationService(TimeProvider? timeProvider = null, IL
         ILlmProvider llmProvider,
         CancellationToken ct)
     {
-        var request = BuildGenerationRequest(schemaContext, question, settings, temperature);
+        var request = BuildGenerationRequest(schemaContext, question, settings, temperature, LlmOperations.SqlSelfConsistency);
 
         try
         {
@@ -85,7 +85,8 @@ internal sealed class SqlGenerationService(TimeProvider? timeProvider = null, IL
         string schemaContext,
         string question,
         McpSettingsData settings,
-        decimal temperature)
+        decimal temperature,
+        string operation)
     {
         var systemPrompt = settings.AskSystemPrompt ?? """
             You are a SQL expert. Based on the provided database schema and context, generate a SQL query to answer the user's question.
@@ -113,28 +114,37 @@ internal sealed class SqlGenerationService(TimeProvider? timeProvider = null, IL
             - CRITICAL: Before writing your final SQL, mentally verify each column reference against the schema. If a column is not listed, do NOT use it.
             """;
 
-        var userMessage = "";
-        if (!string.IsNullOrWhiteSpace(settings.GlobalInstruction))
-        {
-            userMessage += $"INSTRUCTIONS:\n{settings.GlobalInstruction}\n\n";
-        }
+        // The stable part — the operator's instruction and the schema context — is a user message marked as a cache breakpoint,
+        // a prefix the provider can reuse across candidates and repairs; the date and the question follow in a message of
+        // their own. The schema stays user content, never system prompt.
+        var contextMessage = GenerationContextMessage(settings.GlobalInstruction, schemaContext);
 
-        userMessage += $"{TodayLine()}\n\n";
-
-        userMessage += $"""
-            DATABASE CONTEXT:
-            {schemaContext}
-
-            USER QUESTION: {question}
-            """;
+        var questionMessage = $"{TodayLine()}\n\nUSER QUESTION: {question}";
 
         return new LlmRequest
         {
             SystemPrompt = systemPrompt,
-            Messages = [new ChatMessage(ConversationRole.User, userMessage)],
+            Messages =
+            [
+                new ChatMessage(ConversationRole.User, contextMessage) { CacheBreakpoint = true },
+                new ChatMessage(ConversationRole.User, questionMessage)
+            ],
             Temperature = temperature,
-            MaxTokens = 2048
+            MaxTokens = 2048,
+            Operation = operation
         };
+    }
+
+    // The first message of a generation request; a repair over the same context sends it byte for byte.
+    private static string GenerationContextMessage(string? globalInstruction, string schemaContext)
+    {
+        var contextMessage = "";
+        if (!string.IsNullOrWhiteSpace(globalInstruction))
+        {
+            contextMessage += $"INSTRUCTIONS:\n{globalInstruction}\n\n";
+        }
+
+        return contextMessage + $"DATABASE CONTEXT:\n{schemaContext}";
     }
 
     private string TodayLine()
@@ -237,7 +247,7 @@ internal sealed class SqlGenerationService(TimeProvider? timeProvider = null, IL
         return (assumptions, clarificationHint, remainder);
     }
 
-    public async Task<string?> RetryWithErrorAsync(
+    public Task<string?> RetryWithErrorAsync(
         ILlmProvider llmProvider,
         string systemPrompt,
         string previousSql,
@@ -247,15 +257,64 @@ internal sealed class SqlGenerationService(TimeProvider? timeProvider = null, IL
         string question,
         CancellationToken ct)
     {
+        return RepairAsync(llmProvider, systemPrompt, previousSql, error, fullContext, tablesContext, question, null, ct);
+    }
+
+    public Task<string?> RetryWithErrorAsync(
+        ILlmProvider llmProvider,
+        string systemPrompt,
+        string previousSql,
+        string error,
+        string fullContext,
+        string? tablesContext,
+        string question,
+        McpSettingsData settings,
+        string? generationContext,
+        CancellationToken ct)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+
+        // Only a repair over the very context the generation was sent can reuse the generation's cached first message.
+        var cachedContextMessage = string.Equals(fullContext, generationContext, StringComparison.Ordinal)
+            ? GenerationContextMessage(settings.GlobalInstruction, fullContext)
+            : null;
+
+        return RepairAsync(llmProvider, systemPrompt, previousSql, error, fullContext, tablesContext, question, cachedContextMessage, ct);
+    }
+
+    private async Task<string?> RepairAsync(
+        ILlmProvider llmProvider,
+        string systemPrompt,
+        string previousSql,
+        string error,
+        string fullContext,
+        string? tablesContext,
+        string question,
+        string? cachedContextMessage,
+        CancellationToken ct)
+    {
+        // The schema comes first: the generation's own first message, byte for byte and marked as the same cache breakpoint,
+        // when the repair is over the context the generation was sent; otherwise the full schema with no breakpoint. The parts
+        // of this attempt follow in a message of their own — the question, the previous SQL and its error, then the rules —
+        // ending with the instruction. The schema stays user content, never system prompt.
+        var contextMessage = cachedContextMessage != null
+            ? new ChatMessage(ConversationRole.User, cachedContextMessage) { CacheBreakpoint = true }
+            : new ChatMessage(ConversationRole.User, $"FULL DATABASE SCHEMA (authoritative source):\n{fullContext}");
+
         var schemaSection = tablesContext != null
             ? $"""
-
                 EXACT SCHEMAS FOR TABLES IN YOUR QUERY:
                 {tablesContext}
+
+
                 """
             : "";
 
-        var retryMessage = $"""
+        var attemptMessage = $"""
+            {TodayLine()}
+
+            {schemaSection}USER QUESTION: {question}
+
             Your previous SQL query failed.
 
             PREVIOUS SQL:
@@ -263,27 +322,26 @@ internal sealed class SqlGenerationService(TimeProvider? timeProvider = null, IL
 
             ERROR: {error}
 
-            {TodayLine()}
-
-            FULL DATABASE SCHEMA (authoritative source):
-            {fullContext}
-            {schemaSection}
-            USER QUESTION: {question}
-
             CRITICAL RULES:
-            - Use ONLY column names listed in the schemas above. Do NOT guess or infer column names.
+            - Use ONLY column names listed in the schemas provided. Do NOT guess or infer column names.
             - Check every column reference against the schema before including it.
             - Use FK relationships shown in the schema to find correct join paths.
             - Ensure non-aggregate SELECT columns appear in GROUP BY when using aggregate functions.
-            - Return ONLY the corrected SQL query, nothing else.
+
+            Return ONLY the corrected SQL query.
             """;
 
         var retryRequest = new LlmRequest
         {
             SystemPrompt = systemPrompt,
-            Messages = [new ChatMessage(ConversationRole.User, retryMessage)],
+            Messages =
+            [
+                contextMessage,
+                new ChatMessage(ConversationRole.User, attemptMessage)
+            ],
             Temperature = 0.1m,
-            MaxTokens = 2048
+            MaxTokens = 2048,
+            Operation = LlmOperations.SqlRepair
         };
 
         var retryResponse = await llmProvider.CompleteAsync(retryRequest, ct);

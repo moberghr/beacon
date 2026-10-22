@@ -183,7 +183,7 @@ public class McpEvalServiceJudgeGateTests
         sqlGen
             .Setup(x => x.RetryWithErrorAsync(
                 It.IsAny<ILlmProvider>(), It.IsAny<string>(), badSql, It.IsAny<string>(),
-                It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+                It.IsAny<string>(), It.IsAny<string?>(), It.IsAny<string>(), It.IsAny<McpSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(fixedSql);
 
         var captured = new List<McpEvalResult>();

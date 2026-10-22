@@ -9,6 +9,7 @@ using Beacon.Core.Models;
 using Beacon.Core.RowSecurity;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
+using Beacon.Core.Telemetry;
 using Beacon.Core.Mcp;
 
 namespace Beacon.AI.Services.Mcp;
@@ -69,6 +70,18 @@ internal sealed class AskSqlPipeline(
             llmProvider,
             new LlmRowDataScope(projectId, [dataSourceId], smartContext.RowDataCategories) { CallerId = options.CallerId });
 
+        // The generation stage span, tagged with the number of distinct tables the candidate reads (never the SQL).
+        async Task<SqlGenerationResult> GenerateSingleCandidateAsync()
+        {
+            using var stage = BeaconTelemetry.StartAskStage(BeaconTelemetry.AskStageGeneration);
+
+            var candidate = await BeaconTelemetry.ObserveStageAsync(stage, () => sqlGenerationService.GenerateAsync(
+                promptProvider, fullContext, question, settings, ct, options.GenerationTemperature));
+            stage?.SetTag(BeaconTelemetry.AskTablesTag, candidate.TablesUsed.Distinct(StringComparer.OrdinalIgnoreCase).Count());
+
+            return candidate;
+        }
+
         // A database error goes into a repair prompt, and into the repair steps the stored signal is built from, without the
         // values it quotes: only the names of this context and of the SQL it is about stay.
         string RedactedError(string error, string sql)
@@ -122,8 +135,7 @@ internal sealed class AskSqlPipeline(
         // chance to be elected. Only this first generation fails the call on a spent LLM budget; every later step that
         // has no call left is skipped instead.
         options.LlmBudget?.Consume();
-        var singleCandidate = await sqlGenerationService.GenerateAsync(
-            promptProvider, fullContext, question, settings, ct, options.GenerationTemperature);
+        var singleCandidate = await GenerateSingleCandidateAsync();
         var tableCount = singleCandidate.TablesUsed
             .Distinct(StringComparer.OrdinalIgnoreCase)
             .Count();
@@ -155,6 +167,10 @@ internal sealed class AskSqlPipeline(
             }
             else
             {
+                // The self-consistency stage span, tagged with the number of candidates the vote weighs (never their SQL).
+                using var stage = BeaconTelemetry.StartAskStage(BeaconTelemetry.AskStageSelfConsistency);
+                stage?.SetTag(BeaconTelemetry.AskCandidatesTag, extraCandidateCount + 1);
+
                 try
                 {
                     var vote = await RunSelfConsistencyVoteAsync(
@@ -162,12 +178,15 @@ internal sealed class AskSqlPipeline(
                     votedWinner = vote.Winner;
                     votingNote = vote.Note;
                 }
-                catch (OperationCanceledException)
+                catch (OperationCanceledException ex)
                 {
+                    BeaconTelemetry.RecordFailure(stage, ex);
                     throw;
                 }
                 catch (Exception ex)
                 {
+                    BeaconTelemetry.RecordFailure(stage, ex);
+
                     // Fail-closed (2026-07-13 lesson): a broken voting path must never fail the ask; it falls
                     // back to the already-validated single candidate. §1.11 — no SQL, no question text, no
                     // provider error detail, just enough to diagnose.
@@ -241,6 +260,20 @@ internal sealed class AskSqlPipeline(
         }
 
         var systemPrompt = settings.AskSystemPrompt ?? "You are a SQL expert. Return ONLY the SQL query.";
+
+        // One repair stage span per repair, tagged with its trigger and whether a statement came back (never the SQL).
+        async Task<string?> RepairAsync(string trigger, string previousSql, string error, string? tablesContext)
+        {
+            using var stage = BeaconTelemetry.StartAskStage(BeaconTelemetry.AskStageRepair);
+            stage?.SetTag(BeaconTelemetry.AskRepairTriggerTag, trigger);
+
+            // The generation was sent this same context, so the repair reuses its cached first message.
+            var repairedSql = await BeaconTelemetry.ObserveStageAsync(stage, () => sqlGenerationService.RetryWithErrorAsync(
+                promptProvider, systemPrompt, previousSql, error, fullContext, tablesContext, question, settings, fullContext, ct));
+            stage?.SetTag(BeaconTelemetry.AskProducedSqlTag, repairedSql != null);
+
+            return repairedSql;
+        }
         string? schemaValidationError = null;
         string? dryRunError = null;
         var emptyResultRetried = false;
@@ -257,9 +290,7 @@ internal sealed class AskSqlPipeline(
             schemaValidationError = schemaVerdict.Message!;
             logger.LogInformation("Schema pre-validation failed, retrying. Error: {Error}", schemaVerdict.Message);
 
-            var preValidationRetry = await sqlGenerationService.RetryWithErrorAsync(
-                promptProvider, systemPrompt, generatedSql, schemaVerdict.Message!,
-                fullContext, null, question, ct);
+            var preValidationRetry = await RepairAsync("schema", generatedSql, schemaVerdict.Message!, null);
 
             var schemaRepairSql = (string?)null;
             var schemaRepairOk = false;
@@ -314,9 +345,7 @@ internal sealed class AskSqlPipeline(
                 var lintError = "Semantic check: " + string.Join("; ", initialLintFindings.Select(x => $"{x.Code}: {x.Message}"));
                 logger.LogInformation("Semantic lint found {Count} finding(s), retrying.", initialLintFindings.Count);
 
-                var lintRetry = await sqlGenerationService.RetryWithErrorAsync(
-                    promptProvider, systemPrompt, generatedSql, lintError,
-                    fullContext, null, question, ct);
+                var lintRetry = await RepairAsync("lint", generatedSql, lintError, null);
 
                 var lintRepairSql = (string?)null;
                 var lintRepairOk = false;
@@ -382,9 +411,7 @@ internal sealed class AskSqlPipeline(
             var redactedDryRunError = dryRunError!;
             logger.LogInformation("Dry-run validation failed, retrying ({ErrorClass})", DatabaseErrorRedactor.ClassOnly(rawDryRunError, logger));
 
-            var dryRunRetry = await sqlGenerationService.RetryWithErrorAsync(
-                promptProvider, systemPrompt, generatedSql, PromptError(rawDryRunError, dryRunSql),
-                fullContext, null, question, ct);
+            var dryRunRetry = await RepairAsync("dry-run", generatedSql, PromptError(rawDryRunError, dryRunSql), null);
 
             var dryRunRepairSql = (string?)null;
             var dryRunRepairOk = false;
@@ -424,9 +451,7 @@ internal sealed class AskSqlPipeline(
                 ? await knowledgeGraph.GetTablesContextAsync(dataSourceId, projectId, tableNames, ct)
                 : null;
 
-            var retriedSql = await sqlGenerationService.RetryWithErrorAsync(
-                promptProvider, systemPrompt, generatedSql, PromptError(execResult.ErrorMessage, generatedSql),
-                fullContext, tablesContext, question, ct);
+            var retriedSql = await RepairAsync("execution", generatedSql, PromptError(execResult.ErrorMessage, generatedSql), tablesContext);
 
             if (retriedSql != null)
             {
@@ -460,9 +485,7 @@ internal sealed class AskSqlPipeline(
 
             const string emptyResultError = "The query executed successfully but returned zero rows. Re-check filter values against the Examples in the schema, join paths, and value casing. If zero rows is genuinely the correct answer, return the identical SQL.";
 
-            var emptyRetry = await sqlGenerationService.RetryWithErrorAsync(
-                promptProvider, systemPrompt, generatedSql, emptyResultError,
-                fullContext, null, question, ct);
+            var emptyRetry = await RepairAsync("empty-result", generatedSql, emptyResultError, null);
 
             if (emptyRetry != null && !SqlEquals(emptyRetry, generatedSql))
             {
@@ -691,11 +714,17 @@ internal sealed class AskSqlPipeline(
     private async Task<AskExecutionResult> ExecuteForAsync(string purpose, IAskSqlExecutor executor, int dataSourceId, string sql, McpSettingsData settings, CancellationToken ct)
     {
         using var scope = statementLog.BeginPurpose(purpose);
+        using var stage = BeaconTelemetry.StartAskStage(BeaconTelemetry.AskStageExecution);
+        stage?.SetTag(BeaconTelemetry.AskStatementPurposeTag, purpose);
 
         // A configured limit below the usual 100 rows wins.
         var maxRows = Math.Min(AskRowCap, Math.Max(1, settings.MaxRowLimit));
 
-        return await executor.ExecuteAsync(dataSourceId, sql, maxRows, ct);
+        var result = await BeaconTelemetry.ObserveStageAsync(stage, () => executor.ExecuteAsync(dataSourceId, sql, maxRows, ct));
+        stage?.SetTag(BeaconTelemetry.ResultRowsTag, result.RowCount);
+        stage?.SetTag(BeaconTelemetry.OutcomeTag, result.IsSuccess ? BeaconTelemetry.OutcomeSuccess : BeaconTelemetry.OutcomeError);
+
+        return result;
     }
 
     private async Task<string?> TryDryRunAsync(IAskSqlExecutor executor, int dataSourceId, string sql, CancellationToken ct)

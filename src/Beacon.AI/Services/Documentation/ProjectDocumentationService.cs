@@ -377,7 +377,8 @@ internal sealed class ProjectDocumentationService(
             Messages = [new ChatMessage(ConversationRole.User, userPrompt)],
             Temperature = 0.3m,
             MaxTokens = 8192,
-            Priority = LlmRequestPriority.Background
+            Priority = LlmRequestPriority.Background,
+            Operation = LlmOperations.Documentation
         };
         return await provider.CompleteAsync(request, ct);
     }

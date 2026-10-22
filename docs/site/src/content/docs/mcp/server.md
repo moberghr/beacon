@@ -217,6 +217,13 @@ Execute a direct SQL query against a specific data source. Use this when you alr
 
 *Either `datasource_name` or `datasource_id` is required.
 
+`query` checks every column against the project's catalog and refuses one it does not know. A data source with no
+extracted metadata has no catalog to check against, so `query` refuses it with *This data source has no extracted
+metadata (it was never scanned, metadata loading is off, or the scan found no tables); query it through MCP once it has
+metadata.* (audited and signalled like other refusals): turn metadata loading on and refresh its metadata first. Host data sources keep their own allow-list; `dry_run` reports a missing catalog as an advisory and still
+validates the rest. CloudWatch sources cannot be queried through `query` (they run Logs Insights, not SQL); Beacon's own
+CloudWatch features use the configured log groups only, so restrict the IAM role to them.
+
 **For REST API data sources**, pass a JSON query definition:
 ```json
 {
@@ -445,7 +452,7 @@ Admins and SecurityAdmins customize the MCP server at **MCP Settings** (`/beacon
 The tabs:
 
 **Pre-prompt**
-- **Ask tool system prompt**: the LLM prompt used for SQL generation in the `ask` tool
+- **Ask tool system prompt**: the LLM prompt used for SQL generation in the `ask` tool, sent as is. The global instruction and the schema context follow as a first user message, the stable prefix a provider can reuse from its prompt cache (Claude is asked to cache it; OpenAI and Azure OpenAI cache such a prefix on their own; Bedrock does not request prompt caching yet); the date and the question come in a second user message. An `ask` repair sends that same first message, byte for byte, then the question, the previous SQL, its error and the rules in a second message ending with "Return ONLY the corrected SQL query."; a repair over any other context (a cross-source repair) sends the full schema first with no cache request. A provider's cache covers the system prompt too, so a repair reuses the generation's cached prefix only when both use the same system prompt, that is when this prompt is set. Schema text (database comments, documentation, glossary) is always user content, never part of the system prompt.
 - **Global instruction**: prepended to the user context of every LLM-aware tool
 
 **Tool descriptions**

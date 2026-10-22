@@ -74,7 +74,8 @@ internal sealed class LlmLessonExtractor(
                 Messages = [new ChatMessage(ConversationRole.User, BuildUserMessage(cluster with { Error = error }))],
                 Temperature = 0.0m,
                 MaxTokens = 512,
-                Priority = LlmRequestPriority.Background
+                Priority = LlmRequestPriority.Background,
+                Operation = LlmOperations.Learning
             };
 
             // The redacted error is the one part of the prompt read from a data source; its class and code alone are not.

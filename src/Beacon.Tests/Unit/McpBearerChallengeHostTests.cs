@@ -170,8 +170,23 @@ public class McpBearerChallengeHostTests
         var card = await host.GetJsonAsync("/.well-known/mcp/server-card.json");
 
         metadata["resource_name"]!.GetValue<string>().Should().Be("Leave Desk");
+        card["name"]!.GetValue<string>().Should().Be("Leave Desk", "the server card names the host's server as the metadata does");
         metadata["resource_documentation"]!.GetValue<string>().Should().Be("https://help.example.com/mcp");
         card["documentation"]!.GetValue<string>().Should().Be("https://help.example.com/mcp");
+        host.Logs.Should().NotContain(x => x.Contains("ResourceDocumentation"), "an https link needs no warning");
+    }
+
+    [TestCase("http://help.example.com/mcp")]
+    [TestCase("help/mcp")]
+    public async Task ResourceDocumentation_NotHttps_LogsAStartupWarning(string documentation)
+    {
+        await using var host = await TestHost.StartAsync(settings: new Dictionary<string, string?>
+        {
+            ["Beacon:Mcp:ProtectedResource:ResourceDocumentation"] = documentation
+        });
+
+        host.Logs.Should().ContainSingle(x => x.StartsWith("Warning") && x.Contains("ResourceDocumentation is not an absolute https URL"));
+        host.Logs.Should().NotContain(x => x.Contains(documentation), "the warning names the setting, not its value");
     }
 
     [Test]
@@ -198,6 +213,8 @@ public class McpBearerChallengeHostTests
 
         metadata.ContainsKey("authorization_servers").Should().BeFalse("no Beacon OIDC and nothing configured");
         metadata["resource_name"]!.GetValue<string>().Should().Be(McpDiscoveryDocuments.DefaultResourceName);
+        card["name"]!.GetValue<string>().Should().Be(McpDiscoveryDocuments.ServerName);
+        card["description"]!.GetValue<string>().Should().StartWith("Governed, read-only access to a project's data sources");
         metadata["resource_documentation"]!.GetValue<string>().Should().Be(McpDiscoveryDocuments.DocumentationUrl);
         card["documentation"]!.GetValue<string>().Should().Be(McpDiscoveryDocuments.DocumentationUrl);
         Strings(metadata["scopes_supported"]).Should().Equal("Execute");

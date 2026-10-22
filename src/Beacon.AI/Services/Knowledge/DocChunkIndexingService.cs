@@ -628,7 +628,8 @@ internal sealed class DocChunkIndexingService(
                 Messages = [new ChatMessage(ConversationRole.User, BuildBlurbUserMessage(sectionText, chunkText))],
                 Temperature = 0.0m,
                 MaxTokens = BlurbMaxTokens,
-                Priority = LlmRequestPriority.Background
+                Priority = LlmRequestPriority.Background,
+                Operation = LlmOperations.DocIndexing
             };
 
             var response = await provider.CompleteAsync(request, ct);

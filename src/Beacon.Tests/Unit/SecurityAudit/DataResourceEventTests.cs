@@ -374,6 +374,7 @@ public class DataResourceEventTests
             Mock.Of<ISchemaGraphService>(),
             _audit,
             TestTransport.Policy(),
+            TestEngineVerifier.Passing,
             NullLogger<DataSourceService>.Instance);
     }
 

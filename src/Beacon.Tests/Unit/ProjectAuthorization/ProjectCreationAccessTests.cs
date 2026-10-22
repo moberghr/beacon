@@ -275,6 +275,7 @@ public class ProjectCreationAccessTests
             Mock.Of<Beacon.Core.Services.Metadata.ISchemaGraphService>(),
             new RecordingSecurityAudit(),
             TestTransport.Policy(),
+            TestEngineVerifier.Passing,
             NullLogger<DataSourceService>.Instance);
 
         await service.CreateDataSource(

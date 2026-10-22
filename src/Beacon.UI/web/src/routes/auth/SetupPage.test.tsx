@@ -3,7 +3,6 @@ import { describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { Route, Routes } from 'react-router-dom';
 import { renderWithProviders } from '@/test/render';
-import { permissionsHandler } from '@/test/permissions';
 import { mswServer } from '../../../vitest.setup';
 import SetupPage from './SetupPage';
 
@@ -11,6 +10,24 @@ function serveStatus(isFirstRun: boolean) {
   mswServer.use(
     http.get('*/beacon/api/setup/status', () => HttpResponse.json({ isFirstRun })),
     http.get('*/beacon/api/csrf', () => new HttpResponse(null, { status: 204 })),
+  );
+}
+
+/** `/auth/me` of the MCP gateway: it reports gateway mode signed in or not. */
+function serveGatewayUser(isAuthenticated: boolean) {
+  mswServer.use(
+    http.get('*/beacon/api/auth/me', () =>
+      HttpResponse.json({
+        userId: isAuthenticated ? 'host:7' : null,
+        displayName: isAuthenticated ? 'Host admin' : null,
+        email: null,
+        isAuthenticated,
+        roles: isAuthenticated ? ['Admin'] : [],
+        realtimeEnabled: false,
+        externalLogin: { loginUrl: '/Account/SignIn', returnUrlParameter: 'returnUrl' },
+        gatewayMode: true,
+      }),
+    ),
   );
 }
 
@@ -122,10 +139,13 @@ describe('SetupPage', () => {
     await waitFor(() => expect(sent).not.toBeNull());
     expect(sent).toMatchObject({ setupToken: 'token-from-the-console', userName: 'admin' });
   });
-  it('sends a signed-in user of the MCP gateway to its landing page, without asking for setup', async () => {
+  it.each([
+    ['signed-in user', true],
+    ['signed-out visitor', false],
+  ])('sends a %s of the MCP gateway to its landing page, without asking for setup', async (_who, isAuthenticated) => {
     let asked = false;
+    serveGatewayUser(isAuthenticated);
     mswServer.use(
-      permissionsHandler({ isAdmin: true, gatewayMode: true }),
       http.get('*/beacon/api/setup/status', () => {
         asked = true;
         return new HttpResponse(null, { status: 404 });
@@ -139,7 +159,7 @@ describe('SetupPage', () => {
     expect(screen.queryByText(/unreachable/i)).toBeNull();
   });
 
-  it('leaves for the app when the deployment maps no setup endpoint (404), as the MCP gateway seen signed out', async () => {
+  it('leaves for the app when the deployment maps no setup endpoint (404)', async () => {
     mswServer.use(
       http.get('*/beacon/api/auth/me', () =>
         HttpResponse.json({ userId: null, displayName: null, email: null, isAuthenticated: false, roles: [], realtimeEnabled: false, externalLogin: { loginUrl: '/Account/SignIn', returnUrlParameter: 'returnUrl' } }),

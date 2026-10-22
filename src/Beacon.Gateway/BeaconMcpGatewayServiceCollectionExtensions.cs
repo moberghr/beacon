@@ -134,6 +134,7 @@ public static class BeaconMcpGatewayServiceCollectionExtensions
             x.BuiltInTools.UnionWith(options.BuiltInTools);
             x.SavedQueryTools = false;
             x.ServerInstructions = options.ServerInstructions;
+            x.ServerDescription = options.ServerDescription;
         });
         services.AddHostEndpointTools(x =>
         {

@@ -4,7 +4,7 @@ import { useForm } from 'react-hook-form';
 import { zodResolver } from '@hookform/resolvers/zod';
 import { z } from 'zod';
 import { User, Mail, IdCard, Lock, ShieldCheck, ArrowRight, KeyRound } from 'lucide-react';
-import { useAccess } from '@/auth/useAuth';
+import { useAuth } from '@/auth/useAuth';
 import { GATEWAY_LANDING_PATH } from '@/auth/RequireFullBeacon';
 import { describeError, fetchJson, isNotFound } from '@/lib/api';
 import {
@@ -39,13 +39,14 @@ const SCHEMA = z
 type FormValues = z.infer<typeof SCHEMA>;
 
 /**
- * First-run setup. The MCP gateway has none (the host owns sign-in, and its server maps no setup endpoint): a signed-in
- * user there lands on the gateway's pages instead.
+ * First-run setup. The MCP gateway has none (the host owns sign-in, and its server maps no setup endpoint): `/auth/me`
+ * says so signed in or not, and the visitor goes to the gateway's pages instead (through the host's sign-in when
+ * signed out).
  */
 export default function SetupPage() {
-  const access = useAccess();
-  if (access.isLoading) return null;
-  if (access.gatewayMode) return <Navigate to={GATEWAY_LANDING_PATH} replace />;
+  const auth = useAuth();
+  if (auth.isLoading) return null;
+  if (auth.data?.gatewayMode) return <Navigate to={GATEWAY_LANDING_PATH} replace />;
   return <FirstRunSetup />;
 }
 
@@ -65,7 +66,7 @@ function FirstRunSetup() {
         const r = await fetchJson<SetupStatusResponse>('/beacon/api/setup/status');
         setStatus(r.isFirstRun ? 'open' : 'already');
       } catch (e) {
-        // No setup endpoint at all (404): this deployment has no first-run setup, e.g. the MCP gateway seen signed out.
+        // No setup endpoint at all (404): this deployment has no first-run setup.
         setStatus(isNotFound(e) ? 'none' : 'error');
       }
     })();

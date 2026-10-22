@@ -23,7 +23,9 @@ internal sealed record HostSyncOutcome(int DataSourceId, bool Created, bool Meta
 /// Upserts the project, data source, project link and metadata for every <c>ExposeDbContext</c> registration,
 /// keyed by <c>DataSource.HostManagedKey</c>. The project comes from <see cref="IHostProjectResolver"/> (by
 /// <c>Project.HostManagedKey</c>, never by name), and the data source is linked to that project only — a link to any
-/// other project (a renamed <c>ProjectName</c>, a hand-made link) is removed. Called by the host at startup through
+/// other project (a renamed <c>ProjectName</c>, a hand-made link) is removed. Once every source is synced, their read-only
+/// logins are checked for write access all at once (<see cref="IHostReadOnlyLoginCheck"/>, each bounded by its timeout, a
+/// Warning only, never failing the sync). Called by the host at startup through
 /// <c>SyncBeaconHostDataSourcesAsync</c> — deliberately not a hosted service (§2.15).
 /// </summary>
 internal sealed class HostDataSourceSynchronizer(
@@ -37,17 +39,32 @@ internal sealed class HostDataSourceSynchronizer(
     IMemoryCache cache,
     IProjectMembershipSource membershipSource,
     IOptions<ProjectAuthorizationOptions> authorizationOptions,
+    IHostReadOnlyLoginCheck loginCheck,
     ILogger<HostDataSourceSynchronizer> logger)
 {
     public async Task SyncAllAsync(CancellationToken cancellationToken)
     {
+        var synced = new List<(DataSource DataSource, IReadOnlyList<HostExposedTable> Tables)>();
         foreach (var registration in registry.Registrations)
         {
-            await SyncAsync(registration, cancellationToken);
+            var (_, dataSource, tables) = await SyncSourceAsync(registration, cancellationToken);
+            synced.Add((dataSource, tables));
         }
+
+        // In parallel after the sync: startup waits for the slowest check (each bounded), not for their sum.
+        await Task.WhenAll(synced.Select(x => CheckLoginAsync(x.DataSource, x.Tables, cancellationToken)));
     }
 
     public async Task<HostSyncOutcome> SyncAsync(HostDataSourceRegistration registration, CancellationToken cancellationToken)
+    {
+        var (outcome, _, _) = await SyncSourceAsync(registration, cancellationToken);
+
+        return outcome;
+    }
+
+    private async Task<(HostSyncOutcome Outcome, DataSource DataSource, IReadOnlyList<HostExposedTable> Tables)> SyncSourceAsync(
+        HostDataSourceRegistration registration,
+        CancellationToken cancellationToken)
     {
         // Startup validation: the read-only login must be configured. Only the entry NAME is ever reported.
         DataSourceConnectionResolver.ResolveConfigured(configuration, registration.ConnectionStringName);
@@ -143,7 +160,24 @@ internal sealed class HostDataSourceSynchronizer(
 
         LogOutcome(registration, snapshot, merge, created);
 
-        return new HostSyncOutcome(dataSource.Id, created, rewriteMetadata, snapshot.Tables.Count);
+        return (new HostSyncOutcome(dataSource.Id, created, rewriteMetadata, snapshot.Tables.Count), dataSource, snapshot.Policy.Tables);
+    }
+
+    // Beacon trusts the configured login to be read-only: a login that can write is a startup Warning, never a refusal, and
+    // a check that fails is a Warning too — the sources are synced already.
+    private async Task CheckLoginAsync(DataSource dataSource, IReadOnlyList<HostExposedTable> tables, CancellationToken cancellationToken)
+    {
+        try
+        {
+            await loginCheck.WarnIfWritableAsync(dataSource, tables, cancellationToken);
+        }
+        catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+        {
+            logger.LogWarning(
+                "Host data source {DataSourceId}: could not verify that its read-only login cannot write ({ExceptionType})",
+                dataSource.Id,
+                ex.GetType().Name);
+        }
     }
 
     // The source leaves the projects it was linked to for the host project. When one of them is restricted, the host

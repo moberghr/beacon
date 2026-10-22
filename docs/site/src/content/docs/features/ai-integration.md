@@ -83,7 +83,7 @@ a call that still fails surfaces as `LlmTransientException` (an `AiServiceExcept
 themselves and the queue does not retry them again: a status they stopped retrying surfaces as an
 `HttpRequestException` carrying it, a connection failure or timeout as an `AiServiceException`. See
 [Integrate → AI](/integrate/ai/#the-request-queue). The other values under **Rate limits & budget** on the Admin Settings page (tokens per minute,
-requests per minute, monthly budget) and the **Fast model** are recorded and shown in settings.
+requests per minute, monthly budget) are recorded and shown in settings. The **Fast model** serves the short classification calls on the `ask` path (intent classification and data-source routing); when it is empty, equals the main model, cannot be built or fails when called, they use the main model.
 
 ## What Beacon uses the model for
 

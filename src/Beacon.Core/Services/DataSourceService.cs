@@ -47,12 +47,16 @@ internal class DataSourceService(
     ISchemaGraphService schemaGraphService,
     ISecurityAuditRecorder securityAudit,
     IDataSourceTransportPolicy transportPolicy,
+    IDatabaseEngineVerifier engineVerifier,
     ILogger<DataSourceService> logger,
     IBeaconScheduler? scheduler = null) : IDataSourceService
 {
     /// <summary>What a caller is told when a change of target is not confirmed (HTTP 409).</summary>
     public const string TargetChangeUnconfirmedMessage =
         "The new connection points at another server, port, database or engine. Confirm the target change to save it: the column values sampled from the old target are removed.";
+
+    /// <summary>What a connection test answers when the server's engine could not be read from its answer.</summary>
+    public const string UnverifiedEngineMessage = "Connection successful. The server's engine could not be verified.";
 
     public async Task<BaseResponse> CreateDataSource(DataSourceData dataSourceData, CancellationToken cancellationToken)
     {
@@ -63,6 +67,7 @@ internal class DataSourceService(
 
         var connectionString = dataSourceData.ConnectionString;
         transportPolicy.EnsureNewConnectionAllowed(dataSourceData.DataSourceType, dataSourceData.DatabaseEngineType, connectionString);
+        await EnsureDeclaredEngineAsync(null, dataSourceData.DataSourceType, dataSourceData.DatabaseEngineType, connectionString, cancellationToken);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
@@ -281,6 +286,13 @@ internal class DataSourceService(
             throw new BeaconConflictException(TargetChangeUnconfirmedMessage);
         }
 
+        // A new connection or engine is checked against the server: a connection kept as it is connects to nothing here,
+        // nor does a disabled source (§1.1) — it is checked when its connection or engine next changes while enabled.
+        if ((connectionChanged || engineChanged) && dataSource.DisabledTime == null)
+        {
+            await EnsureDeclaredEngineAsync(dataSource.Id, dataSource.DataSourceType, dataSourceData.DatabaseEngineType, connectionString, cancellationToken);
+        }
+
         // A metadata option left out (null) keeps the stored value.
         var metadataLoadingEnabled = dataSourceData.MetadataLoadingEnabled ?? dataSource.MetadataLoadingEnabled;
         var metadataMaxTables = dataSourceData.MetadataMaxTables ?? dataSource.MetadataMaxTables;
@@ -410,12 +422,33 @@ internal class DataSourceService(
         {
             await using var connection = DbConnectionFactory.CreateConnection(databaseEngineType, connectionString);
             await connection.OpenAsync(cancellationToken);
+
+            // The declared engine is checked on the connection just opened: a clear mismatch fails the test, a compatible
+            // engine passes with a note, an answer that cannot be read passes as before.
+            var identification = await engineVerifier.IdentifyAsync(null, databaseEngineType, connection, cancellationToken);
             await connection.CloseAsync();
+
+            if (identification.Verdict == DatabaseEngineIdentityVerdict.Mismatch)
+            {
+                // No idle connection opened with the refused connection stays in the pool.
+                ClearConnectionPool(null, DataSourceType.Database, databaseEngineType, connectionString);
+
+                return new BaseResponse
+                {
+                    Success = false,
+                    Message = $"Connection refused: {identification.Message}"
+                };
+            }
 
             return new BaseResponse
             {
                 Success = true,
-                Message = "Connection successful"
+                Message = identification.Verdict switch
+                {
+                    DatabaseEngineIdentityVerdict.Compatible => $"Connection successful. {identification.Message}",
+                    DatabaseEngineIdentityVerdict.Unverified => UnverifiedEngineMessage,
+                    _ => "Connection successful"
+                }
             };
         }
         catch (Exception ex)
@@ -471,6 +504,19 @@ internal class DataSourceService(
                 Message = $"Connection failed: {ConnectionFailureDescriber.Describe(ex)}"
             };
         }
+    }
+
+    // Only a database source declares an engine the server can be asked about; the other types connect to nothing here.
+    private Task EnsureDeclaredEngineAsync(
+        int? dataSourceId,
+        DataSourceType dataSourceType,
+        DatabaseEngineType? databaseEngineType,
+        string connectionString,
+        CancellationToken cancellationToken)
+    {
+        return dataSourceType == DataSourceType.Database && databaseEngineType.HasValue
+            ? engineVerifier.EnsureDeclaredEngineAsync(dataSourceId, databaseEngineType.Value, connectionString, cancellationToken)
+            : Task.CompletedTask;
     }
 
     // A connection test is refused, never opened, when the connection does not authenticate the server: its message names
@@ -602,7 +648,7 @@ internal class DataSourceService(
     // Synapse; Snowflake and the JSON-configured connectors keep no pool Beacon can empty, which is logged for a database
     // engine). The change is saved already, so a failure is logged by its type only, never its message, which can quote
     // the connection string.
-    private void ClearConnectionPool(int dataSourceId, DataSourceType dataSourceType, DatabaseEngineType? engine, string? connectionString)
+    private void ClearConnectionPool(int? dataSourceId, DataSourceType dataSourceType, DatabaseEngineType? engine, string? connectionString)
     {
         if (dataSourceType != DataSourceType.Database || engine == null || connectionString == null)
         {

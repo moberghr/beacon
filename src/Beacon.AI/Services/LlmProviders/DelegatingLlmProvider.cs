@@ -1,4 +1,7 @@
+using Beacon.AI.Models.Configuration;
+using Beacon.Core.Helpers;
 using Beacon.Core.Models.Ai;
+using Microsoft.Extensions.Logging;
 
 namespace Beacon.AI.Services.LlmProviders;
 
@@ -13,17 +16,67 @@ public class DelegatingLlmProvider : ILlmProvider
 {
     private readonly LlmProviderManager _manager;
     private readonly LlmRequestQueue _queue;
+    private readonly ILogger<DelegatingLlmProvider>? _logger;
 
     public DelegatingLlmProvider(LlmProviderManager manager, LlmRequestQueue queue)
+        : this(manager, queue, null)
     {
+    }
+
+    public DelegatingLlmProvider(LlmProviderManager manager, LlmRequestQueue queue, ILogger<DelegatingLlmProvider>? logger)
+    {
+        _logger = logger;
         _manager = manager ?? throw new ArgumentNullException(nameof(manager));
         _queue = queue ?? throw new ArgumentNullException(nameof(queue));
     }
 
-    public Task<LlmResponse> CompleteAsync(LlmRequest request, CancellationToken cancellationToken = default)
+    public async Task<LlmResponse> CompleteAsync(LlmRequest request, CancellationToken cancellationToken = default)
+    {
+        ArgumentNullException.ThrowIfNull(request);
+
+        // One snapshot per call: a fast provider is never paired with a main provider or configuration from another one,
+        // so a concurrent hot-swap never tags a call with another provider's kind or model.
+        var (main, fast, configuration) = _manager.ActiveSnapshot();
+        main ??= RequireProvider();
+
+        if (request.Tier == LlmTier.Fast && fast is not null)
+        {
+            try
+            {
+                return await Enqueue(fast, configuration, configuration.FastModel, request, cancellationToken);
+            }
+            catch (Exception ex) when (!(ex is OperationCanceledException && cancellationToken.IsCancellationRequested))
+            {
+                // The failure's types and codes only: an SDK message can carry credential or model details.
+                _logger?.LogWarning(
+                    "Fast-tier LLM call failed ({Failure}). Serving the request on the main provider.",
+                    FailureCodes.Describe(ex));
+            }
+
+            // The configuration may have changed while the fast call ran: the fallback goes to the provider that is
+            // active now, never to the one captured before it (which could hold retired credentials).
+            var current = _manager.ActiveSnapshot();
+            var currentMain = current.Main ?? throw NotConfigured();
+
+            return await Enqueue(currentMain, current.Configuration, current.Configuration.Model, request, cancellationToken);
+        }
+
+        return await Enqueue(main, configuration, configuration.Model, request, cancellationToken);
+    }
+
+    public Task<TokenCount> CountTokensAsync(string text, CancellationToken cancellationToken = default)
     {
         var provider = RequireProvider();
+        return provider.CountTokensAsync(text, cancellationToken);
+    }
 
+    private Task<LlmResponse> Enqueue(
+        ILlmProvider provider,
+        LlmConfiguration configuration,
+        string model,
+        LlmRequest request,
+        CancellationToken cancellationToken)
+    {
         // Recursion guard: pass the INNER provider to the queue, never `this`. If `this` were
         // passed, the queue would call back into DelegatingLlmProvider.CompleteAsync, which
         // would re-enqueue forever.
@@ -33,21 +86,24 @@ public class DelegatingLlmProvider : ILlmProvider
                 "LlmProviderManager.CurrentProvider must not be the DelegatingLlmProvider itself.");
         }
 
-        return _queue.EnqueueRequestAsync(provider, request, cancellationToken);
-    }
-
-    public Task<TokenCount> CountTokensAsync(string text, CancellationToken cancellationToken = default)
-    {
-        var provider = RequireProvider();
-        return provider.CountTokensAsync(text, cancellationToken);
+        // One span per completion, around the queue so it covers the wait for a slot and the retries too.
+        return LlmCompletionTelemetry.TraceAsync(
+            configuration.Provider.ToString().ToLowerInvariant(),
+            model,
+            request,
+            () => _queue.EnqueueRequestAsync(provider, request, cancellationToken));
     }
 
     // When the configured provider is not installed, the manager's install message says what to do; otherwise the
     // provider is not configured (no key yet) or could not be built.
     private ILlmProvider RequireProvider()
     {
-        return _manager.CurrentProvider
-            ?? throw new InvalidOperationException(
-                _manager.InactiveReason ?? "LLM provider is not configured. Configure it via Admin Settings.");
+        return _manager.CurrentProvider ?? throw NotConfigured();
+    }
+
+    private InvalidOperationException NotConfigured()
+    {
+        return new InvalidOperationException(
+            _manager.InactiveReason ?? "LLM provider is not configured. Configure it via Admin Settings.");
     }
 }

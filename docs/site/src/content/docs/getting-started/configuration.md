@@ -591,7 +591,7 @@ Bound from `Beacon:LLM` by `builder.Services.AddBeaconAI(builder.Configuration)`
 | `Region` | string | None | Required for `Bedrock` |
 | `SessionToken` | string | None | Bedrock temporary credentials |
 | `Model` | string | `""` | The model; for Azure the deployment name, for Bedrock the model id |
-| `FastModel` | string | None | Stored with the configuration, but no feature calls the fast provider yet, so setting it changes nothing today. Every call uses `Model` |
+| `FastModel` | string | None | Model for the short classification calls on the `ask` path (intent classification and data-source routing). Empty or equal to `Model`: those calls use `Model`, as does every other call. If the fast model fails when called, the call is served once on `Model` |
 | `Limits:MaxConcurrentRequests` | int | `50` | Concurrency of the LLM request queue, fixed when the host starts. Background work (documentation generation, indexing, learning, scheduled actor cycles, eval judging) holds at most half the slots (at least one) |
 | `Limits:InteractiveQueueWaitSeconds` | int | `60` | How long an interactive call waits for a free slot before it fails with *The LLM is busy. Try again later.* (`LlmQueueSaturatedException`). Non-positive: the default; at most `3600` |
 | `Limits:BackgroundQueueWaitSeconds` | int | `300` | The same wait for background work. Non-positive: the default; at most `3600` |
@@ -730,8 +730,8 @@ Read at request time.
 | `AuthorizationServers` | string[] | empty | Issuers published in `/.well-known/oauth-protected-resource`; each must equal its server metadata's `issuer` |
 | `DeriveAuthorizationServerFromJwtIssuer` | bool | `false` | When `AuthorizationServers` is empty, publish the bearer JWT issuer |
 | `ScopesSupported` | string[] | empty | Scopes published for an external identity provider (for example `api://{id}/mcp.access`) |
-| `ResourceName` | string | empty | The `resource_name` MCP clients show; empty publishes `Beacon MCP` |
-| `ResourceDocumentation` | string | empty | The `resource_documentation` URL, also the server card's `documentation`; empty publishes Beacon's MCP docs |
+| `ResourceName` | string | empty | The `resource_name` MCP clients show, also the server card's `name` and the server name at `initialize`; empty publishes `Beacon MCP` (`Beacon` on the card and at `initialize`) |
+| `ResourceDocumentation` | string | empty | The `resource_documentation` URL, also the server card's `documentation`; empty publishes Beacon's MCP docs. Anything but an absolute https URL logs a startup warning |
 
 Without the section, the authority published is `Beacon:Authentication:Oidc:Authority` when SSO is enabled. Startup warns about a derived issuer that is not absolute, and about an external server published without `ScopesSupported`.
 

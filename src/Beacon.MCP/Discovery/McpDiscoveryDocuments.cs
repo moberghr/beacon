@@ -17,7 +17,10 @@ namespace Beacon.MCP.Discovery;
 /// </summary>
 internal static class McpDiscoveryDocuments
 {
-    /// <summary>Single source for the server identity — also used by <c>ServiceConfiguration</c> for the MCP ServerInfo.</summary>
+    /// <summary>
+    /// Beacon's server name, unless <see cref="McpProtectedResourceOptions.ResourceName"/> names the host's
+    /// (<see cref="ServerNameFor"/>): the server card's <c>name</c> and the MCP ServerInfo (<c>ServiceConfiguration</c>).
+    /// </summary>
     public const string ServerName = "Beacon";
 
     /// <summary>
@@ -179,11 +182,15 @@ internal static class McpDiscoveryDocuments
     /// </summary>
     /// <param name="builtInTools">The built-in tools the host serves (<see cref="BeaconMcpOptions.BuiltInTools"/>); null lists all.</param>
     /// <param name="documentation"><see cref="McpProtectedResourceOptions.ResourceDocumentation"/>; empty publishes <see cref="DocumentationUrl"/>.</param>
+    /// <param name="name"><see cref="McpProtectedResourceOptions.ResourceName"/>; empty publishes <see cref="ServerName"/>.</param>
+    /// <param name="description"><see cref="BeaconMcpOptions.ServerDescription"/>; empty publishes Beacon's description.</param>
     public static JsonObject BuildServerCard(
         string publicBaseUrl,
         IReadOnlyList<string> scopesSupported,
         IReadOnlyCollection<string>? builtInTools = null,
-        string? documentation = null)
+        string? documentation = null,
+        string? name = null,
+        string? description = null)
     {
         var tools = new JsonArray();
         foreach (var tool in McpToolCatalog.Tools.Where(x => builtInTools?.Contains(x.Name) != false))
@@ -197,9 +204,9 @@ internal static class McpDiscoveryDocuments
 
         return new JsonObject
         {
-            ["name"] = ServerName,
+            ["name"] = ServerNameFor(name),
             ["version"] = ServerVersion,
-            ["description"] = Description,
+            ["description"] = string.IsNullOrWhiteSpace(description) ? Description : description.Trim(),
             ["transport"] = "streamable-http",
             ["endpoint"] = $"{publicBaseUrl}{McpPath}",
             ["authentication"] = new JsonObject
@@ -227,6 +234,10 @@ internal static class McpDiscoveryDocuments
 
         return assemblyVersion?.ToString(3) ?? FallbackVersion;
     }
+
+    /// <summary>The server's name: <see cref="McpProtectedResourceOptions.ResourceName"/> when set, else <see cref="ServerName"/>.</summary>
+    internal static string ServerNameFor(string? resourceName) =>
+        string.IsNullOrWhiteSpace(resourceName) ? ServerName : resourceName.Trim();
 
     private static string DocumentationOrDefault(string? documentation) =>
         string.IsNullOrWhiteSpace(documentation) ? DocumentationUrl : documentation.Trim();

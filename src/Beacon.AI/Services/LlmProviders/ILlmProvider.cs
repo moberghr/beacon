@@ -18,6 +18,15 @@ public record LlmRequest
 
     /// <summary>The request queue's lane: work done off a request (indexing, learning, generation jobs) is <see cref="LlmRequestPriority.Background"/>.</summary>
     public LlmRequestPriority Priority { get; init; } = LlmRequestPriority.Interactive;
+
+    /// <summary>
+    /// What the completion is for, one of the <see cref="LlmOperations"/> constants; tags the completion's span and metrics.
+    /// Never content.
+    /// </summary>
+    public string? Operation { get; init; }
+
+    /// <summary>Which configured model serves the request; <see cref="LlmTier.Fast"/> is for short classification calls.</summary>
+    public LlmTier Tier { get; init; } = LlmTier.Default;
 }
 
 /// <summary>
@@ -30,6 +39,21 @@ public enum LlmRequestPriority
     Background
 }
 
-public record ChatMessage(ConversationRole Role, string Content);
+public enum LlmTier
+{
+    Default,
+    Fast
+}
+
+public record ChatMessage(ConversationRole Role, string Content)
+{
+    /// <summary>
+    /// Marks the end of a reusable prompt prefix: the provider may cache everything up to and including this message
+    /// (Claude gives it an ephemeral cache point). Set it on a long, repeated message such as one carrying the schema
+    /// context. Providers that cache prompts on their own (OpenAI, Azure OpenAI) ignore it, and so does Bedrock, which does
+    /// not request prompt caching yet.
+    /// </summary>
+    public bool CacheBreakpoint { get; init; }
+}
 
 public record TokenCount(int Tokens);

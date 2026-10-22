@@ -36,6 +36,13 @@ internal sealed class ProjectQueryTool(
     IQueryCostLimit costLimit,
     ILogger<ProjectQueryTool> logger)
 {
+    /// <summary>
+    /// What `query` answers for an ordinary data source with no extracted metadata: without a catalog the schema check
+    /// cannot run, so the statement is refused instead of reaching the source unchecked.
+    /// </summary>
+    public const string NoMetadataMessage =
+        "This data source has no extracted metadata (it was never scanned, metadata loading is off, or the scan found no tables); query it through MCP once it has metadata.";
+
     [McpServerTool(Name = "query", Title = "Run Read-Only Query", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Execute a query against a specific data source within the project. For databases: pass SQL. For API sources: pass a JSON query definition.")]
     public async Task<CallToolResult> ExecuteAsync(
@@ -149,6 +156,13 @@ internal sealed class ProjectQueryTool(
                         tables: report.TablesUsed.ToList(), ct: cancellationToken);
                     await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
                     return ToolHelper.Error($"Query validation failed: {blockReason}");
+                }
+
+                // `query` blocks on the catalog, so a source with none (never scanned) is refused, not run unchecked. A host
+                // data source keeps its own allow-list policy; `ask`, cross-source and `dry_run` stay advisory.
+                if (report.Verdicts.Schema.Code == SqlGateCodes.EmptyCatalog && dataSource.HostManagedKey == null)
+                {
+                    return await FailAsync(signal, sw, projectId, datasource_id, sql, NoMetadataMessage, cancellationToken, report.TablesUsed.ToList());
                 }
 
                 piiColumns = report.PiiColumns.Count > 0 ? report.PiiColumns.ToList() : null;
