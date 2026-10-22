@@ -396,8 +396,8 @@ arguments are stored only as the project's content-retention settings allow: und
 [retention lock](/mcp/server/) they are reduced to their size. Argument values and response bodies are
 never written to logs.
 
-`get_context format=agents_md` lists the project's endpoint tools in the brief (name and first description line);
-write tools are marked *(writes)*.
+`get_context format=agents_md` lists the project's endpoint tools in the brief (name and first description line):
+the ones the caller's tool list offers, as the overview does. Write tools are marked *(writes)*.
 
 ## Limits
 

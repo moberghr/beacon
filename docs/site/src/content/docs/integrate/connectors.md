@@ -121,6 +121,12 @@ A query can have several steps on different data sources. Each step's result is 
 
 To let Beacon (and MCP clients) read your application's own EF Core model (with a table allow-list, column masking and a read-only connection string that is never stored) use `ExposeDbContext<TContext>(...)` instead of creating a data source by hand. See [Extending Beacon](/integrate/extending/#your-dbcontext-as-a-data-source).
 
+## CloudWatch
+
+CloudWatch data sources run Logs Insights queries, not SQL, so they cannot be queried through MCP `query` (the SQL gate
+has no dialect for them and refuses the statement). Beacon's own CloudWatch features use the configured log groups
+only, so restrict the IAM role to them.
+
 ## Notes
 
 - Connector registration also fills process-wide registries (engine → connection factory). Register connectors once, at startup.

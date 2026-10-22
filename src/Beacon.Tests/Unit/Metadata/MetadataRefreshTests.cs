@@ -733,6 +733,7 @@ public class MetadataRefreshTests
                 Graph.Object,
                 new RecordingSecurityAudit(),
                 TestTransport.Policy(),
+                TestEngineVerifier.Passing,
                 NullLogger<DataSourceService>.Instance);
         }
 

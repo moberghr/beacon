@@ -26,8 +26,8 @@ namespace Beacon.Tests.Unit;
 
 /// <summary>
 /// SC4 of spec <c>sql-execution-gate</c>: the <c>query</c> tool now runs the schema-catalog gate and it is
-/// BLOCKING — a hallucinated column is refused before anything reaches the provider. With no catalog
-/// the gate reports Skipped and the query executes as before. Real gate over the real validators
+/// BLOCKING — a hallucinated column is refused before anything reaches the provider. With an empty catalog
+/// (a source never scanned) the gate reports Skipped and the tool refuses the statement. Real gate over the real validators
 /// (guardrail included); data-source resolution over async-queryable doubles (§4.7).
 /// </summary>
 [TestFixture]
@@ -46,11 +46,15 @@ public class ProjectQueryToolSchemaGateTests
     private DatabaseEngineType? _warehouseEngine;
     private Beacon.Core.Services.Validation.IConfiguredDatabaseResolver _configuredDatabases = null!;
     private Beacon.Core.Configuration.McpDeploymentOptions? _deployment;
+    private string? _hostManagedKey;
+    private Beacon.Core.HostData.IHostDataSourceGuard? _hostGuard;
 
     [SetUp]
     public void SetUp()
     {
         _deployment = null;
+        _hostManagedKey = null;
+        _hostGuard = null;
         _provider = new Mock<IDataSourceProvider>();
         _provider
             .Setup(x => x.ExecuteReadOnlyQueryAsync(
@@ -76,7 +80,7 @@ public class ProjectQueryToolSchemaGateTests
     [Test]
     public async Task TheDataSourcesGuardrails_Apply_NotOnlyTheProjects()
     {
-        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        WithScannedCatalog();
         var settingsProvider = SettingsProviderMock.Create(new McpSettingsData { MaxRowLimit = 1000 });
         var sharedSources = new Mock<ISharedSourceSettings>();
         sharedSources
@@ -97,7 +101,7 @@ public class ProjectQueryToolSchemaGateTests
     [TestCase(int.MinValue)]
     public async Task NonPositiveMaxRows_IsClampedToOneRow_TheCapReachesTheSql(int maxRows)
     {
-        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        WithScannedCatalog();
 
         var result = await CreateTool().ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", max_rows: maxRows, cancellationToken: CancellationToken.None);
 
@@ -113,7 +117,7 @@ public class ProjectQueryToolSchemaGateTests
     public async Task NameInAnotherDatabase_IsRefusedBeforeTheProvider_TheConfiguredOneRuns(string sql, bool refused)
     {
         _configuredDatabases = TestConfiguredDatabases.Of("sales");
-        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        WithScannedCatalog();
 
         var result = await CreateTool().ExecuteAsync(datasource_id: DataSourceId, sql: sql, cancellationToken: CancellationToken.None);
 
@@ -136,7 +140,7 @@ public class ProjectQueryToolSchemaGateTests
         _warehouseEngine = DatabaseEngineType.MSSQL;
         _configuredDatabases = TestConfiguredDatabases.Of("Sales");
         _deployment = TestSqlGate.Unlocked;
-        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        WithScannedCatalog();
         var settingsProvider = SettingsProviderMock.Create(new McpSettingsData { EnforceReadOnly = false });
 
         var refused = await CreateTool(settingsProvider).ExecuteAsync(datasource_id: DataSourceId, sql: sql, cancellationToken: CancellationToken.None);
@@ -164,7 +168,7 @@ public class ProjectQueryToolSchemaGateTests
     {
         _warehouseEngine = DatabaseEngineType.MSSQL;
         _configuredDatabases = TestConfiguredDatabases.Of("Sales");
-        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        WithScannedCatalog();
         var settingsProvider = SettingsProviderMock.Create(new McpSettingsData { EnforceReadOnly = false });
         const string batch = "UPDATE Sales.dbo.Customers SET tier = 'gold' WHERE id = 1; SELECT id FROM dbo.Customers";
 
@@ -185,7 +189,7 @@ public class ProjectQueryToolSchemaGateTests
     public async Task ANoncharacterInTheSql_IsRefusedBeforeTheProvider(DatabaseEngineType engine, string sql, bool readOnlyOff)
     {
         _warehouseEngine = engine;
-        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        WithScannedCatalog();
         Mock<IMcpSettingsProvider>? settingsProvider = null;
         if (readOnlyOff)
         {
@@ -209,7 +213,7 @@ public class ProjectQueryToolSchemaGateTests
     {
         _warehouseType = type;
         _warehouseEngine = null;
-        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        WithScannedCatalog();
 
         var result = await CreateTool().ExecuteAsync(
             datasource_id: DataSourceId, sql: "SELECT id FROM orders", max_rows: 25, cancellationToken: CancellationToken.None);
@@ -250,26 +254,47 @@ public class ProjectQueryToolSchemaGateTests
     }
 
     [Test]
-    public async Task EmptyCatalog_SchemaSkipped_QueryExecutesWithRowLimit()
+    public async Task EmptyCatalog_OnAnOrdinarySource_IsRefused_AuditedAndSignalled()
     {
         WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
 
         var result = await CreateTool().ExecuteAsync(
             datasource_id: DataSourceId, sql: "SELECT bogus FROM orders", max_rows: 25, cancellationToken: CancellationToken.None);
 
-        (result.IsError ?? false).Should().BeFalse();
+        (result.IsError ?? false).Should().BeTrue();
+        result.Content.OfType<TextContentBlock>().Single().Text.Should().Be(ProjectQueryTool.NoMetadataMessage);
         _provider.Verify(
-            x => x.ExecuteReadOnlyQueryAsync(
-                It.IsAny<DataSource>(),
-                "SELECT bogus FROM orders LIMIT 25",
-                It.IsAny<Dictionary<string, object?>>(),
-                It.IsAny<CancellationToken>()),
-            Times.Once,
-            "without a catalog the schema gate is Skipped, and the row cap comes from the gate's FinalSql");
+            x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
+            Times.Never,
+            "without a catalog the schema check cannot run, so the statement never reaches the source");
 
+        // §1.7 / §9.5 — the refusal is audited and signalled like every other `query` refusal.
+        _auditLogs.Should().ContainSingle().Which.ErrorMessage.Should().Be(ProjectQueryTool.NoMetadataMessage);
         _signals.Should().ContainSingle();
-        _signals[0].IsSuccessful.Should().BeTrue();
-        _signals[0].GeneratedSql.Should().Be("SELECT bogus FROM orders");
+        _signals[0].IsSuccessful.Should().BeFalse();
+        _signals[0].ExecutionError.Should().Be(ProjectQueryTool.NoMetadataMessage);
+        _signals[0].TablesUsed.Should().Contain("orders");
+    }
+
+    [Test]
+    public async Task EmptyCatalog_OnAHostDataSource_IsNotRefused_ItsAllowListDecides()
+    {
+        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        _hostManagedKey = "efcore:Netgiro";
+        var hostGuard = new Mock<Beacon.Core.HostData.IHostDataSourceGuard>();
+        hostGuard
+            .Setup(x => x.Check("efcore:Netgiro", It.IsAny<string>()))
+            .Returns(new Beacon.Core.HostData.HostPolicyResult(true, null, []));
+        _hostGuard = hostGuard.Object;
+
+        var result = await CreateTool().ExecuteAsync(
+            datasource_id: DataSourceId, sql: "SELECT id FROM orders", max_rows: 25, cancellationToken: CancellationToken.None);
+
+        (result.IsError ?? false).Should().BeFalse();
+        hostGuard.Verify(x => x.Check("efcore:Netgiro", It.IsAny<string>()), Times.Once);
+        _provider.Verify(
+            x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()),
+            Times.Once);
     }
 
     [Test]
@@ -297,7 +322,7 @@ public class ProjectQueryToolSchemaGateTests
     {
         // T-F002 / SF-F001: the tool resolves settings for the AUTHORIZED project, not the global row. Global
         // allows 1000 rows, project 42 is capped at 10, the caller asks for 25 — the project cap wins.
-        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        WithScannedCatalog();
         var settingsProvider = SettingsProviderMock.Create(
             new McpSettingsData { MaxRowLimit = 1000 },
             projectSettings: new Dictionary<int, McpSettingsData> { [ProjectId] = new McpSettingsData { MaxRowLimit = 10 } });
@@ -323,7 +348,7 @@ public class ProjectQueryToolSchemaGateTests
     [TestCase("SELECT * FROM orders", "email_address")]
     public async Task PiiResultColumns_AreMasked_EvenWhenTheSqlTextDoesNotNameThem(string sql, string resultColumn)
     {
-        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        WithScannedCatalog();
         _provider
             .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ProviderQueryResult
@@ -346,7 +371,7 @@ public class ProjectQueryToolSchemaGateTests
     [TestCase("SELECT upper(o.email) AS contact, o.id FROM orders o")]
     public async Task AnAliasedPiiColumn_IsMasked(string sql)
     {
-        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        WithScannedCatalog();
         _provider
             .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ProviderQueryResult
@@ -366,7 +391,7 @@ public class ProjectQueryToolSchemaGateTests
     [Test]
     public async Task ASuccessfulQuery_RecordsTheCallersBeaconUser_OnItsSignalAndAuditRow()
     {
-        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        WithScannedCatalog();
 
         var result = await CreateTool().ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None);
 
@@ -397,7 +422,7 @@ public class ProjectQueryToolSchemaGateTests
     {
         const string error = "22P02: invalid input syntax for type integer: \"Ivan Horvat\"";
         const string redacted = "Database error 22P02 (data exception): a value could not be converted to integer. The database's message is withheld because it can quote row values.";
-        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        WithScannedCatalog();
         _provider
             .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ProviderQueryResult { Success = false, ErrorMessage = error });
@@ -417,7 +442,7 @@ public class ProjectQueryToolSchemaGateTests
     [Test]
     public async Task AResultWithColumnsMaskedForTheirName_SaysHowMany()
     {
-        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        WithScannedCatalog();
         _provider
             .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ProviderQueryResult
@@ -438,7 +463,7 @@ public class ProjectQueryToolSchemaGateTests
     [Test]
     public async Task TheStatement_RunsWithinTheDataSourcesResolvedTimeout()
     {
-        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        WithScannedCatalog();
         _provider
             .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
             .Returns<DataSource, string, Dictionary<string, object?>, CancellationToken>(async (_, _, _, token) =>
@@ -458,7 +483,7 @@ public class ProjectQueryToolSchemaGateTests
     [Test]
     public async Task AResultOverTheResolvedMaxResultBytes_ReturnsFewerRows_TruncatedBySize()
     {
-        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        WithScannedCatalog();
         _provider
             .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ProviderQueryResult
@@ -485,7 +510,7 @@ public class ProjectQueryToolSchemaGateTests
     [Test]
     public async Task AtTheConcurrencyLimit_TheCallIsRefusedBeforeTheProvider_AndAuditedWithASignal()
     {
-        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        WithScannedCatalog();
         var limiter = new McpQueryConcurrencyLimiter();
         using var running = limiter.TryAcquire($"user:{CallerUserId}", 2);
         using var another = limiter.TryAcquire($"user:{CallerUserId}", 2);
@@ -508,7 +533,7 @@ public class ProjectQueryToolSchemaGateTests
     [TestCase(true)]
     public async Task TheSlot_IsHeldWhileTheStatementRuns_AndReleasedAfterSuccessOrFailure(bool providerThrows)
     {
-        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        WithScannedCatalog();
         var limiter = new McpQueryConcurrencyLimiter();
         var inFlightDuringRun = -1;
         _provider
@@ -533,7 +558,7 @@ public class ProjectQueryToolSchemaGateTests
     [Test]
     public async Task ACostOverTheLimit_IsRefusedBeforeTheProvider_AndAuditedWithASignal()
     {
-        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        WithScannedCatalog();
         const string refusal = "The query's estimated cost (5000) exceeds this project's limit (100). Narrow the query, add filters, or ask an administrator to raise MaxExplainCost.";
         var costLimit = CostLimit(new QueryCostCheck(refusal, null));
 
@@ -557,7 +582,7 @@ public class ProjectQueryToolSchemaGateTests
     [Test]
     public async Task ACostWithinTheLimit_Runs()
     {
-        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        WithScannedCatalog();
         var costLimit = CostLimit(QueryCostCheck.Pass);
 
         var result = await CreateTool(sharedSources: Shared(new McpSettingsData { MaxExplainCost = 100m }), costLimit: costLimit.Object).ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None);
@@ -572,7 +597,7 @@ public class ProjectQueryToolSchemaGateTests
     [Test]
     public async Task AnEstimateThatFailed_FailsTheCallAsAFailingStatement_WithoutRunningIt()
     {
-        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+        WithScannedCatalog();
         var costLimit = CostLimit(new QueryCostCheck(null, "canceling statement due to statement timeout"));
 
         var result = await CreateTool(sharedSources: Shared(new McpSettingsData { MaxExplainCost = 100m }), costLimit: costLimit.Object).ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None);
@@ -605,6 +630,20 @@ public class ProjectQueryToolSchemaGateTests
         return sharedSources.Object;
     }
 
+    // The catalog of a scanned source holding the tables these tests read: `query` refuses a source with none.
+    private void WithScannedCatalog()
+    {
+        string[] orders = ["id", "note", "email", "customer_email", "email_address", "customer_id", "total"];
+        string[] customers = ["id", "name", "tier"];
+        WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase)
+        {
+            ["orders"] = new(orders, StringComparer.OrdinalIgnoreCase),
+            ["public.orders"] = new(orders, StringComparer.OrdinalIgnoreCase),
+            ["customers"] = new(customers, StringComparer.OrdinalIgnoreCase),
+            ["dbo.customers"] = new(customers, StringComparer.OrdinalIgnoreCase)
+        });
+    }
+
     private void WithCatalog(Dictionary<string, HashSet<string>> catalog)
     {
         _knowledgeGraph
@@ -617,7 +656,7 @@ public class ProjectQueryToolSchemaGateTests
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(() => new SchemaGateTestContext(_signals, _auditLogs, _warehouseType, _warehouseEngine));
+            .ReturnsAsync(() => new SchemaGateTestContext(_signals, _auditLogs, _warehouseType, _warehouseEngine, _hostManagedKey));
 
         var providerFactory = new Mock<IDataSourceProviderFactory>();
         providerFactory
@@ -628,7 +667,7 @@ public class ProjectQueryToolSchemaGateTests
 
         var projectContext = new McpProjectContext { UserId = CallerUserId, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId] };
         var guardrail = new QueryGuardrailService();
-        _gate = new RecordingSqlGate(TestSqlGate.Create(guardrail, deployment: _deployment));
+        _gate = new RecordingSqlGate(TestSqlGate.Create(guardrail, _hostGuard, _deployment));
 
         var auditService = new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog());
         var signalService = new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance);
@@ -663,12 +702,19 @@ public class ProjectQueryToolSchemaGateTests
         private readonly Mock<DbSet<McpAuditLog>> _auditSet = new();
         private readonly DataSourceType _warehouseType;
         private readonly DatabaseEngineType? _warehouseEngine;
+        private readonly string? _hostManagedKey;
 
-        public SchemaGateTestContext(List<McpQuerySignal> signals, List<McpAuditLog> auditLogs, DataSourceType warehouseType, DatabaseEngineType? warehouseEngine)
+        public SchemaGateTestContext(
+            List<McpQuerySignal> signals,
+            List<McpAuditLog> auditLogs,
+            DataSourceType warehouseType,
+            DatabaseEngineType? warehouseEngine,
+            string? hostManagedKey)
             : base(Options, "beacon")
         {
             _warehouseType = warehouseType;
             _warehouseEngine = warehouseEngine;
+            _hostManagedKey = hostManagedKey;
             _signalSet.Setup(x => x.Add(It.IsAny<McpQuerySignal>()))
                 .Callback<McpQuerySignal>(signals.Add);
             _auditSet.Setup(x => x.Add(It.IsAny<McpAuditLog>()))
@@ -697,7 +743,8 @@ public class ProjectQueryToolSchemaGateTests
                         Name = "warehouse",
                         DataSourceType = _warehouseType,
                         EncryptedConnectionData = "encrypted",
-                        DatabaseEngineType = _warehouseEngine
+                        DatabaseEngineType = _warehouseEngine,
+                        HostManagedKey = _hostManagedKey
                     }
                 });
             }

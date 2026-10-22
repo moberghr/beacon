@@ -49,6 +49,26 @@ public class AuthEndpointsExternalLoginTests
         response.ExternalLogin.Should().BeNull("without the option the shell keeps Beacon's own login page");
     }
 
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task GetCurrentUser_GatewayMode_IsReported_SignedInOrNot(bool authenticated)
+    {
+        var options = new BeaconApiOptions { GatewayMode = true };
+
+        var response = await AuthEndpoints.GetCurrentUser(CreateUserContext(authenticated), new DefaultHttpContext(), options);
+
+        response.IsAuthenticated.Should().Be(authenticated);
+        response.GatewayMode.Should().BeTrue("the shell keeps a signed-out visitor of the gateway away from pages it does not serve");
+    }
+
+    [Test]
+    public async Task GetCurrentUser_NoGateway_ReportsFalse()
+    {
+        var response = await AuthEndpoints.GetCurrentUser(CreateUserContext(false), new DefaultHttpContext(), new BeaconApiOptions());
+
+        response.GatewayMode.Should().BeFalse();
+    }
+
     private static IBeaconUserContext CreateUserContext(bool authenticated)
     {
         var userContext = new Mock<IBeaconUserContext>();

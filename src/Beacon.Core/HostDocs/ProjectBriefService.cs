@@ -14,7 +14,8 @@ namespace Beacon.Core.HostDocs;
 /// Builds a deterministic markdown <b>project brief</b> — the text an agent workspace drops into its
 /// <c>AGENTS.md</c>: what the project is, which data sources and tables matter, the glossary, the imported documents
 /// and how to use Beacon's tools safely. Built from stored metadata only; no LLM call. Saved-query tools are listed only
-/// when the caller may run stored SQL in the project, as on the MCP tool list.
+/// when the caller may run stored SQL in the project, and host endpoint tools only as the caller's tool list offers
+/// them, as on the MCP tool list.
 /// </summary>
 public interface IProjectBriefService
 {

@@ -67,7 +67,8 @@ internal sealed class DataSourceRouter(ILogger<DataSourceRouter> logger) : IData
             Messages = [new ChatMessage(ConversationRole.User, routingPrompt)],
             Temperature = 0.0m,
             MaxTokens = 512,
-            Operation = LlmOperations.AskRouting
+            Operation = LlmOperations.AskRouting,
+            Tier = LlmTier.Fast
         };
 
         var response = await BeaconTelemetry.ObserveStageAsync(stage, () => llmProvider.CompleteAsync(request, ct));

@@ -17836,6 +17836,7 @@ export interface CurrentUserResponse {
   realtimeEnabled: boolean;
   externalLogin: ExternalLoginResponse | null;
   signOutEverywhereEnabled?: boolean;
+  gatewayMode?: boolean;
 
   [key: string]: any;
 }

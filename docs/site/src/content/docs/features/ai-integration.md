@@ -76,7 +76,7 @@ Every LLM call goes through `LlmRequestQueue`. It allows at most `Limits:MaxConc
 50, read once when the host starts) and retries a call that fails with a rate-limit, timeout, `503`/`504` or transient
 network error, up to three attempts with exponential backoff; a call that still fails surfaces as
 `AiServiceException`. The other values under **Rate limits & budget** on the Admin Settings page (tokens per minute,
-requests per minute, monthly budget) and the **Fast model** are recorded and shown in settings.
+requests per minute, monthly budget) are recorded and shown in settings. The **Fast model** serves the short classification calls on the `ask` path (intent classification and data-source routing); when it is empty, equals the main model, cannot be built or fails when called, they use the main model.
 
 ## What Beacon uses the model for
 

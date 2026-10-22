@@ -49,7 +49,8 @@ internal static class AuthEndpoints
     // RealtimeEnabled is per caller once signed in: true only where the hub would admit them (BeaconHubAccess), so the
     // shell never opens a connection the hub refuses. SignOutEverywhereEnabled: the caller is a signed-in session (no API
     // key, no MCP caller) on a host whose sessions are checked against Beacon's user store (user management on), so
-    // "sign out everywhere" can end their other sessions.
+    // "sign out everywhere" can end their other sessions. GatewayMode is reported signed out too, so the shell never shows
+    // a signed-out visitor of the MCP gateway a page the gateway does not serve (first-run setup).
     internal static async Task<CurrentUserResponse> GetCurrentUser(
         IBeaconUserContext userContext,
         HttpContext httpContext,
@@ -57,10 +58,11 @@ internal static class AuthEndpoints
     {
         var realtime = apiOptions?.Realtime ?? false;
         var externalLogin = ExternalLoginResponse.From(apiOptions?.ExternalLogin);
+        var gatewayMode = apiOptions?.GatewayMode ?? false;
 
         if (!userContext.IsAuthenticated)
         {
-            return CurrentUserResponse.Anonymous(realtime, externalLogin);
+            return CurrentUserResponse.Anonymous(realtime, externalLogin, gatewayMode);
         }
 
         var roles = httpContext.User
@@ -78,7 +80,8 @@ internal static class AuthEndpoints
             Roles: roles,
             RealtimeEnabled: realtime && await BeaconHubAccess.AllowsAsync(httpContext),
             ExternalLogin: externalLogin,
-            SignOutEverywhereEnabled: SignOutEverywhereEnabled(httpContext));
+            SignOutEverywhereEnabled: SignOutEverywhereEnabled(httpContext),
+            GatewayMode: gatewayMode);
     }
 
     private static bool SignOutEverywhereEnabled(HttpContext httpContext)
@@ -125,16 +128,17 @@ internal sealed record CurrentUserResponse(
     IReadOnlyList<string> Roles,
     bool RealtimeEnabled,
     ExternalLoginResponse? ExternalLogin,
-    bool SignOutEverywhereEnabled = false)
+    bool SignOutEverywhereEnabled = false,
+    bool GatewayMode = false)
 {
     /// <summary>
     /// The unauthenticated shape. Still carries <paramref name="realtimeEnabled"/> so the shell
-    /// knows whether to open a hub connection once the user signs in, and <paramref name="externalLogin"/>
-    /// so it knows where to send the user to sign in — a static singleton cannot, because both are
-    /// host configuration rather than constants.
+    /// knows whether to open a hub connection once the user signs in, <paramref name="externalLogin"/>
+    /// so it knows where to send the user to sign in, and <paramref name="gatewayMode"/> so it knows which pages the
+    /// deployment serves — a static singleton cannot, because all three are host configuration rather than constants.
     /// </summary>
-    public static CurrentUserResponse Anonymous(bool realtimeEnabled, ExternalLoginResponse? externalLogin) =>
-        new(null, null, null, null, false, Array.Empty<string>(), realtimeEnabled, externalLogin);
+    public static CurrentUserResponse Anonymous(bool realtimeEnabled, ExternalLoginResponse? externalLogin, bool gatewayMode) =>
+        new(null, null, null, null, false, Array.Empty<string>(), realtimeEnabled, externalLogin, GatewayMode: gatewayMode);
 }
 
 internal sealed record ExternalLoginResponse(string LoginUrl, string ReturnUrlParameter)

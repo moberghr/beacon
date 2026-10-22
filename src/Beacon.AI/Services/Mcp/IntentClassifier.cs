@@ -30,7 +30,8 @@ internal sealed class IntentClassifier : IIntentClassifier
             Messages = [new ChatMessage(ConversationRole.User, classifyPrompt.Replace("{question}", question))],
             Temperature = 0.0m,
             MaxTokens = 16,
-            Operation = LlmOperations.AskIntent
+            Operation = LlmOperations.AskIntent,
+            Tier = LlmTier.Fast
         };
 
         var response = await BeaconTelemetry.ObserveStageAsync(stage, () => llmProvider.CompleteAsync(request, ct));

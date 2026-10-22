@@ -115,6 +115,33 @@ How Beacon applies the rule:
   TLS (the sample host sets it in its Development configuration). Outside Development the host logs a Warning at
   startup while it is set. See [Configuration](/getting-started/configuration/#data-source-transport-security).
 
+### Engine check
+
+The **Database engine** you pick decides the driver, the SQL grammar and the read-only checks Beacon applies, so
+Beacon asks the server which engine it is when you **create** a database data source, **change its connection or
+engine**, and click **Test connection**. It runs one fixed catalog statement, outside the SQL gate, like the metadata
+scan's catalog SQL:
+
+| Declared engine | Statement | Refused when the server is |
+|---|---|---|
+| PostgreSQL | `SELECT version()` | not PostgreSQL: the answer does not start with `PostgreSQL`, or names Amazon Redshift, Greenplum, CockroachDB or YugabyteDB |
+| SQL Server | `SELECT CAST(SERVERPROPERTY('EngineEdition') AS int)` | Azure Synapse (edition 6 or 11) |
+| Azure Synapse | the same | SQL Server (any other edition) |
+| MySQL | `SELECT VERSION()` | never: MariaDB and TiDB pass with a note in the test result and a Warning in the log |
+
+Snowflake, BigQuery, Databricks, CloudWatch and API sources are not checked.
+
+- **A clear mismatch** refuses the create or the change (`400`) and fails **Test connection**, with a message naming
+  the declared and the detected engine, never a version string or a host name. Nothing is saved.
+- **A server that cannot be reached, or whose answer cannot be read**, never blocks the save: the log carries a
+  Warning naming the data source by id. **Test connection** reports reachability as before; when the server answered
+  the connection but not the engine question, it says *Connection successful. The server's engine could not be
+  verified.*
+- **An edit that keeps the stored connection and engine** connects to nothing.
+- **A disabled data source** is not checked (it makes no connection, also when its credentials are rotated): the check
+  runs the next time its connection or engine changes while it is enabled.
+- A refused connection's pooled connections are emptied, so none opened with the refused credentials is reused.
+
 ## Manage data sources
 
 The **Data Sources** list is paged on the server (20 rows per page, at most 200) and can be searched by name. Its
@@ -160,6 +187,8 @@ that is left out or `null` keeps the stored value, and an empty schema list clea
 
 - **Transport.** A new connection, or the stored one read as another engine's, must authenticate the server over TLS
   (see [Transport security](#transport-security-tls)); otherwise the request answers `400` naming the option to change.
+- **Engine.** A new connection or engine is checked against the server (see [Engine check](#engine-check)): a server of
+  another engine than the declared one answers `400` and nothing changes.
 - **Change of target.** A connection to another engine, host, port or database than the stored one, as the engine's
   transport check reads them, is saved only when the body sets `confirmTargetChange: true`; otherwise the request
   answers `409` and nothing changes. A connection whose host, port or database Beacon cannot read (the JSON-configured
@@ -488,11 +517,17 @@ project, not `dataEditor` or `admin`.
 **Databricks:** a token for a principal with `USE CATALOG`, `USE SCHEMA` and `SELECT` only, and `CAN USE` on the SQL
 warehouse.
 
+**CloudWatch:** Beacon's own CloudWatch features read only the log groups the data source configures, so restrict the
+IAM role to `logs:StartQuery`, `logs:GetQueryResults` and `logs:StopQuery` on those log groups, plus
+`logs:DescribeLogGroups` for **Test connection**.
+CloudWatch sources cannot be queried through MCP `query`.
+
 ## Troubleshooting
 
 **Test connection fails.** Check network reachability from the Beacon host (`nc -vz db-host 5432`, `1433`, `3306`), the
 server's remote-connection and TLS settings, and the credentials. A message that starts with "Connection refused" names
-the transport option to change: see [Transport security (TLS)](#transport-security-tls).
+the transport option to change (see [Transport security (TLS)](#transport-security-tls)) or the engine the server
+actually runs (see [Engine check](#engine-check)).
 
 **Certificate errors.** The server's certificate must chain to a CA the Beacon host trusts and name the host in the
 connection string. Install the issuing CA on the Beacon host, or pin it in the connection (`Root Certificate` on

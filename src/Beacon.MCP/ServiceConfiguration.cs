@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using ModelContextProtocol;
 using ModelContextProtocol.AspNetCore;
@@ -89,7 +90,6 @@ public static class ServiceConfiguration
         var server = services
             .AddMcpServer(options =>
             {
-                options.ServerInfo = new() { Name = McpDiscoveryDocuments.ServerName, Version = McpDiscoveryDocuments.ServerVersion };
                 options.ServerInstructions = mcpOptions.ServerInstructions ??
                     "Beacon gives agents governed access to a project's data sources.\n" +
                     "Recommended workflow for writing your own SQL:\n" +
@@ -116,6 +116,17 @@ public static class ServiceConfiguration
                 // that session — multi-instance deployments need session affinity for them.
                 options.SessionMode = HttpServerSessionMode.StatefulForInitializeClients;
                 options.IdleTimeout = TimeSpan.FromMinutes(30);
+            });
+
+        // Clients are told at initialize the name the discovery documents publish: the host's ResourceName when set.
+        services.AddOptions<McpServerOptions>()
+            .Configure<IServiceProvider>((options, provider) =>
+            {
+                var configuration = provider.GetService<IConfiguration>();
+                var resourceName = configuration == null
+                    ? null
+                    : McpDiscoveryEndpoints.GetProtectedResourceOptions(provider, configuration).ResourceName;
+                options.ServerInfo = new() { Name = McpDiscoveryDocuments.ServerNameFor(resourceName), Version = McpDiscoveryDocuments.ServerVersion };
             });
 
         // Only the built-in tools the host serves exist; one left out is neither listed nor callable.

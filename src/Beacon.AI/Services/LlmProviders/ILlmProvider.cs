@@ -21,6 +21,15 @@ public record LlmRequest
     /// Never content.
     /// </summary>
     public string? Operation { get; init; }
+
+    /// <summary>Which configured model serves the request; <see cref="LlmTier.Fast"/> is for short classification calls.</summary>
+    public LlmTier Tier { get; init; } = LlmTier.Default;
+}
+
+public enum LlmTier
+{
+    Default,
+    Fast
 }
 
 public record ChatMessage(ConversationRole Role, string Content)

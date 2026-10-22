@@ -162,6 +162,21 @@ UI is refused; restart the host (or call the sync again) instead.
 - **Read-only login.** SQL Server has no read-only transaction mode, so `SupportsDatabaseReadOnlyEnforcement`
   stays `false`; the parser gates plus the dedicated read-only login are the guarantee. On PostgreSQL the
   `READ ONLY` transaction backstop applies as usual.
+- **Login check at startup.** After every host data source is synced, Beacon asks each host database whether its
+  read-only login can write, with fixed catalog statements outside the SQL gate (the exposed tables' names are
+  parameters):
+  - **PostgreSQL:** whether the login is a superuser (`rolsuper`) or holds `INSERT`, `UPDATE` or `DELETE` on an exposed
+    table (`has_table_privilege`), including column-level `INSERT` or `UPDATE` (`has_any_column_privilege`).
+  - **SQL Server and Azure Synapse:** whether the login is in `db_owner` or `db_datawriter`, holds a database-wide
+    `INSERT`, `UPDATE` or `DELETE` permission, or holds one of them on an exposed table
+    (`HAS_PERMS_BY_NAME(..., 'OBJECT', ...)`); the database-wide probes name the current database (`DB_NAME()`).
+
+  Only those privileges are asked about (not `TRUNCATE`, DDL or other schemas' tables). A login that can write gets one
+  Warning per data source naming it by id, never the connection string or the login. A check that cannot run, an answer
+  the database does not give, or a source none of whose exposed tables the database finds logs that the login could not
+  be verified: nothing checked is never reported as read-only. A connection the transport policy refuses is logged as
+  not checked, and a disabled source is not checked at all (it makes no connection). The checks run in parallel, each
+  bounded at 10 seconds, so startup waits about 10 seconds at most; they never fail or block startup.
 
 ### Behaviour to know
 
