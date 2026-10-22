@@ -16,12 +16,12 @@ public interface IQueryExecutionPreviewService
     Task<QueryPreviewResult?> ExecuteQueryPreview(int queryId, QueryDraft? draft, ListRequest paging, CancellationToken cancellationToken);
     /// <summary>One page of a single step's result, run on its own; from <paramref name="draft"/> when given.</summary>
     Task<QueryPreviewResult?> ExecuteStepPreview(int queryId, int stepOrder, List<ParameterValue>? parameters, QueryDraft? draft, ListRequest paging, CancellationToken cancellationToken);
-    /// <summary>Runs <paramref name="queryData"/> once as a temporary query.</summary>
+    /// <summary>Runs <paramref name="queryData"/>'s steps once, in-process; no query is stored to run them.</summary>
     Task<QueryExecutionResult?> ExecuteTemporaryQueryPreview(QueryData queryData, CancellationToken cancellationToken, List<ParameterValue>? parameters = null);
 
     /// <summary>
-    /// Runs <paramref name="queryData"/> once as a temporary query (a migration's read); <paramref name="maxRows"/> replaces
-    /// <c>Beacon:Query:MaxExecutionRows</c> as the most rows a statement may return.
+    /// Runs <paramref name="queryData"/>'s steps once, in-process (a migration's read), storing no query;
+    /// <paramref name="maxRows"/> replaces <c>Beacon:Query:MaxExecutionRows</c> as the most rows a statement may return.
     /// </summary>
     Task<QueryExecutionResult?> ExecuteTemporaryQueryPreview(QueryData queryData, List<ParameterValue>? parameters, int maxRows, CancellationToken cancellationToken);
 }
@@ -123,66 +123,77 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
         return ExecuteTemporaryQueryPreviewCore(queryData, parameters, maxRows, cancellationToken);
     }
 
+    // The steps run are a detached copy taken before anything is checked: the legacy single-step form (no steps, the SQL and
+    // data source on the query itself) becomes its one step first, and exactly the copy's steps are authorized, validated
+    // and run. Nothing is stored to run them, so nothing is left behind if the run is cancelled, and nothing the caller
+    // changes after the check reaches the run.
     private async Task<QueryExecutionResult?> ExecuteTemporaryQueryPreviewCore(QueryData queryData, List<ParameterValue>? parameters, int? maxRows, CancellationToken cancellationToken)
     {
-        await DemandMayQueryEachStepAsync(queryData.Steps, queryData.FinalQueryDataSourceId, cancellationToken);
+        var snapshot = Snapshot(queryData);
+        await DemandMayQueryEachStepAsync(snapshot.Steps, snapshot.FinalQueryDataSourceId, cancellationToken);
 
-        int? tempQueryId = null;
-        try
-        {
-            // Create temporary query
-            var tempQueryName = $"TEMP_PREVIEW_{Guid.NewGuid():N}";
-            var tempQuery = new QueryData
-            {
-                Name = tempQueryName,
-                Description = "Temporary query for preview",
-                Steps = queryData.Steps,
-                FinalQuery = queryData.FinalQuery,
-                FinalQueryDataSourceId = queryData.FinalQueryDataSourceId
-            };
+        return await _storedPreview.ExecuteTemporaryQuery(snapshot, parameters, maxRows, cancellationToken);
+    }
 
-            // Stored live whatever the approval workflow: it runs once, here, and is deleted below.
-            var createResponse = await _storedPreview.CreateTemporaryQuery(tempQuery, cancellationToken);
-            if (!createResponse.Success)
-            {
-                return null;
-            }
-
-            // Find the created query: a lookup of the row this method just created, not a listing for the caller.
-            var queries = await _queryService.GetQueries(new GetQueriesRequest
-            {
-                Readable = ProjectSet.All,
-                QueryName = tempQueryName
-            }, cancellationToken);
-
-            var createdQuery = queries.Items?.OrderByDescending(q => q.CreatedTime).FirstOrDefault();
-            if (createdQuery?.QueryId == null)
-            {
-                return null;
-            }
-
-            tempQueryId = createdQuery.QueryId;
-
-            // Execute the query, within the caller's own row limit when it has one
-            return maxRows is { } limit
-                ? await _queryService.ExecuteQueryAdvanced(createdQuery.QueryId.Value, null, parameters, limit, cancellationToken)
-                : await _queryService.ExecuteQueryAdvanced(createdQuery.QueryId.Value, parameters: parameters, cancellationToken: cancellationToken);
-        }
-        finally
-        {
-            // Clean up: delete the temporary query
-            if (tempQueryId.HasValue)
-            {
-                try
+    // A copy of the query's steps (each with its parameters) and final query; never empty: a query without steps is its
+    // legacy single step, from the SQL, data source and parameters it carries.
+    private static QueryData Snapshot(QueryData queryData)
+    {
+        var steps = queryData.Steps.Count > 0
+            ? queryData.Steps
+            :
+            [
+                new QueryStepData
                 {
-                    await _queryService.DeleteQuery(tempQueryId.Value, cancellationToken);
+                    StepOrder = 1,
+                    Name = "Step 1",
+                    SqlValue = queryData.SqlValue,
+                    DataSourceId = queryData.DataSourceId,
+                    DataSourceName = queryData.DataSourceName,
+                    Parameters = queryData.Parameters
+                        .Select(x =>
+                            new QueryStepParameterData
+                            {
+                                Name = x.Name,
+                                Type = x.Type,
+                                Description = x.Description,
+                                Placeholder = x.Placeholder
+                            })
+                        .ToList()
                 }
-                catch
-                {
-                    // Ignore cleanup errors
-                }
-            }
-        }
+            ];
+
+        return new QueryData
+        {
+            Name = queryData.Name,
+            Description = queryData.Description,
+            FinalQuery = queryData.FinalQuery,
+            FinalQueryDataSourceId = queryData.FinalQueryDataSourceId,
+            Steps = steps
+                .Select(x =>
+                    new QueryStepData
+                    {
+                        StepOrder = x.StepOrder,
+                        Name = x.Name,
+                        Description = x.Description,
+                        SqlValue = x.SqlValue,
+                        DataSourceId = x.DataSourceId,
+                        DataSourceName = x.DataSourceName,
+                        DataSourceType = x.DataSourceType,
+                        DatabaseEngineType = x.DatabaseEngineType,
+                        Parameters = x.Parameters
+                            .Select(y =>
+                                new QueryStepParameterData
+                                {
+                                    Name = y.Name,
+                                    Type = y.Type,
+                                    Description = y.Description,
+                                    Placeholder = y.Placeholder
+                                })
+                            .ToList()
+                    })
+                .ToList()
+        };
     }
 
     // Checked before anything is read, outside the catch that turns failures into results: the stored query needs Run

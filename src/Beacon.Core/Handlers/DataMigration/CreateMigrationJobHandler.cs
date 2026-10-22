@@ -48,6 +48,17 @@ internal sealed class CreateMigrationJobHandler(
             throw new InvalidOperationException("Source query text is required.");
         }
 
+        var settingsRefusal = MigrationJobSettings.Refusal(
+            request.Mode,
+            request.Schedule,
+            request.MaxRetries,
+            request.TimeoutMinutes,
+            request.ValidateBeforeExecution);
+        if (settingsRefusal != null)
+        {
+            throw new InvalidOperationException(settingsRefusal);
+        }
+
         await access.DemandAsync(request.DataSourceId, request.QueryText, request.DestinationDataSourceId, cancellationToken);
         await writePolicy.DemandTargetsAsync(request.DataSourceId, request.QueryText, request.DestinationDataSourceId, cancellationToken);
 

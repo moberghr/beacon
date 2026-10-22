@@ -114,12 +114,12 @@ list shows, and zeros to everyone else.
 | **Source SQL** | Yes | | The source query. See [Source query](#source-query). |
 | **Destination data source** | Yes | | Lists migration write targets only. |
 | **Destination table** | Yes | | For example `public.target_table`. |
-| **Migration mode** | Yes | Insert only | **Insert only**, **Insert or update** or **Truncate & insert**. See [Modes](#modes). |
-| **Cron schedule** | No | empty | Standard 5-field cron, stored with the job. See [Schedules](#schedules). |
-| **Max retries** | No | 3 | 0 to 10. Stored with the job and shown on each run as **Retry**. A failed run is not retried automatically. |
-| **Timeout (minutes)** | No | 30 | 1 to 1,440. Stored with the job. |
+| **Migration mode** | Yes | Insert only | **Insert only**, **Insert or update** or **Truncate & insert**. See [Modes](#modes). Any other value is refused. |
+| **Cron schedule** | No | empty | Empty, or a standard 5-field cron expression (anything else is refused). Stored with the job; Beacon does not run it. See [Schedules](#schedules). |
+| Max retries (API only) | No | 3 | Not on the form. The API accepts 0 or 3 and refuses anything else; a failed run is never retried automatically. |
+| **Timeout (minutes)** | No | 30 | 1 to 1,440 (anything else is refused). A run that lasts longer is stopped and recorded as failed. |
 | **Enable migration job** | No | on | A disabled job does not run. |
-| **Validate query before execution** | No | on | Stored with the job. |
+| Validate before execution (API only) | No | on | Not on the form. Every run checks its source SQL and destination table before it writes; the API refuses `false`. |
 | **Transformation script (optional)** | No | empty | Leave it empty. A job with a script fails when it runs. |
 
 The job is saved when the form is valid; its SQL is not run at creation. The destination table is checked for existence
@@ -133,7 +133,8 @@ whether it is enabled, create a new job and delete the old one. The old job's ru
 ### Source query
 
 The source is read the way every query runs (see [Queries](/features/queries/)): through the read-only execution gate
-and the source's read-only path, within `Beacon:Query:StatementTimeoutSeconds` (default 120 seconds) per statement.
+and the source's read-only path, within `Beacon:Query:StatementTimeoutSeconds` (default 120 seconds) per statement. The
+job's steps run as stored on the job, in the run itself: no query is saved to run them, so none is left behind.
 
 - **Row budget.** `Beacon:Migrations:MaxRows` replaces `Beacon:Query:MaxExecutionRows`. The cap is written into the
   source SQL and the read stops one row past it. A larger source fails the run, with a message naming
@@ -189,7 +190,7 @@ cascaded; a table's foreign key to itself does not stop it. On MySQL `TRUNCATE` 
 back, so Beacon starts the transaction again right after it: a Truncate & insert run that fails after the table was
 emptied leaves the table empty, never partly written. Run it again once the cause is fixed. Because the table is not
 locked between the clear and the commit, two Truncate & insert runs into the same MySQL table at the same time can
-both write their rows; schedule such jobs so they do not overlap.
+both write their rows; schedule jobs that write the same table so they do not overlap.
 
 The rows are written as the source returns them:
 
@@ -200,6 +201,10 @@ The rows are written as the source returns them:
 - In Upsert mode two source rows with the same primary key in one batch of 10,000 fail the run on PostgreSQL and SQL
   Server, which rolls back; on MySQL the later row wins.
 - A SQL Server table named without a schema is the `dbo` one.
+- A PostgreSQL table named without a schema is the one the write target's connection finds on its `search_path`: the
+  first schema of `current_schemas(false)` that has a table of that name. The run checks, reads the key of and writes
+  that table; a same-named table in a schema off the path is not used, and a name found on no schema of the path fails
+  the run as a missing table.
 - MySQL sends at most 1,000 rows, 60,000 values or about 1 MB of values per statement, under MySQL 5.7's default
   4 MB `max_allowed_packet`. Its Upsert matches on any unique key of the table, not only the primary key (how
   `ON DUPLICATE KEY UPDATE` works), and keeps `VALUES(col)`, which MariaDB and MySQL 5.7 understand; MySQL 8.0.20 and
@@ -209,8 +214,10 @@ The rows are written as the source returns them:
 
 The cron schedule is stored with the job and shown on it. Beacon does not start migration runs from it by itself: a run
 starts from **Run now** or from `POST /beacon/api/migrations/jobs/{id}/run`. A host that wants scheduled runs starts them
-from its own background job (see [Background jobs](/integrate/background-jobs/)); the approval and write-target checks
-apply to those runs too.
+from its own background job (see [Background jobs](/integrate/background-jobs/)); the approval and write-target checks,
+the timeout and the one-run-at-a-time rule apply to those runs too. `IMigrationService.ExecuteMigrationJob` answers a
+run that overlaps one starting or in progress with a failed response whose `RunInProgress` is `true` (execution id 0,
+nothing run or recorded in the history); it does not throw.
 
 ## Run a job
 
@@ -219,6 +226,27 @@ apply to those runs too.
 
 **Run now** is disabled while the job is disabled or awaiting approval. The run happens in the request; the page then
 shows it in the job's runs.
+
+- **One run at a time.** A job runs once at a time, across every host: a run of a job that already has a run starting
+  or in progress is refused with `409 Conflict` before it reads or writes anything, and adds no run to the history (the
+  refusal is a security event with reason `run_in_progress`).
+- **Destination lock.** Inside its write transaction, before it checks or writes the table, a run takes a lock on its
+  job in the destination database, without waiting: a PostgreSQL transaction-level advisory lock
+  (`pg_try_advisory_xact_lock`), a SQL Server application lock owned by the transaction (`sp_getapplock`) or a MySQL
+  named lock (`GET_LOCK`, released after the commit or rollback). If another run of the job holds it (a run whose host
+  paused past the in-progress window while a new run started), the run fails with *"Nothing was written: another run of
+  this job holds its destination's migration lock"* (security event reason `destination_busy`) and writes nothing. None
+  of these locks needs a grant beyond the login's.
+- **A commit that cannot be confirmed.** If the destination's commit fails (the connection is lost during it, say),
+  Beacon cannot tell whether the rows were written. The run is recorded as failed with *"The destination's commit could
+  not be confirmed: check the destination table before running this job again"* (reason `commit_unknown`); nothing is
+  rolled back or retried. Look at the table before you run the job again, especially in Insert mode.
+- **A host that stops during a run.** Its run stays **Running** and blocks the job until the job's timeout and 10 more
+  minutes have passed since it started. The next run after that closes it as **Failed** (*"Abandoned: the host stopped
+  during the run"*, security event reason `abandoned`); nothing needs to be done by hand.
+- **Timeout.** A run is stopped after the job's timeout (1 to 1,440 minutes; a job stored with another value is held to
+  that range) and recorded as failed with *"The run timed out after N minutes"*. The write is one transaction, so a run
+  stopped before it commits writes nothing (except a MySQL Truncate & insert, see [Modes](#modes)).
 
 ## Jobs and run history
 
@@ -238,7 +266,7 @@ The run history page (`/beacon/migration-history`) lists runs of every job you c
 | Running | The run has started. |
 | Completed | Every row was written. |
 | Partial | Recorded by earlier versions, whose MySQL writes fell back to row by row; runs no longer end in it. The job page labels it **Partial success**. |
-| Failed | The read or the write failed, or the run was refused (not approved, not a write target). The error says why. |
+| Failed | The read or the write failed, the run timed out or was abandoned by a host that stopped, or the run was refused (not approved, not a write target). The error says why. |
 
 ### Delete a job
 
@@ -315,6 +343,9 @@ MigrationOperator permission.
 | No **Data Migration** entry | `Beacon:Migrations:Enabled` is `true`, and you hold MigrationOperator (or are an Admin). |
 | The destination picker is empty | An Admin has marked the destination as a migration write target. |
 | **Run now** is disabled | The job is enabled and not awaiting approval. |
+| Run failed: another run holds the destination's migration lock | A run of the same job is still writing (its host was slow or paused). Wait for it to end, then run the job again. |
+| Run failed: the destination's commit could not be confirmed | Check the destination table for the run's rows before you run the job again. |
+| Run answers `409 Conflict` | Another run of the job is starting or in progress (or a host stopped during one less than the job's timeout plus 10 minutes ago). Wait for it to end, then run it again. |
 | Run failed on a job with a transformation script | Create the job again with **Transformation script** empty. |
 | Run failed: row budget exceeded | The source returned more than `Beacon:Migrations:MaxRows` rows. Split the job or raise the budget. |
 | Run failed: table does not exist | The destination table exists in the write target's database, and the name includes its schema if needed. |
