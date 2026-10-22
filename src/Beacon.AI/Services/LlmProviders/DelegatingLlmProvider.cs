@@ -1,3 +1,4 @@
+using Beacon.AI.Models.Configuration;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models.Ai;
 using Microsoft.Extensions.Logging;
@@ -31,15 +32,21 @@ public class DelegatingLlmProvider : ILlmProvider
 
     public async Task<LlmResponse> CompleteAsync(LlmRequest request, CancellationToken cancellationToken = default)
     {
-        // One snapshot per call: a fast provider is never paired with a main provider from another configuration.
-        var (main, fast) = _manager.ActiveProvidersSnapshot;
-        main ??= RequireProvider();
+        ArgumentNullException.ThrowIfNull(request);
+
+        // One snapshot per call: the main and fast providers and the configuration the span names come from the same
+        // configuration, so a concurrent hot-swap never pairs or tags a call with another configuration's provider.
+        var (main, fast, configuration) = _manager.CurrentSnapshot();
+        if (main == null)
+        {
+            throw NotConfigured();
+        }
 
         if (request.Tier == LlmTier.Fast && fast is not null)
         {
             try
             {
-                return await Enqueue(fast, request, cancellationToken);
+                return await Enqueue(fast, configuration, configuration.FastModel, request, cancellationToken);
             }
             catch (Exception ex) when (!(ex is OperationCanceledException && cancellationToken.IsCancellationRequested))
             {
@@ -51,10 +58,16 @@ public class DelegatingLlmProvider : ILlmProvider
 
             // The configuration may have changed while the fast call ran: the fallback goes to the provider that is
             // active now, never to the one captured before it (which could hold retired credentials).
-            return await Enqueue(RequireProvider(), request, cancellationToken);
+            var (current, _, currentConfiguration) = _manager.CurrentSnapshot();
+            if (current == null)
+            {
+                throw NotConfigured();
+            }
+
+            return await Enqueue(current, currentConfiguration, currentConfiguration.Model, request, cancellationToken);
         }
 
-        return await Enqueue(main, request, cancellationToken);
+        return await Enqueue(main, configuration, configuration.Model, request, cancellationToken);
     }
 
     public Task<TokenCount> CountTokensAsync(string text, CancellationToken cancellationToken = default)
@@ -63,7 +76,12 @@ public class DelegatingLlmProvider : ILlmProvider
         return provider.CountTokensAsync(text, cancellationToken);
     }
 
-    private Task<LlmResponse> Enqueue(ILlmProvider provider, LlmRequest request, CancellationToken cancellationToken)
+    private Task<LlmResponse> Enqueue(
+        ILlmProvider provider,
+        LlmConfiguration configuration,
+        string? model,
+        LlmRequest request,
+        CancellationToken cancellationToken)
     {
         // Recursion guard: pass the INNER provider to the queue, never `this`. If `this` were
         // passed, the queue would call back into DelegatingLlmProvider.CompleteAsync, which
@@ -74,15 +92,25 @@ public class DelegatingLlmProvider : ILlmProvider
                 "LlmProviderManager.CurrentProvider must not be the DelegatingLlmProvider itself.");
         }
 
-        return _queue.EnqueueRequestAsync(provider, request, cancellationToken);
+        // One span per completion, around the queue so it covers the wait for a slot and the retries too; it names the
+        // model that serves the call (the fast model on the fast tier).
+        return LlmCompletionTelemetry.TraceAsync(
+            configuration.Provider.ToString().ToLowerInvariant(),
+            model,
+            request,
+            () => _queue.EnqueueRequestAsync(provider, request, cancellationToken));
     }
 
     // When the configured provider is not installed, the manager's install message says what to do; otherwise the
     // provider is not configured (no key yet) or could not be built.
     private ILlmProvider RequireProvider()
     {
-        return _manager.CurrentProvider
-            ?? throw new InvalidOperationException(
-                _manager.InactiveReason ?? "LLM provider is not configured. Configure it via Admin Settings.");
+        return _manager.CurrentProvider ?? throw NotConfigured();
+    }
+
+    private InvalidOperationException NotConfigured()
+    {
+        return new InvalidOperationException(
+            _manager.InactiveReason ?? "LLM provider is not configured. Configure it via Admin Settings.");
     }
 }

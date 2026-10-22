@@ -16,5 +16,11 @@ public record LlmResponse
     /// <summary>True when the provider stopped generating because the max-token limit was hit.</summary>
     public bool Truncated { get; init; }
 
+    /// <summary>Prompt tokens read from the provider's prompt cache, when the provider reports them (not in <see cref="InputTokens"/>).</summary>
+    public int CacheReadInputTokens { get; init; }
+
+    /// <summary>Prompt tokens written to the provider's prompt cache, when the provider reports them (not in <see cref="InputTokens"/>).</summary>
+    public int CacheWriteInputTokens { get; init; }
+
     public int TotalTokens => InputTokens + OutputTokens;
 }

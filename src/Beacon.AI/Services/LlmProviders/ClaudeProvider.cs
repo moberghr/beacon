@@ -14,6 +14,7 @@ public class ClaudeProvider : ILlmProvider
     private const decimal InputCostPerMillionTokens = 3.00m;
     private const decimal OutputCostPerMillionTokens = 15.00m;
     private const decimal CachedInputCostPerMillionTokens = 0.30m; // 90% discount
+    private const decimal CacheWriteCostPerMillionTokens = 3.75m; // 25% surcharge
     private const string AnthropicVersion = "2023-06-01";
 
     private static readonly Uri MessagesUri = new("https://api.anthropic.com/v1/messages");
@@ -46,7 +47,7 @@ public class ClaudeProvider : ILlmProvider
                 .Select(m => new
                 {
                     role = m.Role == ConversationRole.User ? "user" : "assistant",
-                    content = m.Content
+                    content = MessageContent(m)
                 })
                 .ToList();
 
@@ -84,12 +85,17 @@ public class ClaudeProvider : ILlmProvider
             // Calculate costs
             var inputCost = (result.Usage.InputTokens / 1_000_000m) * InputCostPerMillionTokens;
             var outputCost = (result.Usage.OutputTokens / 1_000_000m) * OutputCostPerMillionTokens;
-            var cachedInputCost = result.Usage.CacheReadInputTokens > 0
-                ? (result.Usage.CacheReadInputTokens / 1_000_000m) * CachedInputCostPerMillionTokens
+            // The cache counts are absent (or null) when the request asked for no caching.
+            var cacheReadTokens = result.Usage.CacheReadInputTokens ?? 0;
+            var cacheWriteTokens = result.Usage.CacheCreationInputTokens ?? 0;
+            var cachedInputCost = cacheReadTokens > 0
+                ? (cacheReadTokens / 1_000_000m) * CachedInputCostPerMillionTokens
                 : 0;
 
-            var totalCost = inputCost + outputCost + cachedInputCost;
-            var promptCacheHit = result.Usage.CacheReadInputTokens > 0;
+            var cacheWriteCost = (cacheWriteTokens / 1_000_000m) * CacheWriteCostPerMillionTokens;
+
+            var totalCost = inputCost + outputCost + cachedInputCost + cacheWriteCost;
+            var promptCacheHit = cacheReadTokens > 0;
 
             return new Beacon.Core.Models.Ai.LlmResponse
             {
@@ -99,7 +105,9 @@ public class ClaudeProvider : ILlmProvider
                 Cost = totalCost,
                 Model = result.Model,
                 PromptCacheHit = promptCacheHit,
-                Truncated = result.StopReason == "max_tokens"
+                Truncated = result.StopReason == "max_tokens",
+                CacheReadInputTokens = cacheReadTokens,
+                CacheWriteInputTokens = cacheWriteTokens
             };
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
@@ -147,7 +155,30 @@ public class ClaudeProvider : ILlmProvider
         public int OutputTokens { get; set; }
 
         [JsonPropertyName("cache_read_input_tokens")]
-        public int CacheReadInputTokens { get; set; }
+        public int? CacheReadInputTokens { get; set; }
+
+        [JsonPropertyName("cache_creation_input_tokens")]
+        public int? CacheCreationInputTokens { get; set; }
+    }
+
+    // A message marked as a cache breakpoint goes as one text block carrying an ephemeral cache point (the prompt up to and
+    // including it becomes a cacheable prefix); any other message keeps the plain string it always was.
+    private static object MessageContent(ChatMessage message)
+    {
+        if (!message.CacheBreakpoint)
+        {
+            return message.Content;
+        }
+
+        return new[]
+        {
+            new
+            {
+                type = "text",
+                text = message.Content,
+                cache_control = new { type = "ephemeral" }
+            }
+        };
     }
 
     public Task<TokenCount> CountTokensAsync(string text, CancellationToken cancellationToken = default)

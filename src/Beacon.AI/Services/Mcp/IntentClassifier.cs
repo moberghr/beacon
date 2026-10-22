@@ -1,4 +1,5 @@
 using Beacon.AI.Services.LlmProviders;
+using Beacon.Core.Telemetry;
 
 namespace Beacon.AI.Services.Mcp;
 
@@ -7,6 +8,8 @@ internal sealed class IntentClassifier : IIntentClassifier
     public async Task<IntentClassification> ClassifyAsync(
         ILlmProvider llmProvider, string question, CancellationToken ct)
     {
+        using var stage = BeaconTelemetry.StartAskStage(BeaconTelemetry.AskStageIntent);
+
         var classifyPrompt = """
             Classify the following user question into one of two categories:
 
@@ -27,12 +30,16 @@ internal sealed class IntentClassifier : IIntentClassifier
             Messages = [new ChatMessage(ConversationRole.User, classifyPrompt.Replace("{question}", question))],
             Temperature = 0.0m,
             MaxTokens = 16,
-            Tier = LlmTier.Fast
+            Tier = LlmTier.Fast,
+            Operation = LlmOperations.AskIntent
         };
 
-        var response = await llmProvider.CompleteAsync(request, ct);
+        var response = await BeaconTelemetry.ObserveStageAsync(stage, () => llmProvider.CompleteAsync(request, ct));
         var result = response.Content.Trim().ToUpperInvariant();
 
-        return result.Contains("KNOWLEDGE") ? IntentClassification.Knowledge : IntentClassification.DataQuery;
+        var intent = result.Contains("KNOWLEDGE") ? IntentClassification.Knowledge : IntentClassification.DataQuery;
+        stage?.SetTag(BeaconTelemetry.AskIntentTag, intent.ToString());
+
+        return intent;
     }
 }
