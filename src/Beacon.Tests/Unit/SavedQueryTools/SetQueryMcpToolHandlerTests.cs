@@ -56,6 +56,49 @@ public class SetQueryMcpToolHandlerTests
         query.ModifiedTime.Should().Be(time.GetUtcNow().UtcDateTime);
     }
 
+    [Test]
+    public async Task ExposingAQueryWhosePlaceholderIsNotAnIdentifierInBraces_IsRejected()
+    {
+        var data = Seed();
+        var parameter = Parameter("branch", ParameterType.Number);
+        parameter.Placeholder = "branch_id";
+        data.Query(1, null, [Step(1, 10, "SELECT branch_id", parameter)], enabled: false);
+
+        var act = () => Handler(data).Handle(new SetQueryMcpToolCommand(1, true, "loan_book", null, null), CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*Parameter 'branch' has an invalid placeholder*");
+        data.Store.SaveCount.Should().Be(0);
+    }
+
+    // A tool already exposed keeps running as stored and stays editable; only newly exposing holds to the shape.
+    [Test]
+    public async Task EditingTheDescriptionOfAnExposedTool_WhoseStoredPlaceholderIsLegacy_Succeeds()
+    {
+        var data = Seed();
+        var parameter = Parameter("branch", ParameterType.Number);
+        parameter.Placeholder = "branch_id";
+        var query = data.Query(1, "loan_book", [Step(1, 10, "SELECT branch_id", parameter)]);
+
+        var result = await Handler(data).Handle(new SetQueryMcpToolCommand(1, true, "loan_book", "Updated.", null), CancellationToken.None);
+
+        query.McpToolEnabled.Should().BeTrue();
+        result.Description.Should().Be("Updated.");
+        result.Issue.Should().BeNull();
+    }
+
+    [Test]
+    public async Task DisablingAnExposedTool_WhoseStoredPlaceholderIsLegacy_Succeeds()
+    {
+        var data = Seed();
+        var parameter = Parameter("branch", ParameterType.Number);
+        parameter.Placeholder = "branch_id";
+        var query = data.Query(1, "loan_book", [Step(1, 10, "SELECT branch_id", parameter)]);
+
+        await Handler(data).Handle(new SetQueryMcpToolCommand(1, false, "loan_book", null, null), CancellationToken.None);
+
+        query.McpToolEnabled.Should().BeFalse();
+    }
+
     [TestCase("ab")]
     [TestCase("Loan_Book")]
     [TestCase("loan-book")]

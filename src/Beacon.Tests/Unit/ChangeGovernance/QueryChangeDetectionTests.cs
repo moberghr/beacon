@@ -27,7 +27,12 @@ public class QueryChangeDetectionTests
         yield return Case("the SQL", x => x.Steps[0].SqlValue = "SELECT 2");
         yield return Case("a step name", x => x.Steps[0].Name = "Totals");
         yield return Case("a data source", x => x.Steps[0].DataSourceId = GovernanceStore.LedgerId);
-        yield return Case("an added parameter", x => x.Steps[0].Parameters.Add(new QueryStepParameterData { Name = "n", Type = ParameterType.Number, Placeholder = "{n}" }));
+        // The SQL names the placeholder too: a save refuses a parameter its SQL does not contain.
+        yield return Case("an added parameter", x =>
+        {
+            x.Steps[0].SqlValue = "SELECT {n}";
+            x.Steps[0].Parameters.Add(new QueryStepParameterData { Name = "n", Type = ParameterType.Number, Placeholder = "{n}" });
+        });
         yield return Case("a removed step", x => x.Steps.Clear());
         yield return Case("an added step", x => x.Steps.Add(new QueryStepData { StepOrder = 2, Name = "Step 2", SqlValue = "SELECT 2", DataSourceId = GovernanceStore.DataSourceId }));
         yield return Case("the final query", x => x.FinalQuery = "SELECT * FROM @result1");
@@ -233,9 +238,14 @@ public class QueryChangeDetectionTests
     public async Task ASave_ThatChangesAParameter_IsVersioned(string _, Action<QueryData> edit)
     {
         var store = new GovernanceStore();
+        store.Query.Steps[0].SqlValue = "SELECT 1 /* {n} {m} */";
         store.Query.Steps[0].Parameters.Add(new QueryStepParameter { QueryStepId = GovernanceStore.StepId, Name = "n", Type = ParameterType.Number, Placeholder = "{n}" });
         var versions = new Mock<IQueryVersionService>();
-        var query = Edited(x => x.Steps[0].Parameters.Add(new QueryStepParameterData { Name = "n", Type = ParameterType.Number, Placeholder = "{n}" }));
+        var query = Edited(x =>
+        {
+            x.Steps[0].SqlValue = "SELECT 1 /* {n} {m} */";
+            x.Steps[0].Parameters.Add(new QueryStepParameterData { Name = "n", Type = ParameterType.Number, Placeholder = "{n}" });
+        });
         edit(query);
 
         await Service(store, versions.Object).UpdateQuery(query, CancellationToken.None);
@@ -335,6 +345,85 @@ public class QueryChangeDetectionTests
 #pragma warning restore CS0618
 
         store.Saved.OfType<QueryStep>().Should().ContainSingle().Which.SqlValue.Should().Be("SELECT 2");
+    }
+
+    // A save states its parameters' placeholders as {identifier}, each present in the step's SQL, on every update path.
+    [TestCase("branch_id", "SELECT branch_id FROM orders")]
+    [TestCase("{ a }", "SELECT { a } FROM orders")]
+    [TestCase("{a}{b}", "SELECT {a}{b} FROM orders")]
+    [TestCase("{1}", "SELECT {1} FROM orders")]
+    public async Task AMultiStepSave_WithAMisshapenPlaceholder_IsRefused_BeforeAnythingIsWritten(string placeholder, string sql)
+    {
+        var store = new GovernanceStore();
+        var versions = new Mock<IQueryVersionService>();
+        var query = GovernanceStore.Edit(sql);
+        query.Steps[0].Parameters.Add(new QueryStepParameterData { Name = "n", Type = ParameterType.Number, Placeholder = placeholder });
+
+        var act = () => Service(store, versions.Object).UpdateQuery(query, CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconException>().WithMessage("Parameter 'n' has an invalid placeholder*");
+        store.Saved.Should().BeEmpty();
+        versions.VerifyNoOtherCalls();
+    }
+
+    [Test]
+    public async Task AMultiStepSave_WithAPlaceholderTheSqlLacks_IsRefused_BeforeAnythingIsWritten()
+    {
+        var store = new GovernanceStore();
+        var versions = new Mock<IQueryVersionService>();
+        var query = GovernanceStore.Edit("SELECT 1");
+        query.Steps[0].Parameters.Add(new QueryStepParameterData { Name = "n", Type = ParameterType.Number, Placeholder = "{missing}" });
+
+        var act = () => Service(store, versions.Object).UpdateQuery(query, CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconException>().WithMessage("*missing required parameters*");
+        store.Saved.Should().BeEmpty();
+        versions.VerifyNoOtherCalls();
+    }
+
+    [Test]
+    public async Task AMultiStepSave_WithTwoParametersSharingAPlaceholder_IsRefused_BeforeAnythingIsWritten()
+    {
+        var store = new GovernanceStore();
+        var versions = new Mock<IQueryVersionService>();
+        var query = GovernanceStore.Edit("SELECT {a}");
+        query.Steps[0].Parameters.Add(new QueryStepParameterData { Name = "n", Type = ParameterType.Number, Placeholder = "{a}" });
+        query.Steps[0].Parameters.Add(new QueryStepParameterData { Name = "m", Type = ParameterType.Number, Placeholder = "{a}" });
+
+        var act = () => Service(store, versions.Object).UpdateQuery(query, CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconException>().WithMessage("Parameter 'm' uses a placeholder another parameter*");
+        store.Saved.Should().BeEmpty();
+        versions.VerifyNoOtherCalls();
+    }
+
+    [Test]
+    public async Task AMultiStepSave_WithAValidPlaceholderInTheSql_IsSaved()
+    {
+        var store = new GovernanceStore();
+        var query = GovernanceStore.Edit("SELECT id FROM orders WHERE id > {n}");
+        query.Steps[0].Parameters.Add(new QueryStepParameterData { Name = "n", Type = ParameterType.Number, Placeholder = "{n}" });
+
+        var response = await Service(store, Versions().Object).UpdateQuery(query, CancellationToken.None);
+
+        response.Success.Should().BeTrue();
+        store.Query.Steps[0].SqlValue.Should().Be("SELECT id FROM orders WHERE id > {n}");
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task ALegacySingleStepSave_WithABadPlaceholder_IsRefused_WithTheWorkflowOnOrOff(bool workflowOn)
+    {
+        var store = new GovernanceStore();
+        var versions = Versions();
+        var query = LegacyForm("SELECT branch_id FROM orders", GovernanceStore.DataSourceId);
+        query.Parameters = [new QueryParameterData { Name = "n", Type = ParameterType.Number, Description = "", Placeholder = "branch_id" }];
+
+        var act = () => Service(store, versions.Object, workflowOn ? WorkflowOn() : null).UpdateQuery(query, CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconException>().WithMessage("Parameter 'n' has an invalid placeholder*");
+        store.Saved.Should().BeEmpty();
+        versions.VerifyNoOtherCalls();
     }
 
     private static TestCaseData Case(string name, Action<QueryData> edit) => new TestCaseData(name, edit).SetArgDisplayNames(name);

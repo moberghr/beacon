@@ -83,7 +83,10 @@ internal sealed class SetQueryMcpToolHandler(
             .FirstOrDefaultAsync(cancellationToken);
         var issue = runnable == null
             ? SavedQueryRunnableVersion.NoRunnableVersionIssue
-            : SavedQueryToolRules.Inspect(runnable.StepsJson).Issue;
+            : query.McpToolEnabled
+                // An exposed tool keeps running as stored and can be edited; only newly exposing holds to a save's shape.
+                ? SavedQueryToolRules.Inspect(runnable.StepsJson).Issue
+                : SavedQueryToolRules.ExposureIssue(runnable.StepsJson);
 
         if (request.Enabled && issue != null)
         {

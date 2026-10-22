@@ -40,6 +40,22 @@ public class SavedQueryParameterBinderTests
         parameters["p1"].Should().Be(2L);
     }
 
+    // Parameters stored before placeholders had a required shape keep binding as stored.
+    [Test]
+    public void Bind_StillBindsAStoredPlaceholderOfAnotherShape()
+    {
+        var branch = Parameter("branch", ParameterType.Number);
+        branch.Placeholder = "branch_id";
+
+        var (sql, parameters) = SavedQueryParameterBinder.Bind(
+            "SELECT * FROM loans WHERE branch = branch_id",
+            [branch],
+            new Dictionary<string, object?> { ["branch"] = 7L });
+
+        sql.Should().Be("SELECT * FROM loans WHERE branch = @p0");
+        parameters["p0"].Should().Be(7L);
+    }
+
     [Test]
     public void Bind_KeepsTypedValues()
     {

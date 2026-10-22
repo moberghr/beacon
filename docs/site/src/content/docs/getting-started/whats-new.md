@@ -203,6 +203,21 @@ When you upgrade:
       are obsolete. Providers are built through the `ILlmProviderRegistration`s that `AddBeaconAI()` installs, and a
       host's own registration for a built-in provider now wins whatever the call order.
 
+### Parameter placeholders have a shape
+
+A step parameter's placeholder must be `{identifier}`: letters, digits and underscore, starting with a letter or
+underscore (so `{1}` is refused, although the editor's auto-detect accepts digits). An empty placeholder is refused, it
+must be distinct within the step, and a multi-step save now also requires every placeholder to occur in its step's SQL.
+Beacon checks it when a query is created or edited, when an AI actor proposes a change and when a query is newly exposed
+as an MCP tool. Stored queries keep running as they are, and restoring an old version keeps its placeholders as stored,
+also on an exposed tool. An already-exposed tool keeps running and can be edited or disabled; only newly exposing it
+needs the shape. The next edit of a stored query asks for a valid placeholder.
+
+When you upgrade:
+
+- [ ] **Hosts or scripts that create queries through the API:** send `{name}` placeholders. A bare word, a quoted or
+      spaced placeholder is refused with the parameter's name.
+
 ## Release notes
 
 The full list of changes is on the [5.0.0.0 release](https://github.com/moberghr/beacon/releases/tag/5.0.0.0).

@@ -31,6 +31,11 @@ internal partial class QueryService : IQueryProposalCheck
         {
             ValidateFinalQuery(proposal.FinalQuery);
 
+            foreach (var step in proposal.Steps)
+            {
+                CheckStepParameters(step);
+            }
+
             var steps = await BuildDraftSteps(0, proposal.Steps, cancellationToken);
             await EnsureStepsPassTheGateAsync(proposal.Steps, cancellationToken);
 

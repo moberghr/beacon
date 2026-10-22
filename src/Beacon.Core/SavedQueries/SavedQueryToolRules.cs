@@ -2,6 +2,7 @@ using System.Text.Json;
 using System.Text.RegularExpressions;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.Queries;
+using Beacon.Core.Validators;
 
 namespace Beacon.Core.SavedQueries;
 
@@ -100,6 +101,24 @@ public static partial class SavedQueryToolRules
         }
 
         return new SavedQueryToolShape(steps, parameters, null);
+    }
+
+    /// <summary>
+    /// Why the version cannot be newly exposed as a tool: <see cref="Inspect"/>'s issue, or a parameter whose placeholder is
+    /// not <c>{identifier}</c> (<see cref="QueryParameterPlaceholder"/>). Exposure is a new trust decision, so it holds
+    /// to the shape a save requires; a version already exposed keeps running as stored.
+    /// </summary>
+    internal static string? ExposureIssue(string stepsJson)
+    {
+        var shape = Inspect(stepsJson);
+        if (shape.Issue != null)
+        {
+            return shape.Issue;
+        }
+
+        return shape.Steps
+            .Select(x => QueryParameterPlaceholder.RefusalFor(x.Parameters.Select(y => (y.Name, y.Placeholder))))
+            .FirstOrDefault(x => x != null);
     }
 
     [GeneratedRegex("^[a-z][a-z0-9_]{2,40}$", RegexOptions.CultureInvariant)]

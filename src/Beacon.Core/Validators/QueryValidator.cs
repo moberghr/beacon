@@ -67,7 +67,8 @@ internal static class QueryValidator
     }
 
     /// <summary>
-    /// Validates that all defined parameters are present in the query.
+    /// Validates that every defined parameter has a <c>{identifier}</c> placeholder (<see cref="QueryParameterPlaceholder"/>),
+    /// distinct within the step, and that every placeholder is present in the query.
     /// </summary>
     /// <param name="sqlQuery">The SQL query to validate</param>
     /// <param name="parameters">The list of required parameters</param>
@@ -77,6 +78,12 @@ internal static class QueryValidator
         if (parameters == null || parameters.Count == 0)
         {
             return;
+        }
+
+        var refusal = QueryParameterPlaceholder.RefusalFor(parameters.Select(x => ((string?)x.Name, (string?)x.Placeholder)));
+        if (refusal != null)
+        {
+            throw new BeaconException(refusal);
         }
 
         var missingParameters = parameters

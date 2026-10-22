@@ -40,6 +40,7 @@ internal partial class QueryService
     public async Task<BaseResponse> AddQueryStep(int queryId, QueryStepData stepData, CancellationToken cancellationToken)
     {
         RefuseWhileApprovalWorkflowIsOn();
+        CheckStepParameters(stepData);
 
         // The save check: the execution gate and, where metadata exists, the source's own tables and columns (§1.5).
         await EnsureStepsPassTheGateAsync([stepData], cancellationToken);
@@ -72,6 +73,7 @@ internal partial class QueryService
     public async Task<BaseResponse> UpdateQueryStep(int queryId, int stepOrder, QueryStepData stepData, CancellationToken cancellationToken)
     {
         RefuseWhileApprovalWorkflowIsOn();
+        CheckStepParameters(stepData);
 
         // The save check: the execution gate and, where metadata exists, the source's own tables and columns (§1.5).
         await EnsureStepsPassTheGateAsync([stepData], cancellationToken);

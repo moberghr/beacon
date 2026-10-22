@@ -92,6 +92,37 @@ public class SavedQueryToolRulesTests
         SavedQueryToolRules.Inspect("{not json").Issue.Should().Contain("could not be read");
     }
 
+    [TestCase("branch_id")]
+    [TestCase("{ a }")]
+    [TestCase("{a}{b}")]
+    public void ExposureIssue_RefusesAPlaceholderThatIsNotAnIdentifierInBraces(string placeholder)
+    {
+        var parameter = Parameter("branch", ParameterType.Number);
+        parameter.Placeholder = placeholder;
+
+        var issue = ExposureIssue(Step(1, 1, "SELECT 1", parameter));
+
+        issue.Should().Be("Parameter 'branch' has an invalid placeholder; use {identifier} (letters, digits, underscore).");
+    }
+
+    [Test]
+    public void ExposureIssue_AcceptsIdentifierPlaceholders()
+    {
+        ExposureIssue(Step(1, 1, "SELECT {n}", Parameter("n", ParameterType.Number))).Should().BeNull();
+    }
+
+    [Test]
+    public void Inspect_StillAcceptsAStoredOddPlaceholder_SoAnExposedToolKeepsRunning()
+    {
+        var parameter = Parameter("branch", ParameterType.Number);
+        parameter.Placeholder = "branch_id";
+
+        Inspect(Step(1, 1, "SELECT branch_id", parameter)).Issue.Should().BeNull();
+    }
+
+    private static string? ExposureIssue(params QueryStepSnapshot[] steps) =>
+        SavedQueryToolRules.ExposureIssue(JsonSerializer.Serialize(steps.ToList(), JsonOptions));
+
     private static SavedQueryToolShape Inspect(params QueryStepSnapshot[] steps) =>
         SavedQueryToolRules.Inspect(JsonSerializer.Serialize(steps.ToList(), JsonOptions));
 }

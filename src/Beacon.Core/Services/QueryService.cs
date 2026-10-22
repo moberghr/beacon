@@ -552,18 +552,24 @@ internal partial class QueryService(
         foreach (var step in queryData.Steps)
         {
             QueryValidator.CheckForFlaggedWords(step.SqlValue, readOnlyAstValidator.MaxSqlChars);
-            QueryValidator.CheckForParameters(step.SqlValue, step.Parameters.Select(p => new QueryParameterData
-            {
-                Name = p.Name,
-                Type = p.Type,
-                Description = p.Description ?? "",
-                Placeholder = p.Placeholder ?? ""
-            }).ToList());
+            CheckStepParameters(step);
         }
 
         ValidateFinalQuery(queryData.FinalQuery);
 
         await EnsureStepsPassTheGateAsync(queryData.Steps, cancellationToken);
+    }
+
+    // The step's parameters as a save requires them: each placeholder {identifier}, distinct, and present in the SQL.
+    private static void CheckStepParameters(QueryStepData step)
+    {
+        QueryValidator.CheckForParameters(step.SqlValue, step.Parameters.Select(p => new QueryParameterData
+        {
+            Name = p.Name,
+            Type = p.Type,
+            Description = p.Description ?? "",
+            Placeholder = p.Placeholder ?? ""
+        }).ToList());
     }
 
     // The query with its steps live, owned and created by ownerUserId (the caller).
