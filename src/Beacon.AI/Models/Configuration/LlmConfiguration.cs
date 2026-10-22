@@ -28,4 +28,13 @@ public sealed record ProviderLimits
     public int TokensPerMinute { get; init; } = 80000;
     public int RequestsPerMinute { get; init; } = 1000;
     public decimal MonthlyBudget { get; init; } = 100.00m;
+
+    /// <summary>How long an interactive request waits for a free slot before it fails as busy. Non-positive: the default.</summary>
+    public int InteractiveQueueWaitSeconds { get; init; } = 60;
+
+    /// <summary>How long a background request waits for a free slot before it fails as busy. Non-positive: the default.</summary>
+    public int BackgroundQueueWaitSeconds { get; init; } = 300;
+
+    /// <summary>How many requests may wait for a slot at once; one more fails as busy at once. Non-positive: the default.</summary>
+    public int MaxQueuedRequests { get; init; } = 200;
 }

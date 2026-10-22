@@ -866,6 +866,30 @@ public class AiActorCycleProposeOnlyTests
     }
 
     [Test]
+    public async Task ExecuteThinkCycleBackgroundAsync_AsksTheModelInTheBackgroundLane()
+    {
+        SeedActor();
+        var requests = new List<LlmRequest>();
+        var service = BuildService(PlanJson, llmRequests: requests);
+
+        await service.ExecuteThinkCycleBackgroundAsync(ActorId, null, CancellationToken.None);
+
+        requests.Should().ContainSingle().Which.Priority.Should().Be(LlmRequestPriority.Background);
+    }
+
+    [Test]
+    public async Task ExecuteThinkCycleAsync_AsksTheModelInTheInteractiveLane()
+    {
+        SeedActor();
+        var requests = new List<LlmRequest>();
+        var service = BuildService(PlanJson, llmRequests: requests);
+
+        await service.ExecuteThinkCycleAsync(ActorId, cancellationToken: CancellationToken.None);
+
+        requests.Should().ContainSingle().Which.Priority.Should().Be(LlmRequestPriority.Interactive);
+    }
+
+    [Test]
     public async Task ExecuteThinkCycleBackgroundAsync_WithinCooldown_SkipsAndLogsOnlyTheActorIdAtDebug()
     {
         var actor = SeedActor();
@@ -1131,7 +1155,8 @@ public class AiActorCycleProposeOnlyTests
         TimeProvider? time = null,
         int cooldownMinutes = 15,
         int planExpiryDays = 7,
-        ISecurityAuditRecorder? audit = null)
+        ISecurityAuditRecorder? audit = null,
+        List<LlmRequest>? llmRequests = null)
     {
         var sets = new Dictionary<Type, object>
         {
@@ -1159,8 +1184,9 @@ public class AiActorCycleProposeOnlyTests
         var llm = new Mock<ILlmProvider>(MockBehavior.Strict);
         llm
             .Setup(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()))
-            .Returns<LlmRequest, CancellationToken>((_, token) =>
+            .Returns<LlmRequest, CancellationToken>((request, token) =>
             {
+                llmRequests?.Add(request);
                 onLlmCall?.Invoke();
                 token.ThrowIfCancellationRequested();
 

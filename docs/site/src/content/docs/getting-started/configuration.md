@@ -592,7 +592,10 @@ Bound from `Beacon:LLM` by `builder.Services.AddBeaconAI(builder.Configuration)`
 | `SessionToken` | string | None | Bedrock temporary credentials |
 | `Model` | string | `""` | The model; for Azure the deployment name, for Bedrock the model id |
 | `FastModel` | string | None | Model for the short classification calls on the `ask` path (intent classification and data-source routing). Empty or equal to `Model`: those calls use `Model`, as does every other call. If the fast model fails when called, the call is served once on `Model` |
-| `Limits:MaxConcurrentRequests` | int | `50` | Concurrency of the LLM request queue, fixed when the host starts |
+| `Limits:MaxConcurrentRequests` | int | `50` | Concurrency of the LLM request queue, fixed when the host starts. Background work (documentation generation, indexing, learning, scheduled actor cycles, eval judging) holds at most half the slots (at least one) |
+| `Limits:InteractiveQueueWaitSeconds` | int | `60` | How long an interactive call waits for a free slot before it fails with *The LLM is busy. Try again later.* (`LlmQueueSaturatedException`). Non-positive: the default; at most `3600` |
+| `Limits:BackgroundQueueWaitSeconds` | int | `300` | The same wait for background work. Non-positive: the default; at most `3600` |
+| `Limits:MaxQueuedRequests` | int | `200` | How many interactive calls may wait for a slot at once; background work may have half as many waiting (at least one). One more fails as busy at once. Non-positive: the default |
 | `Limits:TokensPerMinute`, `RequestsPerMinute`, `MonthlyBudget` | int, int, decimal | `80000`, `1000`, `100.00` | Recorded and shown in settings |
 
 ```json

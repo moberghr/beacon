@@ -16,6 +16,9 @@ public record LlmRequest
     public decimal Temperature { get; init; } = 0.3m;
     public int MaxTokens { get; init; } = 4096;
 
+    /// <summary>The request queue's lane: work done off a request (indexing, learning, generation jobs) is <see cref="LlmRequestPriority.Background"/>.</summary>
+    public LlmRequestPriority Priority { get; init; } = LlmRequestPriority.Interactive;
+
     /// <summary>
     /// What the completion is for, one of the <see cref="LlmOperations"/> constants; tags the completion's span and metrics.
     /// Never content.
@@ -24,6 +27,16 @@ public record LlmRequest
 
     /// <summary>Which configured model serves the request; <see cref="LlmTier.Fast"/> is for short classification calls.</summary>
     public LlmTier Tier { get; init; } = LlmTier.Default;
+}
+
+/// <summary>
+/// The lane a request waits in. Background requests hold at most half the queue's concurrency slots, so a burst of them
+/// always leaves room for interactive calls.
+/// </summary>
+public enum LlmRequestPriority
+{
+    Interactive,
+    Background
 }
 
 public enum LlmTier

@@ -385,7 +385,7 @@ public class OpenAiCompatibleProviderTests
     }
 
     [Test]
-    public async Task TransportFailures_ThatNeverPass_AreRetriedThreeTimes_ThenTheFailureSurfaces()
+    public async Task TransportFailures_ThatNeverPass_AreRetriedThreeTimes_ThenSurfaceAsANonTransientFailure()
     {
         var delays = new List<TimeSpan>();
         var handler = new StubHandler(_ => throw new HttpRequestException("connection refused"));
@@ -393,9 +393,9 @@ public class OpenAiCompatibleProviderTests
 
         var act = () => provider.CompleteAsync(GoldenRequest());
 
-        var thrown = await act.Should().ThrowExactlyAsync<HttpRequestException>();
-        thrown.Which.StatusCode.Should().BeNull();
-        thrown.Which.Message.Should().Be("connection refused");
+        var thrown = await act.Should().ThrowExactlyAsync<AiServiceException>();
+        thrown.Which.Message.Should().Be("OpenAI could not be reached.");
+        thrown.Which.InnerException.Should().BeOfType<HttpRequestException>().Which.StatusCode.Should().BeNull();
         handler.Requests.Should().HaveCount(4);
         delays.Should().HaveCount(3);
     }
@@ -430,7 +430,7 @@ public class OpenAiCompatibleProviderTests
 
         var act = () => provider.CompleteAsync(GoldenRequest()).WaitAsync(TestContext.CurrentContext.CancellationToken);
 
-        var thrown = await act.Should().ThrowExactlyAsync<TaskCanceledException>();
+        var thrown = await act.Should().ThrowExactlyAsync<AiServiceException>();
         thrown.Which.Message.Should().Be("OpenAI did not answer within 0.1 seconds.");
         thrown.Which.InnerException.Should().BeOfType<TimeoutException>();
         handler.Requests.Should().ContainSingle();
@@ -470,9 +470,25 @@ public class OpenAiCompatibleProviderTests
 
         var act = () => provider.CompleteAsync(GoldenRequest()).WaitAsync(TestContext.CurrentContext.CancellationToken);
 
-        var thrown = await act.Should().ThrowExactlyAsync<TaskCanceledException>();
+        var thrown = await act.Should().ThrowExactlyAsync<AiServiceException>();
         thrown.Which.Message.Should().Be("Azure OpenAI did not answer within 0.1 seconds.");
         thrown.Which.InnerException.Should().BeOfType<TimeoutException>();
+        handler.Calls.Should().Be(1);
+    }
+
+    [Test]
+    [CancelAfter(10_000)]
+    public async Task AnHttpClientTimeout_IsANonTransientFailure_NotACancellation()
+    {
+        var handler = new StallingHandler();
+        var client = new HttpClient(handler) { Timeout = TimeSpan.FromMilliseconds(100) };
+        var provider = OpenAiCompatibleProvider.ForOpenAi(client, Key, "m", Recorder([]));
+
+        var act = () => provider.CompleteAsync(GoldenRequest()).WaitAsync(TestContext.CurrentContext.CancellationToken);
+
+        var thrown = await act.Should().ThrowExactlyAsync<AiServiceException>();
+        thrown.Which.Message.Should().Be("OpenAI did not answer in time.");
+        thrown.Which.InnerException.Should().BeAssignableTo<OperationCanceledException>();
         handler.Calls.Should().Be(1);
     }
 
@@ -766,7 +782,7 @@ public class OpenAiCompatibleProviderTests
         return OpenAiCompatibleProvider.ForOpenAi(new HttpClient(new StubHandler(respond)), Key, model, Recorder([]));
     }
 
-    private static Func<TimeSpan, CancellationToken, Task> Recorder(List<TimeSpan> delays)
+    internal static Func<TimeSpan, CancellationToken, Task> Recorder(List<TimeSpan> delays)
     {
         return (delay, cancellationToken) =>
         {
@@ -814,7 +830,7 @@ public class OpenAiCompatibleProviderTests
     }
 
     /// <summary>Never answers; ends only when the request is cancelled.</summary>
-    private sealed class StallingHandler : HttpMessageHandler
+    internal sealed class StallingHandler : HttpMessageHandler
     {
         public int Calls { get; private set; }
 

@@ -406,6 +406,7 @@ public class AiActorService : IAiActorServiceExtended
                 },
                 Temperature = 0.3m,
                 MaxTokens = 4096,
+                Priority = background ? LlmRequestPriority.Background : LlmRequestPriority.Interactive,
                 Operation = LlmOperations.ActorThink
             };
 

@@ -399,6 +399,7 @@ internal sealed class McpEvalService(
             Messages = [new ChatMessage(ConversationRole.User, userMessage)],
             Temperature = 0.0m,
             MaxTokens = 256,
+            Priority = LlmRequestPriority.Background,
             Operation = LlmOperations.EvalJudge
         };
 
