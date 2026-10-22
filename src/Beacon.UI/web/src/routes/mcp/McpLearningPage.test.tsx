@@ -719,3 +719,54 @@ describe('McpLearningPage grounding recheck (Admin)', () => {
     expect(within(dialog).queryByRole('button', { name: 'Approve' })).toBeNull();
   });
 });
+
+describe('McpLearningPage success rate', () => {
+  function serveStats(stats: typeof STATS) {
+    mswServer.use(
+      http.get('*/beacon/api/mcp/learning-stats', () => HttpResponse.json(stats)),
+      http.get('*/beacon/api/mcp/learned-patterns', () => HttpResponse.json(paged([]))),
+      http.get('*/beacon/api/mcp/documentation-patches', () => HttpResponse.json(paged([]))),
+    );
+  }
+
+  /** The Success rate tile, and whether its dot is the alarm's. */
+  async function successRateTile() {
+    const label = await screen.findByText('Success rate');
+    const tile = label.closest('.rounded-md') as HTMLElement;
+    return { tile, alarmed: tile.querySelector('.bg-crit') !== null };
+  }
+
+  it('shows the rate of the SQL answers while there are signals to rate', async () => {
+    serveStats(STATS);
+
+    renderWithProviders(<McpLearningPage />);
+    const { tile } = await successRateTile();
+
+    expect(within(tile).getByText('90%')).toBeInTheDocument();
+  });
+
+  it('shows no rate, rather than an alarming 0%, while there are no signals to rate', async () => {
+    serveStats({ ...STATS, totalSignals: 0, signals7d: 0, signals30d: 0, successRate: 0 });
+
+    renderWithProviders(<McpLearningPage />);
+    const { tile, alarmed } = await successRateTile();
+
+    expect(within(tile).getByText('—')).toBeInTheDocument();
+    expect(within(tile).getByText('No SQL answers rated yet')).toBeInTheDocument();
+    expect(within(tile).queryByText('0%')).toBeNull();
+    expect(alarmed).toBe(false);
+  });
+
+  it('does not present the SQL answers\' rate as the success of the MCP gateway\'s tool calls', async () => {
+    serveStats({ ...STATS, totalSignals: 0, signals7d: 0, signals30d: 0, successRate: 0 });
+    mswServer.use(permissionsHandler({ isAdmin: true, gatewayMode: true }));
+
+    renderWithProviders(<McpLearningPage />);
+    await screen.findByText('SQL answers only; the gateway serves none');
+    const { tile, alarmed } = await successRateTile();
+
+    expect(within(tile).getByText('—')).toBeInTheDocument();
+    expect(within(tile).queryByText('0%')).toBeNull();
+    expect(alarmed).toBe(false);
+  });
+});

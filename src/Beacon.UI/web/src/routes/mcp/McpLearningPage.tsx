@@ -146,11 +146,22 @@ export default function McpLearningPage() {
       {stats && (
         <KPIGrid>
           <KPI dot="brand" label="Signals (7d / 30d)" value={`${stats.signals7d} / ${stats.signals30d}`} />
-          <KPI
-            dot={stats.successRate >= 0.8 ? 'ok' : stats.successRate >= 0.5 ? 'warn' : 'crit'}
-            label="Success rate"
-            value={`${(stats.successRate * 100).toFixed(0)}%`}
-          />
+          {/* The rate is the SQL answers' learning signals: with none to rate (the MCP gateway records none, as it serves no
+              SQL tools) there is no rate, and the gateway's tool calls are not what it measures. */}
+          {gateway || stats.totalSignals === 0 ? (
+            <KPI
+              dot="info"
+              label="Success rate"
+              value="—"
+              sub={gateway ? 'SQL answers only; the gateway serves none' : 'No SQL answers rated yet'}
+            />
+          ) : (
+            <KPI
+              dot={stats.successRate >= 0.8 ? 'ok' : stats.successRate >= 0.5 ? 'warn' : 'crit'}
+              label="Success rate"
+              value={`${(stats.successRate * 100).toFixed(0)}%`}
+            />
+          )}
           <KPI
             dot="ok"
             label="Patterns approved"
