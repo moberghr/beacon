@@ -484,6 +484,7 @@ public class DataSourceTransportEnforcementTests
             Mock.Of<ISchemaGraphService>(),
             new RecordingSecurityAudit(),
             policy,
+            TestEngineVerifier.Passing,
             NullLogger<DataSourceService>.Instance);
     }
 

@@ -351,6 +351,10 @@ public static class ServiceConfiguration
         services.AddOptions<Configuration.DataSourceTransportOptions>()
             .Bind(configuration.GetSection(Configuration.DataSourceTransportOptions.SectionName));
         services.TryAddSingleton<Services.Providers.IDataSourceTransportPolicy, Services.Providers.DataSourceTransportPolicy>();
+        // The declared engine checked against the server on create, a changed connection or engine, and the connection test.
+        services.TryAddSingleton<Services.Providers.IDatabaseEngineVerifier, Services.Providers.DatabaseEngineVerifier>();
+        // The host data sources' read-only login, checked for write access once per startup sync (a Warning only).
+        services.TryAddTransient<HostData.IHostReadOnlyLoginCheck, HostData.HostReadOnlyLoginCheck>();
 
         // Data migrations (Beacon:Migrations): off unless the host turns them on, and their own row budget. ValidateOnStart
         // so a budget out of range fails the host at boot.

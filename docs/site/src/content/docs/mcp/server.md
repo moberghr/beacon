@@ -217,6 +217,13 @@ Execute a direct SQL query against a specific data source. Use this when you alr
 
 *Either `datasource_name` or `datasource_id` is required.
 
+`query` checks every column against the project's catalog and refuses one it does not know. A data source with no
+extracted metadata has no catalog to check against, so `query` refuses it with *This data source has no extracted
+metadata (it was never scanned, metadata loading is off, or the scan found no tables); query it through MCP once it has
+metadata.* (audited and signalled like other refusals): turn metadata loading on and refresh its metadata first. Host data sources keep their own allow-list; `dry_run` reports a missing catalog as an advisory and still
+validates the rest. CloudWatch sources cannot be queried through `query` (they run Logs Insights, not SQL); Beacon's own
+CloudWatch features use the configured log groups only, so restrict the IAM role to them.
+
 **For REST API data sources**, pass a JSON query definition:
 ```json
 {

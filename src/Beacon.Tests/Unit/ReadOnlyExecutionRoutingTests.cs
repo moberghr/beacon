@@ -688,11 +688,14 @@ public class ReadOnlyExecutionRoutingTests
             settingsProvider.Object,
             NullLogger<McpSignalService>.Instance);
 
-        // Empty catalog → the schema gate reports Skipped, so routing is exercised without a catalog.
+        // The catalog of a scanned source holding the table ValidSql reads (`query` refuses a source with none).
         var knowledgeGraph = new Mock<IKnowledgeGraphService>();
         knowledgeGraph
             .Setup(x => x.GetSchemaCatalogAsync(It.IsAny<int>(), ProjectId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
+            .ReturnsAsync(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase)
+            {
+                ["customers"] = new(["id", "name"], StringComparer.OrdinalIgnoreCase)
+            });
 
         return new ProjectQueryTool(
             factory.Object,

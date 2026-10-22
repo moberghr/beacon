@@ -59,6 +59,78 @@ public class HostDataSourceSynchronizerTests
     }
 
     [Test]
+    public async Task SyncAllAsync_ChecksTheReadOnlyLogin_OnceWithTheExposedTables_AfterTheSync()
+    {
+        var store = new HostSyncStore();
+        var saveCountAtCheck = -1;
+        var loginCheck = new RecordingHostLoginCheck { OnCall = () => saveCountAtCheck = store.SaveCount };
+        var (synchronizer, _) = Build(store, x => x.AllowTables("Customer", "lending.Loan"), loginCheck: loginCheck);
+
+        await synchronizer.SyncAllAsync(CancellationToken.None);
+
+        var call = loginCheck.Calls.Should().ContainSingle().Subject;
+        call.DataSourceId.Should().Be(store.DataSources.Single().Id);
+        call.Tables
+            .Select(x => x.Name)
+            .Should()
+            .BeEquivalentTo("Customer", "Loan");
+        saveCountAtCheck.Should().Be(2, "the login is checked once the source is saved");
+    }
+
+    [Test]
+    public async Task SyncAsync_AloneDoesNotCheckTheLogin()
+    {
+        var store = new HostSyncStore();
+        var loginCheck = new RecordingHostLoginCheck();
+        var (synchronizer, registration) = Build(store, x => x.AllowTables("Customer"), loginCheck: loginCheck);
+
+        await synchronizer.SyncAsync(registration, CancellationToken.None);
+
+        loginCheck.Calls.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task SyncAllAsync_WhenTheLoginCheckThrows_KeepsTheSync_AndWarnsWithTheIdOnly()
+    {
+        var store = new HostSyncStore();
+        var logs = new LogRecorder();
+        var loginCheck = new RecordingHostLoginCheck { Failure = new InvalidOperationException("login beacon_ro on db failed") };
+        var (synchronizer, _) = Build(store, x => x.AllowTables("Customer", "lending.Loan"), logs: logs, loginCheck: loginCheck);
+
+        var act = () => synchronizer.SyncAllAsync(CancellationToken.None);
+
+        await act.Should().NotThrowAsync();
+        var dataSource = store.DataSources.Should().ContainSingle().Subject;
+        store.ProjectDataSources.Should().ContainSingle(x => x.DataSourceId == dataSource.Id);
+        store.Tables.Should().HaveCount(2);
+        var warning = logs.Entries.Should().ContainSingle(x => x.Message.Contains("could not verify")).Subject;
+        warning.Level.Should().Be(Microsoft.Extensions.Logging.LogLevel.Warning);
+        warning.FullText.Should().Contain(dataSource.Id.ToString()).And.NotContain("beacon_ro");
+    }
+
+    [Test]
+    public async Task SyncAllAsync_WhenTheLoginCheckWarns_TheSyncIsTheSame()
+    {
+        var checkedStore = new HostSyncStore();
+        var uncheckedStore = new HostSyncStore();
+        var (withWarning, _) = Build(
+            checkedStore,
+            x => x.AllowTables("Customer", "lending.Loan"),
+            loginCheck: new RecordingHostLoginCheck { OnCall = () => { } });
+        var (withoutWarning, registration) = Build(uncheckedStore, x => x.AllowTables("Customer", "lending.Loan"));
+
+        await withWarning.SyncAllAsync(CancellationToken.None);
+        var outcome = await withoutWarning.SyncAsync(registration, CancellationToken.None);
+
+        checkedStore.DataSources.Should().ContainSingle().Which.Id.Should().Be(outcome.DataSourceId);
+        checkedStore.Tables
+            .Select(x => x.TableName)
+            .Should()
+            .BeEquivalentTo(uncheckedStore.Tables.Select(x => x.TableName));
+        checkedStore.SaveCount.Should().Be(uncheckedStore.SaveCount);
+    }
+
+    [Test]
     public async Task SyncAsync_PersistsOnlyAnEncryptedConnectionReference()
     {
         var store = new HostSyncStore();
@@ -472,6 +544,7 @@ public class HostDataSourceSynchronizerTests
             Mock.Of<Beacon.Core.Services.Metadata.ISchemaGraphService>(),
             new RecordingSecurityAudit(),
             TestTransport.Policy(),
+            TestEngineVerifier.Passing,
             NullLogger<DataSourceService>.Instance);
 
         var update = () => service.UpdateDataSource(new Beacon.Core.Models.DataSources.DataSourceData
@@ -509,7 +582,8 @@ public class HostDataSourceSynchronizerTests
         string? connectionString = ReadOnlyConnectionString,
         string projectName = "Netgiro Admin",
         IProjectMembershipSource? membershipSource = null,
-        LogRecorder? logs = null)
+        LogRecorder? logs = null,
+        IHostReadOnlyLoginCheck? loginCheck = null)
     {
         var registry = BuildRegistry(configure, projectName);
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
@@ -528,6 +602,7 @@ public class HostDataSourceSynchronizerTests
             new MemoryCache(new MemoryCacheOptions()),
             membershipSource ?? BeaconMembership(factory.Object),
             Options.Create(new ProjectAuthorizationOptions()),
+            loginCheck ?? new RecordingHostLoginCheck(),
             logs?.For<HostDataSourceSynchronizer>() ?? NullLogger<HostDataSourceSynchronizer>.Instance);
 
         return (synchronizer, registry.Registrations.Single());
@@ -584,5 +659,24 @@ public class HostDataSourceSynchronizerTests
         public string Encrypt(string plainText) => Prefix + Convert.ToBase64String(System.Text.Encoding.UTF8.GetBytes(plainText));
 
         public string Decrypt(string cipherText) => System.Text.Encoding.UTF8.GetString(Convert.FromBase64String(cipherText[Prefix.Length..]));
+    }
+}
+
+internal sealed class RecordingHostLoginCheck : IHostReadOnlyLoginCheck
+{
+    public List<(int DataSourceId, IReadOnlyList<HostExposedTable> Tables)> Calls { get; } = [];
+
+    /// <summary>Runs on each call, before it returns.</summary>
+    public Action? OnCall { get; init; }
+
+    /// <summary>What each call throws, as a check that breaks its own contract would; null returns.</summary>
+    public Exception? Failure { get; init; }
+
+    public Task WarnIfWritableAsync(DataSource dataSource, IReadOnlyList<HostExposedTable> exposedTables, CancellationToken cancellationToken)
+    {
+        Calls.Add((dataSource.Id, exposedTables));
+        OnCall?.Invoke();
+
+        return Failure == null ? Task.CompletedTask : Task.FromException(Failure);
     }
 }
