@@ -25,7 +25,7 @@ public record LlmConnectionTestParameters(
     // The compiler-generated ToString prints every member; the secrets are printed redacted.
     protected virtual bool PrintMembers(System.Text.StringBuilder builder)
     {
-        builder.Append($"Provider = {Provider}, Model = {Model}, Region = {Region}, BedrockAuthMode = {BedrockAuthMode}, ApiKey = {RedactedPrint.Of(ApiKey)}, Endpoint = {Endpoint}, SessionToken = {RedactedPrint.Of(SessionToken)}, AwsAccessKeyId = {AwsAccessKeyId}, AwsSecretAccessKey = {RedactedPrint.Of(AwsSecretAccessKey)}");
+        builder.Append($"Provider = {Provider}, Model = {Model}, Region = {Region}, BedrockAuthMode = {BedrockAuthMode}, ApiKey = {RedactedPrint.Of(ApiKey)}, Endpoint = {RedactedPrint.Of(Endpoint)}, SessionToken = {RedactedPrint.Of(SessionToken)}, AwsAccessKeyId = {RedactedPrint.Of(AwsAccessKeyId)}, AwsSecretAccessKey = {RedactedPrint.Of(AwsSecretAccessKey)}");
 
         return true;
     }

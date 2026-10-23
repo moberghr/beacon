@@ -7,10 +7,12 @@ namespace Beacon.Core.HostData;
 /// (invisible in metadata, rejected at execution) no matter what the host's predicates say; the only way back is
 /// the explicit <see cref="HostDbContextOptions.IncludeSecretLikeColumn"/> override.
 /// <list type="bullet">
-/// <item>Substring match (case-insensitive): password, passwd, passphrase, passcode, secret, token, apikey, api_key,
-/// privatekey, private_key, credential, connectionstring, connection_string, securitystamp, security_stamp, recoverycode,
-/// recovery_code.</item>
-/// <item>Whole-word match on the camelCase / snake_case words of the name: pin, pwd, salt, hash, otp, totp, hotp, mfa,
+/// <item>Substring match (case-insensitive): password, passwd, passw, pswd, passphrase, passcode, secret, token, apikey,
+/// api_key, privatekey, private_key, credential, connectionstring, connection_string, connstr (so connstring too),
+/// securitystamp, security_stamp, recoverycode, recovery_code, and one-word key names (accesskey, secretkey, signingkey,
+/// authkey, encryptionkey, masterkey, licensekey, sharedkey, hmackey, aeskey, rsakey, sshkey); a name starting or ending in
+/// pwd (<c>userpwd</c>).</item>
+/// <item>Whole-word match on the camelCase / snake_case words of the name: pin, pwd, pass, salt, hash, otp, totp, hotp, mfa,
 /// refresh, pfx, nonce, seed, cvv, cvc — so <c>PasswordHash</c>, <c>pin_code</c>, <c>OtpSeed</c>, <c>RefreshToken</c>,
 /// <c>TotpKey</c> match, but <c>Shipping</c> does not.</item>
 /// <item>A <c>key</c> word beside a word naming key material (api, access, secret, private, signing, encryption,
@@ -18,9 +20,11 @@ namespace Beacon.Core.HostData;
 /// <c>SigningKey</c>, <c>AuthenticatorKey</c>, but not <c>ProductKey</c>. Business words that only sometimes name a
 /// secret (a signing date, a certificate number, a recovered amount, a time stamp) do not match on their own.</item>
 /// <item>Every column of a table that holds credentials or key material (<see cref="IsSecretLikeTable"/>):
-/// <c>AspNetUserTokens</c>, <c>DataProtectionKeys</c>, any table whose name ends in the word Keys or Tokens; and every
-/// column of the well-known ASP.NET Core Identity user-token and Data Protection key entities, whatever their table is
-/// called.</item>
+/// <c>AspNetUserTokens</c>, <c>DataProtectionKeys</c>, any table whose name ends in the word Keys, Tokens, Secrets,
+/// Credentials, Passwords, Certificates or Otps (or the singular, <c>ApiKey</c> with a key qualifier), or in Codes / Grants beside
+/// recovery, device, verification, reset, backup, authorization, auth or persisted (<c>RecoveryCodes</c>,
+/// <c>PersistedGrants</c>); and every column of the well-known ASP.NET Core Identity user-token, Data Protection key,
+/// Duende / IdentityServer grant and key, and OpenIddict token and authorization entities, whatever their table is called.</item>
 /// </list>
 /// The match is a best-effort name heuristic: the read-only login should also be denied the secret columns.
 /// <para>
@@ -48,7 +52,25 @@ public static class SecretLikeColumnNames
         "securitystamp",
         "security_stamp",
         "recoverycode",
-        "recovery_code"
+        "recovery_code",
+        "passw",
+        "pswd",
+        "accesskey",
+        "access_key",
+        "secretkey",
+        "signingkey",
+        "signing_key",
+        "authkey",
+        "auth_key",
+        "encryptionkey",
+        "masterkey",
+        "licensekey",
+        "sharedkey",
+        "hmackey",
+        "aeskey",
+        "rsakey",
+        "sshkey",
+        "connstr"
     ];
 
     private static readonly HashSet<string> WordMarkers = new(StringComparer.OrdinalIgnoreCase)
@@ -61,6 +83,7 @@ public static class SecretLikeColumnNames
         "hotp",
         "mfa",
         "pwd",
+        "pass",
         "refresh",
         "pfx",
         "nonce",
@@ -73,14 +96,46 @@ public static class SecretLikeColumnNames
     private static readonly HashSet<string> SecretTableWords = new(StringComparer.OrdinalIgnoreCase)
     {
         "keys",
-        "tokens"
+        "tokens",
+        "secrets",
+        "credentials",
+        "passwords",
+        "certificates",
+        "otps",
+        "token",
+        "secret",
+        "credential",
+        "password",
+        "certificate",
+        "otp"
+    };
+
+    // A table ending in codes or grants holds credentials only beside one of these words (RecoveryCodes, DeviceFlowCodes,
+    // PersistedGrants); CountryCodes and PostalCodes stay visible.
+    private static readonly HashSet<string> SecretCodeQualifiers = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "recovery",
+        "device",
+        "verification",
+        "reset",
+        "backup",
+        "authorization",
+        "auth",
+        "persisted"
     };
 
     // Entity types (by generic definition or full name) whose every column is a credential or key material.
     private static readonly HashSet<string> SecretEntityTypeNames = new(StringComparer.Ordinal)
     {
         "Microsoft.AspNetCore.Identity.IdentityUserToken`1",
-        "Microsoft.AspNetCore.DataProtection.EntityFrameworkCore.DataProtectionKey"
+        "Microsoft.AspNetCore.DataProtection.EntityFrameworkCore.DataProtectionKey",
+        "Duende.IdentityServer.EntityFramework.Entities.PersistedGrant",
+        "Duende.IdentityServer.EntityFramework.Entities.DeviceFlowCodes",
+        "Duende.IdentityServer.EntityFramework.Entities.Key",
+        "IdentityServer4.EntityFramework.Entities.PersistedGrant",
+        "IdentityServer4.EntityFramework.Entities.DeviceFlowCodes",
+        "OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreToken`1",
+        "OpenIddict.EntityFrameworkCore.Models.OpenIddictEntityFrameworkCoreAuthorization`1"
     };
 
     // Value-side additions: names that hold credentials or key material, matched anywhere in the name.
@@ -90,13 +145,6 @@ public static class SecretLikeColumnNames
         "cookie",
         "passcode",
         "passphrase",
-        "accesskey",
-        "access_key",
-        "secretkey",
-        "signingkey",
-        "signing_key",
-        "authkey",
-        "auth_key",
         "sessionid",
         "sessionkey",
         "connectionstring",
@@ -166,7 +214,10 @@ public static class SecretLikeColumnNames
             .Select(x => x.Value)
             .ToList();
 
-        return segments.Any(x => WordMarkers.Contains(x)) || IsKeyMaterial(segments);
+        return segments.Any(x => WordMarkers.Contains(x))
+            || IsKeyMaterial(segments)
+            || name.EndsWith("pwd", StringComparison.OrdinalIgnoreCase)
+            || name.StartsWith("pwd", StringComparison.OrdinalIgnoreCase);
     }
 
     /// <summary>
@@ -185,7 +236,19 @@ public static class SecretLikeColumnNames
             .Select(x => x.Value)
             .ToList();
 
-        return segments.Count > 0 && SecretTableWords.Contains(segments[^1]);
+        if (segments.Count == 0)
+        {
+            return false;
+        }
+
+        var last = segments[^1];
+        var preceding = segments.Take(segments.Count - 1).ToList();
+
+        return SecretTableWords.Contains(last)
+            || (last.Equals("key", StringComparison.OrdinalIgnoreCase) && (preceding.Count == 0 || preceding.Any(x => KeyQualifiers.Contains(x))))
+            || ((last.Equals("codes", StringComparison.OrdinalIgnoreCase) || last.Equals("code", StringComparison.OrdinalIgnoreCase)
+                || last.Equals("grants", StringComparison.OrdinalIgnoreCase) || last.Equals("grant", StringComparison.OrdinalIgnoreCase))
+                && preceding.Any(x => SecretCodeQualifiers.Contains(x)));
     }
 
     /// <summary>

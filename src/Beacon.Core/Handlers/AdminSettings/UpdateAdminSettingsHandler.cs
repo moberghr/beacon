@@ -137,7 +137,7 @@ public record UpdateAdminSettingsCommand(
     // The compiler-generated ToString prints every member; the secrets are printed redacted.
     protected virtual bool PrintMembers(System.Text.StringBuilder builder)
     {
-        builder.Append($"BaseUrl = {BaseUrl}, LlmProvider = {LlmProvider}, LlmModel = {LlmModel}, LlmFastModel = {LlmFastModel}, LlmRegion = {LlmRegion}, LlmBedrockAuthMode = {LlmBedrockAuthMode}, LlmApiKey = {RedactedPrint.Of(LlmApiKey)}, LlmEndpoint = {LlmEndpoint}, LlmSessionToken = {RedactedPrint.Of(LlmSessionToken)}, LlmAwsAccessKeyId = {LlmAwsAccessKeyId}, LlmAwsSecretAccessKey = {RedactedPrint.Of(LlmAwsSecretAccessKey)}, LlmMaxConcurrentRequests = {LlmMaxConcurrentRequests}, LlmTokensPerMinute = {LlmTokensPerMinute}, LlmRequestsPerMinute = {LlmRequestsPerMinute}, LlmMonthlyBudget = {LlmMonthlyBudget}, LlmRateLimitsEnabled = {LlmRateLimitsEnabled}");
+        builder.Append($"BaseUrl = {BaseUrl}, LlmProvider = {LlmProvider}, LlmModel = {LlmModel}, LlmFastModel = {LlmFastModel}, LlmRegion = {LlmRegion}, LlmBedrockAuthMode = {LlmBedrockAuthMode}, LlmApiKey = {RedactedPrint.Of(LlmApiKey)}, LlmEndpoint = {RedactedPrint.Of(LlmEndpoint)}, LlmSessionToken = {RedactedPrint.Of(LlmSessionToken)}, LlmAwsAccessKeyId = {RedactedPrint.Of(LlmAwsAccessKeyId)}, LlmAwsSecretAccessKey = {RedactedPrint.Of(LlmAwsSecretAccessKey)}, LlmMaxConcurrentRequests = {LlmMaxConcurrentRequests}, LlmTokensPerMinute = {LlmTokensPerMinute}, LlmRequestsPerMinute = {LlmRequestsPerMinute}, LlmMonthlyBudget = {LlmMonthlyBudget}, LlmRateLimitsEnabled = {LlmRateLimitsEnabled}");
 
         return true;
     }

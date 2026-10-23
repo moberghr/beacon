@@ -66,7 +66,8 @@ public sealed record StoredValueReEncryptionResult(int UnderPreviousKeys, int Re
 
     /// <summary>
     /// True when no value stored is in the legacy v1 format (and none is unreadable or failed):
-    /// <c>Beacon:Encryption:AllowLegacyCbc</c> can be turned off.
+    /// <c>Beacon:Encryption:AllowLegacyCbc</c> can be turned off. The scan covers Beacon's own stored values only; a host
+    /// that stored values of its own through <see cref="IEncryptionService"/> must check those itself.
     /// </summary>
     public bool LegacyFormatReadRemovable => LegacyFormat == 0 && Unreadable == 0 && Failed == 0;
 }
@@ -106,7 +107,7 @@ internal sealed class StoredValueReEncryptionService(
         {
             logger.LogInformation(
                 ProjectAccessEvents.StoredValuesReEncrypted,
-                "Stored value re-encryption: no value is under a previous key or in the legacy format; Beacon:PreviousEncryptionKeys can be removed and Beacon:Encryption:AllowLegacyCbc turned off");
+                "Stored value re-encryption: no value of Beacon's own is under a previous key or in the legacy format (values a host stored through IEncryptionService are not scanned); Beacon:PreviousEncryptionKeys can be removed and Beacon:Encryption:AllowLegacyCbc turned off");
         }
 
         if (result.UnresolvedKeyDependencies > 0)

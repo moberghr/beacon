@@ -230,7 +230,7 @@ export Beacon__PreviousEncryptionKeys__0="<the key configured until now>"
 
 ### The legacy format
 
-Values in the legacy format stay readable while `Beacon:Encryption:AllowLegacyCbc` is `true` (the default); the first one read is logged once as a Warning. Once the re-encryption run reports none left in the legacy format (`StoredValueReEncryptionResult.LegacyFormatReadRemovable`), set it to `false`: a legacy value is then refused like one no key decrypts.
+Values in the legacy format stay readable while `Beacon:Encryption:AllowLegacyCbc` is `true` (the default); the first one read is logged once as a Warning. Once the re-encryption run reports none left in the legacy format (`StoredValueReEncryptionResult.LegacyFormatReadRemovable`), set it to `false`: a legacy value is then refused like one no key decrypts. The report covers Beacon's own stored values only (data sources, repository tokens, sensitive settings, recipients); values your host stored itself through `IEncryptionService` are not scanned, so check those before turning it off.
 
 Before changing the key, set `Beacon:Mcp:CallerHashKey` to the key in use now, so MCP audit rows keep grouping together across the change. The MCP audit's content hashes (`ContentHash`, `SqlHash`) come from the same secret and behave the same way. **Set `Beacon:Audit:IntegrityKey` before you change the key** too, so security audit events written from then on do not depend on it; events signed before keep verifying while their secret stays configured (see [Security audit trail](#security-audit-trail)).
 

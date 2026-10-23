@@ -9,7 +9,8 @@ namespace Beacon.Tests.Unit;
 /// <summary>
 /// A record's compiler-generated <c>ToString()</c> prints every property, so a host's request logging (a MediatR
 /// behaviour that logs the request, a structured logger that destructures it) would print the secrets a record carries.
-/// Every shipped record with a secret-bearing string property prints it redacted.
+/// Every shipped record (class or struct) with a secret-bearing property (a string, a byte array, a list of key-value
+/// pairs or a query string) prints it redacted.
 /// </summary>
 public sealed partial class SecretRecordPrintTests
 {
@@ -67,7 +68,7 @@ public sealed partial class SecretRecordPrintTests
     }
 
     [GeneratedRegex(
-        "password|secret|apikey|api_key|accesstoken|sessiontoken|refreshtoken|^token$|plaintextkey|connectionstring|connectiondata|privatekey|headersjson|credential|^destination$|^storeddestination$|^storedheadersjson$",
+        "password|secret|apikey|api_key|accesstoken|sessiontoken|refreshtoken|^token$|plaintextkey|connectionstring|connectiondata|privatekey|headersjson|credential|^destination$|^storeddestination$|^storedheadersjson$|endpoint$|accesskeyid|^headers$|^formfields$|^jsonbody$|^querystring$|bearer|jwt|^otp$|passcode|^pat$|^authorization$",
         RegexOptions.IgnoreCase)]
     private static partial Regex SecretName();
 
@@ -75,25 +76,64 @@ public sealed partial class SecretRecordPrintTests
     {
         return ShippedAssemblies()
             .SelectMany(x => LoadableTypes(x))
-            .Where(x => x.IsClass)
             .Where(x => !x.IsAbstract)
             .Where(x => !x.ContainsGenericParameters)
-            .Where(x => x.GetMethod("<Clone>$", BindingFlags.Instance | BindingFlags.Public) != null);
+            .Where(x => IsRecordClass(x) || IsRecordStruct(x));
     }
 
     private static IEnumerable<PropertyInfo> SecretProperties(Type type)
     {
         return type.GetProperties(BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic)
-            .Where(x => x.PropertyType == typeof(string))
+            .Where(x => TrySecretValue(x.PropertyType) != null)
             .Where(x => x.GetIndexParameters().Length == 0)
             .Where(x => SecretName().IsMatch(x.Name))
             .Where(x => BackingField(x) != null);
     }
 
+    private static bool IsRecordClass(Type type)
+    {
+        return type.IsClass && type.GetMethod("<Clone>$", BindingFlags.Instance | BindingFlags.Public) != null;
+    }
+
+    private static bool IsRecordStruct(Type type)
+    {
+        return type.IsValueType
+            && !type.IsEnum
+            && type.GetMethod("PrintMembers", BindingFlags.Instance | BindingFlags.Public | BindingFlags.NonPublic) != null
+            && type.GetInterfaces().Contains(typeof(IEquatable<>).MakeGenericType(type));
+    }
+
+    // A value of the member's type that carries the sentinel, or null when the type is not one a secret travels in.
+    private static object? TrySecretValue(Type type)
+    {
+        if (type == typeof(string))
+        {
+            return Sentinel;
+        }
+
+        if (type == typeof(byte[]))
+        {
+            return System.Text.Encoding.UTF8.GetBytes(Sentinel);
+        }
+
+        var pairs = typeof(List<KeyValuePair<string, string>>);
+        if (type.IsAssignableFrom(pairs) && type != typeof(object) && type.IsGenericType)
+        {
+            return new List<KeyValuePair<string, string>> { new("Authorization", Sentinel) };
+        }
+
+        if (type == typeof(Microsoft.AspNetCore.Http.QueryString))
+        {
+            return new Microsoft.AspNetCore.Http.QueryString("?" + Sentinel + "=1");
+        }
+
+        return null;
+    }
+
     private static string? PrintWith(Type type, PropertyInfo property)
     {
         var instance = RuntimeHelpers.GetUninitializedObject(type);
-        BackingField(property)!.SetValue(instance, Sentinel);
+        BackingField(property)!.SetValue(instance, TrySecretValue(property.PropertyType));
 
         try
         {

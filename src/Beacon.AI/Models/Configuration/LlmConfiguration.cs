@@ -24,7 +24,7 @@ public sealed record LlmConfiguration
     // The compiler-generated ToString prints every member; the secrets are printed redacted.
     private bool PrintMembers(System.Text.StringBuilder builder)
     {
-        builder.Append($"Provider = {Provider}, ApiKey = {Core.RedactedPrint.Of(ApiKey)}, Endpoint = {Endpoint}, Region = {Region}, SessionToken = {Core.RedactedPrint.Of(SessionToken)}, AwsAccessKeyId = {AwsAccessKeyId}, AwsSecretAccessKey = {Core.RedactedPrint.Of(AwsSecretAccessKey)}, BedrockAuthMode = {BedrockAuthMode}, Model = {Model}, FastModel = {FastModel}, Limits = {Limits}");
+        builder.Append($"Provider = {Provider}, ApiKey = {Core.RedactedPrint.Of(ApiKey)}, Endpoint = {Core.RedactedPrint.Of(Endpoint)}, Region = {Region}, SessionToken = {Core.RedactedPrint.Of(SessionToken)}, AwsAccessKeyId = {Core.RedactedPrint.Of(AwsAccessKeyId)}, AwsSecretAccessKey = {Core.RedactedPrint.Of(AwsSecretAccessKey)}, BedrockAuthMode = {BedrockAuthMode}, Model = {Model}, FastModel = {FastModel}, Limits = {Limits}");
 
         return true;
     }
