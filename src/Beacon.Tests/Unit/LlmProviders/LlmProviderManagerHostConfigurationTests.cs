@@ -73,6 +73,101 @@ public class LlmProviderManagerHostConfigurationTests
         manager.CurrentConfiguration.Limits.MaxConcurrentRequests.Should().Be(4);
     }
 
+    [Test]
+    public void SaveWithoutAProvider_AfterAFailedStartupMainConstruction_BuildsTheProviders()
+    {
+        var registration = new FlakyRegistration(failMainTimes: 1);
+        var manager = Manager(registration);
+        manager.CurrentProvider.Should().BeNull();
+
+        manager.UpdateConfiguration(new AppSettingsData { LlmMaxConcurrentRequests = 3 });
+
+        manager.CurrentProvider.Should().NotBeNull();
+        manager.FastProvider.Should().NotBeNull();
+    }
+
+    [Test]
+    public void SaveWithoutAProvider_AfterAFailedStartupFastConstruction_BuildsTheFastProvider()
+    {
+        var registration = new FlakyRegistration(failFastTimes: 1);
+        var manager = Manager(registration);
+        manager.CurrentProvider.Should().NotBeNull();
+        manager.FastProvider.Should().BeNull();
+
+        manager.UpdateConfiguration(new AppSettingsData { LlmMaxConcurrentRequests = 3 });
+
+        manager.CurrentProvider.Should().NotBeNull();
+        manager.FastProvider.Should().NotBeNull();
+    }
+
+    [Test]
+    public void SaveWithoutAProvider_AfterAFailedSwitchBackToTheHostMain_BuildsTheProviders()
+    {
+        var registration = new FlakyRegistration();
+        var manager = Manager(registration);
+        manager.UpdateConfiguration(new AppSettingsData { LlmProvider = AiProvider.OpenAI, LlmApiKey = "stored-key", LlmModel = "gpt-stored" });
+        registration.FailMainTimes = 1;
+        manager.UpdateConfiguration(new AppSettingsData { LlmMaxConcurrentRequests = 3 });
+        manager.CurrentProvider.Should().BeNull();
+
+        manager.UpdateConfiguration(new AppSettingsData { LlmMaxConcurrentRequests = 4 });
+
+        manager.CurrentProvider.Should().NotBeNull();
+        manager.FastProvider.Should().NotBeNull();
+        manager.CurrentConfiguration.Should().BeEquivalentTo(Host, x => x.Excluding(y => y.Limits));
+    }
+
+    [Test]
+    public void SaveWithoutAProvider_AfterAFailedSwitchBackToTheHostFast_BuildsTheFastProvider()
+    {
+        var registration = new FlakyRegistration();
+        var manager = Manager(registration);
+        manager.UpdateConfiguration(new AppSettingsData { LlmProvider = AiProvider.OpenAI, LlmApiKey = "stored-key", LlmModel = "gpt-stored" });
+        registration.FailFastTimes = 1;
+        manager.UpdateConfiguration(new AppSettingsData { LlmMaxConcurrentRequests = 3 });
+        manager.CurrentProvider.Should().NotBeNull();
+        manager.FastProvider.Should().BeNull();
+
+        manager.UpdateConfiguration(new AppSettingsData { LlmMaxConcurrentRequests = 4 });
+
+        manager.FastProvider.Should().NotBeNull();
+    }
+
+    private static LlmProviderManager Manager(FlakyRegistration registration)
+    {
+        var factory = new LlmProviderFactory(() => Host, [registration]);
+
+        return new LlmProviderManager(Host, factory, new LlmRequestQueue(Host.Limits), NullLogger<LlmProviderManager>.Instance);
+    }
+
+    private sealed class FlakyRegistration(int failMainTimes = 0, int failFastTimes = 0) : ILlmProviderRegistration
+    {
+        public int FailMainTimes { get; set; } = failMainTimes;
+
+        public int FailFastTimes { get; set; } = failFastTimes;
+
+        public AiProvider Provider => AiProvider.OpenAI;
+
+        public bool RequiresApiKey => true;
+
+        public ILlmProvider Create(LlmConfiguration configuration, bool fast)
+        {
+            if (fast && FailFastTimes > 0)
+            {
+                FailFastTimes--;
+                throw new InvalidOperationException("fast construction failed");
+            }
+
+            if (!fast && FailMainTimes > 0)
+            {
+                FailMainTimes--;
+                throw new InvalidOperationException("main construction failed");
+            }
+
+            return new Moq.Mock<ILlmProvider>().Object;
+        }
+    }
+
     private static LlmProviderManager Manager(LlmRequestQueue queue)
     {
         LlmProviderManager? manager = null;

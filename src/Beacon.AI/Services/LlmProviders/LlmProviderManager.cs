@@ -163,8 +163,9 @@ public class LlmProviderManager : ILlmConfigurationUpdater
                 ApplyLimits(next.Limits);
             }
 
-            // The host's configuration already in force keeps the providers built from it.
-            if (settings.LlmProvider is null && next == previous with { Limits = limits })
+            // The host's configuration already in force keeps the providers built from it, once they were actually built:
+            // when a construction failed, the save retries it.
+            if (settings.LlmProvider is null && next == previous with { Limits = limits } && ProvidersBuiltFor(next))
             {
                 return;
             }
@@ -262,10 +263,22 @@ public class LlmProviderManager : ILlmConfigurationUpdater
     }
 
     // A fast-tier request never fails because the fast model is unavailable: a build failure leaves no fast provider.
+    // Whether the active providers are the ones the configuration calls for: a main provider, and the fast provider when
+    // a distinct fast model is configured. Caller holds the lock.
+    private bool ProvidersBuiltFor(LlmConfiguration config)
+    {
+        return _active.Main is not null && (!HasDistinctFastModel(config) || _active.Fast is not null);
+    }
+
+    private static bool HasDistinctFastModel(LlmConfiguration config)
+    {
+        return !string.IsNullOrWhiteSpace(config.FastModel)
+            && !string.Equals(config.FastModel.Trim(), config.Model?.Trim(), StringComparison.OrdinalIgnoreCase);
+    }
+
     private ILlmProvider? BuildFastProvider(LlmConfiguration config)
     {
-        if (string.IsNullOrWhiteSpace(config.FastModel)
-            || string.Equals(config.FastModel.Trim(), config.Model?.Trim(), StringComparison.OrdinalIgnoreCase))
+        if (!HasDistinctFastModel(config))
         {
             return null;
         }
