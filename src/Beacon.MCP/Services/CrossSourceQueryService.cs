@@ -97,10 +97,15 @@ internal sealed class CrossSourceQueryService(
                     source.DataSourceName, schemaVerdict.Message);
 
                 var systemPrompt = settings.AskSystemPrompt ?? "You are a SQL expert. Return ONLY the SQL query.";
-                var retriedSql = llmBudget == null || llmBudget.TryConsume(keepInReserve: generationsLeft + joinCalls)
-                    ? await sqlGenerationService.RetryWithErrorAsync(
-                        sourceProvider, systemPrompt, sql, schemaVerdict.Message!, smartContext.FullContext, null, question, ct)
-                    : null;
+                string? retriedSql = null;
+                if (llmBudget == null || llmBudget.TryConsume(keepInReserve: generationsLeft + joinCalls))
+                {
+                    // A table the schema-context budget left out of the context reaches the repair in full when the SQL reads it.
+                    var notShownTables = await knowledgeGraph.GetNotShownTablesContextAsync(
+                        source.DataSourceId, projectId, smartContext, schemaReport.TablesUsed, ct);
+                    retriedSql = await sqlGenerationService.RetryWithErrorAsync(
+                        sourceProvider, systemPrompt, sql, schemaVerdict.Message!, smartContext.FullContext, notShownTables, question, ct);
+                }
 
                 var retryReport = retriedSql != null
                     ? gate.Evaluate(SqlGateRequest.FromSettings(retriedSql, smartContext.DatabaseDialect, settings, generationRowSecurity) with
@@ -189,7 +194,7 @@ internal sealed class CrossSourceQueryService(
             }
 
             // Dry-run before execution: one bounded repair per source, never a hard block
-            sql = await DryRunWithRepairAsync(sourceProvider, dataSource, configuredDatabase, rowSecurity, source, sql, sourceContext, question, settings, signal, llmBudget, joinCalls, ct);
+            sql = await DryRunWithRepairAsync(sourceProvider, dataSource, configuredDatabase, rowSecurity, source, projectId, sql, readOnlyReport.TablesUsed, sourceContext, question, settings, signal, llmBudget, joinCalls, ct);
 
             // The row cap is computed on the SQL that ACTUALLY runs (the repair above may have replaced it),
             // and honours the operator's MaxRowLimit instead of a hardcoded constant.
@@ -420,7 +425,9 @@ internal sealed class CrossSourceQueryService(
         string? configuredDatabase,
         RowSecurityContext rowSecurity,
         RoutedSource source,
+        int projectId,
         string sql,
+        IReadOnlyList<string> tablesUsed,
         SmartSchemaContext sourceContext,
         string question,
         McpSettingsData settings,
@@ -481,8 +488,11 @@ internal sealed class CrossSourceQueryService(
 
         var promptError = deploymentOptions.Value.ForbidRowDataToLlm ? classOnly : redactedError;
         var systemPrompt = settings.AskSystemPrompt ?? "You are a SQL expert. Return ONLY the SQL query.";
+
+        // A table the schema-context budget left out of the context reaches the repair in full when the SQL reads it.
+        var notShownTables = await knowledgeGraph.GetNotShownTablesContextAsync(dataSource.Id, projectId, sourceContext, tablesUsed, ct);
         var retriedSql = await sqlGenerationService.RetryWithErrorAsync(
-            llmProvider, systemPrompt, sql, promptError, sourceContext.FullContext, null, question, ct);
+            llmProvider, systemPrompt, sql, promptError, sourceContext.FullContext, notShownTables, question, ct);
 
         if (retriedSql == null)
         {

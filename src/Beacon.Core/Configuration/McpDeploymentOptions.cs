@@ -66,8 +66,9 @@ public sealed class McpAuditOptions
 
 /// <summary>
 /// Upper bounds project or global settings cannot exceed. <c>null</c> = no ceiling, except for the input caps
-/// <see cref="MaxSqlChars"/> and <see cref="MaxQuestionChars"/> and the <c>ask</c> budgets <see cref="AskTimeoutSeconds"/>
-/// and <see cref="AskMaxLlmCalls"/>, which always apply and fall back to a built-in default.
+/// <see cref="MaxSqlChars"/> and <see cref="MaxQuestionChars"/> and the <c>ask</c> budgets <see cref="AskTimeoutSeconds"/>,
+/// <see cref="AskMaxLlmCalls"/> and <see cref="AskSchemaContextChars"/>, which always apply and fall back to a built-in
+/// default.
 /// </summary>
 public sealed class McpCeilingOptions
 {
@@ -75,10 +76,14 @@ public sealed class McpCeilingOptions
     internal const int DefaultMaxQuestionChars = 4_000;
     internal const int DefaultAskTimeoutSeconds = 120;
     internal const int DefaultAskMaxLlmCalls = 12;
+    internal const int DefaultAskSchemaContextChars = 120_000;
     internal const int MaxAskTimeoutSeconds = 3_600;
 
     // A data question needs at least the intent classification and the first SQL generation.
     internal const int MinAskMaxLlmCalls = 2;
+
+    // Room for at least one table besides the line naming the tables a smaller context leaves out (about 2 000 characters).
+    internal const int MinAskSchemaContextChars = 10_000;
 
     public int? MaxRowLimit { get; set; }
     public int? StatementTimeoutSeconds { get; set; }
@@ -103,6 +108,14 @@ public sealed class McpCeilingOptions
     /// </summary>
     public int? AskMaxLlmCalls { get; set; }
 
+    /// <summary>
+    /// Longest schema context one <c>ask</c> sends to the LLM, in characters; <c>null</c> = 120 000 (about 30 000 tokens), at
+    /// least 10 000 when set. Over it, whole table descriptions are left out, least relevant to the question first, and one
+    /// line inside the budget names them; when the grounding sections leave no room for the most relevant table they are
+    /// left out first, and that table is sent even when it alone is longer than the budget.
+    /// </summary>
+    public int? AskSchemaContextChars { get; set; }
+
     public int EffectiveMaxSqlChars => MaxSqlChars ?? DefaultMaxSqlChars;
 
     public int EffectiveMaxQuestionChars => MaxQuestionChars ?? DefaultMaxQuestionChars;
@@ -110,6 +123,8 @@ public sealed class McpCeilingOptions
     public int EffectiveAskTimeoutSeconds => AskTimeoutSeconds ?? DefaultAskTimeoutSeconds;
 
     public int EffectiveAskMaxLlmCalls => AskMaxLlmCalls ?? DefaultAskMaxLlmCalls;
+
+    public int EffectiveAskSchemaContextChars => AskSchemaContextChars ?? DefaultAskSchemaContextChars;
 }
 
 internal sealed class McpDeploymentOptionsValidator : IValidateOptions<McpDeploymentOptions>
@@ -129,6 +144,11 @@ internal sealed class McpDeploymentOptionsValidator : IValidateOptions<McpDeploy
         if (ceilings.AskTimeoutSeconds is <= 0 or > McpCeilingOptions.MaxAskTimeoutSeconds)
         {
             failures.Add($"{McpDeploymentOptions.SectionName}:Ceilings:{nameof(McpCeilingOptions.AskTimeoutSeconds)} must be between 1 and {McpCeilingOptions.MaxAskTimeoutSeconds} when set.");
+        }
+
+        if (ceilings.AskSchemaContextChars < McpCeilingOptions.MinAskSchemaContextChars)
+        {
+            failures.Add($"{McpDeploymentOptions.SectionName}:Ceilings:{nameof(McpCeilingOptions.AskSchemaContextChars)} must be at least {McpCeilingOptions.MinAskSchemaContextChars} when set.");
         }
 
         if (ceilings.AskMaxLlmCalls < McpCeilingOptions.MinAskMaxLlmCalls)

@@ -1,7 +1,9 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Beacon.AI.Services.Embeddings;
 using Beacon.AI.Services.LlmProviders;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
@@ -28,7 +30,8 @@ internal sealed class KnowledgeGraphService(
     IConfiguredDatabaseResolver configuredDatabases,
     IQueryGuardrailService guardrail,
     ILogger<KnowledgeGraphService> logger,
-    WithheldGroundingLog? withheldLog = null) : IKnowledgeGraphService
+    WithheldGroundingLog? withheldLog = null,
+    IOptions<McpDeploymentOptions>? deploymentOptions = null) : IKnowledgeGraphService
 {
     // Grounding a prompt leaves out is logged once per row and interval (the singleton in the host; per instance in tests).
     private readonly WithheldGroundingLog _withheld = withheldLog ?? new WithheldGroundingLog();
@@ -1377,20 +1380,22 @@ internal sealed class KnowledgeGraphService(
         // Small schema fast path: send everything
         if (allTables.Count <= 40 && totalColumns <= 300)
         {
-            var sb = new StringBuilder();
-            sb.AppendLine(isApi
+            var head = new StringBuilder();
+            head.AppendLine(isApi
                 ? $"# REST API: {dataSource.Name}"
                 : $"# Data Source: {dataSource.Name} ({dataSource.DatabaseEngineType})");
-            sb.AppendLine($"Tables: {allTables.Count}\n");
+            head.AppendLine($"Tables: {allTables.Count}\n");
 
-            foreach (var t in allTables)
-                SchemaContextFormatter.AppendTableWithFullColumns(sb, t.SchemaName, t.TableName, t.TableDescription, t.Columns, isApi);
+            var tableBlocks = allTables
+                .Select(x => TableBlock(x.SchemaName, x.TableName, x.TableDescription, x.Columns, isApi, fullColumns: true))
+                .ToList();
 
             // Small schemas send every table, but they still need the relationship graph: on a warehouse
             // that declares no foreign keys the column listing carries no join information at all, so
             // inferred relationships are the only thing telling the model how these tables connect.
             var allPaths = await GetJoinPathsForAllTablesAsync(dataSourceId, ct);
-            SchemaContextFormatter.AppendJoinPaths(sb, allPaths);
+            var joinPaths = new StringBuilder();
+            SchemaContextFormatter.AppendJoinPaths(joinPaths, allPaths);
 
             // Item 5: ask-time value grounding — real values found for literal-looking words in the
             // question, injected right before the golden exemplars so the model sees them alongside the
@@ -1402,31 +1407,47 @@ internal sealed class KnowledgeGraphService(
                     .Select(t => new ValueGroundingTable(t.SchemaName, t.TableName, ToValueGroundingColumns(t.Columns)))
                     .ToList();
                 valueMatches = await BuildValueMatchesBlockAsync(dataSourceId, projectId, question, valueGroundingTables, valueGroundingSettings, ct);
-                sb.Append(valueMatches);
             }
 
             // Part A: inject human-verified golden query examples ABOVE the mined learned patterns — they are
             // human-verified, so they outrank machine-mined patterns. Empty (behaviour-preserving) when
             // disabled, the embedder is off, or no golden case is near.
-            sb.Append(await BuildGoldenExemplarBlockAsync(dataSourceId, projectId, question, mcpSettings, dialect, ct));
+            var goldenExemplars = await BuildGoldenExemplarBlockAsync(dataSourceId, projectId, question, mcpSettings, dialect, ct);
 
             // Inject learned patterns
+            var learnedPatternsBlock = "";
             if (mcpSettings.EnableLearning)
             {
                 var allTableNames = allTables.Select(t => $"{t.SchemaName}.{t.TableName}").ToList();
                 var learnedPatterns = await GetRelevantPatternsAsync(dataSourceId, projectId, allTableNames, question,
                     maxPatterns: 10, budgetChars: mcpSettings.LearningInjectionBudgetChars, dialect, ct);
-                sb.Append(FormatLearnedPatternsForLlm(learnedPatterns));
+                learnedPatternsBlock = FormatLearnedPatternsForLlm(learnedPatterns);
             }
 
             // Tier-3 ⑪: append the business-glossary block after the learned patterns. Empty (nothing
             // injected) when the embedder is off, semantic retrieval is disabled, or no term is near —
             // behaviour-preserving relative to pre-glossary output.
-            sb.Append(await BuildGlossaryBlockAsync(projectId, question, mcpSettings, dialect, ct));
+            var glossary = await BuildGlossaryBlockAsync(projectId, question, mcpSettings, dialect, ct);
+
+            // Over the budget the tables the question names come first, then the catalogue order.
+            var budgeted = BudgetedContext(
+                dataSourceId,
+                head.ToString(),
+                [new SchemaContextSection("", tableBlocks, HeadingWhenEmpty: false)],
+                [
+                    new SchemaContextPart(SchemaContextPartKind.JoinPaths, joinPaths.ToString()),
+                    new SchemaContextPart(SchemaContextPartKind.ValueMatches, valueMatches),
+                    new SchemaContextPart(SchemaContextPartKind.GoldenExemplars, goldenExemplars),
+                    new SchemaContextPart(SchemaContextPartKind.LearnedPatterns, learnedPatternsBlock),
+                    new SchemaContextPart(SchemaContextPartKind.Glossary, glossary)
+                ],
+                AskSchemaContextBudget.TablesNamedIn(question, tableBlocks));
 
             return new SmartSchemaContext
             {
-                FullContext = sb.ToString(),
+                FullContext = budgeted.Text,
+                TablesShown = budgeted.TablesShown,
+                TablesNotShown = budgeted.TablesNotShown,
                 UsedSmartRetrieval = false,
                 TotalTableCount = allTables.Count,
                 DatabaseDialect = dialect,
@@ -1445,8 +1466,14 @@ internal sealed class KnowledgeGraphService(
         var matchedTableNames = searchResults
             .Where(r => r.Type is "table" or "column")
             .Select(r => $"{r.SchemaName}.{r.TableName}")
-            .Distinct(StringComparer.OrdinalIgnoreCase)
             .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
+        // In retrieval rank order, named as the context names them: the budget keeps these first.
+        var rankedTableNames = searchResults
+            .Where(x => x.Type is "table" or "column")
+            .Select(x => AskSchemaContextBudget.BlockName(x.SchemaName, x.TableName, isApi))
+            .Distinct(StringComparer.OrdinalIgnoreCase)
+            .ToList();
 
         // Expand through the registered relationship graph: join paths between matched tables, the
         // intermediate tables those paths need (including link tables), then direct neighbours. Falls
@@ -1460,30 +1487,34 @@ internal sealed class KnowledgeGraphService(
         detailedTables.UnionWith(matchedTableNames);
 
         // Build two-section context
-        var smartSb = new StringBuilder();
-        smartSb.AppendLine(isApi
+        var smartHead = new StringBuilder();
+        smartHead.AppendLine(isApi
             ? $"# REST API: {dataSource.Name}"
             : $"# Data Source: {dataSource.Name} ({dataSource.DatabaseEngineType})");
-        smartSb.AppendLine($"Total tables: {allTables.Count}\n");
+        smartHead.AppendLine($"Total tables: {allTables.Count}\n");
 
         // Section 1: Relevant tables with full schema
-        smartSb.AppendLine("## Relevant Tables (full schema)\n");
-        foreach (var t in allTables.Where(t => detailedTables.Contains($"{t.SchemaName}.{t.TableName}")))
-            SchemaContextFormatter.AppendTableWithFullColumns(smartSb, t.SchemaName, t.TableName, t.TableDescription, t.Columns, isApi);
+        var relevantHeading = new StringBuilder();
+        relevantHeading.AppendLine("## Relevant Tables (full schema)\n");
+        var relevantBlocks = allTables
+            .Where(x => detailedTables.Contains($"{x.SchemaName}.{x.TableName}"))
+            .Select(x => TableBlock(x.SchemaName, x.TableName, x.TableDescription, x.Columns, isApi, fullColumns: true))
+            .ToList();
 
         // Section 2: Other tables compact
-        var otherTables = allTables.Where(t => !detailedTables.Contains($"{t.SchemaName}.{t.TableName}")).ToList();
-        if (otherTables.Count > 0)
-        {
-            smartSb.AppendLine("\n## Other Tables (name and primary keys only)\n");
-            foreach (var t in otherTables)
-                SchemaContextFormatter.AppendTableCompact(smartSb, t.SchemaName, t.TableName, t.TableDescription, t.Columns, isApi);
-        }
+        var otherHeading = new StringBuilder();
+        otherHeading.AppendLine("\n## Other Tables (name and primary keys only)\n");
+        var otherBlocks = allTables
+            .Where(x => !detailedTables.Contains($"{x.SchemaName}.{x.TableName}"))
+            .Select(x => TableBlock(x.SchemaName, x.TableName, x.TableDescription, x.Columns, isApi, fullColumns: false))
+            .ToList();
 
         // Explicit join chains for the retrieved tables, verified and inferred kept apart so an inferred
         // join is never presented as fact.
-        SchemaContextFormatter.AppendJoinPaths(smartSb, expansion.JoinPaths);
-        SchemaContextFormatter.AppendCoverage(smartSb, expansion.Capped, expansion.OmittedTableCount, detailedTables.Count);
+        var smartJoinPaths = new StringBuilder();
+        SchemaContextFormatter.AppendJoinPaths(smartJoinPaths, expansion.JoinPaths);
+        var coverage = new StringBuilder();
+        SchemaContextFormatter.AppendCoverage(coverage, expansion.Capped, expansion.OmittedTableCount, detailedTables.Count);
 
         // Item 5: ask-time value grounding, scoped to the detailed tables only (same set rendered with
         // full columns above) — same gating as the fast path.
@@ -1495,29 +1526,51 @@ internal sealed class KnowledgeGraphService(
                 .Select(t => new ValueGroundingTable(t.SchemaName, t.TableName, ToValueGroundingColumns(t.Columns)))
                 .ToList();
             smartValueMatches = await BuildValueMatchesBlockAsync(dataSourceId, projectId, question, valueGroundingTables, valueGroundingSettings, ct);
-            smartSb.Append(smartValueMatches);
         }
 
         // Part A: inject human-verified golden query examples ABOVE the mined learned patterns (same
         // behaviour-preserving fallback as the fast path — empty string when nothing to inject).
-        smartSb.Append(await BuildGoldenExemplarBlockAsync(dataSourceId, projectId, question, mcpSettings, dialect, ct));
+        var smartGoldenExemplars = await BuildGoldenExemplarBlockAsync(dataSourceId, projectId, question, mcpSettings, dialect, ct);
 
         // Inject learned patterns for relevant tables
+        var smartPatternsBlock = "";
         if (mcpSettings.EnableLearning)
         {
             var relevantTableNames = detailedTables.ToList();
             var smartPatterns = await GetRelevantPatternsAsync(dataSourceId, projectId, relevantTableNames, question,
                 maxPatterns: 10, budgetChars: mcpSettings.LearningInjectionBudgetChars, dialect, ct);
-            smartSb.Append(FormatLearnedPatternsForLlm(smartPatterns));
+            smartPatternsBlock = FormatLearnedPatternsForLlm(smartPatterns);
         }
 
         // Tier-3 ⑪: append the business-glossary block after the learned patterns (same behaviour-preserving
         // fallback as the fast path — empty string when nothing to inject).
-        smartSb.Append(await BuildGlossaryBlockAsync(projectId, question, mcpSettings, dialect, ct));
+        var smartGlossary = await BuildGlossaryBlockAsync(projectId, question, mcpSettings, dialect, ct);
+
+        // Over the budget the tables the question names come first, then the tables retrieval ranked for the question, then
+        // the relevant tables and the other tables in catalogue order.
+        IReadOnlyList<SchemaContextTableBlock> allBlocks = [.. relevantBlocks, .. otherBlocks];
+        var smartBudgeted = BudgetedContext(
+            dataSourceId,
+            smartHead.ToString(),
+            [
+                new SchemaContextSection(relevantHeading.ToString(), relevantBlocks, HeadingWhenEmpty: true),
+                new SchemaContextSection(otherHeading.ToString(), otherBlocks, HeadingWhenEmpty: false)
+            ],
+            [
+                new SchemaContextPart(SchemaContextPartKind.JoinPaths, smartJoinPaths.ToString()),
+                new SchemaContextPart(SchemaContextPartKind.Coverage, coverage.ToString()),
+                new SchemaContextPart(SchemaContextPartKind.ValueMatches, smartValueMatches),
+                new SchemaContextPart(SchemaContextPartKind.GoldenExemplars, smartGoldenExemplars),
+                new SchemaContextPart(SchemaContextPartKind.LearnedPatterns, smartPatternsBlock),
+                new SchemaContextPart(SchemaContextPartKind.Glossary, smartGlossary)
+            ],
+            [.. AskSchemaContextBudget.TablesNamedIn(question, allBlocks), .. rankedTableNames]);
 
         return new SmartSchemaContext
         {
-            FullContext = smartSb.ToString(),
+            FullContext = smartBudgeted.Text,
+            TablesShown = smartBudgeted.TablesShown,
+            TablesNotShown = smartBudgeted.TablesNotShown,
             UsedSmartRetrieval = true,
             RelevantTables = [.. detailedTables],
             TotalTableCount = allTables.Count,
@@ -1531,6 +1584,61 @@ internal sealed class KnowledgeGraphService(
             JoinPaths = expansion.JoinPaths,
             RowDataCategories = RowDataCategoriesOf(samplesShown, smartValueMatches)
         };
+    }
+
+    // The ask context within Beacon:Mcp:Ceilings:AskSchemaContextChars. A context that had to leave out grounding sections, or
+    // that is over the budget with one table, is logged as a warning (counts only); one that left out only tables as
+    // information.
+    private BudgetedSchemaContext BudgetedContext(
+        int dataSourceId,
+        string head,
+        IReadOnlyList<SchemaContextSection> sections,
+        IReadOnlyList<SchemaContextPart> parts,
+        IReadOnlyList<string> rankedNames)
+    {
+        var budgetChars = (deploymentOptions?.Value.Ceilings ?? new McpCeilingOptions()).EffectiveAskSchemaContextChars;
+        var budgeted = AskSchemaContextBudget.Assemble(head, sections, parts, rankedNames, budgetChars);
+        if (budgeted.PartsLeftOut.Count > 0 || budgeted.TopTableCut)
+        {
+            logger.LogWarning(
+                "Ask schema context for data source {DataSourceId} does not fit its budget of {BudgetChars} characters: "
+                    + "{GroundingSectionsLeftOut} grounding section(s) left out, {TopTableCut} top table cut, {TablesShown} table(s) shown, {TablesNotShown} left out, {ContextChars} characters sent.",
+                dataSourceId,
+                budgetChars,
+                budgeted.PartsLeftOut.Count,
+                budgeted.TopTableCut,
+                budgeted.TablesShown,
+                budgeted.TablesNotShown.Count,
+                budgeted.Text.Length);
+        }
+        else if (budgeted.TablesNotShown.Count > 0)
+        {
+            logger.LogInformation(
+                "Ask schema context for data source {DataSourceId} is over its budget of {BudgetChars} characters: {TablesShown} table(s) shown, {TablesNotShown} left out.",
+                dataSourceId,
+                budgetChars,
+                budgeted.TablesShown,
+                budgeted.TablesNotShown.Count);
+        }
+
+        return budgeted;
+    }
+
+    // One table rendered as the ask context shows it: in full, or compact (name, primary key and column names).
+    private static SchemaContextTableBlock TableBlock(
+        string schemaName, string tableName, string? description, IReadOnlyList<SchemaColumn> columns, bool isApi, bool fullColumns)
+    {
+        var sb = new StringBuilder();
+        if (fullColumns)
+        {
+            SchemaContextFormatter.AppendTableWithFullColumns(sb, schemaName, tableName, description, columns, isApi);
+        }
+        else
+        {
+            SchemaContextFormatter.AppendTableCompact(sb, schemaName, tableName, description, columns, isApi);
+        }
+
+        return new SchemaContextTableBlock(AskSchemaContextBudget.BlockName(schemaName, tableName, isApi), schemaName, tableName, sb.ToString());
     }
 
     public async Task<Dictionary<string, HashSet<string>>> GetSchemaCatalogAsync(int dataSourceId, int projectId, CancellationToken ct = default)

@@ -75,6 +75,11 @@ internal sealed class AskSqlPipeline(
         {
             using var stage = BeaconTelemetry.StartAskStage(BeaconTelemetry.AskStageGeneration);
 
+            // The context's size is known before the call, so a generation that fails still carries it.
+            stage?.SetTag(BeaconTelemetry.AskContextCharsTag, fullContext.Length);
+            stage?.SetTag(BeaconTelemetry.AskTablesShownTag, smartContext.TablesShown);
+            stage?.SetTag(BeaconTelemetry.AskTablesOmittedTag, smartContext.TablesNotShown.Count);
+
             var candidate = await BeaconTelemetry.ObserveStageAsync(stage, () => sqlGenerationService.GenerateAsync(
                 promptProvider, fullContext, question, settings, ct, options.GenerationTemperature));
             stage?.SetTag(BeaconTelemetry.AskTablesTag, candidate.TablesUsed.Distinct(StringComparer.OrdinalIgnoreCase).Count());
@@ -267,6 +272,12 @@ internal sealed class AskSqlPipeline(
             using var stage = BeaconTelemetry.StartAskStage(BeaconTelemetry.AskStageRepair);
             stage?.SetTag(BeaconTelemetry.AskRepairTriggerTag, trigger);
 
+            // A table the schema-context budget left out of the context reaches the repair in full when the SQL reads it.
+            tablesContext ??= smartContext.TablesNotShown.Count > 0
+                ? await knowledgeGraph.GetNotShownTablesContextAsync(
+                    dataSourceId, projectId, smartContext, gate.Evaluate(GateRequest(previousSql, smartContext, settings, rowSecurity)).TablesUsed, ct)
+                : null;
+
             // The generation was sent this same context, so the repair reuses its cached first message.
             var repairedSql = await BeaconTelemetry.ObserveStageAsync(stage, () => sqlGenerationService.RetryWithErrorAsync(
                 promptProvider, systemPrompt, previousSql, error, fullContext, tablesContext, question, settings, fullContext, ct));
@@ -274,6 +285,7 @@ internal sealed class AskSqlPipeline(
 
             return repairedSql;
         }
+
         string? schemaValidationError = null;
         string? dryRunError = null;
         var emptyResultRetried = false;
@@ -445,8 +457,10 @@ internal sealed class AskSqlPipeline(
             repairAttempts++;
             var redactedExecutionError = RedactedError(execResult.ErrorMessage, generatedSql);
             logger.LogInformation("SQL error detected, retrying ({ErrorClass})", DatabaseErrorRedactor.ClassOnly(execResult.ErrorMessage, logger));
-            // AST-resolved tables (aliases resolved, CTEs excluded) — generatedSql already cleared the gate.
-            var tableNames = gate.Evaluate(GateRequest(generatedSql, smartContext, settings, rowSecurity)).TablesUsed.ToList();
+            // AST-resolved tables (aliases resolved, CTEs excluded) — generatedSql already cleared the gate. A table the context
+            // left out is also looked up by the name the context gives it, so its schema is found however the SQL spells it.
+            var tablesUsed = gate.Evaluate(GateRequest(generatedSql, smartContext, settings, rowSecurity)).TablesUsed;
+            List<string> tableNames = [.. tablesUsed, .. SchemaContextNotShownTables.NotShownTablesIn(tablesUsed, smartContext.TablesNotShown)];
             var tablesContext = tableNames.Count > 0
                 ? await knowledgeGraph.GetTablesContextAsync(dataSourceId, projectId, tableNames, ct)
                 : null;
