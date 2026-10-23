@@ -683,6 +683,60 @@ Beacon's libraries ship no email implementation. Register your own `IEmailAdapte
 
 A missing required key fails the send, not the startup. These keys belong to the sample's adapter; a host with its own adapter reads whatever it needs.
 
+## Data retention (`Beacon:Retention`)
+
+One job, `IDataRetentionService.RunAsync`, keeps Beacon's run history and logs bounded. The sample host runs it daily as
+the Warp job `data-retention` (one run at a time, at most an hour); a host embedding Beacon schedules it itself. It
+deletes the rows of every retention target older than the target's window, then clears the **content** of the content
+stores' rows older than `ContentDays`, keeping the rows and their structure (counts, timings, statuses, ids).
+
+```json
+{
+  "Beacon": {
+    "Retention": {
+      "Days": 90,                       // recommended; 0 (the default) keeps everything
+      "Targets": { "subscription-runs": 365, "ai-actor-executions": 30 },
+      "ContentDays": 30,
+      "Locked": false
+    }
+  }
+}
+```
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `Days` | int | `0` (keep forever) | Days the rows of every target are kept; `0` keeps them forever. `90` is recommended |
+| `Targets:{name}` | int | `Days` | One target's own window; `0` keeps its rows forever. An unknown name stops the host at startup |
+| `ContentDays` | int | `0` (off) | Days the content of the content stores is kept: SQL text, result snapshots, model output and error text become empty. `30` is recommended for regulated deployments |
+| `Locked` | bool | `false` | Deployment lock: `Days`, every target, `ContentDays` and `Beacon:Mcp:Audit:RetentionDays` must be greater than 0, or the host fails to start; the learning-signal retention Admins edit at runtime never resolves above `Days` |
+
+| Target | Store | Kept anyway |
+|---|---|---|
+| `subscription-runs` | Subscription run history, with each run's notifications | |
+| `notifications` | Delivered notifications | |
+| `anomaly-baselines` | Anomaly detection baselines | The longest configured look-back beyond the window |
+| `ai-actor-executions` | AI actor executions and conversation turns | An execution a query change or a newer turn still names |
+| `migration-runs` | Data migration runs | Queued or running runs, and a run a retry names as its parent |
+| `mcp-eval-runs` | MCP eval runs and their per-case results | Running evals; the golden cases are never purged |
+
+The content stores are the subscription run history, notifications, the execution log of previews and ad-hoc runs, AI
+actor executions and conversations, and migration runs. While the content lock is on (`RetainQueryContent` off in the
+global MCP settings, or `Beacon:Mcp:ForceNoContentRetention`), Beacon writes no content to them, and each run also
+clears the result snapshots they stored before, whatever their age.
+
+The windows are read once at startup. Each target runs on its own; a target that fails is logged (event 9121, the
+target's name and a failure code) and the others still run, then the job fails. Each purge logs its count (9120, 9122) to
+the `Beacon.Audit` category. The MCP audit (`Beacon:Mcp:Audit:RetentionDays`), the security audit trail
+(`Beacon:Audit:RetentionDays`) and learning signals keep their own purges; the security audit is never a retention target.
+
+:::note[Upgrading]
+Nothing is deleted unless you configure it: every window defaults to keep forever, so an upgrade keeps all existing data.
+While no window is set (`Days`, a target, `ContentDays`, `Beacon:Mcp:Audit:RetentionDays`), the host logs one Information
+at startup (`RetentionUnconfigured`, 9123) naming these settings. Recommended: `Days: 90`, `Beacon:Mcp:Audit:RetentionDays:
+365`, and `ContentDays: 30` for regulated deployments. The sample host expires completed Warp jobs (their records in the
+`warp` schema, not Beacon data) after 7 days (`JobExpirationTimeout`).
+:::
+
 ## Deployment locks
 
 Settings that bind Admins too and that nothing at runtime can change; only host configuration sets them:
@@ -691,12 +745,13 @@ Settings that bind Admins too and that nothing at runtime can change; only host 
 |---|---|---|
 | `Beacon:Mcp:ForceReadOnly` | **`true`** | MCP read-only enforcement on, globally and per project; the SQL gate judges every statement read-only whatever it is asked. `false` logs a startup Warning |
 | `Beacon:Mcp:ForcePiiDetection` | **`true`** | PII detection on. `false` logs a startup Warning |
-| `Beacon:Mcp:ForceNoContentRetention` | `false` | Content retention off: questions, SQL and free-text errors are never persisted |
+| `Beacon:Mcp:ForceNoContentRetention` | `false` | Content retention off: questions, SQL, result snapshots, model output and free-text errors are never persisted, in MCP and in the content stores outside it (subscription runs, notifications, the execution log, AI actor runs, migration runs; see [Data retention](#data-retention-beaconretention)) |
 | `Beacon:Mcp:Audit:RequireContent` | `false` | Content retention on, globally and per project, so the MCP audit keeps the question and the SQL of every statement a call ran. Cannot be combined with `ForceNoContentRetention`: with both on the host fails to start. See [Keeping audit content](/mcp/observability-and-audit/#keeping-audit-content-the-requirecontent-lock) |
 | `Beacon:Mcp:ForbidRowDataToLlm` | `false` | Sample-value collection, value grounding and the eval judge off: no value read from a data source goes to the LLM provider |
 | `Beacon:Mcp:Ceilings:*` | none | Cap the MCP row limit and the SQL and question lengths; the other ceilings clamp recorded settings (see [MCP](#mcp-beaconmcp)) |
 | `Beacon:Mcp:Audit:Required` | `false` | Withhold an MCP tool result whose audit row could not be written |
 | `Beacon:Migrations:Enabled` | `false` | Data migration, the only write path |
+| `Beacon:Retention:Locked` | `false` | No retention window may keep data forever (the host fails to start otherwise), and the learning-signal retention never resolves above `Beacon:Retention:Days`. See [Data retention](#data-retention-beaconretention) |
 
 A write that contradicts an MCP lock answers `409` (`/errors/setting-locked`), an Admin's included; the MCP settings page shows the locked settings disabled, and `GET /beacon/api/mcp/settings/locks` lists them (`lockedFields`) and each active lock with the setting it pins (`locks`: `fieldName`, `lockName`). Stored values a lock overrides are kept and listed in one startup warning; they apply again when the lock is lifted. Settings resolve as **lock → project override → global value → built-in default**, ceilings last.
 
@@ -726,6 +781,7 @@ Validated at startup. Without the section, `ForceReadOnly` and `ForcePiiDetectio
 | `ForceReadOnly`, `ForcePiiDetection`, `ForceNoContentRetention`, `ForbidRowDataToLlm` | bool | `true`, `true`, `false`, `false` | See [Deployment locks](#deployment-locks) |
 | `Ceilings:MaxRowLimit` | int | none | Caps the row limit the MCP tools apply; must be greater than 0 when set |
 | `Ceilings:StatementTimeoutSeconds`, `MaxResultBytes`, `MaxConcurrentQueriesPerKey` | int | none | Clamp the MCP settings of the same names, shown on the MCP settings page; must be greater than 0 when set. The MCP tools apply the statement timeout to every statement, bound each tool result to the byte budget, and refuse a call when the caller already runs that many queries |
+| `Ceilings:LearningSignalRetentionDays` | int | none | Clamps the learning-signal retention (`LearningSignalRetentionDays`, global and per project) on the MCP settings page; greater than 0 when set. Under `Beacon:Retention:Locked` it is at most `Beacon:Retention:Days` |
 | `Ceilings:MaxExplainCost` | decimal | none | Clamps the MCP `MaxExplainCost` setting, shown on the MCP settings page; greater than 0 when set. The setting is enforced on PostgreSQL data sources: a statement whose planner-estimated total cost (`EXPLAIN`, never run) exceeds it is refused before it runs. Other engines ignore it |
 | `Ceilings:MaxSqlChars` | int | `100000` (always applies) | Longest SQL text the gate evaluates |
 | `Ceilings:MaxQuestionChars` | int | `4000` (always applies) | Longest question `ask` accepts |
@@ -733,7 +789,7 @@ Validated at startup. Without the section, `ForceReadOnly` and `ForcePiiDetectio
 | `Ceilings:AskMaxLlmCalls` | int | `12` (always applies) | Logical LLM calls one `ask` call may make (a provider's transport retries are not counted); fewer self-consistency candidates and skipped repairs keep it within them, and a call with none left before it generated SQL returns an error; at least 2 when set (the intent classification and the first SQL generation) |
 | `Ceilings:AskSchemaContextChars` | int | `120000` (always applies) | Longest schema context one `ask` sends to the LLM, in characters (about 30,000 tokens at the default); over it whole table descriptions are left out, least relevant to the question first, and one line inside the cap names them. When the grounding sections leave no room for the most relevant table they are left out first (learned patterns, glossary, verified examples, value matches, join paths), and that table is sent even if it alone is longer than the cap. At least 10000 when set |
 | `Audit:Required` | bool | `false` | Fail closed: withhold a tool result whose audit row could not be written |
-| `Audit:RetentionDays` | int | none (keep forever) | Days audit rows are kept; greater than 0 when set. The sample host purges daily (`PurgeExpiredMcpAuditLogsJob`); other hosts schedule it themselves |
+| `Audit:RetentionDays` | int | none (keep forever) | Days audit rows are kept; unset or `0` keeps them forever (`365` recommended). The sample host purges daily (`PurgeExpiredMcpAuditLogsJob`); other hosts schedule it themselves |
 | `Audit:RequestIdHeader` | string | `X-Request-Id` | Upstream correlation header stored with each audit row; empty reads none |
 | `Audit:RequireContent` | bool | `false` | See [Deployment locks](#deployment-locks) |
 | `CallerHashKey` | string | derived from `Beacon:EncryptionKey` | See [Encryption key](#encryption-key-configuration-required) |

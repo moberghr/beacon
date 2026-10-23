@@ -218,6 +218,26 @@ When you upgrade:
 - [ ] **Hosts or scripts that create queries through the API:** send `{name}` placeholders. A bare word, a quoted or
       spaced placeholder is refused with the parameter's name.
 
+### Retention by default
+
+A new data retention job can keep run history and logs bounded (see [Data retention](/getting-started/configuration/#data-retention-beaconretention)):
+with `Beacon:Retention:Days` set it deletes rows of subscription runs, notifications, anomaly baselines, AI actor runs,
+migration runs and MCP eval runs older than the window (90 days recommended; the MCP audit's own window, 365 days
+recommended). `Beacon:Retention:ContentDays` (30 recommended for regulated deployments) clears the SQL text, result
+snapshots and model output of older rows, and `Beacon:Retention:Locked` refuses any window that keeps data forever.
+Every window defaults to keep forever. The content lock
+(`RetainQueryContent` off, `Beacon:Mcp:ForceNoContentRetention`) now also covers those stores outside MCP.
+
+When you upgrade:
+
+- [ ] **Nothing is deleted on upgrade.** Retention is off until you set a window; while none is set the host logs one
+      Information at startup (`RetentionUnconfigured`). Set the recommended windows to start purging.
+- [ ] **Schedule the job.** Hosts with their own scheduler call `IDataRetentionService.RunAsync` daily; the sample host
+      runs it as the Warp job `data-retention`.
+- [ ] **Content lock wider.** With `RetainQueryContent` off globally or `ForceNoContentRetention` on, subscription
+      result snapshots, the SQL text of runs and of the execution log, AI actor output and migration statements are no
+      longer stored, and result snapshots stored before are cleared by the retention job.
+
 ## Release notes
 
 The full list of changes is on the [5.0.0.0 release](https://github.com/moberghr/beacon/releases/tag/5.0.0.0).

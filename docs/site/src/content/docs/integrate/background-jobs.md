@@ -69,7 +69,8 @@ Register these yourself at startup (the reference host's schedule):
 |---|---|---|---|
 | `mcp-learning-aggregate` | `0 */6 * * *` | `IJobService.AggregateLearnedPatterns` | Mine MCP usage signals into learned patterns. |
 | `mcp-learning-cleanup` | `0 3 * * *` | `IJobService.CleanupOldSignals` | Delete signals past their retention. |
-| `mcp-audit-retention` | `30 3 * * *` | `IMcpAuditRetentionService.PurgeExpiredAsync` | Purge MCP audit rows older than `Beacon:Mcp:Audit:RetentionDays` (no-op when unset). |
+| `mcp-audit-retention` | `30 3 * * *` | `IMcpAuditRetentionService.PurgeExpiredAsync` | Purge MCP audit rows older than `Beacon:Mcp:Audit:RetentionDays` (no-op when unset or `0`). |
+| `data-retention` | `50 3 * * *` | `IDataRetentionService.RunAsync` | Delete run history and logs older than `Beacon:Retention:Days` (no-op while it and every target are `0`, the default) and clear content older than `Beacon:Retention:ContentDays`. `[Timeout]` one hour, `[Mutex]` one run at a time. See [Data retention](/getting-started/configuration/#data-retention-beaconretention). |
 | `security-audit-retention` | `45 3 * * *` | `ISecurityAuditRetentionService.PurgeExpiredAsync` | Purge security audit events older than `Beacon:Audit:RetentionDays` (no-op when unset: events are kept forever). |
 | `security-audit-verify` | `15 * * * *` | `ISecurityAuditVerificationService.VerifyNewEventsAsync` | Check events written since the last run against their integrity hashes; failures are logged at Error. |
 | `mcp-embedding-reindex` | `0 */12 * * *` | `IJobService.ReindexEmbeddings` | Re-embed metadata and examples for semantic retrieval. |
@@ -152,6 +153,7 @@ public static class BeaconWarpSetup
         await recurring.AddOrUpdateRecurringJob(new CleanupOldSignalsJob(), "mcp-learning-cleanup", "0 3 * * *");
         await recurring.AddOrUpdateRecurringJob(new PurgeExpiredMcpAuditLogsJob(), "mcp-audit-retention", "30 3 * * *");
         await recurring.AddOrUpdateRecurringJob(new PurgeExpiredSecurityAuditEventsJob(), "security-audit-retention", "45 3 * * *");
+        await recurring.AddOrUpdateRecurringJob(new DataRetentionJob(), "data-retention", "50 3 * * *");
         await recurring.AddOrUpdateRecurringJob(new VerifySecurityAuditEventsJob(), "security-audit-verify", "15 * * * *");
         await recurring.AddOrUpdateRecurringJob(new ReindexEmbeddingsJob(), "mcp-embedding-reindex", "0 */12 * * *");
         await recurring.AddOrUpdateRecurringJob(new ReindexDocChunksJob(), "mcp-docchunk-reindex", "0 */12 * * *");
@@ -246,6 +248,16 @@ public sealed class PurgeExpiredSecurityAuditEventsJobHandler(ISecurityAuditRete
 {
     public Task HandleAsync(PurgeExpiredSecurityAuditEventsJob message, CancellationToken cancellationToken)
         => retention.PurgeExpiredAsync(cancellationToken);
+}
+
+// [Timeout] and [Mutex] go on the job type (Warp.Core.Timeout, Warp.Core.Concurrency), never on the handler.
+[Timeout(3600)]
+[Mutex("data-retention")]
+public sealed class DataRetentionJob : IJob;
+public sealed class DataRetentionJobHandler(IDataRetentionService retention) : IJobHandler<DataRetentionJob>
+{
+    public Task HandleAsync(DataRetentionJob message, CancellationToken cancellationToken)
+        => retention.RunAsync(cancellationToken);
 }
 
 public sealed class VerifySecurityAuditEventsJob : IJob;
