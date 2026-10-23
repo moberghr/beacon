@@ -161,7 +161,9 @@ internal class NotificationService(
             return null;
         }
 
+        // The run passed the scope check above: a delivery stays part of that record after its recipient is archived.
         var firstNotification = await context.Notifications
+            .IgnoreQueryFilters()
             .Where(x => x.QueryExecutionHistoryId == queryExecutionHistoryId)
             .OrderBy(x => x.Id)
             .Select(x =>

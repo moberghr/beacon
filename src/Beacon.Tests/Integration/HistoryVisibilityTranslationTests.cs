@@ -61,6 +61,21 @@ public class HistoryVisibilityTranslationTests
 
     [TestCase(false)]
     [TestCase(true)]
+    public async Task NotificationDetails_DeliveryLookup_KeepsDeliveriesOfArchivedRecipients_Translates(bool sqlServer)
+    {
+        var created = new DateTime(2026, 1, 2, 3, 4, 5, DateTimeKind.Utc);
+        var capture = Capture(sqlServer)
+            .ThenRow(7, created, 0, "[]", "", "Query", 1, 2, 1.5d, 0, 0)
+            .ThenNoRows();
+
+        await NotificationsOn(capture).GetNotificationDetails(7, StoredRunScope.Unrestricted, CancellationToken.None);
+
+        capture.Commands.Should().HaveCount(2);
+        capture.Commands[1].Should().NotContain(sqlServer ? "[ArchivedTime] IS NULL" : "archived_time IS NULL");
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
     public async Task MigrationExecutions_DoNotFilterArchivedJobs_Translates(bool sqlServer)
     {
         var capture = Capture(sqlServer).ThenScalar(0);
