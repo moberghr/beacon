@@ -3,7 +3,9 @@ using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Beacon.Core.Authentication;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Helpers;
@@ -22,7 +24,8 @@ internal class UserManagementService(
     TimeProvider timeProvider,
     ISecurityAuditRecorder securityAudit,
     ILogger<UserManagementService>? logger = null,
-    SessionStampExpectation? stampExpectation = null) : IUserManagementService
+    SessionStampExpectation? stampExpectation = null,
+    IOptions<RateLimitOptions>? rateLimits = null) : IUserManagementService
 {
     private const string InvalidCredentials = "Invalid username or password.";
     private const string NewPasswordRequired = "Your password was set by an administrator. Choose a new password to finish signing in.";
@@ -959,6 +962,8 @@ internal class UserManagementService(
         user.PasswordSalt = salt;
         user.MustChangePassword = true;
         user.SecurityStamp = SecurityStamps.New();
+        user.FailedSignInCount = 0;
+        user.LockoutEndTime = null;
 
         await securityAudit.StageAsync(
             context,
@@ -976,15 +981,22 @@ internal class UserManagementService(
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
         var user = await FindInternalUserAsync(context, username, ct);
-        if (!MaySignIn(user, password, out var refusedByLocalLogin))
+        var now = timeProvider.GetUtcNow().UtcDateTime;
+        var passwordMatches = PasswordMatches(user, password);
+        var lockedOut = IsLockedOut(user, now);
+        var refusedByLocalLogin = false;
+        if (lockedOut || !MaySignIn(user, passwordMatches, out refusedByLocalLogin))
         {
+            await RecordFailedSignInAsync(context, passwordMatches ? null : user, now, ct);
+
             // The user the name resolved to, for the security audit of the attempt (the caller never sees it).
             return new AuthenticationResult
             {
                 Success = false,
                 ErrorMessage = InvalidCredentials,
                 BeaconUserId = user?.Id,
-                LocalLoginRefused = refusedByLocalLogin
+                LocalLoginRefused = refusedByLocalLogin,
+                LockedOut = lockedOut
             };
         }
 
@@ -994,6 +1006,7 @@ internal class UserManagementService(
         }
 
         user.LastLoginAt = DateTime.UtcNow;
+        ClearFailedSignIns(user);
         await context.SaveChangesAsync(ct);
 
         // The stamp read with the password hash: the sign-in that follows is refused when it is no longer the user's.
@@ -1011,8 +1024,12 @@ internal class UserManagementService(
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
         var user = await FindInternalUserAsync(context, username, ct);
-        if (!MaySignIn(user, currentPassword, out _) || !user.MustChangePassword)
+        var now = timeProvider.GetUtcNow().UtcDateTime;
+        var passwordMatches = PasswordMatches(user, currentPassword);
+        if (IsLockedOut(user, now) || !MaySignIn(user, passwordMatches, out _) || !user.MustChangePassword)
         {
+            await RecordFailedSignInAsync(context, passwordMatches ? null : user, now, ct);
+
             return AuthenticationResult.Failed(InvalidCredentials);
         }
 
@@ -1037,6 +1054,7 @@ internal class UserManagementService(
         user.MustChangePassword = false;
         user.SecurityStamp = SecurityStamps.New();
         user.LastLoginAt = DateTime.UtcNow;
+        ClearFailedSignIns(user);
 
         // By the user, who is signing in: the request has no caller yet.
         await securityAudit.StageAsync(
@@ -1119,16 +1137,20 @@ internal class UserManagementService(
     }
 
     // The password is verified BEFORE the account state is looked at, and against a dummy credential when there is no
-    // account, so neither the answer nor its timing tells an unknown, disabled or (with local login off) non-break-glass
-    // account from a wrong password. Local login is decided by the user name the account is stored with (exact), not by
-    // what was typed (an e-mail address, another casing). A right password refused because local login is off is logged,
-    // with the user's id only.
-    private bool MaySignIn([NotNullWhen(true)] BeaconUser? user, string password, out bool refusedByLocalLogin)
+    // account, so neither the answer nor its timing tells an unknown, disabled, locked-out or (with local login off)
+    // non-break-glass account from a wrong password.
+    private bool PasswordMatches(BeaconUser? user, string password)
     {
-        refusedByLocalLogin = false;
-        var passwordMatches = user is { PasswordHash: not null, PasswordSalt: not null }
+        return user is { PasswordHash: not null, PasswordSalt: not null }
             ? passwordHasher.VerifyPassword(password, user.PasswordHash, user.PasswordSalt)
             : VerifyAgainstDummyCredential(password);
+    }
+
+    // Local login is decided by the user name the account is stored with (exact), not by what was typed (an e-mail
+    // address, another casing). A right password refused because local login is off is logged, with the user's id only.
+    private bool MaySignIn([NotNullWhen(true)] BeaconUser? user, bool passwordMatches, out bool refusedByLocalLogin)
+    {
+        refusedByLocalLogin = false;
         if (user == null || !passwordMatches || !user.IsEnabled || user.ArchivedTime.HasValue)
         {
             return false;
@@ -1147,6 +1169,74 @@ internal class UserManagementService(
             user.Id);
 
         return false;
+    }
+
+    private bool IsLockedOut(BeaconUser? user, DateTime now)
+    {
+        return LockoutSettings.IsEnabled && user?.LockoutEndTime > now;
+    }
+
+    private LockoutOptions LockoutSettings => rateLimits?.Value.Lockout ?? new LockoutOptions();
+
+    // Every refused password sign-in runs the same two statements, so a wrong password for an existing user costs what
+    // one for an unknown, locked-out or refused account costs: the count goes up only for the user a wrong password was
+    // sent for (no row matches otherwise) and only while that user is not locked out; the statement that reaches the
+    // threshold locks the user and starts the count again. Each is one atomic update, so concurrent attempts are all
+    // counted and exactly one of them locks.
+    private async Task RecordFailedSignInAsync(BeaconContext context, BeaconUser? wrongPasswordUser, DateTime now, CancellationToken ct)
+    {
+        var lockout = LockoutSettings;
+        if (!lockout.IsEnabled)
+        {
+            return;
+        }
+
+        var userId = wrongPasswordUser?.Id ?? 0;
+        var maxFailedAttempts = lockout.MaxFailedAttempts;
+        var lockedUntil = now.Add(lockout.Duration);
+
+        await context.Users
+            .Where(x => x.Id == userId)
+            .Where(x => x.LockoutEndTime == null || x.LockoutEndTime <= now)
+            .ExecuteUpdateAsync(x => x.SetProperty(y => y.FailedSignInCount, y => y.FailedSignInCount + 1), ct);
+
+        var locked = await context.Users
+            .Where(x => x.Id == userId)
+            .Where(x => x.FailedSignInCount >= maxFailedAttempts)
+            .Where(x => x.LockoutEndTime == null || x.LockoutEndTime <= now)
+            .ExecuteUpdateAsync(
+                x => x
+                    .SetProperty(y => y.LockoutEndTime, lockedUntil)
+                    .SetProperty(y => y.FailedSignInCount, 0),
+                ct);
+        if (locked == 0)
+        {
+            return;
+        }
+
+        logger?.LogWarning(
+            Authorization.ProjectAccess.ProjectAccessEvents.UserLockedOut,
+            "User {UserId} locked out of password sign-in for {LockoutMinutes} minutes after {FailedAttempts} wrong passwords",
+            userId,
+            lockout.DurationMinutes,
+            maxFailedAttempts);
+
+        // No unit of work to join: the lock is already written by the statement above.
+        await securityAudit.RecordAsync(
+            new SecurityAuditEntry(SecurityAuditActions.UserLockedOut)
+                .On(SecurityAuditResources.User, userId)
+                .By(SecurityAuditActor.Anonymous)
+                .With(new SecurityAuditDetails()
+                    .Add("failedAttempts", maxFailedAttempts)
+                    .Add("lockoutMinutes", lockout.DurationMinutes)
+                    .Add("lockedUntil", lockedUntil)),
+            ct);
+    }
+
+    private static void ClearFailedSignIns(BeaconUser user)
+    {
+        user.FailedSignInCount = 0;
+        user.LockoutEndTime = null;
     }
 
     private bool VerifyAgainstDummyCredential(string password)

@@ -271,7 +271,7 @@ With `Enabled: false`:
 
 `BreakGlassUserNames` holds up to 3 names, each compared exactly (case included) with the stored user name; the holder may type that name or the account's e-mail address. A blank entry or a longer list fails startup, and so does turning local login off with no OIDC, no `BeaconApiOptions.ExternalLogin` (a host-owned login page) and no break-glass account. The JWT login API (`ExternalLoginEndpoint`) does not count for this check. The first-run super admin is a password account: list it (or another internal Admin) before turning local login off.
 
-Password sign-in, and the first-run setup, are throttled per client address: 10 login attempts per 60 seconds, then `429` with `Retry-After`. Behind a reverse proxy configure forwarded headers, or the limit applies to the proxy's address.
+Password sign-in, and the first-run setup, are throttled per client address: 10 login attempts per 60 seconds, then `429` with `Retry-After`. Behind a reverse proxy configure forwarded headers, or the limit applies to the proxy's address. After 5 wrong passwords in a row an internal user is locked out for 15 minutes: every password, the right one included, gets the generic answer, and an administrator's password reset ends the lock early. Both are set under [`Beacon:RateLimits`](/getting-started/configuration/#request-limits).
 
 ## Passwords set by an administrator
 
@@ -418,6 +418,7 @@ For an Admin or a UserAdmin (see [Functional roles](#functional-roles) for a Use
 | `NotAccessToken` from a non-Entra provider | set `AccessTokenClaim` to a claim the provider puts in access tokens only |
 | SSO user sees "no access yet" | assign a role, or set `DefaultRoleName`; the user then selects **Check again** |
 | Login answers `429` | 10 attempts per 60 seconds per address; behind a proxy, configure forwarded headers |
+| The right password is refused for a while | The user is locked out after 5 wrong passwords (15 minutes, `auth.user_locked_out` in the security audit); wait, or reset the password |
 
 ## Upgrading from 4.5
 

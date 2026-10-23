@@ -15,7 +15,7 @@ Go through this list before the first real user signs in. Each line links to whe
 
 ## Reverse proxy
 
-- [ ] TLS terminates at the proxy, and the host runs `UseForwardedHeaders` with **only your proxies** listed, first in the pipeline. The login throttle (10 attempts / 60 s per IP) and the cookie's Secure flag depend on it.
+- [ ] TLS terminates at the proxy, and the host runs `UseForwardedHeaders` with **only your proxies** listed, first in the pipeline. The per-address request limits (`Beacon:RateLimits`: login 10 / 60 s, anonymous refusals 30 / 60 s) and the cookie's Secure flag depend on it.
 
 ```csharp
 var forwarded = new ForwardedHeadersOptions { ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto };

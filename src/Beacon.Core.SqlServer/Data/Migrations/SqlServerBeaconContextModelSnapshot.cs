@@ -663,6 +663,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<int>("FailedSignInCount")
+                        .HasColumnType("int");
+
                     b.Property<string>("IdentityProvider")
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
@@ -677,6 +680,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasColumnType("bit");
 
                     b.Property<DateTime?>("LastLoginAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("LockoutEndTime")
                         .HasColumnType("datetime2");
 
                     b.Property<bool>("MustChangePassword")

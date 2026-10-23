@@ -66,6 +66,9 @@ public static class ServiceConfiguration
         // MaxConcurrentQueriesPerKey: one in-process count per instance, shared by every request.
         services.TryAddSingleton<McpQueryConcurrencyLimiter>();
 
+        // Requests per caller on the MCP route and questions per caller on the ask tool (Beacon:RateLimits).
+        services.TryAddSingleton<McpRateLimiter>();
+
         // Ask SQL pipeline executor seam: adapts IQueryExecutionService onto IAskSqlPipeline's execution
         // interface (§ Architecture ①) so ProjectAskTool never touches the pipeline's execution details.
         services.TryAddTransient<IAskSqlExecutor, AskSqlExecutor>();

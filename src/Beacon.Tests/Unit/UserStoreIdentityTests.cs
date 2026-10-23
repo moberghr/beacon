@@ -92,14 +92,28 @@ public class UserStoreIdentityTests
     [Test]
     public async Task InternalLogin_PrefersAnExactUserName_InTheQueryItself()
     {
-        var capture = new SqlCapture().ThenNoRows();
+        var capture = new SqlCapture().ThenNoRows().ThenRowsAffected(0).ThenRowsAffected(0);
 
         var result = await Service(capture).AuthenticateInternalUserAsync("ana", "pw");
 
         result.Success.Should().BeFalse();
-        var sql = capture.Commands.Should().ContainSingle().Subject;
+        var sql = capture.Commands.First();
         sql.Should().Contain("is_internal_user");
         sql.Should().MatchRegex(@"ORDER BY CASE\s+WHEN \w+\.user_name = @\w+");
+    }
+
+    [Test]
+    public async Task FailedInternalLogin_OfAnUnknownName_RunsTheSameLockoutUpdates_Translates()
+    {
+        var capture = new SqlCapture().ThenNoRows().ThenRowsAffected(0).ThenRowsAffected(0);
+
+        var result = await Service(capture).AuthenticateInternalUserAsync("nobody", "pw");
+
+        result.Success.Should().BeFalse();
+        capture.Commands.Should().HaveCount(3, "a wrong password for an unknown name runs the lockout statements too, matching no row");
+        capture.Commands[1].Should().StartWith("UPDATE").And.Contain("failed_sign_in_count = u.failed_sign_in_count + 1")
+            .And.Contain("lockout_end_time IS NULL OR");
+        capture.Commands[2].Should().StartWith("UPDATE").And.Contain("lockout_end_time =").And.Contain("failed_sign_in_count >=");
     }
 
     [Test]

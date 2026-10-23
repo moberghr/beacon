@@ -88,6 +88,18 @@ public class BeaconUser : ArchivableBaseEntity
     public bool MustChangePassword { get; set; }
 
     /// <summary>
+    /// Wrong passwords sent for this user since their last successful password sign-in or lockout
+    /// (<c>Beacon:RateLimits:Lockout</c>). Not counted while the user is locked out.
+    /// </summary>
+    public int FailedSignInCount { get; set; }
+
+    /// <summary>
+    /// Until when (UTC) this user's password sign-in is refused after too many wrong passwords, whatever password is sent;
+    /// null or past when the user is not locked out. Cleared by a successful sign-in after it and by a password reset.
+    /// </summary>
+    public DateTime? LockoutEndTime { get; set; }
+
+    /// <summary>
     /// Roles assigned to this user.
     /// </summary>
     public List<BeaconUserRole> UserRoles { get; set; } = new();

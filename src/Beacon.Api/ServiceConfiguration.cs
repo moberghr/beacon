@@ -54,6 +54,9 @@ public static class ServiceConfiguration
         // Login throttle ships with Beacon.Api so every host gets it, realtime on or off.
         services.TryAddSingleton<LoginRateLimiter>();
 
+        // The per-caller limits of /beacon/api and of the anonymous requests Beacon refuses (Beacon:RateLimits).
+        services.TryAddSingleton<BeaconApiRateLimiter>();
+
         if (!options.Realtime)
         {
             services.TryAddScoped<IApprovalNotifier, RealtimeDisabledApprovalNotifier>();

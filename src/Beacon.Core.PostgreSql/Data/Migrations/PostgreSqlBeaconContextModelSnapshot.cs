@@ -843,6 +843,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("external_id");
 
+                    b.Property<int>("FailedSignInCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("failed_sign_in_count");
+
                     b.Property<string>("IdentityProvider")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)")
@@ -863,6 +867,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Property<DateTime?>("LastLoginAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("last_login_at");
+
+                    b.Property<DateTime?>("LockoutEndTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("lockout_end_time");
 
                     b.Property<bool>("MustChangePassword")
                         .HasColumnType("boolean")

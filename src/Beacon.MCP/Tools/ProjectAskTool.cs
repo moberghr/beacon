@@ -64,6 +64,19 @@ internal sealed class ProjectAskTool(
 
         signal.SetProjectId(projectId);
 
+        // Beacon:RateLimits:Ask, per caller, MCP and playground alike: refused at once and audited like every other
+        // refusal (§1.7/§9.5). The limiter is registered with the MCP server; a tool built without it is not limited.
+        if (serviceProvider.GetService(typeof(McpRateLimiter)) is McpRateLimiter rateLimiter
+            && !rateLimiter.Ask.TryAcquire(McpQueryConcurrencyLimiter.CallerKeyOf(projectContext), out var retryAfter))
+        {
+            var refusal = string.Format(
+                System.Globalization.CultureInfo.InvariantCulture,
+                McpRateLimiter.AskRefusalFormat,
+                Beacon.Core.Services.Security.RateLimitPartitions.RetryAfterSeconds(retryAfter));
+
+            return await FailAsync(signal, sw, projectId, question, refusal, cancellationToken);
+        }
+
         // After project resolution so the audit row is attributed to the authorized project and that project's
         // content-retention decision governs the stored question.
         var ceilings = deploymentOptions.Value.Ceilings ?? new McpCeilingOptions();

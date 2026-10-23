@@ -81,6 +81,13 @@ public static class AuthServiceExtensions
                 {
                     if (IsApiRequest(context))
                     {
+                        // An anonymous request to a Beacon route is counted against its address's limit of refused
+                        // anonymous requests (Beacon:RateLimits:Anonymous): over it, 429 instead of the 401.
+                        if (!AnonymousRefusalThrottle.TryAdmit(context.HttpContext, out var retryAfter))
+                        {
+                            return RateLimitRefusal.WriteAsync(context.HttpContext, retryAfter);
+                        }
+
                         return WriteJsonStatusAsync(context, StatusCodes.Status401Unauthorized, "Unauthorized");
                     }
 
