@@ -51,6 +51,15 @@ public class TeamsCardGoldenTests
         AssertCard(json, EmptyCard);
     }
 
+    [TestCase("not a url")]
+    [TestCase("https://user:pw@beacon.example.com")]
+    public async Task Card_WithAnUnusableBaseUrl_LeavesTheLinkOutInsteadOfThrowing(string baseUrl)
+    {
+        var json = await PostedCard(Result([], totalRecords: 0, showQuery: true), notificationId: 7, baseUrl: baseUrl);
+
+        AssertCard(json, EmptyCard);
+    }
+
     [Test]
     public async Task Card_WithALoneSurrogate_WritesTheReplacementCharacter()
     {

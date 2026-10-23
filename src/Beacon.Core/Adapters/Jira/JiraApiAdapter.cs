@@ -185,7 +185,7 @@ public class JiraApiAdapter(
                 description,
                 new JiraIssueTypeRef(issueType),
                 string.IsNullOrEmpty(assignee) ? null : new JiraAssignee(assignee),
-                !string.IsNullOrEmpty(label) ? [label] : null,
+                !string.IsNullOrWhiteSpace(label) ? label.Split(' ', StringSplitOptions.RemoveEmptyEntries) : null,
                 !string.IsNullOrEmpty(priorityName) ? new JiraPriorityRef(priorityName) : null,
                 !string.IsNullOrEmpty(parentKey) ? new JiraParentRef(parentKey) : null));
 

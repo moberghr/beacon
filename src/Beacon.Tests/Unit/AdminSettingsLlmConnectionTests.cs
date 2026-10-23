@@ -161,7 +161,7 @@ public class AdminSettingsLlmConnectionTests
     [Test]
     public async Task AnAdmin_ChangesTheLlmConnection()
     {
-        await Update(TestPermissions.Admin).Handle(Changing("endpoint"), CancellationToken.None);
+        await Update(TestPermissions.Admin).Handle(Changing("endpoint") with { LlmApiKey = "new-key" }, CancellationToken.None);
 
         _settings.Verify(x => x.SaveSettingsAsync(It.Is<AppSettingsData>(y => y.LlmEndpoint == "https://elsewhere.example"), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
     }
@@ -247,7 +247,7 @@ public class AdminSettingsLlmConnectionTests
     public async Task PickingAnInstalledProvider_IsAllowed()
     {
         await Update(TestPermissions.Admin).Handle(Command() with { LlmProvider = AiProvider.Bedrock }, CancellationToken.None);
-        await Test(TestPermissions.Admin).Handle(TestCommand(AiProvider.Claude), CancellationToken.None);
+        await Test(TestPermissions.Admin).Handle(TestCommand(AiProvider.Claude) with { LlmApiKey = "claude-key" }, CancellationToken.None);
 
         _settings.Verify(x => x.SaveSettingsAsync(It.Is<AppSettingsData>(y => y.LlmProvider == AiProvider.Bedrock), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
         _tester.Verify(x => x.TestAsync(It.Is<LlmConnectionTestParameters>(y => y.Provider == AiProvider.Claude), It.IsAny<CancellationToken>()), Times.Once);
@@ -286,6 +286,84 @@ public class AdminSettingsLlmConnectionTests
 
         _settings.Verify(x => x.SaveSettingsAsync(It.Is<AppSettingsData>(y => y.LlmProvider == AiProvider.OpenAI), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
         _tester.Verify(x => x.TestAsync(It.IsAny<LlmConnectionTestParameters>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public async Task AnAdmin_ChangingTheEndpointWithoutTheKey_IsRefused_AndNothingIsSavedOrDialled()
+    {
+        var update = () => Update(TestPermissions.Admin).Handle(Command() with { LlmEndpoint = "https://elsewhere.example" }, CancellationToken.None);
+        var test = () => Test(TestPermissions.Admin).Handle(TestCommand(AiProvider.AzureOpenAI) with { LlmEndpoint = "https://elsewhere.example" }, CancellationToken.None);
+
+        await update.Should().ThrowExactlyAsync<InvalidOperationException>().WithMessage(LlmConnectionSettings.NewDestinationNeedsCredentialMessage);
+        await test.Should().ThrowExactlyAsync<InvalidOperationException>().WithMessage(LlmConnectionSettings.NewDestinationNeedsCredentialMessage);
+        _settings.Verify(x => x.SaveSettingsAsync(It.IsAny<AppSettingsData>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
+        _tester.Verify(x => x.TestAsync(It.IsAny<LlmConnectionTestParameters>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public async Task AnAdmin_ChangingTheProviderWithoutTheKey_IsRefused()
+    {
+        var act = () => Update(TestPermissions.Admin).Handle(Command() with { LlmProvider = AiProvider.OpenAI }, CancellationToken.None);
+
+        await act.Should().ThrowExactlyAsync<InvalidOperationException>().WithMessage(LlmConnectionSettings.NewDestinationNeedsCredentialMessage);
+    }
+
+    [Test]
+    public async Task AnAdmin_ChangingTheEndpointWithTheKeyEnteredAgain_Saves()
+    {
+        await Update(TestPermissions.Admin).Handle(Command() with { LlmEndpoint = "https://elsewhere.example", LlmApiKey = "new-key" }, CancellationToken.None);
+        await Test(TestPermissions.Admin).Handle(TestCommand(AiProvider.AzureOpenAI) with { LlmEndpoint = "https://elsewhere.example", LlmApiKey = "new-key" }, CancellationToken.None);
+
+        _settings.Verify(
+            x => x.SaveSettingsAsync(It.Is<AppSettingsData>(y => y.LlmEndpoint == "https://elsewhere.example" && y.LlmApiKey == "new-key"), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+        _tester.Verify(x => x.TestAsync(It.Is<LlmConnectionTestParameters>(y => y.ApiKey == "new-key"), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public async Task AnAdmin_SendingTheStoredEndpointAgain_KeepsTheStoredKey()
+    {
+        await Update(TestPermissions.Admin).Handle(Command() with { LlmEndpoint = "https://llm.example" }, CancellationToken.None);
+
+        _settings.Verify(
+            x => x.SaveSettingsAsync(It.Is<AppSettingsData>(y => y.LlmApiKey == "stored-key"), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Test]
+    public async Task AnAdmin_ChangingTheEndpoint_WithNoStoredKey_NeedsNoKey()
+    {
+        _settings
+            .Setup(x => x.GetSettingsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AppSettingsData { BaseUrl = "https://beacon.example", LlmProvider = AiProvider.AzureOpenAI, LlmEndpoint = "https://llm.example", LlmRegion = "westeurope" });
+
+        await Update(TestPermissions.Admin).Handle(Command() with { LlmEndpoint = "https://elsewhere.example" }, CancellationToken.None);
+
+        _settings.Verify(x => x.SaveSettingsAsync(It.IsAny<AppSettingsData>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [TestCase("http://beacon.example")]
+    [TestCase("https://user:pw@beacon.example")]
+    [TestCase("https://beacon.example/#x")]
+    [TestCase("beacon.example")]
+    public async Task ABaseUrlThatIsNotAnAbsoluteHttpsAddress_IsRefused_AndNothingIsSaved(string baseUrl)
+    {
+        var act = () => Update(TestPermissions.Admin).Handle(Command() with { BaseUrl = baseUrl }, CancellationToken.None);
+
+        await act.Should().ThrowExactlyAsync<InvalidOperationException>().WithMessage(Beacon.Core.Helpers.BaseUrlPolicy.InvalidMessage);
+        _settings.Verify(x => x.SaveSettingsAsync(It.IsAny<AppSettingsData>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public async Task AStoredBaseUrlThatPredatesTheCheck_DoesNotBlockOtherSettings()
+    {
+        _settings
+            .Setup(x => x.GetSettingsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AppSettingsData { BaseUrl = "http://old.example", LlmProvider = AiProvider.AzureOpenAI, LlmRegion = "westeurope", LlmEndpoint = "https://llm.example", LlmApiKey = "stored-key" });
+
+        await Update(TestPermissions.Admin).Handle(Command(model: "gpt-next") with { BaseUrl = "http://old.example" }, CancellationToken.None);
+
+        _settings.Verify(x => x.SaveSettingsAsync(It.Is<AppSettingsData>(y => y.LlmModel == "gpt-next"), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     private UpdateAdminSettingsHandler Update(IBeaconPermissionAccessor permissions)

@@ -4,6 +4,8 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.Settings;
 using Beacon.Core.Services;
 using Microsoft.Extensions.Logging;
+using Beacon.Core.Helpers;
+using Microsoft.Extensions.Hosting;
 using MediatR;
 
 namespace Beacon.Core.Handlers.AdminSettings;
@@ -15,7 +17,8 @@ internal sealed class UpdateAdminSettingsHandler(
     IBeaconPermissionAccessor permissionAccessor,
     ILlmProviderCatalog providerCatalog,
     LlmConnectionApproval llmConnections,
-    ILogger<UpdateAdminSettingsHandler> logger)
+    ILogger<UpdateAdminSettingsHandler> logger,
+    IHostEnvironment? hostEnvironment = null)
     : IRequestHandler<UpdateAdminSettingsCommand>
 {
     public const string BaseUrlAdminOnlyMessage = "Only an Admin can change the base URL.";
@@ -28,6 +31,12 @@ internal sealed class UpdateAdminSettingsHandler(
         // The UI sends `null` for "leave secret as is" and a string for "replace".
         // Pull current settings so we can preserve any secret the caller didn't touch.
         var current = await settingsService.GetSettingsAsync(cancellationToken);
+
+        var baseUrlError = BaseUrlPolicy.Validate(request.BaseUrl, hostEnvironment?.IsDevelopment() == true);
+        if (baseUrlError != null && !SameBaseUrl(current.BaseUrl, request.BaseUrl))
+        {
+            throw new InvalidOperationException(baseUrlError);
+        }
 
         // A SecurityAdmin changes the rest; the provider, endpoint, region and credentials stay an Admin's, and so does
         // the base URL, the address every link Beacon sends out points to.
@@ -48,21 +57,17 @@ internal sealed class UpdateAdminSettingsHandler(
         // The LLM connection is judged against the stored one while the approval workflow covers it, never this process's
         // cached copy, which can predate a change another process stored; the credentials left as they are come from it too.
         var connection = await llmConnections.BaselineAsync(current, cancellationToken);
-        LlmConnectionSettings.DemandAdminForChanges(
-            permissions,
-            actor,
-            logger,
-            connection,
-            new LlmConnectionRequest(
-                request.LlmProvider,
-                request.LlmRegion,
-                request.LlmBedrockAuthMode,
-                request.LlmApiKey,
-                request.LlmEndpoint,
-                request.LlmSessionToken,
-                request.LlmAwsAccessKeyId,
-                request.LlmAwsSecretAccessKey),
-            nullKeepsStored: false);
+        var connectionRequest = new LlmConnectionRequest(
+            request.LlmProvider,
+            request.LlmRegion,
+            request.LlmBedrockAuthMode,
+            request.LlmApiKey,
+            request.LlmEndpoint,
+            request.LlmSessionToken,
+            request.LlmAwsAccessKeyId,
+            request.LlmAwsSecretAccessKey);
+        LlmConnectionSettings.DemandAdminForChanges(permissions, actor, logger, connection, connectionRequest, nullKeepsStored: false);
+        LlmConnectionSettings.DemandCredentialsForNewDestination(connection, connectionRequest);
 
         LlmProviderInstallation.DemandInstalled(providerCatalog, request.LlmProvider, connection.LlmProvider);
 

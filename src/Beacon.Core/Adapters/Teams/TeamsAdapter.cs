@@ -1,6 +1,7 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using Beacon.Core.Adapters.Shared;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Helpers;
 using Beacon.Core.Notifications;
 using System.Text;
 using System.Text.Json;
@@ -81,14 +82,17 @@ internal class TeamsAdapter(NotificationHttpSender sender, BeaconConfiguration c
             ["body"] = bodyElements,
         };
 
-        if (!string.IsNullOrEmpty(configuration.BaseUrl) && recipientQueryResult.NotificationId.HasValue)
+        var resultsLink = recipientQueryResult.NotificationId.HasValue
+            ? BaseUrlPolicy.Link(configuration.BaseUrl, $"notifications/{recipientQueryResult.NotificationId}")
+            : null;
+        if (resultsLink != null)
         {
             card["actions"] = new JsonArray
             {
                 new JsonObject
                 {
                     ["type"] = "Action.OpenUrl",
-                    ["url"] = new Uri($"{configuration.BaseUrl.TrimEnd('/')}/notifications/{recipientQueryResult.NotificationId}").OriginalString,
+                    ["url"] = resultsLink,
                     ["title"] = "View Query Results",
                 },
             };
