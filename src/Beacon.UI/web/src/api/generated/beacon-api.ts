@@ -20725,6 +20725,7 @@ export interface UpdateDataSourceBody {
 
 export interface UpdateDocumentationSectionRequest {
   content: string;
+  releaseToGenerated?: boolean;
 
   [key: string]: any;
 }

@@ -4,6 +4,8 @@ using System.Text;
 using Markdig;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Beacon.Core.Configuration;
 using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
 using Beacon.Core.Data.Entities.Projects;
@@ -28,6 +30,7 @@ internal sealed class ProjectDocumentationService(
     IQueryGuardrailService guardrail,
     ILlmRowDataEgress rowDataEgress,
     ISecurityAuditRecorder securityAudit,
+    IOptions<McpDeploymentOptions> deploymentOptions,
     ILogger<ProjectDocumentationService> logger) : IProjectDocumentationService
 {
     /// <summary>
@@ -141,47 +144,58 @@ internal sealed class ProjectDocumentationService(
 
         sw.Stop();
 
-        // Persist. The sections a person edited in the latest documentation are read now, right before the save, and replace
-        // what this run generated for them: regeneration never silently supersedes curated text.
+        // Persist. The sections a person edited in the latest documentation are read inside the save's transaction, right
+        // before the documentation is written, and replace what this run generated for them: regeneration never silently
+        // supersedes curated text, and an edit committed before the save is in the read.
         await using var context = await contextFactory.CreateDbContextAsync(ct);
-        var curated = await CuratedSectionsOfLatestAsync(context, projectId, ct);
-        var carried = CarryCuratedSections(sections, curated);
-        var documentation = new ProjectDocumentation
-        {
-            ProjectId = projectId,
-            GeneratedByModel = model,
-            GeneratedAt = DateTime.UtcNow,
-            GeneratedByUserId = userId,
-            InputTokens = totalInput,
-            OutputTokens = totalOutput,
-            EstimatedCost = totalCost,
-            DataSourcesAnalyzed = docContext.DataSourceCount,
-            TablesAnalyzed = docContext.TableCount,
-            CodeReferencesAnalyzed = docContext.CodeReferenceCount,
-            GenerationDuration = sw.Elapsed,
-            Sections = sections
-        };
-
-        context.ProjectDocumentations.Add(documentation);
-        await securityAudit.SaveWithEventsAsync(
+        var forbidRowData = deploymentOptions.Value.ForbidRowDataToLlm;
+        var saveResult = await securityAudit.SaveWithEventsAsync(
             context,
-            () =>
+            async () =>
+            {
+                var generatedSections = sections.ToList();
+                var curated = await CuratedSectionsOfLatestAsync(context, projectId, ct);
+                var (carried, dropped) = CarryCuratedSections(generatedSections, curated, forbidRowData);
+                var saved = new ProjectDocumentation
+                {
+                    ProjectId = projectId,
+                    GeneratedByModel = model,
+                    GeneratedAt = DateTime.UtcNow,
+                    GeneratedByUserId = userId,
+                    InputTokens = totalInput,
+                    OutputTokens = totalOutput,
+                    EstimatedCost = totalCost,
+                    DataSourcesAnalyzed = docContext.DataSourceCount,
+                    TablesAnalyzed = docContext.TableCount,
+                    CodeReferencesAnalyzed = docContext.CodeReferenceCount,
+                    GenerationDuration = sw.Elapsed,
+                    Sections = generatedSections
+                };
+
+                context.ProjectDocumentations.Add(saved);
+                await context.SaveChangesAsync(ct);
+
+                return (Documentation: saved, Carried: carried, Dropped: dropped);
+            },
+            x =>
             [
                 new SecurityAuditEntry(SecurityAuditActions.DocumentationGenerated)
                     .On(SecurityAuditResources.Project, projectId)
                     .InProject(projectId)
                     .By(userId > 0 ? SecurityAuditActor.OfUser(userId) : SecurityAuditActor.System)
                     .With(new SecurityAuditDetails()
-                        .Add("documentationId", documentation.Id)
-                        .Add("sectionCount", sections.Count)
-                        .Add("curatedSectionsKept", carried)
+                        .Add("documentationId", x.Documentation.Id)
+                        .Add("sectionCount", x.Documentation.Sections.Count)
+                        .Add("curatedSectionsKept", x.Carried)
+                        .Add("curatedSectionsDropped", x.Dropped)
                         .Add("failedSections", failedSections))
             ],
             ct);
+        var documentation = saveResult.Documentation;
 
         logger.LogInformation(
             "Project documentation {DocId} generated for Project {ProjectId} in {Duration:F1}s ({Sections} sections, {Tokens} tokens)",
-            documentation.Id, projectId, sw.Elapsed.TotalSeconds, sections.Count, totalInput + totalOutput);
+            documentation.Id, projectId, sw.Elapsed.TotalSeconds, documentation.Sections.Count, totalInput + totalOutput);
 
         return documentation;
     }
@@ -313,12 +327,25 @@ internal sealed class ProjectDocumentationService(
     /// <summary>
     /// Puts each curated section (<paramref name="curated"/>, edited by a person) in place of the section of its type in
     /// <paramref name="sections"/>, or adds it when this run generated none of its type: a copy with its title, content
-    /// and who edited it when, so it stays curated in the new documentation. Returns how many were carried.
+    /// and who edited it when, so it stays curated in the new documentation. While row data may not reach the LLM
+    /// (<paramref name="forbidRowData"/>) a section whose text can list discovered values is not carried: it is regenerated
+    /// under the lock, never copied forward unscreened. Returns how many were carried and how many dropped.
     /// </summary>
-    internal static int CarryCuratedSections(List<ProjectDocumentationSection> sections, IReadOnlyList<ProjectDocumentationSection> curated)
+    internal static (int Carried, int Dropped) CarryCuratedSections(
+        List<ProjectDocumentationSection> sections,
+        IReadOnlyList<ProjectDocumentationSection> curated,
+        bool forbidRowData = false)
     {
+        var carried = 0;
+        var dropped = 0;
         foreach (var edited in curated)
         {
+            if (forbidRowData && edited.SectionType.ListsValues())
+            {
+                dropped++;
+                continue;
+            }
+
             var generated = sections.FindIndex(x => x.SectionType == edited.SectionType);
             var kept = new ProjectDocumentationSection
             {
@@ -338,9 +365,11 @@ internal sealed class ProjectDocumentationService(
             {
                 sections.Add(kept);
             }
+
+            carried++;
         }
 
-        return curated.Count;
+        return (carried, dropped);
     }
 
     // The sections of the project's latest documentation that a person edited, one per type (the latest edit).

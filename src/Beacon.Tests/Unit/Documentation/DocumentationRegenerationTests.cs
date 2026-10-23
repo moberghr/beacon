@@ -95,7 +95,7 @@ public class DocumentationRegenerationTests
             new { Action = SecurityAuditActions.DocumentationGenerated, ActorUserId = (int?)StarterUserId, ResourceType = SecurityAuditResources.Project, ResourceId = ProjectId.ToString(), ProjectId = (int?)ProjectId },
             x => x.ExcludingMissingMembers());
         recorded.DetailsJson.Should().Be(
-            $"{{\"documentationId\":{generated.Id},\"sectionCount\":{generated.Sections.Count},\"curatedSectionsKept\":1,\"failedSections\":7}}");
+            $"{{\"documentationId\":{generated.Id},\"sectionCount\":{generated.Sections.Count},\"curatedSectionsKept\":1,\"curatedSectionsDropped\":0,\"failedSections\":7}}");
         world.Audit.Ways.Should().Equal("saved");
     }
 
@@ -111,6 +111,21 @@ public class DocumentationRegenerationTests
     }
 
     [Test]
+    public async Task UnderTheRowDataLock_ACuratedSectionThatCanListValues_IsRegenerated_NotCarried()
+    {
+        var world = new World { ForbidRowData = true };
+        world.Latest.Sections.Add(world.LatestSection(16, ProjectDocSectionType.ApiDocumentation, "API Documentation", "Curated API notes.", edited: true));
+
+        await world.Service().GenerateDocumentationAsync(ProjectId, StarterUserId, CancellationToken.None);
+
+        var generated = world.Saved.OfType<ProjectDocumentation>().Single();
+        generated.Sections.Should().NotContain(x => x.Content.Contains("curated)"));
+        generated.Sections.Single(x => x.SectionType == ProjectDocSectionType.DataModel).EditedTime.Should().BeNull();
+        generated.Sections.Single(x => x.SectionType == ProjectDocSectionType.ApiDocumentation).Content.Should().Be("Curated API notes.");
+        world.Audit.Single("Orders belong to customers").DetailsJson.Should().Contain("\"curatedSectionsKept\":1,\"curatedSectionsDropped\":1");
+    }
+
+    [Test]
     public void CarryingCuratedSections_ReplacesTheGeneratedSectionOfTheirType_AndKeepsItsPlace()
     {
         var sections = new List<ProjectDocumentationSection>
@@ -123,9 +138,10 @@ public class DocumentationRegenerationTests
             new() { Id = 5, SectionType = ProjectDocSectionType.DataModel, Title = "Data Model", Content = "curated model", SortOrder = 9, EditedByUserId = CuratorUserId, EditedTime = EditedTime }
         };
 
-        var carried = ProjectDocumentationService.CarryCuratedSections(sections, curated);
+        var (carried, dropped) = ProjectDocumentationService.CarryCuratedSections(sections, curated);
 
         carried.Should().Be(1);
+        dropped.Should().Be(0);
         sections.Select(x => (x.SectionType, x.Content, x.SortOrder, x.EditedByUserId, x.Id)).Should().Equal(
             (ProjectDocSectionType.ProjectOverview, "generated overview", 0, (int?)null, 0),
             (ProjectDocSectionType.DataModel, "curated model", 2, (int?)CuratorUserId, 0));
@@ -158,6 +174,8 @@ public class DocumentationRegenerationTests
         }
 
         public ProjectDocumentation Latest { get; }
+
+        public bool ForbidRowData { get; set; }
 
         public List<object> Saved { get; } = [];
 
@@ -209,6 +227,7 @@ public class DocumentationRegenerationTests
                 new QueryGuardrailService(),
                 TestRowDataEgress.Discarding(),
                 Audit,
+                Microsoft.Extensions.Options.Options.Create(new Beacon.Core.Configuration.McpDeploymentOptions { ForbidRowDataToLlm = ForbidRowData }),
                 NullLogger<ProjectDocumentationService>.Instance);
         }
     }

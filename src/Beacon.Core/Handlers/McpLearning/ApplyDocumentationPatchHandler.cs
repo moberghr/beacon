@@ -12,7 +12,7 @@ namespace Beacon.Core.Handlers.McpLearning;
 
 /// <summary>
 /// Applies a proposed documentation patch. A section patch appends its content to the project's latest documentation
-/// section of that title and marks the section curated (edited by the applying user, at the time of applying). A column or table patch replaces the data source's description, which every project linking
+/// section of that title and marks the section curated (edited by the applying user, at the time of applying) unless its type can list discovered values (those are regenerated, never carried). A column or table patch replaces the data source's description, which every project linking
 /// the source sees, so it applies only while the description still holds the content captured when the patch was
 /// proposed (<see cref="McpDocumentationPatch.CurrentContent"/>, compared exactly; null and empty are different values, as
 /// the proposal captured them): a description changed since, by hand or by another project's patch, refuses the patch
@@ -104,9 +104,14 @@ internal sealed class ApplyDocumentationPatchHandler(IDbContextFactory<BeaconCon
         patch.AppliedAt = DateTime.UtcNow;
 
         // A curator's decision changes the section like an edit by hand: it is curated from now on (regeneration keeps it).
+        // A section whose text can list discovered column values is not marked: the appended text lasts until the next
+        // regeneration, which then rebuilds the section under the row-data lock instead of copying it forward.
         section.Content += "\n\n" + patch.ProposedContent;
-        section.EditedByUserId = request.AppliedByUserId;
-        section.EditedTime = patch.AppliedAt;
+        if (!section.SectionType.ListsValues())
+        {
+            section.EditedByUserId = request.AppliedByUserId;
+            section.EditedTime = patch.AppliedAt;
+        }
 
         await securityAudit.StageAsync(context, DocumentationPatchAudit.Decided(SecurityAuditActions.DocumentationPatchApplied, patch), ct);
         await context.SaveChangesAsync(ct);

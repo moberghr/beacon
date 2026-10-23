@@ -92,6 +92,7 @@ public class LearnedPatternProjectScopingTests
             new Beacon.Core.Services.Security.QueryGuardrailService(),
             TestRowDataEgress.Discarding(),
             new RecordingSecurityAudit(),
+            Microsoft.Extensions.Options.Options.Create(new Beacon.Core.Configuration.McpDeploymentOptions()),
             NullLogger<ProjectDocumentationService>.Instance);
     }
 

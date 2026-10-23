@@ -57,7 +57,7 @@ internal static class ProjectsEndpoints
         projects.MapPut("/documentation-sections/{id:int}", async (
             int id, UpdateDocumentationSectionRequest body, IMediator m, CancellationToken ct) =>
         {
-            await m.Send(new UpdateDocumentationSectionCommand(id, body.Content), ct);
+            await m.Send(new UpdateDocumentationSectionCommand(id, body.Content, body.ReleaseToGenerated), ct);
             return TypedResults.NoContent();
         }).WithName("UpdateDocumentationSection");
 
@@ -134,7 +134,7 @@ internal static class ProjectsEndpoints
 }
 
 internal sealed record UpdateRepositoryTokenRequest(string? AccessToken);
-internal sealed record UpdateDocumentationSectionRequest(string Content);
+internal sealed record UpdateDocumentationSectionRequest(string Content, bool ReleaseToGenerated = false);
 internal sealed record InstructDocumentationRequest(string Instruction);
 internal sealed record LinkProjectDataSourcesRequest(List<int> DataSourceIds);
 internal sealed record SetProjectMemberRequest(ProjectRole Role);

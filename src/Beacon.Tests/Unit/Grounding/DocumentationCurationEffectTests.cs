@@ -73,8 +73,36 @@ public class DocumentationCurationEffectTests
         edited.Should().BeEquivalentTo(
             new { Action = SecurityAuditActions.DocumentationSectionEdited, ResourceType = SecurityAuditResources.DocumentationSection, ResourceId = "6", ProjectId = (int?)ProjectId },
             x => x.ExcludingMissingMembers());
-        edited.DetailsJson.Should().Be($"{{\"documentationId\":5,\"contentLength\":{content.Length}}}");
+        edited.DetailsJson.Should().Be($"{{\"documentationId\":5,\"contentLength\":{content.Length},\"released\":false}}");
         audit.Ways.Should().Equal("staged");
+    }
+
+    [Test]
+    public async Task EditingASectionOfASupersededDocumentation_IsRefused_AndChangesNothing()
+    {
+        var store = new Store();
+
+        var act = () => new UpdateDocumentationSectionHandler(store.Factory, new RecordingSecurityAudit(), TestProjectAccess.Actors(beaconUserId: CuratorUserId), TimeProvider.System)
+            .Handle(new UpdateDocumentationSectionCommand(7, "late edit"), CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconConflictException>().WithMessage(UpdateDocumentationSectionHandler.SupersededMessage);
+        store.Sections.Single(x => x.Id == 7).Content.Should().Be("Older overview.");
+        store.Sections.Single(x => x.Id == 7).EditedTime.Should().BeNull();
+    }
+
+    [Test]
+    public async Task ReleasingASection_ClearsItsCuratedMark_AndKeepsItsContent()
+    {
+        var store = new Store();
+        var handler = new UpdateDocumentationSectionHandler(store.Factory, new RecordingSecurityAudit(), TestProjectAccess.Actors(beaconUserId: CuratorUserId), TimeProvider.System);
+        await handler.Handle(new UpdateDocumentationSectionCommand(6, "Orders are placed by customers."), CancellationToken.None);
+
+        await handler.Handle(new UpdateDocumentationSectionCommand(6, "ignored", ReleaseToGenerated: true), CancellationToken.None);
+
+        var section = store.Sections.Single(x => x.Id == 6);
+        section.Content.Should().Be("Orders are placed by customers.");
+        section.EditedTime.Should().BeNull();
+        section.EditedByUserId.Should().BeNull();
     }
 
     [Test]
@@ -137,6 +165,21 @@ public class DocumentationCurationEffectTests
         section.EditedByUserId.Should().Be(CuratorUserId);
         section.EditedTime.Should().Be(patch.AppliedAt);
         store.Sections.Single(x => x.Id == 7).EditedTime.Should().BeNull();
+    }
+
+    [Test]
+    public async Task ApplyingAPatch_ToASectionThatCanListValues_AppendsTheText_ButDoesNotMarkItCurated()
+    {
+        var store = new Store();
+        store.Sections.Add(new ProjectDocumentationSection { Id = 8, ProjectDocumentationId = 5, SectionType = ProjectDocSectionType.DataModel, Title = "Data Model", Content = "Model.", Documentation = store.Sections.Single(x => x.Id == 6).Documentation });
+        store.Add(Patch(31, McpDocPatchTarget.DocumentationSection, "Data Model", "Refunds are negative."));
+
+        await Apply(store, 31);
+
+        var section = store.Sections.Single(x => x.Id == 8);
+        section.Content.Should().Be("Model.\n\nRefunds are negative.");
+        section.EditedTime.Should().BeNull();
+        section.EditedByUserId.Should().BeNull();
     }
 
     [Test]

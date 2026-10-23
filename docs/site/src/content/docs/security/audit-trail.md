@@ -53,7 +53,7 @@ A glossary term's and a golden case's events carry their grounding text the same
 fields (a term's `term`, `synonyms`, `definition`, `targetSchema`, `targetTable`, `targetColumn` and `metricExpression`;
 a case's `question` and `goldSql`), and `beforeDigests` / `afterDigests` hold a keyed digest of each one's stored text in
 that order: before and after an edit, after a creation or a promotion, before a deletion. The text never goes into the
-event; the digests show which field an edit changed and let a disclosed text be checked against the event.
+event; the digests show which field an edit changed. A digest is keyed: only a holder of the integrity key can check a disclosed text against it, and digests made under different keys do not compare.
 
 ### What is never stored
 
