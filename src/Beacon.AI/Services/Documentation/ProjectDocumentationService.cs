@@ -2,6 +2,8 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Text;
 using Markdig;
+using Markdig.Syntax;
+using Markdig.Syntax.Inlines;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.AI.Services.Knowledge;
@@ -1451,20 +1453,77 @@ internal sealed class ProjectDocumentationService(
     // --- HTML Conversion ---
 
     private static readonly MarkdownPipeline MarkdownPipelineInstance = new MarkdownPipelineBuilder()
-        .UseAdvancedExtensions()
+        .UsePipeTables()
+        .UseGridTables()
+        .UseEmphasisExtras()
+        .UseTaskLists()
+        .UseAutoLinks()
+        .UseListExtras()
+        .UseAutoIdentifiers()
+        .UseFootnotes()
+        .UseDefinitionLists()
         .DisableHtml()
         .Build();
 
+    // Only the extensions the docs use: no generic attributes (they would put attacker-chosen attributes on
+    // elements) and no media links (they would embed iframes).
+    private static string? SafeUrl(string? url)
+    {
+        var trimmed = new string((url ?? "").Where(x => x > ' ' && x != '\u007f').ToArray());
+        if (trimmed.Length == 0 || trimmed.StartsWith('#'))
+        {
+            return url;
+        }
+
+        if (trimmed.StartsWith("//") || trimmed.Contains('\\'))
+        {
+            return null;
+        }
+
+        var colon = trimmed.IndexOf(':');
+        var firstSeparator = trimmed.IndexOfAny(['/', '?', '#']);
+        if (colon < 0 || (firstSeparator >= 0 && firstSeparator < colon))
+        {
+            return url;
+        }
+
+        var scheme = trimmed[..colon];
+        return scheme.Equals("http", StringComparison.OrdinalIgnoreCase)
+               || scheme.Equals("https", StringComparison.OrdinalIgnoreCase)
+               || scheme.Equals("mailto", StringComparison.OrdinalIgnoreCase)
+            ? url
+            : null;
+    }
+
     internal static string ConvertToHtml(string markdown)
     {
+        var document = Markdig.Markdown.Parse(markdown, MarkdownPipelineInstance);
+        foreach (var link in document.Descendants<LinkInline>().ToList())
+        {
+            var safe = SafeUrl(link.GetDynamicUrl?.Invoke() ?? link.Url);
+            if (safe == null)
+            {
+                link.GetDynamicUrl = null;
+                link.Url = "#";
+            }
+        }
 
-        var body = Markdig.Markdown.ToHtml(markdown, MarkdownPipelineInstance);
+        foreach (var autolink in document.Descendants<AutolinkInline>().ToList())
+        {
+            if (SafeUrl(autolink.Url) == null)
+            {
+                autolink.ReplaceBy(new LiteralInline(autolink.Url));
+            }
+        }
+
+        var body = Markdig.Markdown.ToHtml(document, MarkdownPipelineInstance);
 
         return "<!DOCTYPE html>\n" +
                "<html lang=\"en\">\n" +
                "<head>\n" +
                "    <meta charset=\"UTF-8\" />\n" +
                "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n" +
+               "    <meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'; img-src https:\" />\n" +
                "    <title>Project Documentation</title>\n" +
                "    <style>\n" +
                "        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 1200px; margin: 0 auto; padding: 2rem; color: #1a1a1a; }\n" +

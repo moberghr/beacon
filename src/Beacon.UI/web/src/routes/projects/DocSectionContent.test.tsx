@@ -32,4 +32,13 @@ describe('DocSectionContent sanitising', () => {
     expect(out).toContain('https://example.com');
     expect(out).toContain('mailto:a@example.com');
   });
+
+  it('keeps relative and fragment links', () => {
+    const out = html('[a](/projects/1) [b](page.html) [c](#top) [d](./x) [e](jav&#x09;ascript:alert(1))');
+    expect(out).toContain('href="/projects/1"');
+    expect(out).toContain('href="page.html"');
+    expect(out).toContain('href="#top"');
+    expect(out).toContain('href="./x"');
+    expect(out).not.toContain('javascript:');
+  });
 });

@@ -51,7 +51,9 @@ const SANITIZE_CONFIG = {
   FORBID_TAGS: ['style', 'form', 'input', 'button', 'textarea', 'select', 'iframe', 'object', 'embed'],
   FORBID_ATTR: ['style'],
   ALLOW_DATA_ATTR: false,
-  ALLOWED_URI_REGEXP: /^(?:https?:|mailto:|#)/i,
+  // http(s), mailto, fragments and relative URLs (no scheme before the first / ? #). Remote images stay allowed:
+  // documentation may embed diagrams by URL; the cost is that an image URL is fetched on render.
+  ALLOWED_URI_REGEXP: /^(?:(?:https?|mailto):|[^a-z]|[a-z+.-]+(?:[^a-z+.:-]|$))/i,
 };
 
 function MarkdownBlock({ content }: { content: string }) {
