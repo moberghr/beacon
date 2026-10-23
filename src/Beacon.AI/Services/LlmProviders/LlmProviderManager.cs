@@ -20,6 +20,7 @@ public class LlmProviderManager : ILlmConfigurationUpdater
     private readonly ILogger<LlmProviderManager> _logger;
     private readonly LlmRequestQueue? _queue;
     private readonly ProviderLimits _hostLimits;
+    private readonly LlmConfiguration _hostConfig;
     private readonly object _lock = new();
     private bool _storedLimitsApplied;
     private LlmConfiguration _config;
@@ -46,6 +47,7 @@ public class LlmProviderManager : ILlmConfigurationUpdater
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
         _queue = queue;
         _hostLimits = _config.Limits;
+        _hostConfig = _config;
         _queue?.UpdateLimits(_config.Limits);
 
         // Create initial provider if configuration is valid
@@ -125,29 +127,33 @@ public class LlmProviderManager : ILlmConfigurationUpdater
 
     /// <summary>
     /// Applies the settings; with <paramref name="applyLimits"/> false the limits in force are kept (a save by anyone but
-    /// an Admin), only the recorded monthly budget follows the settings.
+    /// an Admin), only the recorded monthly budget follows the settings. Settings without a provider put the host's
+    /// configuration back in force, as a restart would (<see cref="StoredSettingsApplier"/>): only the limits follow them.
     /// </summary>
     public void UpdateConfiguration(AppSettingsData settings, bool applyLimits)
     {
         lock (_lock)
         {
             var previous = _config;
-            var next = previous with
-            {
-                Provider = settings.LlmProvider ?? previous.Provider,
-                ApiKey = settings.LlmApiKey ?? string.Empty,
-                Endpoint = settings.LlmEndpoint,
-                Region = settings.LlmRegion,
-                SessionToken = settings.LlmSessionToken,
-                AwsAccessKeyId = settings.LlmAwsAccessKeyId,
-                AwsSecretAccessKey = settings.LlmAwsSecretAccessKey,
-                BedrockAuthMode = settings.LlmBedrockAuthMode,
-                Model = settings.LlmModel ?? string.Empty,
-                FastModel = settings.LlmFastModel,
-                Limits = applyLimits
-                    ? StoredLimits(previous.Limits, settings)
-                    : previous.Limits with { MonthlyBudget = settings.LlmMonthlyBudget },
-            };
+            var limits = applyLimits
+                ? StoredLimits(previous.Limits, settings)
+                : previous.Limits with { MonthlyBudget = settings.LlmMonthlyBudget };
+            var next = settings.LlmProvider is null
+                ? _hostConfig with { Limits = limits }
+                : previous with
+                {
+                    Provider = settings.LlmProvider.Value,
+                    ApiKey = settings.LlmApiKey ?? string.Empty,
+                    Endpoint = settings.LlmEndpoint,
+                    Region = settings.LlmRegion,
+                    SessionToken = settings.LlmSessionToken,
+                    AwsAccessKeyId = settings.LlmAwsAccessKeyId,
+                    AwsSecretAccessKey = settings.LlmAwsSecretAccessKey,
+                    BedrockAuthMode = settings.LlmBedrockAuthMode,
+                    Model = settings.LlmModel ?? string.Empty,
+                    FastModel = settings.LlmFastModel,
+                    Limits = limits,
+                };
 
             // Atomic publish of the new snapshot — readers via CurrentConfiguration / the
             // factory accessor will see either the old or the new instance, never a torn one.
@@ -155,6 +161,12 @@ public class LlmProviderManager : ILlmConfigurationUpdater
             if (applyLimits)
             {
                 ApplyLimits(next.Limits);
+            }
+
+            // The host's configuration already in force keeps the providers built from it.
+            if (settings.LlmProvider is null && next == previous with { Limits = limits })
+            {
+                return;
             }
 
             // The active provider always matches the published configuration: when the new one cannot build a provider,
