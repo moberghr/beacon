@@ -29,12 +29,13 @@ const KIND_OPTIONS: SegOption<KindFilter>[] = [
   { value: `${ChangeApprovalKind.RecipientDestination}`, label: 'Recipients' },
   { value: `${ChangeApprovalKind.DataSourceConnection}`, label: 'Data sources' },
   { value: `${ChangeApprovalKind.LlmConnection}`, label: 'LLM connection' },
+  { value: `${ChangeApprovalKind.AdminRoleGrant}`, label: 'Admin role' },
 ];
 
-// Recipient and data-source connection changes are an Approver's to read, and LLM connection changes only an Admin's: the
+// Recipient and data-source connection changes are an Approver's to read, and LLM connection changes and Admin role grants only an Admin's: the
 // server lists them to nobody else.
 const APPROVER_KINDS: KindFilter[] = [`${ChangeApprovalKind.RecipientDestination}`, `${ChangeApprovalKind.DataSourceConnection}`];
-const ADMIN_KINDS: KindFilter[] = [`${ChangeApprovalKind.LlmConnection}`];
+const ADMIN_KINDS: KindFilter[] = [`${ChangeApprovalKind.LlmConnection}`, `${ChangeApprovalKind.AdminRoleGrant}`];
 
 function kindOptions(canReview: boolean, isAdmin: boolean): SegOption<KindFilter>[] {
   return KIND_OPTIONS

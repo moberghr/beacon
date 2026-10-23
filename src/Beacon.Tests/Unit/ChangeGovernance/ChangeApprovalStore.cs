@@ -56,6 +56,11 @@ internal sealed class ChangeApprovalStore
 
     public List<BeaconUser> Users { get; } = [];
 
+    /// <summary>The roles users hold (a grant of the Admin role reads and writes them).</summary>
+    public List<BeaconRole> Roles { get; } = [];
+
+    public List<BeaconUserRole> UserRoles { get; } = [];
+
     /// <summary>
     /// The stored admin settings (the LLM connection's change reads and writes them); a save adds the rows it inserts. Their
     /// history is tracked by EF's own set, so a save records it in <see cref="Saved"/>.
@@ -98,6 +103,9 @@ internal sealed class ChangeApprovalStore
             [typeof(Recipient)] = RecordingBeaconContext.MemorySet(Recipients, Saved),
             [typeof(ChangeApprovalRequest)] = RecordingBeaconContext.MemorySet(Requests, Saved),
             [typeof(BeaconUser)] = RecordingBeaconContext.MemorySet(Users, Saved),
+            [typeof(BeaconRole)] = RecordingBeaconContext.MemorySet(Roles, Saved),
+            [typeof(BeaconUserRole)] = RecordingBeaconContext.MemorySet(UserRoles, Saved),
+            [typeof(ApiKeyCredential)] = RecordingBeaconContext.MemorySet(new List<ApiKeyCredential>(), Saved),
             [typeof(ProjectDataSource)] = RecordingBeaconContext.MemorySet(ProjectLinks, Saved),
             [typeof(DatabaseMetadata)] = RecordingBeaconContext.MemorySet(Metadata, Saved),
             [typeof(AppSetting)] = RecordingBeaconContext.MemorySet(Settings, Saved),

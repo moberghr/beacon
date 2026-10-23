@@ -36,14 +36,16 @@ internal sealed class CreateExternalUserHandler(
             throw new InvalidOperationException(response.Message ?? "Failed to create user.");
         }
 
-        await rules.LogCreatedAsync(request.UserName, false, roles, cancellationToken);
+        await rules.LogCreatedAsync(request.UserName, false, cancellationToken);
     }
 }
 
 /// <summary>
 /// Creates an external user with <c>RoleIds</c>, who signs in through the identity provider as the subject <c>ExternalId</c>.
 /// For an Admin or a UserAdmin; only an Admin assigns the Admin role or a functional role (403), and separation of duties,
-/// when on, refuses a conflicting pair (400). The new user and the roles assigned are logged.
+/// when on, refuses a conflicting pair (400). The new user and the roles assigned are logged. While the approval workflow
+/// reviews grants of the Admin role, the user is created with the other roles and the Admin role waits for another live
+/// Admin's approval.
 /// </summary>
 [ProjectScopeExempt("user management, gated by the UserAdmin permission; no project data", Policy = BeaconPermissions.UserAdminPolicy)]
 public record CreateExternalUserCommand(

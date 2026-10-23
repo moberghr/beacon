@@ -11,7 +11,8 @@ namespace Beacon.Core.ChangeApprovals;
 /// change was rejected — and the pending change requests of that kind. While the workflow does not cover the kind, they
 /// run, are evaluated, receive deliveries or connect as they are. For data sources only those created and never approved
 /// (held) are counted, by their stored state alone: telling a changed connection apart would decrypt every one. The LLM
-/// connection's change is staged, never applied unapproved, so only its pending requests are counted.
+/// connection's change is staged, never applied unapproved, and so is a grant of the Admin role: only their pending
+/// requests are counted.
 /// </summary>
 internal static class ReleasedChangeReport
 {
