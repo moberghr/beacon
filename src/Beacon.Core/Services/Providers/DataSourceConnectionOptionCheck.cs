@@ -19,12 +19,16 @@ internal sealed class DataSourceConnectionOptionCheck(
 {
     private readonly List<IDataSourceConnectionOptionInspector> _inspectors = inspectors.ToList();
 
-    /// <summary>Null when the connection is accepted; otherwise what to refuse it with or warn about.</summary>
-    public DataSourceConnectionOptionProblem? Check(DataSourceType dataSourceType, DatabaseEngineType? databaseEngineType, string connectionData)
+    /// <summary>
+    /// Null when the connection is accepted; otherwise what to refuse it with or warn about. Without
+    /// <paramref name="checkOptions"/> (a host-managed source: the operator's own wiring, which may sign in as the host)
+    /// only the host list applies.
+    /// </summary>
+    public DataSourceConnectionOptionProblem? Check(DataSourceType dataSourceType, DatabaseEngineType? databaseEngineType, string connectionData, bool checkOptions = true)
     {
         var engine = dataSourceType == DataSourceType.Database ? databaseEngineType : null;
         var verdict = Inspect(dataSourceType, engine, connectionData);
-        if (verdict is { Accepted: false } && !IsLifted(verdict))
+        if (checkOptions && verdict is { Accepted: false } && !IsLifted(verdict))
         {
             return new DataSourceConnectionOptionProblem(
                 $"sets {verdict.Option}, which Beacon does not accept",
@@ -56,23 +60,26 @@ internal sealed class DataSourceConnectionOptionCheck(
     }
 
     /// <summary>
-    /// Whether <paramref name="host"/> matches an entry: the same name, or a name below a <c>*.</c> entry's domain.
-    /// Case-insensitive; a trailing dot and IPv6 brackets are ignored.
+    /// Whether <paramref name="host"/> matches an entry: the same name or IP address, or a name below a <c>*.</c> entry's
+    /// domain. Case-insensitive; a trailing dot and IPv6 brackets are ignored, IP addresses are compared in their canonical
+    /// form. A host that is not a bare host name or IP address (<see cref="DataSourceHostName"/>) matches nothing.
     /// </summary>
     internal static bool IsAllowed(string host, IReadOnlyList<string> allowedHosts)
     {
-        var name = Normalize(host);
-        if (name.Length == 0)
+        var name = DataSourceHostName.Canonical(host);
+        if (name == null)
         {
             return false;
         }
 
+        var isName = !DataSourceHostName.IsIpAddress(host);
         foreach (var entry in allowedHosts)
         {
-            var pattern = Normalize(entry);
-            if (pattern.StartsWith("*.", StringComparison.Ordinal))
+            var trimmed = entry.Trim();
+            if (trimmed.StartsWith("*.", StringComparison.Ordinal))
             {
-                if (name.Length > pattern.Length - 1 && name.EndsWith(pattern[1..], StringComparison.Ordinal))
+                var domain = DataSourceHostName.Name(trimmed[2..]);
+                if (isName && domain != null && name.EndsWith($".{domain}", StringComparison.Ordinal))
                 {
                     return true;
                 }
@@ -80,7 +87,7 @@ internal sealed class DataSourceConnectionOptionCheck(
                 continue;
             }
 
-            if (pattern == name)
+            if (DataSourceHostName.Canonical(trimmed) == name)
             {
                 return true;
             }
@@ -142,10 +149,6 @@ internal sealed class DataSourceConnectionOptionCheck(
         return verdict.Risk == DataSourceConnectionOptionRisk.HostCredentials && connectionOptions.AllowHostCredentials;
     }
 
-    private static string Normalize(string value)
-    {
-        return value.Trim().TrimEnd('.').Trim('[', ']').ToLowerInvariant();
-    }
 }
 
 /// <summary>

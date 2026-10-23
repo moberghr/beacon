@@ -292,7 +292,7 @@ public class DataSourceEngineCheckTests
     {
         Serve(new RecordingDbConnection { Scalar = _ => "10.11.6-MariaDB-0+deb12u1" }, DatabaseEngineType.MySQL);
 
-        var response = await Service([], []).TestConnection("Server=warehouse;SslMode=VerifyFull", DatabaseEngineType.MySQL, CancellationToken.None);
+        var response = await Service([], []).TestConnection("Server=warehouse;Uid=reader;Pwd=pw;SslMode=VerifyFull", DatabaseEngineType.MySQL, CancellationToken.None);
 
         response.Success.Should().BeTrue();
         response.Message.Should().StartWith("Connection successful.").And.Contain("MariaDB").And.NotContain("10.11.6");

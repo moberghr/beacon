@@ -122,25 +122,40 @@ the connection with its driver's own parser and refuses these options:
 
 | Engine | Refused | Signs in as the Beacon host (lifted by `AllowHostCredentials`) |
 |---|---|---|
-| PostgreSQL | `Options`, `Passfile`, `Include Error Detail=true`, `Log Parameters=true` | A Unix-socket `Host`, `GSS Encryption Mode=Require`, no `Password` and no `SSL Certificate` (the host's `PGPASSWORD` or pgpass file) |
+| PostgreSQL | `Options`, `Passfile`, `Include Error Detail=true`, `Log Parameters=true` | A Unix-socket `Host`, `GSS Encryption Mode=Require`, a `Require Auth` that admits `GSS` or `SSPI`, no `Password` and no `SSL Certificate` (the host's `PGPASSWORD` or pgpass file) |
 | SQL Server, Azure Synapse | `AttachDBFilename`, `User Instance=true`, `Authentication=Active Directory Interactive` or `Device Code Flow` | `Integrated Security` (`Trusted_Connection`), any `Authentication` other than `SqlPassword`, `Active Directory Password` or `Active Directory Service Principal`, `Column Encryption Setting=Enabled`, a named-pipe (`np:`), shared-memory (`lpc:`) or LocalDB `Data Source` |
-| MySQL | `AllowLoadLocalInfile=true`, `AllowLoadLocalInfileInPath`, `CommandInterceptors`, `ExceptionInterceptors` | `IntegratedSecurity`, a Kerberos, Windows or OCI `DefaultAuthenticationPlugin`, `OciConfigFile`, `CertificateStoreLocation`, a `ConnectionProtocol` other than TCP |
+| MySQL | `AllowLoadLocalInfile=true`, `AllowLoadLocalInfileInPath`, `CommandInterceptors`, `ExceptionInterceptors` | `IntegratedSecurity`, a Kerberos, Windows or OCI `DefaultAuthenticationPlugin`, `OciConfigFile`, `CertificateStoreLocation`, a `ConnectionProtocol` other than TCP, no `Password` |
 | Snowflake | `client_config_file`, `disable_saml_url_check=true`, `authenticator=externalbrowser` or `oauth_authorization_code` | `authenticator=workload_identity`, `private_key_file` (give the key with `private_key`) |
-| BigQuery | **Service account JSON** that is not a service account key (`"type": "service_account"`) | No service account JSON (the host's application default credentials) |
+| BigQuery | **Service account JSON** that is not a service account key (`"type": "service_account"`), or a key whose `token_uri` is not `https://oauth2.googleapis.com/token`, whose `universe_domain` is not `googleapis.com`, or whose other `*_uri`/`*_url` is not an https URL on `accounts.google.com` or below `googleapis.com` | No service account JSON (the host's application default credentials) |
 | AWS CloudWatch | An **AWS region** that is not a region name | An **AWS profile**, or no access key (the host's IAM role) |
 | Databricks | A **Host** that is not a bare host name (no `https://`, port or path) | |
 
 The rule applies where the transport rule does: creating, changing and testing a connection refuse an option above
-(the message names the option, never a value); a stored or host-managed source keeps working, with one Warning per
-data source per process, and is refused only under `Beacon:DataSources:Transport:EnforceOnExisting`. BigQuery also
-builds its client from a service account key only, so a stored source with any other credential JSON fails when it
-connects. `Beacon:DataSources:Transport:AllowInsecure` lifts the option rule on development hosts.
+(the message names the option, never a value); a stored source keeps working, with one Warning per data source per
+process, and is refused only under `Beacon:DataSources:Transport:EnforceOnExisting`. A host-managed source is the
+host's own wiring and may sign in as the host: the option rule does not apply to it, only the host list below.
+BigQuery also builds its client from a service account key that reaches only Google, so a stored source with any other
+credential JSON fails when it connects. `Beacon:DataSources:Transport:AllowInsecure` lifts the option rule on
+development hosts.
+
+A server can also ask for a sign-in the connection does not name. A PostgreSQL connection that carries its own
+`Password` or `SSL Certificate` opens with `Require Auth=!GSS,!SSPI` and `GSS Encryption Mode=Disable` unless it sets
+them itself, so a server asking for Kerberos or SSPI is refused before the Beacon host's identity is offered. MySql.Data
+follows a server's switch to another authentication plugin and has no setting to refuse it: with a password its
+Kerberos plugin uses the login's own credentials and its OCI plugin needs the OCI SDK (which Beacon does not
+reference), but a Beacon host on Windows answers a switch to the Windows plugin with its Windows account, so connect
+from Windows only to MySQL servers you trust.
 
 `Beacon:DataSources:AllowedHosts` restricts the hosts a connection may reach: every host the connection names (each
-host of a PostgreSQL or MySQL host list, the SQL Server failover partner, the Snowflake proxy and Okta URL, the API
-base and spec URLs, the Databricks host) must be listed. BigQuery and CloudWatch reach only their vendor's endpoints
-and pass. A connection whose hosts its connector cannot tell (MySQL `DnsSrv`, a type with no option check) is refused
-while the list is set. `AllowInsecure` does not lift the list. See
+host of a PostgreSQL or MySQL host list, the SQL Server failover partner, the Snowflake host or the account's
+`snowflakecomputing.com` host as the driver composes it, its proxy, Okta and OAuth URLs, the API base and spec URLs,
+the Databricks host, the BigQuery key's `token_uri` host `oauth2.googleapis.com`) must be listed. CloudWatch reaches
+only its region's AWS endpoint and passes. A host that is not a bare host name or IP address (a scheme, port, path,
+`?`, `#`, `@`, a space or a non-ASCII character in it) matches no entry, and a connection whose hosts its connector
+cannot tell (MySQL `DnsSrv`, a Snowflake OAuth URL that is not an absolute URL, a type with no option check) is
+refused while the list is set. Entries and hosts are ASCII (write an internationalised name in its `xn--` form) and IP
+addresses are compared in their canonical form. The list matches names as the connection writes them: the addresses
+they resolve to are not pinned, so it trusts the Beacon host's DNS. `AllowInsecure` does not lift the list. See
 [Configuration](/getting-started/configuration/#data-source-driver-options-and-hosts).
 
 ### Engine check

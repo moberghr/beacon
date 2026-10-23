@@ -10,12 +10,15 @@ namespace Beacon.Connector.Snowflake;
 /// <c>client_config_file</c> (a file on the Beacon host), <c>disable_saml_url_check=true</c>, a browser sign-in
 /// (<c>authenticator=externalbrowser</c> or <c>oauth_authorization_code</c>), and signing in as the host:
 /// <c>authenticator=workload_identity</c> or a <c>private_key_file</c> on the host (give the key with
-/// <c>private_key</c>). The hosts are <c>host</c> (or the account's <c>snowflakecomputing.com</c> host), the
-/// <c>proxyhost</c> when <c>useproxy</c> is on and an Okta <c>authenticator</c> URL's host.
+/// <c>private_key</c>). The hosts are <c>host</c> (or the account's <c>snowflakecomputing.com</c> host, composed as the
+/// driver composes it), the <c>proxyhost</c> when <c>useproxy</c> is on, an Okta <c>authenticator</c> URL's host and the
+/// hosts of the OAuth token, authorization and redirect URLs.
 /// </summary>
 public sealed class SnowflakeConnectionOptionInspector : IDataSourceConnectionOptionInspector
 {
     private static readonly string[] BrowserAuthenticators = ["externalbrowser", "oauth_authorization_code"];
+
+    private static readonly string[] OAuthUrls = ["oauthtokenrequesturl", "oauthauthorizationurl", "oauthredirecturi"];
 
     public DataSourceType DataSourceType => DataSourceType.Database;
 
@@ -57,8 +60,7 @@ public sealed class SnowflakeConnectionOptionInspector : IDataSourceConnectionOp
 
     private static List<string>? Hosts(SnowflakeDbConnectionStringBuilder builder, string? authenticator)
     {
-        var account = Value(builder, "account");
-        var host = Value(builder, "host") ?? (account == null ? null : $"{account}.snowflakecomputing.com");
+        var host = Value(builder, "host") ?? AccountHost(builder);
         if (host == null)
         {
             return null;
@@ -76,7 +78,38 @@ public sealed class SnowflakeConnectionOptionInspector : IDataSourceConnectionOp
             hosts.Add(okta.Host);
         }
 
+        // An OAuth URL that is not an absolute URL names no host Beacon can tell.
+        foreach (var key in OAuthUrls)
+        {
+            var url = Value(builder, key);
+            if (url == null)
+            {
+                continue;
+            }
+
+            if (!Uri.TryCreate(url, UriKind.Absolute, out var uri))
+            {
+                return null;
+            }
+
+            hosts.Add(uri.Host);
+        }
+
         return hosts;
+    }
+
+    // The host the driver composes from the account when no host is set: "_" becomes "-" unless allowunderscoresinhost.
+    private static string? AccountHost(SnowflakeDbConnectionStringBuilder builder)
+    {
+        var account = Value(builder, "account");
+        if (account == null)
+        {
+            return null;
+        }
+
+        var name = IsTrue(Value(builder, "allowunderscoresinhost")) ? account : account.Replace('_', '-');
+
+        return $"{name}.snowflakecomputing.com";
     }
 
     private static bool IsTrue(string? value)

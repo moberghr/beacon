@@ -17,9 +17,9 @@ namespace Beacon.Core.Services.Providers;
 /// <c>Beacon:DataSources:Transport:AllowInsecure</c> lifts both. The same applies to a driver option the connector's
 /// <see cref="IDataSourceConnectionOptionInspector"/> refuses (a host-credential option also lifted by
 /// <c>Beacon:DataSources:AllowHostCredentials</c>) and to a host <c>Beacon:DataSources:AllowedHosts</c> does not list (never
-/// lifted by <c>AllowInsecure</c>). A refusal is a <see cref="DataSourceTransportException"/> naming the option to change;
-/// neither a refusal nor a Warning carries a value read from the connection data (§1.11). Registered with <c>TryAdd</c> as
-/// a singleton.
+/// lifted by <c>AllowInsecure</c>); a host-managed source gets the host list only, never the option check. A refusal is a
+/// <see cref="DataSourceTransportException"/> naming the option to change; neither a refusal nor a Warning carries a value
+/// read from the connection data (§1.11). Registered with <c>TryAdd</c> as a singleton.
 /// </summary>
 public interface IDataSourceTransportPolicy
 {
@@ -165,8 +165,9 @@ internal sealed class DataSourceTransportPolicy(
     // refusal under EnforceOnExisting (logged once).
     private void EnsureStoredOptionsAllowed(DataSource dataSource, string connectionData)
     {
-        // Connection data no parser can read is the transport check's Warning or refusal already.
-        var problem = _optionCheck.Check(dataSource.DataSourceType, dataSource.DatabaseEngineType, connectionData);
+        // Connection data no parser can read is the transport check's Warning or refusal already. A host-managed source is
+        // the operator's own wiring (it may sign in as the host by design): only the host list applies to it.
+        var problem = _optionCheck.Check(dataSource.DataSourceType, dataSource.DatabaseEngineType, connectionData, checkOptions: dataSource.HostManagedKey == null);
         if (problem == null || problem.Unreadable)
         {
             return;

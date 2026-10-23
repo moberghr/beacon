@@ -1,4 +1,3 @@
-using System.Text.RegularExpressions;
 using Microsoft.Extensions.Options;
 
 namespace Beacon.Core.Configuration;
@@ -17,8 +16,11 @@ public sealed class DataSourceConnectionOptions
 
     /// <summary>
     /// The hosts a data-source connection may reach: exact host names or IP addresses, or <c>*.example.com</c> for any
-    /// host below <c>example.com</c> (not <c>example.com</c> itself); case-insensitive. Empty (the default) leaves hosts
-    /// unrestricted. When set, a connection whose hosts its connector cannot tell is refused.
+    /// host below <c>example.com</c> (not <c>example.com</c> itself); case-insensitive, ASCII only (an internationalised
+    /// name in its <c>xn--</c> form), IP addresses compared in their canonical form. Empty (the default) leaves hosts
+    /// unrestricted. When set, a connection whose hosts its connector cannot tell, or a host that is not a bare host name
+    /// or IP address, is refused. The names are matched as the connection writes them: the addresses they resolve to are
+    /// not pinned, so the list trusts the DNS the Beacon host uses.
     /// </summary>
     public List<string> AllowedHosts { get; set; } = [];
 
@@ -31,7 +33,7 @@ public sealed class DataSourceConnectionOptions
 }
 
 /// <summary>Refuses at startup an <see cref="DataSourceConnectionOptions.AllowedHosts"/> entry that is not a host name.</summary>
-internal sealed partial class DataSourceConnectionOptionsValidator : IValidateOptions<DataSourceConnectionOptions>
+internal sealed class DataSourceConnectionOptionsValidator : IValidateOptions<DataSourceConnectionOptions>
 {
     public ValidateOptionsResult Validate(string? name, DataSourceConnectionOptions options)
     {
@@ -55,14 +57,9 @@ internal sealed partial class DataSourceConnectionOptionsValidator : IValidateOp
         }
 
         var host = entry.Trim();
-        if (host.StartsWith("*.", StringComparison.Ordinal))
-        {
-            host = host[2..];
-        }
 
-        return HostName().IsMatch(host) || System.Net.IPAddress.TryParse(host.Trim('[', ']'), out _);
+        return host.StartsWith("*.", StringComparison.Ordinal)
+            ? DataSourceHostName.Name(host[2..]) != null
+            : DataSourceHostName.Canonical(host) != null;
     }
-
-    [GeneratedRegex(@"^(?=.{1,253}\.?$)[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?(?:\.[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*\.?$")]
-    private static partial Regex HostName();
 }

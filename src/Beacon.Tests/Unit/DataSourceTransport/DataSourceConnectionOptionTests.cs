@@ -55,6 +55,9 @@ public class DataSourceConnectionOptionTests
         yield return Database(DatabaseEngineType.PostgreSQL, $"Host=/var/run/{Marker};Password={Password};SSL Mode=VerifyFull", "Host", HostCredentials);
         yield return Database(DatabaseEngineType.PostgreSQL, $"{PostgreSql};GSS Encryption Mode=Require", "GSS Encryption Mode", HostCredentials);
         yield return Database(DatabaseEngineType.PostgreSQL, $"Host={Host};Username=reader;SSL Mode=VerifyFull", "Password", HostCredentials);
+        yield return Database(DatabaseEngineType.PostgreSQL, $"{PostgreSql};Require Auth=GSS", "Require Auth", HostCredentials);
+        yield return Database(DatabaseEngineType.PostgreSQL, $"{PostgreSql};Require Auth=ScramSHA256,SSPI", "Require Auth", HostCredentials);
+        yield return Database(DatabaseEngineType.PostgreSQL, $"{PostgreSql};Require Auth=!MD5", "Require Auth", HostCredentials);
 
         yield return Database(DatabaseEngineType.MySQL, $"{MySql};AllowLoadLocalInfile=true", "AllowLoadLocalInfile", Unsafe);
         yield return Database(DatabaseEngineType.MySQL, $"{MySql};AllowLoadLocalInfileInPath=/srv/{Marker}", "AllowLoadLocalInfileInPath", Unsafe);
@@ -64,6 +67,7 @@ public class DataSourceConnectionOptionTests
         yield return Database(DatabaseEngineType.MySQL, $"{MySql};OciConfigFile=/srv/{Marker}", "OciConfigFile", HostCredentials);
         yield return Database(DatabaseEngineType.MySQL, $"{MySql};CertificateStoreLocation=LocalMachine", "CertificateStoreLocation", HostCredentials);
         yield return Database(DatabaseEngineType.MySQL, $"{MySql};Protocol=Unix", "ConnectionProtocol", HostCredentials);
+        yield return Database(DatabaseEngineType.MySQL, $"Server={Host};Uid=reader;SslMode=VerifyFull", "Password", HostCredentials);
 
         yield return Database(DatabaseEngineType.MSSQL, $"{SqlServer};AttachDBFilename=/srv/{Marker}.mdf", "AttachDBFilename", Unsafe);
         yield return Database(DatabaseEngineType.MSSQL, $"{SqlServer};User Instance=true", "User Instance", Unsafe);
@@ -91,6 +95,12 @@ public class DataSourceConnectionOptionTests
         yield return Document(DataSourceType.BigQuery, BigQuery($"[\"{Marker}\"]"), "ServiceAccountJson", Unsafe);
         yield return Document(DataSourceType.BigQuery, BigQuery($"not json {Marker}"), "ServiceAccountJson", Unsafe);
         yield return Document(DataSourceType.BigQuery, BigQuery(null), "ServiceAccountJson", HostCredentials);
+        yield return Document(DataSourceType.BigQuery, BigQuery(Credential("service_account", ("token_uri", $"https://{Host}/{Marker}"))), "ServiceAccountJson", Unsafe);
+        yield return Document(DataSourceType.BigQuery, BigQuery(Credential("service_account", ("Token_Uri", $"https://{Host}/{Marker}"))), "ServiceAccountJson", Unsafe);
+        yield return Document(DataSourceType.BigQuery, BigQuery(Credential("service_account", ("token_uri", "http://oauth2.googleapis.com/token"))), "ServiceAccountJson", Unsafe);
+        yield return Document(DataSourceType.BigQuery, BigQuery(Credential("service_account", ("universe_domain", Host))), "ServiceAccountJson", Unsafe);
+        yield return Document(DataSourceType.BigQuery, BigQuery(Credential("service_account", ("auth_uri", $"https://{Host}/{Marker}"))), "ServiceAccountJson", Unsafe);
+        yield return Document(DataSourceType.BigQuery, BigQuery(Credential("service_account", ("client_x509_cert_url", $"https://www.googleapis.com.{Host}/{Marker}"))), "ServiceAccountJson", Unsafe);
 
         yield return Document(DataSourceType.CloudWatch, CloudWatch($"{Host}/{Marker}", key: true), "Region", Unsafe);
         yield return Document(DataSourceType.CloudWatch, CloudWatch("eu-west-1", key: false, profile: Marker), "ProfileName", HostCredentials);
@@ -107,6 +117,8 @@ public class DataSourceConnectionOptionTests
         yield return Database(DatabaseEngineType.PostgreSQL, PostgreSql);
         yield return Database(DatabaseEngineType.PostgreSQL, $"Host={Host},{OtherHost}:5433;Username=reader;SSL Mode=VerifyFull;SSL Certificate=/etc/beacon/client.pem;SSL Key=/etc/beacon/client.key");
         yield return Database(DatabaseEngineType.PostgreSQL, $"{PostgreSql};Search Path=sales;Include Error Detail=false");
+        yield return Database(DatabaseEngineType.PostgreSQL, $"{PostgreSql};Require Auth=ScramSHA256");
+        yield return Database(DatabaseEngineType.PostgreSQL, $"{PostgreSql};Require Auth=!GSS,!SSPI");
         yield return Database(DatabaseEngineType.MySQL, MySql);
         yield return Database(DatabaseEngineType.MySQL, $"{MySql};AllowLoadLocalInfile=false;SslCa=/etc/ssl/beacon-ca.pem;Protocol=Tcp");
         yield return Database(DatabaseEngineType.MSSQL, SqlServer);
@@ -115,7 +127,11 @@ public class DataSourceConnectionOptionTests
         yield return Database(DatabaseEngineType.Snowflake, Snowflake);
         yield return Database(DatabaseEngineType.Snowflake, $"account={Host};user=reader;authenticator=snowflake_jwt;private_key={Password}");
         yield return Document(DataSourceType.BigQuery, BigQuery(Credential("service_account", ("private_key", Password))));
+        yield return Document(DataSourceType.BigQuery, BigQuery(GoogleServiceAccountKey()));
         yield return Document(DataSourceType.CloudWatch, CloudWatch("us-gov-west-1", key: true));
+        yield return Document(DataSourceType.CloudWatch, CloudWatch("eusc-de-east-1", key: true));
+        yield return Document(DataSourceType.CloudWatch, CloudWatch("cn-northwest-1", key: true));
+        yield return Document(DataSourceType.CloudWatch, CloudWatch("us-isob-east-1", key: true));
         yield return Document(DataSourceType.Databricks, Databricks("adb-1234567890123456.7.azuredatabricks.net"));
     }
 
@@ -167,6 +183,9 @@ public class DataSourceConnectionOptionTests
     [TestCase(DatabaseEngineType.MSSQL, "Server=db-1.example.com\\sales;User ID=reader;Password=p;Failover Partner={0}")]
     [TestCase(DatabaseEngineType.Snowflake, "account=acct;host={0};user=reader;password=p")]
     [TestCase(DatabaseEngineType.Snowflake, "host=db-1.example.com;account=acct;user=reader;password=p;useproxy=true;proxyhost={0}")]
+    [TestCase(DatabaseEngineType.Snowflake, "host=db-1.example.com;account=acct;authenticator=oauth_client_credentials;oauthclientid=c;oauthclientsecret=s;role=r;oauthtokenrequesturl=https://{0}/oauth/token")]
+    [TestCase(DatabaseEngineType.Snowflake, "host=db-1.example.com;account=acct;authenticator=oauth;token=t;oauthauthorizationurl=https://{0}/authorize")]
+    [TestCase(DatabaseEngineType.Snowflake, "host=db-1.example.com;account=acct;authenticator=oauth;token=t;oauthredirecturi=https://{0}/callback")]
     public void WithAHostList_EveryHostTheConnectionReaches_MustBeListed(DatabaseEngineType engine, string template)
     {
         var listed = TestTransport.Policy(allowedHosts: ["*.example.com"]);
@@ -189,6 +208,76 @@ public class DataSourceConnectionOptionTests
         DataSourceConnectionOptionCheck.IsAllowed("example.com.evil.test", ["example.com"]).Should().BeFalse();
         DataSourceConnectionOptionCheck.IsAllowed("[2001:db8::1]", ["2001:db8::1"]).Should().BeTrue();
         DataSourceConnectionOptionCheck.IsAllowed(string.Empty, ["*.example.com"]).Should().BeFalse();
+    }
+
+    [TestCase("db.example.com/")]
+    [TestCase("db.example.com/.example.com")]
+    [TestCase("db.example.com?.example.com")]
+    [TestCase("db.example.com#.example.com")]
+    [TestCase("reader@db.example.com")]
+    [TestCase("db.example.com:5432")]
+    [TestCase("db example.com")]
+    [TestCase("db.exämple.com")]
+    [TestCase("https://db.example.com")]
+    public void AHostThatIsNotABareHostName_MatchesNoEntry(string host)
+    {
+        DataSourceConnectionOptionCheck.IsAllowed(host, ["*.example.com", "db.example.com", host]).Should().BeFalse();
+    }
+
+    [Test]
+    public void IpAddresses_AreComparedInTheirCanonicalForm()
+    {
+        DataSourceConnectionOptionCheck.IsAllowed("10.1", ["10.0.0.1"]).Should().BeTrue();
+        DataSourceConnectionOptionCheck.IsAllowed("10.0.0.1", ["10.1"]).Should().BeTrue();
+        DataSourceConnectionOptionCheck.IsAllowed("2001:DB8:0:0::1", ["[2001:db8::1]"]).Should().BeTrue();
+        DataSourceConnectionOptionCheck.IsAllowed("10.0.0.2", ["10.0.0.1"]).Should().BeFalse();
+        DataSourceConnectionOptionCheck.IsAllowed("1.2.3.4", ["*.2.3.4"]).Should().BeFalse("a wildcard covers host names only");
+    }
+
+    [TestCase("account=db-2.example.com/;user=reader;password=p")]
+    [TestCase("account=db-2.example.com?;user=reader;password=p")]
+    [TestCase("account=db-2.example.com#;user=reader;password=p")]
+    public void WithAHostList_ASnowflakeAccountThatIsNoHostName_IsRefused(string connectionString)
+    {
+        var act = () => TestTransport.Policy(allowedHosts: ["*.snowflakecomputing.com"])
+            .EnsureNewConnectionAllowed(DataSourceType.Database, DatabaseEngineType.Snowflake, connectionString);
+
+        act.Should().Throw<DataSourceTransportException>().Which.Message.Should().Contain("does not list");
+    }
+
+    [Test]
+    public void WithAHostList_ASnowflakeAccountHost_IsComposedAsTheDriverComposesIt()
+    {
+        var listed = TestTransport.Policy(allowedHosts: ["my-acct.snowflakecomputing.com"]);
+
+        var dashed = () => listed.EnsureNewConnectionAllowed(DataSourceType.Database, DatabaseEngineType.Snowflake, "account=my_acct;user=reader;password=p");
+        var underscored = () => listed.EnsureNewConnectionAllowed(DataSourceType.Database, DatabaseEngineType.Snowflake, "account=my_acct;allowunderscoresinhost=true;user=reader;password=p");
+
+        dashed.Should().NotThrow();
+        underscored.Should().Throw<DataSourceTransportException>().Which.Message.Should().Contain("does not list");
+    }
+
+    [Test]
+    public void WithAHostList_ASnowflakeOAuthUrlThatIsNotAnAbsoluteUrl_IsRefused()
+    {
+        var act = () => TestTransport.Policy(allowedHosts: ["*.example.com"]).EnsureNewConnectionAllowed(
+            DataSourceType.Database,
+            DatabaseEngineType.Snowflake,
+            "host=db-1.example.com;account=acct;authenticator=oauth;token=t;oauthtokenrequesturl=db-2.example.com/token");
+
+        act.Should().Throw<DataSourceTransportException>().Which.Message.Should().Contain("cannot tell which hosts");
+    }
+
+    [Test]
+    public void WithAHostList_ABigQueryKey_ReachesItsTokenHost()
+    {
+        var key = BigQuery(GoogleServiceAccountKey());
+
+        var unlisted = () => TestTransport.Policy(allowedHosts: ["db.example.com"]).EnsureNewConnectionAllowed(DataSourceType.BigQuery, null, key);
+        var listed = () => TestTransport.Policy(allowedHosts: ["oauth2.googleapis.com"]).EnsureNewConnectionAllowed(DataSourceType.BigQuery, null, key);
+
+        unlisted.Should().Throw<DataSourceTransportException>().Which.Message.Should().Contain("does not list");
+        listed.Should().NotThrow();
     }
 
     [Test]
@@ -281,6 +370,32 @@ public class DataSourceConnectionOptionTests
     }
 
     [Test]
+    public void AHostManagedSource_SkipsTheOptionCheck_EvenUnderEnforceOnExisting()
+    {
+        var log = new LogRecorder();
+        var policy = TestTransport.Policy(enforceOnExisting: true, logger: log.For<DataSourceTransportPolicy>());
+        var source = Stored(10, DatabaseEngineType.MSSQL, hostManagedKey: "host:warehouse");
+
+        var act = () => policy.EnsureStoredConnectionAllowed(source, $"Server={Host};Integrated Security=true;Encrypt=Strict");
+
+        act.Should().NotThrow();
+        log.Entries.Should().NotContain(x => x.Level >= LogLevel.Warning);
+    }
+
+    [Test]
+    public void AHostManagedSource_ToAnUnlistedHost_KeepsTheHostListWarning()
+    {
+        var log = new LogRecorder();
+        var policy = TestTransport.Policy(logger: log.For<DataSourceTransportPolicy>(), allowedHosts: ["db.example.com"]);
+        var source = Stored(11, DatabaseEngineType.MSSQL, hostManagedKey: "host:warehouse");
+
+        policy.EnsureStoredConnectionAllowed(source, $"Server={Host};Integrated Security=true;Encrypt=Strict");
+
+        log.Entries.Should().ContainSingle(x => x.Level == LogLevel.Warning).Which.Message
+            .Should().Contain("Data source 11").And.Contain("AllowedHosts").And.NotContain("Integrated Security");
+    }
+
+    [Test]
     public void AStoredSource_NotSavedYet_IsCheckedAsANewConnection()
     {
         var act = () => TestTransport.Policy().EnsureStoredConnectionAllowed(Stored(0), $"{PostgreSql};Passfile=/srv/{Marker}");
@@ -310,6 +425,18 @@ public class DataSourceConnectionOptionTests
 
         external.Should().Throw<BeaconException>().Which.Message.Should().Contain("service account").And.NotContain(Host);
         client.ProjectId.Should().Be("p");
+    }
+
+    [Test]
+    public void TheBigQueryClient_IsNotMadeFromAKeyWhoseTokenEndpointIsNotGoogles()
+    {
+        var provider = new ClientMakingBigQueryProvider();
+        var key = JsonSerializer.Deserialize<Dictionary<string, string>>(ServiceAccountKey())!;
+        key["token_uri"] = $"https://{Host}/token";
+
+        var act = () => provider.Make(new BigQueryConfiguration { ProjectId = "p", ServiceAccountJson = JsonSerializer.Serialize(key) });
+
+        act.Should().Throw<BeaconException>().Which.Message.Should().Contain("Google").And.NotContain(Host);
     }
 
     private static TestCaseData Database(DatabaseEngineType engine, string connectionString, string option, DataSourceConnectionOptionRisk risk)
@@ -360,6 +487,22 @@ public class DataSourceConnectionOptionTests
         });
     }
 
+    // A key's Google URLs as Google writes them (no private key: the option check never reads it).
+    private static string GoogleServiceAccountKey()
+    {
+        return JsonSerializer.Serialize(new Dictionary<string, string>
+        {
+            ["type"] = "service_account",
+            ["project_id"] = "p",
+            ["client_email"] = "reader@p.iam.gserviceaccount.com",
+            ["auth_uri"] = "https://accounts.google.com/o/oauth2/auth",
+            ["token_uri"] = "https://oauth2.googleapis.com/token",
+            ["auth_provider_x509_cert_url"] = "https://www.googleapis.com/oauth2/v1/certs",
+            ["client_x509_cert_url"] = "https://www.googleapis.com/robot/v1/metadata/x509/reader%40p.iam.gserviceaccount.com",
+            ["universe_domain"] = "googleapis.com"
+        });
+    }
+
     private static string BigQuery(string? serviceAccountJson)
     {
         return JsonSerializer.Serialize(new { ProjectId = "p", ServiceAccountJson = serviceAccountJson });
@@ -381,11 +524,12 @@ public class DataSourceConnectionOptionTests
         return JsonSerializer.Serialize(new { Host = host, HttpPath = "/sql/1.0/warehouses/w", Token = Password });
     }
 
-    private static DataSource Stored(int id, DatabaseEngineType engine = DatabaseEngineType.PostgreSQL)
+    private static DataSource Stored(int id, DatabaseEngineType engine = DatabaseEngineType.PostgreSQL, string? hostManagedKey = null)
     {
         return new DataSource
         {
             Id = id,
+            HostManagedKey = hostManagedKey,
             Name = "warehouse",
             DataSourceType = DataSourceType.Database,
             DatabaseEngineType = engine,
