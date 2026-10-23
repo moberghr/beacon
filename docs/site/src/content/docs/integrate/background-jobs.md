@@ -345,14 +345,13 @@ public sealed class BeaconScheduler(
 **6. The dashboard (optional).** Keep it Admin-only:
 
 ```csharp
-app.UseWarpUI(x =>
-{
-    x.RoutePrefix = "/warp";
-    x.Authorization = WarpDashboardGuard.Require(new AdminOnlyWarpFilter(), x.RoutePrefix);   // IWarpAuthorizationFilter: authenticated + IsInRole("Admin")
-});
+var warpUi = new WarpUIOptions { RoutePrefix = "/warp" };
+warpUi.Authorization = new AdminOnlyWarpFilter();   // IWarpAuthorizationFilter: authenticated + IsInRole("Admin")
+WarpDashboardGuard.Require(warpUi.Authorization, warpUi.RoutePrefix);
+app.UseWarpUI(warpUi);
 ```
 
-Warp's default, with no filter, admits every request that reaches the route, and Beacon's login gate does not cover `/warp`. `WarpDashboardGuard.Require` (`Beacon.Api.Authentication`) throws at startup when the filter is missing, so the dashboard never opens by accident.
+Warp's default, with no filter, admits every request that reaches the route, and Beacon's login gate does not cover `/warp`. `WarpDashboardGuard.Require` (`Beacon.Api.Authentication`) throws when the filter it is given is null. Call it on the finished options' `Authorization` before mapping, as the sample's `UseGuardedWarpUI` does; a host that calls `UseWarpUI` directly is not checked.
 
 The filter reads the Beacon session, which applies to `/beacon` and the prefixes in `Beacon:Authentication:AdditionalPaths` only: list `/warp` there (`"Beacon": { "Authentication": { "AdditionalPaths": [ "/warp" ] } }`), or the dashboard refuses every request.
 

@@ -343,10 +343,10 @@ app.MapBeaconMcp();
 app.MapMcpDiscovery();
 
 // Warp Dashboard - available at /warp — Admin-only (§7.4).
-app.UseWarpUI(warpUiOptions =>
+app.UseGuardedWarpUI(warpUiOptions =>
 {
     warpUiOptions.RoutePrefix = "/warp";
-    warpUiOptions.Authorization = WarpDashboardGuard.Require(new WarpDashboardAuthFilter(), warpUiOptions.RoutePrefix);
+    warpUiOptions.Authorization = new WarpDashboardAuthFilter();
 });
 
 // React SPA shell at /beacon. Beacon.UI ships the built React app as Razor Class

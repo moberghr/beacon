@@ -1,4 +1,6 @@
 using Beacon.Api.Authentication;
+using Beacon.SampleProject.Authentication;
+using Beacon.SampleProject.Warp;
 using Beacon.Tests.Common;
 using FluentAssertions;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -51,10 +53,11 @@ public class CookieHostingDefaultsTests
         options.Cookie.SameSite.Should().Be(SameSiteMode.Lax);
     }
 
-    [TestCase("http://localhost:5000", false, true)]
-    [TestCase("https://localhost:5001", false, false)]
-    [TestCase("http://localhost:5000", true, false)]
-    public void PlainHttpListener_WarnsOnlyWhenTheCookieIsNotForcedSecure(string address, bool secureAlways, bool warns)
+    [TestCase("http://localhost:5000", false, false, true)]
+    [TestCase("https://localhost:5001", false, false, false)]
+    [TestCase("http://localhost:5000", true, false, false)]
+    [TestCase("http://localhost:5000", false, true, false)]
+    public void PlainHttpListener_WarnsOnlyWhenTheCookieIsNotForcedSecureNorTheSchemeForwarded(string address, bool secureAlways, bool forwardedProto, bool warns)
     {
         var logger = new CapturingLogger<CookieTransportStartupWarning>();
         var configuration = new ConfigurationBuilder()
@@ -74,6 +77,8 @@ public class CookieHostingDefaultsTests
         var services = new ServiceCollection();
         services.AddSingleton(server.Object);
         services.AddSingleton(lifetime.Object);
+        services.Configure<Microsoft.AspNetCore.Builder.ForwardedHeadersOptions>(x =>
+            x.ForwardedHeaders = forwardedProto ? Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.XForwardedProto : Microsoft.AspNetCore.HttpOverrides.ForwardedHeaders.None);
         using var provider = services.BuildServiceProvider();
         var builder = new Mock<IApplicationBuilder>();
         builder.SetupGet(x => x.ApplicationServices).Returns(provider);
@@ -94,6 +99,20 @@ public class CookieHostingDefaultsTests
 
         var missing = () => WarpDashboardGuard.Require<object>(null, "/jobs");
         missing.Should().Throw<InvalidOperationException>().WithMessage("*'/jobs'*no authorization filter*");
+    }
+
+    [Test]
+    public void WarpDashboardSetup_RefusesFinishedOptionsWithoutAFilter_AndKeepsTheSampleFilter()
+    {
+        var open = () => WarpDashboardSetup.BuildGuardedOptions(x => x.RoutePrefix = "/jobs");
+        open.Should().Throw<InvalidOperationException>().WithMessage("*'/jobs'*no authorization filter*");
+
+        var guarded = WarpDashboardSetup.BuildGuardedOptions(x =>
+        {
+            x.RoutePrefix = "/warp";
+            x.Authorization = new WarpDashboardAuthFilter();
+        });
+        guarded.Authorization.Should().BeOfType<WarpDashboardAuthFilter>();
     }
 
     private sealed class CapturingLogger<T> : ILogger<T>

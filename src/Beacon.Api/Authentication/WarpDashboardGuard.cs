@@ -2,8 +2,9 @@ namespace Beacon.Api.Authentication;
 
 /// <summary>
 /// Fail-closed check for a host that maps the Warp dashboard: Warp's own default (no authorization filter) lets every
-/// request that reaches the route in, and Beacon's login gate does not cover the dashboard's path. Call it with the filter
-/// before <c>UseWarpUI</c> takes the options; it throws when there is none.
+/// request that reaches the route in, and Beacon's login gate does not cover the dashboard's path. Call it with the finished
+/// options' filter (after the host's configure delegate has run, never with a freshly constructed filter) and before the
+/// dashboard is mapped; it throws when there is none. The sample host does this in <c>UseGuardedWarpUI</c>.
 /// </summary>
 public static class WarpDashboardGuard
 {
