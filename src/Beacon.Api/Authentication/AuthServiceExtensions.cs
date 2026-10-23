@@ -177,7 +177,12 @@ public static class AuthServiceExtensions
     }
 
     /// <summary>
-    /// Adds JWT authentication support for Beacon.
+    /// Adds JWT authentication support for Beacon. With an <see cref="JwtAuthenticationOptions.ExternalLoginEndpoint"/>,
+    /// the password sign-in provider becomes <see cref="HybridAuthenticationProvider"/>, whichever order this and
+    /// <c>AddBeaconServices</c> are called in: internal users sign in first and the external login is the fallback, so
+    /// adding it never takes internal-password sign-in away. Without user management, or with internal users off
+    /// (<see cref="UserManagementOptions.AllowInternalUsers"/>), the external login alone is the provider. An <c>http</c>
+    /// JWKS or login URL to a loopback host is accepted in Development only (startup fails otherwise).
     /// </summary>
     public static IServiceCollection AddBeaconJwtAuthentication(
         this IServiceCollection services,
@@ -190,13 +195,13 @@ public static class AuthServiceExtensions
         options.Validate();
 
         services.AddSingleton(options);
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, JwtEndpointStartupCheck>());
 
         services.TryAddScoped<JwtExternalApiAuthenticationProvider>();
 
         if (!string.IsNullOrEmpty(options.ExternalLoginEndpoint))
         {
-            services.AddScoped<IBeaconAuthenticationProvider>(sp =>
-                sp.GetRequiredService<JwtExternalApiAuthenticationProvider>());
+            services.Replace(ServiceDescriptor.Scoped<IBeaconAuthenticationProvider>(CreateExternalLoginProvider));
         }
 
         return services;
@@ -291,5 +296,20 @@ public static class AuthServiceExtensions
             },
             ProblemJson);
         await context.Response.WriteAsync(payload, context.HttpContext.RequestAborted);
+    }
+
+    // Internal users first, the external login as the fallback (HybridAuthenticationProvider), whenever Beacon holds
+    // internal users; the external login alone otherwise (it fails every login without user management).
+    private static IBeaconAuthenticationProvider CreateExternalLoginProvider(IServiceProvider services)
+    {
+        var jwtProvider = services.GetRequiredService<JwtExternalApiAuthenticationProvider>();
+        var users = services.GetService<Beacon.Core.Services.IUserManagementService>();
+        var configuration = services.GetService<BeaconConfiguration>();
+        if (users == null || configuration is not { UserManagement.AllowInternalUsers: true })
+        {
+            return jwtProvider;
+        }
+
+        return new HybridAuthenticationProvider(users, jwtProvider, configuration);
     }
 }

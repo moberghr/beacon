@@ -362,16 +362,16 @@ builder.Services.AddBeaconJwtAuthentication(jwt =>
 
 | Option | Default | What it does |
 |---|---|---|
-| `ExternalLoginEndpoint` | None | The login API the login form posts to (`JwtExternalApiAuthenticationProvider`) |
+| `ExternalLoginEndpoint` | None | The login API the login form posts to, an `https` URL; internal users sign in first (`HybridAuthenticationProvider`) |
 | `EnableBearerAuthentication` | `false` | Accept `Authorization: Bearer <jwt>` on the REST API |
 | `AccessTokenClaim` | None | For a non-Entra issuer without `typ: at+jwt`: a claim only its access tokens carry. A claim ID tokens carry stops startup |
-| `Validation.SigningKey` / `JwksEndpoint` | None | One is required |
+| `Validation.SigningKey` / `JwksEndpoint` | None | One is required. A signing key is at least 32 bytes (HS256/384/512 only); the JWKS endpoint is an `https` URL (RS, PS and ES 256/384/512 only). `http` to a loopback host is accepted in Development only |
 | `Validation.ValidIssuer(s)`, `ValidAudience(s)` | None | At least one of each is required |
 | `Validation.ClockSkew` | 5 minutes | At most 5 minutes |
 | `Validation.ValidateLifetime`, `ValidateIssuer`, `ValidateAudience` | `true` | Must stay `true` |
 | `ClaimsMapping.*` | `sub`, `preferred_username`, `email`, `roles`, `name` | Which claims hold the user id, user name, e-mail, roles and display name |
 
-With bearer or external login on, a missing key, issuer or audience, a validation flag turned off, or a skew above 5 minutes stops the host. A token must be an access token and name an existing, enabled, external Beacon user; see [User management](/security/user-management/#jwtexternalapiauthenticationprovider). Entra callers on `/beacon/mcp` are configured separately (below).
+With bearer or external login on, a missing or short key, a missing issuer or audience, a validation flag turned off, a skew above 5 minutes or an `http` endpoint stops the host. A token must be an access token and name an existing, enabled, external Beacon user; see [User management](/security/user-management/#jwtexternalapiauthenticationprovider). Entra callers on `/beacon/mcp` are configured separately (below).
 
 ### MCP callers from Entra ID (`Beacon:Mcp:Callers`)
 

@@ -17,7 +17,8 @@ The token only proves **who** is calling. **What** the caller may do (which proj
 
 1. The bearer token is validated (signature against the JWKS endpoint, issuer, audience and lifetime). The JWKS is
    cached: it is fetched once and refreshed hourly, or earlier (at most once every 5 minutes) when a token is
-   signed with a key id the cached set does not hold (key rotation). A failed refresh keeps the last good keys.
+   signed with a key id the cached set does not hold (key rotation). A failed refresh keeps the last good keys for at
+   most 24 hours after the last successful fetch; after that, bearer requests answer `503` until a fetch succeeds.
 2. On `/beacon/mcp`, Beacon passes the validated claims to `IMcpCallerMapper`. The default `ConfiguredMcpCallerMapper`
    first rejects the token unless:
    - its `tid` is one of `AllowedTenants` (a token without `tid` is rejected);
@@ -295,7 +296,8 @@ Things to check when the connection fails, none of which Beacon can see:
   `ValidAudiences` (a v2 token's `aud` is the client id GUID). A malformed bearer value gets the same `401`, never a `500`.
 - **`403`**: the token is valid but the user is not an accepted caller (`Users:Enabled`, `RequiredRoles` /
   `RequiredGroups`, `AllowedTenants`).
-- **`503` with `Retry-After`**: Beacon could not fetch the Entra JWKS and has no cached keys.
+- **`503` with `Retry-After`**: Beacon could not fetch the Entra JWKS and has no usable keys (none cached, or the last
+  good set is more than 24 hours old). After a failed fetch, the next one is tried 30 seconds later.
 
 ## Audit and privacy
 
