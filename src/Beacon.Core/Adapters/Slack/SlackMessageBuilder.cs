@@ -64,7 +64,7 @@ internal class SlackMessageBuilder
 
         return new SlackMessage
         {
-            Text = $"{AdapterConstants.NotificationPrefix} {queryResult.DataSourceName} - {queryResult.SubscriptionName}",
+            Text = ChannelText.TruncateEscaped(ChannelText.Slack($"{AdapterConstants.NotificationPrefix} {queryResult.DataSourceName} - {queryResult.SubscriptionName}"), AdapterConstants.Slack.MaxSectionTextLength),
             Blocks = blocks
         };
     }
@@ -81,7 +81,7 @@ internal class SlackMessageBuilder
             text = new
             {
                 type = "plain_text",
-                text = $"{prefix} {queryResult.DataSourceName} - {queryResult.SubscriptionName}"
+                text = ChannelText.Truncate(ChannelText.StripUnsafe($"{prefix} {queryResult.DataSourceName} - {queryResult.SubscriptionName}").Replace('\n', ' ').Replace('\r', ' '), AdapterConstants.Slack.MaxHeaderLength)
             }
         };
     }
@@ -97,8 +97,8 @@ internal class SlackMessageBuilder
         };
 
         var details = new StringBuilder();
-        details.AppendLine($"*{severityEmoji} Anomaly Severity:* {anomalyEvaluation.Severity}");
-        details.AppendLine($"*Explanation:* {anomalyEvaluation.Explanation}");
+        details.AppendLine($"*{severityEmoji} Anomaly Severity:* {ChannelText.Slack(anomalyEvaluation.Severity)}");
+        details.AppendLine($"*Explanation:* {ChannelText.TruncateEscaped(ChannelText.SlackFenced(anomalyEvaluation.Explanation), AdapterConstants.Slack.MaxAnomalyExplanationLength)}");
 
         if (anomalyEvaluation.BaselineMean.HasValue)
         {
@@ -116,7 +116,7 @@ internal class SlackMessageBuilder
             text = new
             {
                 type = "mrkdwn",
-                text = details.ToString()
+                text = ChannelText.TruncateEscaped(details.ToString(), AdapterConstants.Slack.MaxSectionTextLength)
             }
         };
     }
@@ -129,7 +129,7 @@ internal class SlackMessageBuilder
             text = new
             {
                 type = "mrkdwn",
-                text = $"*Query:*\n```sql\n{sqlQuery}\n```"
+                text = $"*Query:*\n```sql\n{ChannelText.TruncateEscaped(ChannelText.SlackFenced(sqlQuery), AdapterConstants.Slack.MaxSectionTextLength - 40)}\n```"
             }
         };
     }

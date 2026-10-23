@@ -514,6 +514,12 @@ Bound from `Beacon:Subscriptions`, validated at startup.
 
 See [Subscriptions](/features/subscriptions/).
 
+### Reports (`Beacon:Reports`)
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `NeutralizeFormulas` | bool | `true` | A text cell of a CSV or XLSX attachment that starts with `=`, `+`, `-`, `@`, a tab or a carriage return is written so a spreadsheet reads it as text: a CSV cell gets a leading `'`, an XLSX cell the quote prefix. Numbers, dates and booleans are never touched. Set `false` only when the file is not opened in a spreadsheet |
+
 ## Data migration
 
 Bound from `Beacon:Migrations`, validated at startup. **A deployment lock**: only configuration turns it on.
