@@ -159,12 +159,12 @@ app.UseBeaconJwtBearerAuthentication();   // in the pipeline, after ApiKeyAuthMi
 | Option | Default | Notes |
 |---|---|---|
 | `EnableBearerAuthentication` | `false` | Turns the middleware on. |
-| `Validation.JwksEndpoint` or `Validation.SigningKey` | Required | One is required. |
+| `Validation.JwksEndpoint` or `Validation.SigningKey` | Required | One is required. The JWKS endpoint is an `https` URL (`http` to a loopback host in Development only); a signing key is at least 32 bytes. |
 | `Validation.ValidIssuer(s)`, `ValidAudience(s)` | Required | At least one of each; issuer, audience and lifetime validation must stay on. |
 | `Validation.ClockSkew` | 5 min | At most 5 minutes. |
 | `AccessTokenClaim` | None | For non-Entra providers: a claim that proves the token is an access token (ID-token claims such as `sub` or `nonce` are refused). |
 | `ClaimsMapping` | `sub`, `preferred_username`, `email`, `roles`, `name` | Which claims carry the user id, user name, email, roles and display name. |
-| `ExternalLoginEndpoint` | None | Let the login form validate credentials against your own token endpoint. |
+| `ExternalLoginEndpoint` | None | Let the login form validate credentials against your own token endpoint (an `https` URL). Internal users still sign in first. |
 
 A token must prove it is an **access** token (Entra: `azp`/`appid` plus `scp` or `roles`; others: `typ: at+jwt` or `AccessTokenClaim`) and must bind to an existing, enabled Beacon user, so bearer tokens on the REST API need Beacon's user management. On `/beacon/mcp`, tokens go through the **MCP caller mapping** instead (`Beacon:Mcp:Callers`). See [Connect AI clients](/mcp/connect/#option-b-entra-id-callers).
 

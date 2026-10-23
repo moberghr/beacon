@@ -169,7 +169,11 @@ builder.Services.AddBeaconJwtAuthentication(jwt =>
 });
 ```
 
-With `ExternalLoginEndpoint` or `EnableBearerAuthentication` set, the host does not start without a signing key or JWKS endpoint, at least one issuer and one audience; issuer, audience and lifetime validation must stay on, and `ClockSkew` may be at most five minutes.
+With `ExternalLoginEndpoint` or `EnableBearerAuthentication` set, the host does not start without a signing key or JWKS endpoint, at least one issuer and one audience; issuer, audience and lifetime validation must stay on, and `ClockSkew` may be at most five minutes. A `SigningKey` is at least 32 bytes (use base64 of 32 or more random bytes), and `JwksEndpoint` and `ExternalLoginEndpoint` are `https` URLs (`http` to a loopback host is accepted in Development only).
+
+With `ExternalLoginEndpoint` set, `AddBeaconJwtAuthentication` makes `HybridAuthenticationProvider` the sign-in provider whenever user management holds internal users: internal users sign in first, and the external login API is the fallback. Without user management, or with `AllowInternalUsers` off, the external login is the provider on its own.
+
+Tokens are accepted only with `RS256/384/512`, `PS256/384/512` or `ES256/384/512` from a JWKS endpoint, or `HS256/384/512` with a signing key, and only with the header `typ` `JWT`, `at+jwt` or none at all; any other declared type (a logout or event token, for one) is refused.
 
 The token must be an **access token**, shown by positive evidence: a Microsoft Entra token names its client (`azp` or `appid`) and carries `scp` or `roles`; a token from any other issuer has the header `typ: at+jwt` or carries the claim named by `AccessTokenClaim`. A token with `nonce`, `at_hash` or `c_hash` is an ID token and is refused. `AccessTokenClaim` may not name a claim ID tokens carry (`sub`, `aud`, `nonce`, `azp`, `roles`, …); startup fails otherwise. When the SSO authority issued the token, it must also pass the [admission rules](#single-sign-on-admission).
 

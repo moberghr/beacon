@@ -35,6 +35,25 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
     private readonly BeaconConfiguration? _configuration;
     private readonly JwtSecurityTokenHandler _tokenHandler = new();
 
+    // The algorithms accepted for each kind of key: never "none", and never an HMAC algorithm for keys from a JWKS (a
+    // symmetric key published there is public).
+    private static readonly string[] SymmetricAlgorithms =
+    [
+        SecurityAlgorithms.HmacSha256, SecurityAlgorithms.HmacSha384, SecurityAlgorithms.HmacSha512
+    ];
+
+    private static readonly string[] AsymmetricAlgorithms =
+    [
+        SecurityAlgorithms.RsaSha256, SecurityAlgorithms.RsaSha384, SecurityAlgorithms.RsaSha512,
+        SecurityAlgorithms.RsaSsaPssSha256, SecurityAlgorithms.RsaSsaPssSha384, SecurityAlgorithms.RsaSsaPssSha512,
+        SecurityAlgorithms.EcdsaSha256, SecurityAlgorithms.EcdsaSha384, SecurityAlgorithms.EcdsaSha512
+    ];
+
+    // The JOSE header typ values of a token that may authenticate: a plain JWT or an RFC 9068 access token. A token
+    // without typ is accepted (the header is optional, and the access-token screen still applies); any other declared
+    // type (an ID token, a logout or event token) is refused.
+    private static readonly string[] AcceptedTokenTypes = ["JWT", "at+jwt", "application/at+jwt"];
+
     /// <summary>Without Beacon's configuration the local-login switch is not known here; prefer the overload that takes it.</summary>
     public JwtExternalApiAuthenticationProvider(
         HttpClient httpClient,
@@ -321,7 +340,8 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
             RequireExpirationTime = true,
             ClockSkew = _options.Validation.ClockSkew > JwtValidationOptions.MaxClockSkew
                 ? JwtValidationOptions.MaxClockSkew
-                : _options.Validation.ClockSkew
+                : _options.Validation.ClockSkew,
+            TypeValidator = ValidateTokenType
         };
 
         // Configure signing key
@@ -330,6 +350,7 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
             var key = new SymmetricSecurityKey(Encoding.UTF8.GetBytes(_options.Validation.SigningKey));
             parameters.IssuerSigningKey = key;
             parameters.ValidateIssuerSigningKey = true;
+            parameters.ValidAlgorithms = SymmetricAlgorithms;
         }
         else if (!string.IsNullOrEmpty(_options.Validation.JwksEndpoint))
         {
@@ -337,6 +358,7 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
             var keys = await FetchJwksAsync(_options.Validation.JwksEndpoint, forceKeyRefresh, cancellationToken);
             parameters.IssuerSigningKeys = keys;
             parameters.ValidateIssuerSigningKey = true;
+            parameters.ValidAlgorithms = AsymmetricAlgorithms;
         }
         else
         {
@@ -347,6 +369,17 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
         }
 
         return parameters;
+    }
+
+    private static string ValidateTokenType(string? type, SecurityToken securityToken, TokenValidationParameters parameters)
+    {
+        if (string.IsNullOrWhiteSpace(type)
+            || AcceptedTokenTypes.Any(x => string.Equals(x, type.Trim(), StringComparison.OrdinalIgnoreCase)))
+        {
+            return type ?? string.Empty;
+        }
+
+        throw new SecurityTokenInvalidTypeException("The token type is not accepted.") { InvalidType = type };
     }
 
     private async Task<IEnumerable<SecurityKey>> FetchJwksAsync(
@@ -361,6 +394,11 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
                 x => _httpClient.GetStringAsync(jwksEndpoint, x),
                 forceRefresh,
                 cancellationToken);
+        }
+        catch (JwksSigningKeyCache.RetryNotDueException ex)
+        {
+            // The failed fetch that started the wait was logged; the requests until the next attempt are not.
+            throw new SigningKeysUnavailableException(ex);
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
