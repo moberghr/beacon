@@ -368,6 +368,12 @@ public static class ServiceConfiguration
             .ValidateOnStart();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.MigrationOptions>, Configuration.MigrationOptionsValidator>());
 
+        // Request bounds on Beacon's own routes (Beacon:RequestLimits). ValidateOnStart so a negative value fails the host at boot.
+        services.AddOptions<Configuration.RequestLimitsOptions>()
+            .Bind(configuration.GetSection(Configuration.RequestLimitsOptions.SectionName))
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.RequestLimitsOptions>, Configuration.RequestLimitsOptionsValidator>());
+
         // AI actor think cooldown (Beacon:AiActors). ValidateOnStart so a cooldown out of range fails the host at boot.
         services.AddOptions<Configuration.AiActorOptions>()
             .Bind(configuration.GetSection(Configuration.AiActorOptions.SectionName))
