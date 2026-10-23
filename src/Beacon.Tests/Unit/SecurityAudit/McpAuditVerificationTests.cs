@@ -119,7 +119,8 @@ public class McpAuditVerificationTests
         var checkpoint = await Verification(store, new RecordingSecurityAudit(Core.Authorization.BeaconActor.OffRequest), logs).VerifyNewRowsAsync(CancellationToken.None);
 
         checkpoint.FromAuditId.Should().Be(2, "the forged checkpoint naming row 4 is passed over");
-        checkpoint.FailedAuditIds.Should().Equal([3], "row 1 was checked by an earlier run; row 3 has no seal days after the first sealed row");
+        checkpoint.FailedAuditIds.Should().Equal([3, 1], "row 3 has no seal days after the first sealed row; row 1, checked by an earlier run, is checked again");
+        checkpoint.RecheckedCount.Should().Be(2);
         checkpoint.SealedFromAuditId.Should().Be(1);
         logs.Entries.Where(x => x.EventId.Id == SecurityAuditLogEvents.McpAuditVerificationFailed.Id).Should().HaveCount(2, "the forged checkpoint, then the run's failures");
     }
@@ -171,7 +172,7 @@ public class McpAuditVerificationTests
     [TestCase(true, "FROM [beacon].[McpAuditLogs]", "[m].[Id] > @", "ORDER BY [m].[Id]", "TOP(")]
     public async Task TheVerification_ScansById_NeverByTime_Translates(bool sqlServer, params string[] expected)
     {
-        var capture = (sqlServer ? SqlCapture.OnSqlServer() : new SqlCapture()).ThenNoRows().ThenNoRows();
+        var capture = (sqlServer ? SqlCapture.OnSqlServer() : new SqlCapture()).ThenNoRows().ThenNoRows().ThenNoRows();
 
         await new McpAuditVerificationService(
                 capture.Factory(),
@@ -182,8 +183,8 @@ public class McpAuditVerificationTests
                 NullLoggerFactory.Instance)
             .VerifyNewRowsAsync(CancellationToken.None);
 
-        capture.Commands.Should().HaveCount(2, "the checkpoints, then the first batch of the scan");
-        var scan = capture.Commands[1];
+        capture.Commands.Should().HaveCount(3, "the checkpoints, the sealing-started event, then the first batch of the scan");
+        var scan = capture.Commands[2];
         foreach (var fragment in expected)
         {
             scan.Should().Contain(fragment);
@@ -192,13 +193,146 @@ public class McpAuditVerificationTests
         scan[scan.IndexOf("WHERE", StringComparison.Ordinal)..].Should().NotContainAny(["created_time", "CreatedTime"], "a row is never selected by the time it carries");
     }
 
-    private static IMcpAuditVerificationService Verification(Store store, RecordingSecurityAudit audit, LogRecorder logs)
+    [Test]
+    public async Task ARowChangedAfterItWasChecked_IsFoundByTheRecheck_WhichStartsOverAtTheCheckpoint()
+    {
+        var store = new Store();
+        store.Add(Sealed(1, Now.UtcDateTime.AddDays(-3)));
+        var changed = store.Add(Sealed(2, Now.UtcDateTime.AddDays(-3)));
+        store.Add(Sealed(3, Now.UtcDateTime.AddDays(-2)));
+        store.Events.Add(Checkpoint(10, maxAuditId: 3, sealedFromAuditId: 1, Now.UtcDateTime.AddDays(-3)));
+        changed.ErrorMessage = "changed";
+        var audit = new RecordingSecurityAudit(Core.Authorization.BeaconActor.OffRequest);
+        var logs = new LogRecorder();
+
+        var checkpoint = await Verification(store, audit, logs).VerifyNewRowsAsync(CancellationToken.None);
+
+        checkpoint.Should().BeEquivalentTo(new { CheckedCount = 0, RecheckedCount = 3, RecheckedThroughAuditId = 0, ModifiedCount = 1, MaxAuditId = 3 });
+        checkpoint.FailedAuditIds.Should().Equal(2);
+        logs.Entries.Should().ContainSingle(x => x.EventId.Id == SecurityAuditLogEvents.McpAuditVerificationFailed.Id);
+        audit.Events.Single().Outcome.Should().Be(SecurityAuditOutcomes.Failure);
+    }
+
+    [Test]
+    public async Task TheRecheck_ContinuesAfterTheRowTheLastRunsRecheckReached()
+    {
+        var store = new Store();
+        var changed = store.Add(Sealed(1, Now.UtcDateTime.AddDays(-3)));
+        store.Add(Sealed(2, Now.UtcDateTime.AddDays(-3)));
+        store.Add(Sealed(3, Now.UtcDateTime.AddDays(-2)));
+        store.Events.Add(Checkpoint(10, maxAuditId: 3, sealedFromAuditId: 1, Now.UtcDateTime.AddDays(-3), x => x.Add("recheckedThroughAuditId", 1)));
+        changed.ErrorMessage = "changed";
+
+        var checkpoint = await Verification(store, new RecordingSecurityAudit(Core.Authorization.BeaconActor.OffRequest), new LogRecorder()).VerifyNewRowsAsync(CancellationToken.None);
+
+        checkpoint.RecheckedCount.Should().Be(2, "rows 2 and 3; row 1 is reached again in the next cycle");
+        checkpoint.ModifiedCount.Should().Be(0);
+    }
+
+    // Row 2 was never there; three rows are: a count of four means a checked row was deleted, of two that one was written
+    // below the checkpoint.
+    [TestCase(4, 1, 0)]
+    [TestCase(2, 0, 1)]
+    public async Task RowsUpToTheLastCheckpoint_AreCountedAgainstWhatItCounted(int counted, int missing, int added)
+    {
+        var store = new Store();
+        store.Add(Sealed(1, Now.UtcDateTime.AddDays(-3)));
+        store.Add(Sealed(3, Now.UtcDateTime.AddDays(-2)));
+        store.Add(Sealed(4, Now.UtcDateTime.AddDays(-2)));
+        store.Events.Add(Checkpoint(10, maxAuditId: 4, sealedFromAuditId: 1, Now.UtcDateTime.AddDays(-3), x => x.Add("retainedRowCount", counted)));
+        var audit = new RecordingSecurityAudit(Core.Authorization.BeaconActor.OffRequest);
+        var logs = new LogRecorder();
+
+        var checkpoint = await Verification(store, audit, logs).VerifyNewRowsAsync(CancellationToken.None);
+
+        checkpoint.Should().BeEquivalentTo(new { MissingRowCount = missing, AddedRowCount = added, RetainedRowCount = (int?)3 });
+        logs.Entries.Should().ContainSingle(x => x.EventId.Id == SecurityAuditLogEvents.McpAuditVerificationFailed.Id)
+            .Which.Level.Should().Be(LogLevel.Error);
+        audit.Events.Single().Outcome.Should().Be(SecurityAuditOutcomes.Failure);
+        audit.Events.Single().DetailsJson.Should().Contain("\"retainedRowCount\":3");
+    }
+
+    // Under a retention, only the rows the purge cannot reach before the next run are counted; once it may have, the count
+    // is not compared.
+    [TestCase(-1, 1)]
+    [TestCase(-3, 0)]
+    public async Task UnderARetention_TheRowCountIsComparedOnlyWhileThePurgeCannotHaveReachedIt(int countedDaysAgo, int missing)
+    {
+        var store = new Store();
+        store.Add(Sealed(2, Now.UtcDateTime.AddDays(-5)));
+        var retainedFrom = Now.UtcDateTime.AddDays(countedDaysAgo - 30) + McpAuditVerificationService.RowCountMargin;
+        store.Events.Add(Checkpoint(10, maxAuditId: 2, sealedFromAuditId: 2, Now.UtcDateTime.AddDays(-5), x => x.Add("retainedRowCount", 2).Add("retainedFrom", retainedFrom)));
+        var logs = new LogRecorder();
+
+        var checkpoint = await Verification(store, new RecordingSecurityAudit(Core.Authorization.BeaconActor.OffRequest), logs, retentionDays: 30).VerifyNewRowsAsync(CancellationToken.None);
+
+        checkpoint.MissingRowCount.Should().Be(missing);
+        checkpoint.RetainedRowCount.Should().Be(1);
+        if (missing == 0)
+        {
+            logs.Entries.Should().Contain(x => x.Level == LogLevel.Warning && x.Message.Contains("not counted against the last checkpoint"));
+        }
+    }
+
+    // Sealing started (the event) after row 1: a row without a seal above it is unsealed only when dated, by its own time,
+    // within the upgrade grace of that start, whenever the verification runs.
+    [TestCase(1, -71, McpAuditVerdicts.Unsealed)]
+    [TestCase(2, -71, McpAuditVerdicts.Unsealed)]
+    [TestCase(2, -1, SecurityAuditVerdicts.Modified)]
+    [TestCase(2, -80, SecurityAuditVerdicts.Modified)]
+    public async Task ARowWithoutASeal_IsJudgedByWhenSealingStarted_AndItsOwnTime(int id, int hoursAgo, string verdict)
+    {
+        var store = new Store();
+        store.Add(Unsealed(id, Now.UtcDateTime.AddHours(hoursAgo)));
+        store.Events.Add(SealingStarted(5, fromAuditId: 1, Now.UtcDateTime.AddHours(-72)));
+
+        var checkpoint = await Verification(store, new RecordingSecurityAudit(Core.Authorization.BeaconActor.OffRequest), new LogRecorder()).VerifyNewRowsAsync(CancellationToken.None);
+
+        checkpoint.SealingStartedAuditId.Should().Be(1);
+        checkpoint.UnsealedCount.Should().Be(verdict == McpAuditVerdicts.Unsealed ? 1 : 0);
+        checkpoint.ModifiedCount.Should().Be(verdict == SecurityAuditVerdicts.Modified ? 1 : 0);
+    }
+
+    [Test]
+    public async Task ARowWithoutASeal_AboveARowSealedPastTheGrace_IsChanged_WhateverTimeItCarries()
+    {
+        var store = new Store();
+        store.Add(Sealed(2, Now.UtcDateTime.AddHours(-70)));
+        store.Add(Sealed(3, Now.UtcDateTime.AddHours(-30)));
+        store.Add(Unsealed(4, Now.UtcDateTime.AddHours(-70)));
+        store.Events.Add(SealingStarted(5, fromAuditId: 1, Now.UtcDateTime.AddHours(-72)));
+
+        var checkpoint = await Verification(store, new RecordingSecurityAudit(Core.Authorization.BeaconActor.OffRequest), new LogRecorder()).VerifyNewRowsAsync(CancellationToken.None);
+
+        checkpoint.GraceClosedAtAuditId.Should().Be(3);
+        checkpoint.FailedAuditIds.Should().Equal(4);
+    }
+
+    [Test]
+    public async Task ARowSealedUnderTheNextVersion_IsReportedAtWarning_NotAsAFailure()
+    {
+        var store = new Store();
+        var next = store.Add(Sealed(1, Now.UtcDateTime.AddHours(-1)));
+        next.SealVersion = McpAuditSeal.CurrentVersion + 1;
+        var audit = new RecordingSecurityAudit(Core.Authorization.BeaconActor.OffRequest);
+        var logs = new LogRecorder();
+
+        var checkpoint = await Verification(store, audit, logs).VerifyNewRowsAsync(CancellationToken.None);
+
+        checkpoint.Should().BeEquivalentTo(new { UnknownVersionCount = 1, ModifiedCount = 0 });
+        checkpoint.FailedAuditIds.Should().BeEmpty();
+        logs.Entries.Should().NotContain(x => x.Level >= LogLevel.Error);
+        logs.Entries.Should().Contain(x => x.Level == LogLevel.Warning && x.Message.Contains("seal version"));
+        audit.Events.Single().Outcome.Should().Be(SecurityAuditOutcomes.Success);
+    }
+
+    private static IMcpAuditVerificationService Verification(Store store, RecordingSecurityAudit audit, LogRecorder logs, int? retentionDays = null)
     {
         return new McpAuditVerificationService(
             store.Factory(),
             SecurityAuditTestKit.Integrity,
             audit,
-            Options.Create(new McpDeploymentOptions()),
+            Options.Create(new McpDeploymentOptions { Audit = new McpAuditOptions { RetentionDays = retentionDays } }),
             new FakeTimeProvider(Now),
             LoggerFactory.Create(x => x.AddProvider(logs)));
     }
@@ -228,18 +362,31 @@ public class McpAuditVerificationTests
         };
     }
 
-    private static SecurityAuditEvent Checkpoint(int id, int maxAuditId, int sealedFromAuditId, DateTime sealedFromTime)
+    private static SecurityAuditEvent Checkpoint(int id, int maxAuditId, int sealedFromAuditId, DateTime sealedFromTime, Action<SecurityAuditDetails>? more = null)
+    {
+        var details = new SecurityAuditDetails()
+            .Add("scheduled", true)
+            .Add("maxAuditId", maxAuditId)
+            .Add("sealedFromAuditId", sealedFromAuditId)
+            .Add("sealedFromTime", sealedFromTime);
+        more?.Invoke(details);
+
+        return SystemEvent(id, SecurityAuditActions.McpAuditVerified, details, Now.UtcDateTime.AddHours(-6));
+    }
+
+    private static SecurityAuditEvent SealingStarted(int id, int fromAuditId, DateTime time)
+    {
+        return SystemEvent(id, SecurityAuditActions.McpAuditSealingStarted, new SecurityAuditDetails().Add("fromAuditId", fromAuditId), time);
+    }
+
+    private static SecurityAuditEvent SystemEvent(int id, string action, SecurityAuditDetails details, DateTime time)
     {
         var auditEvent = Recorder.ToEvent(
-            new SecurityAuditEntry(SecurityAuditActions.McpAuditVerified)
+            new SecurityAuditEntry(action)
                 .On(SecurityAuditResources.McpAudit, null)
-                .With(new SecurityAuditDetails()
-                    .Add("scheduled", true)
-                    .Add("maxAuditId", maxAuditId)
-                    .Add("sealedFromAuditId", sealedFromAuditId)
-                    .Add("sealedFromTime", sealedFromTime)),
+                .With(details),
             SecurityAuditActor.System,
-            Now.UtcDateTime.AddHours(-6),
+            time,
             null,
             SecurityAuditTestKit.Integrity);
         auditEvent.Id = id;

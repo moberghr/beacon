@@ -417,8 +417,9 @@ disagree.
   `SecurityAuditEvents` rows other than through the purge, or add triggers; that is the host's to configure. A chain of
   signatures across events, which would make a deletion visible inside the trail, is not part of this version.
 - **MCP audit rows are sealed too.** See [The MCP audit rows](#the-mcp-audit-rows): a changed row or statement is found
-  by the next scheduled run; a deleted one, as here, only through the checkpoints. Rows written before this version are
-  reported as unsealed. The security audit trail records who read that export.
+  by the next scheduled run, and again later by the rolling re-check; a deleted row that was already checked is found by
+  the row count, one not yet checked only through the checkpoints and the 9100 copies. Rows written before this version
+  are reported as unsealed. The security audit trail records who read that export.
 
 ## The MCP audit rows
 
@@ -435,13 +436,36 @@ Each run of the scheduled verification (`ISecurityAuditVerificationService.Verif
 audit rows written since the last intact `audit.mcp_audit_verified` checkpoint, by id, with their statements, the same
 way: *intact*, *modified*, *unknown key*, or out of range (a sealed row dated in the future, or older than
 `Beacon:Mcp:Audit:RetentionDays` allows), waiting for a missing id and passing it as never committed after an hour.
-Rows written before this version carry no seal and are reported as **unsealed**, never as modified: those below the
-first intact sealed row, and, while an upgrade rolls out, rows a node still on the version before writes within a day
-of that first sealed row. Later, a row without a seal is a row whose seal was removed, and is reported as modified.
-Failures are logged at Error (`Beacon.Audit` 9111) and counted on `beacon.security_audit.verification_failures`
-(tagged `audit.mcp_audit_verified`); every run writes a checkpoint to the log stream (9112); a run that read rows
-records them as a `system` `audit.mcp_audit_verified` event, sealed in this trail, which is the next run's starting
-point.
+Rows checked by an earlier run are checked again too, 10,000 per run, continuing where the last run stopped and starting
+over at the checkpoint, so a row changed after it was checked is found within one cycle (at an hourly schedule, a table
+of 240,000 rows is re-checked every day). Each run also counts the rows up to its checkpoint (under a retention, those
+dated at least two days inside it, which the purge cannot reach before the next run) and compares the count the last
+run recorded: fewer rows means a checked row was deleted, more that one was written below a checkpoint; both are
+failures. After a pause longer than two days the comparison is skipped once (a Warning). A row deleted before any run
+checked it, or one in the oldest two days of the retention, is not found inside the database: the 9100 copies and the
+checkpoints are the anchor.
+
+Rows written before this version carry no seal and are reported as **unsealed**, never as modified. When the host first
+starts with sealing in place, Beacon records a `system` `audit.mcp_audit_sealing_started` event naming the highest row id
+written before it; rows up to that id (or up to the first intact sealed row, when that is lower) are unsealed. While an
+upgrade rolls out, a node still on the version before writes rows without a seal: those dated, by their own time, within
+a day of that start, and below the first sealed row dated after that day, are unsealed too. Any other row without a seal
+is a row whose seal was removed, and is reported as modified. A row sealed under the next seal version (written by a
+node already on a later version) is reported at Warning as *unknown version*, never as modified; one that stays after
+the upgrade is worth a look. Failures are logged at Error (`Beacon.Audit` 9111) and counted on
+`beacon.security_audit.verification_failures` (tagged `audit.mcp_audit_verified`); every run writes a checkpoint to the
+log stream (9112); a run that read rows records them as a `system` `audit.mcp_audit_verified` event, sealed in this
+trail, which is the next run's starting point.
+
+At startup Beacon warns when its data context runs without the interceptor that seals (`SecurityAuditInterceptor`,
+registered by `UsePostgreSql` / `UseSqlServer`), and when rows exist but no MCP audit verification was recorded for two
+days (the host does not schedule the verification). Beacon does not migrate its schema at startup: while the seal
+columns are missing it logs an Error, and writes each MCP audit row without its seal rather than lose it (a Warning per
+row); those rows are reported as unsealed. Apply the migrations before, or with, the upgrade.
+
+A user deleted at the database, outside Beacon, sets `UserId` to null on that user's MCP audit rows (the foreign key's
+`ON DELETE SET NULL`), which changes sealed rows: they are reported as modified. Beacon itself never deletes a user (a
+removed user is archived); remove users through Beacon, or expect those findings.
 
 ## Table growth
 

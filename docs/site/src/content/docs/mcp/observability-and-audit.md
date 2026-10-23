@@ -105,7 +105,8 @@ comparable across an encryption-key change while `Beacon:Mcp:CallerHashKey` is s
 Every row is sealed as it is saved: an HMAC-SHA256 over its fields and the statements it holds, under the
 [security audit trail](/security/audit-trail/#the-mcp-audit-rows)'s integrity keys (`Hmac`, `HmacKeyId`, `SealVersion`,
 `AuditGuid`). Beacon refuses to change or delete a row or a statement, and the scheduled security audit verification
-checks the rows written since its last run, reporting changed ones at Error (9111) and writing a checkpoint (9112).
+checks the rows written since its last run, checks again a rolling slice of the rows it checked before, and counts the
+rows up to its checkpoint, reporting changed and deleted ones at Error (9111) and writing a checkpoint (9112).
 Rows written before seals were introduced are reported as unsealed.
 
 ## The `Beacon.Audit` log event catalogue
@@ -375,7 +376,7 @@ is audited structurally, as before.
 
 The audit rows and their statements are [sealed](#sealed-rows): an edit made at the database is found by the next
 scheduled verification, as in the [security audit trail](/security/audit-trail/#what-the-trail-does-and-does-not-prove);
-a deleted row is not. Ship the `Beacon.Audit` events to a store you control for a copy the database cannot change.
+a deleted row is found by the row count once a run has checked it. Ship the `Beacon.Audit` events to a store you control for a copy the database cannot change.
 
 ## Retention
 

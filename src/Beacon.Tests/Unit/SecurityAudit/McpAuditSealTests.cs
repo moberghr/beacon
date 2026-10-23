@@ -135,17 +135,34 @@ public class McpAuditSealTests
     }
 
     [Test]
-    public void ARowWithNoSeal_IsUnsealed_AndOneWithOnlyPartOfASealOrAnUnknownVersion_IsChanged()
+    public void ARowWithNoSeal_IsUnsealed_AndOneWithOnlyPartOfASealOrAVersionNeverWritten_IsChanged()
     {
         var unsealed = Row();
         var partial = SealedRow();
         partial.Hmac = null;
-        var unknownVersion = SealedRow();
-        unknownVersion.SealVersion = McpAuditSeal.CurrentVersion + 1;
+        var skipped = SealedRow();
+        skipped.SealVersion = McpAuditSeal.CurrentVersion + 2;
+        var below = SealedRow();
+        below.SealVersion = McpAuditSeal.CurrentVersion - 1;
 
         McpAuditSeal.Verify(unsealed, Read(unsealed), SecurityAuditTestKit.Integrity).Should().Be(McpAuditVerdicts.Unsealed);
         McpAuditSeal.Verify(partial, Read(partial), SecurityAuditTestKit.Integrity).Should().Be(SecurityAuditVerdicts.Modified);
-        McpAuditSeal.Verify(unknownVersion, Read(unknownVersion), SecurityAuditTestKit.Integrity).Should().Be(SecurityAuditVerdicts.Modified);
+        McpAuditSeal.Verify(skipped, Read(skipped), SecurityAuditTestKit.Integrity).Should().Be(SecurityAuditVerdicts.Modified);
+        McpAuditSeal.Verify(below, Read(below), SecurityAuditTestKit.Integrity).Should().Be(SecurityAuditVerdicts.Modified);
+    }
+
+    // A node already on the next version seals its rows under that version during an upgrade: not a change.
+    [Test]
+    public void ARowSealedUnderTheNextVersion_IsOfAnUnknownVersion_NeverChanged()
+    {
+        var next = SealedRow();
+        next.SealVersion = McpAuditSeal.CurrentVersion + 1;
+        var partial = SealedRow();
+        partial.SealVersion = McpAuditSeal.CurrentVersion + 1;
+        partial.AuditGuid = null;
+
+        McpAuditSeal.Verify(next, Read(next), SecurityAuditTestKit.Integrity).Should().Be(McpAuditVerdicts.UnknownVersion);
+        McpAuditSeal.Verify(partial, Read(partial), SecurityAuditTestKit.Integrity).Should().Be(SecurityAuditVerdicts.Modified);
     }
 
     [Test]

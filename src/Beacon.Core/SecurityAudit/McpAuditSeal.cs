@@ -49,14 +49,20 @@ internal static class McpAuditSeal
 
     /// <summary>
     /// How <paramref name="row"/>, read back with <paramref name="statements"/>, verifies: <see cref="McpAuditVerdicts.Unsealed"/>
-    /// when it carries no seal at all (written before rows were sealed), else intact, changed (also a seal that is only
-    /// partly there or names a version Beacon does not write) or under a key Beacon does not hold.
+    /// when it carries no seal at all (written before rows were sealed), <see cref="McpAuditVerdicts.UnknownVersion"/> when its
+    /// seal names the next version (a node already on a later version, during an upgrade), else intact, changed (also a seal
+    /// that is only partly there or names any other version) or under a key Beacon does not hold.
     /// </summary>
     public static string Verify(McpAuditLog row, IReadOnlyCollection<McpAuditStatement> statements, SecurityAuditIntegrity integrity)
     {
         if (row.AuditGuid == null && row.SealVersion == null && row.HmacKeyId == null && row.Hmac == null)
         {
             return McpAuditVerdicts.Unsealed;
+        }
+
+        if (row.AuditGuid != null && row.HmacKeyId != null && row.Hmac != null && row.SealVersion == CurrentVersion + 1)
+        {
+            return McpAuditVerdicts.UnknownVersion;
         }
 
         if (row.AuditGuid == null || row.SealVersion != CurrentVersion || row.HmacKeyId == null || row.Hmac == null)
@@ -181,4 +187,11 @@ public static class McpAuditVerdicts
     /// version before). Never reported as changed; a row without a seal written after sealing started is.
     /// </summary>
     public const string Unsealed = "unsealed";
+
+    /// <summary>
+    /// The row's seal names the version after the one this node writes: sealed by a node already running a later version (an
+    /// upgrade in progress). Reported at Warning, never as changed and never as intact; it verifies once the node running
+    /// the verification runs that version, so one that stays after the upgrade is a finding.
+    /// </summary>
+    public const string UnknownVersion = "unknown_version";
 }

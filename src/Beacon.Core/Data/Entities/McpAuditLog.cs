@@ -62,6 +62,10 @@ public class McpAuditLog : BaseEntity
     /// </summary>
     public string? Hmac { get; set; }
 
+    /// <summary>
+    /// The user, by <see cref="UserId"/>. The key sets it to null when the user row is deleted at the database (Beacon only
+    /// archives users), which changes the sealed row: the verification then reports it as modified.
+    /// </summary>
     public BeaconUser? User { get; set; }
 
     /// <summary>The statements the call ran on data sources; deleted with the row.</summary>

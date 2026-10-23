@@ -79,6 +79,7 @@ describe('the catalogue', () => {
       'migrations.job_run_ended',
       'audit.mcp_audit_read',
       'audit.mcp_audit_verified',
+      'audit.mcp_audit_sealing_started',
     ]));
     expect(SECURITY_AUDIT_RESOURCE_TYPES).toEqual(expect.arrayContaining(['dashboard', 'glossary_term', 'documentation_section', 'mcp_audit']));
   });
