@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using Beacon.Core;
 using Beacon.Core.Services;
+using Beacon.Core.Configuration;
 using Beacon.Core.Mcp;
 using Beacon.Core.Services.Security;
 using Beacon.Api.Endpoints;
@@ -18,8 +19,10 @@ public sealed class FirstRunSetupMiddleware(
 {
     private readonly string _basePath = basePath.TrimEnd('/');
 
-    // First run ends once and never comes back, so a negative answer is kept for the life of the process: no database
-    // query per request, and a database that is slow or down no longer holds up Beacon's routes after setup.
+    // First run ends once and never comes back (an archived super admin still counts), so the answer "over" is kept for
+    // the life of the process: no database query per request, and a database that is slow or down no longer holds up
+    // Beacon's routes after setup. A database restored or swapped under a running process needs a restart to reopen
+    // the setup redirect.
     private volatile bool _firstRunOver;
 
     public async Task InvokeAsync(HttpContext context, IUserManagementService userService)
@@ -33,7 +36,7 @@ public sealed class FirstRunSetupMiddleware(
         }
 
         // Skip for setup page, static files, and framework endpoints
-        if (IsExcludedPath(context.Request.Path, _basePath))
+        if (IsExcludedPath(context.Request.Path, _basePath, context.RequestServices?.GetService<AuthenticationPathPrefixes>()))
         {
             await next(context);
             return;
@@ -59,11 +62,11 @@ public sealed class FirstRunSetupMiddleware(
         await next(context);
     }
 
-    private static bool IsExcludedPath(PathString requestPath, string basePath)
+    private static bool IsExcludedPath(PathString requestPath, string basePath, AuthenticationPathPrefixes? prefixes)
     {
         var path = requestPath.Value ?? "";
-        if (MiddlewarePathHelper.IsUnderSegment(requestPath, basePath, "/setup")
-            || MiddlewarePathHelper.IsUnderSegment(requestPath, basePath, "/api/setup"))
+        if (MiddlewarePathHelper.IsUnderSegment(requestPath, basePath, "/setup", prefixes)
+            || MiddlewarePathHelper.IsUnderSegment(requestPath, basePath, "/api/setup", prefixes))
         {
             return true;
         }
@@ -83,6 +86,6 @@ public sealed class FirstRunSetupMiddleware(
             return true;
         }
 
-        return MiddlewarePathHelper.IsStaticOrFrameworkPath(path, basePath);
+        return MiddlewarePathHelper.IsStaticOrFrameworkPath(path, basePath, prefixes);
     }
 }

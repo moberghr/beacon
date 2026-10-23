@@ -11,6 +11,7 @@ internal sealed class SchemaGraphService(
     : ISchemaGraphService
 {
     private static readonly TimeSpan CacheExpiration = TimeSpan.FromMinutes(15);
+    private static readonly TimeSpan EmptyCacheExpiration = TimeSpan.FromSeconds(30);
 
     public async Task<SchemaGraph> GetGraphAsync(int dataSourceId, CancellationToken cancellationToken = default)
     {
@@ -41,12 +42,10 @@ internal sealed class SchemaGraphService(
 
         var graph = SchemaGraph.Build(tables, relationships);
 
-        // An id with no tables and no relationships (a data source never scanned, or one that does not exist) is not
-        // kept: caching it would let any id fill the cache.
-        if (tables.Count > 0 || relationships.Count > 0)
-        {
-            cache.Set(CacheKey(dataSourceId), graph, CacheExpiration);
-        }
+        // An id with no tables and no relationships (a data source never scanned, or one that does not exist) is kept
+        // only briefly, so a repeated call is cheap without letting arbitrary ids hold cache entries for long.
+        var isEmpty = tables.Count == 0 && relationships.Count == 0;
+        cache.Set(CacheKey(dataSourceId), graph, isEmpty ? EmptyCacheExpiration : CacheExpiration);
 
         return graph;
     }

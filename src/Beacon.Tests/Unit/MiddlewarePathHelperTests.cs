@@ -1,4 +1,6 @@
 using Beacon.Api.Authentication;
+using Beacon.Core.Configuration;
+using Microsoft.Extensions.Options;
 using FluentAssertions;
 using NUnit.Framework;
 
@@ -34,13 +36,34 @@ public class MiddlewarePathHelperTests
 
     [TestCase("/beacon/api", "/api", true)]
     [TestCase("/beacon/api/projects", "/api", true)]
-    [TestCase("/api/projects", "/api", true)]
+    [TestCase("/api/projects", "/api", false)]
+    [TestCase("/setup", "/setup", false)]
     [TestCase("/beacon/API/projects", "/api", true)]
     [TestCase("/beacon/apix", "/api", false)]
     [TestCase("/beacon/x/api/projects", "/api", false)]
     [TestCase("/other/api/projects", "/api", false)]
-    public void IsUnderSegment_MatchesWholeSegmentsAtTheRootOrBasePath(string path, string segment, bool expected)
+    public void IsUnderSegment_MatchesWholeSegmentsUnderTheBasePath(string path, string segment, bool expected)
     {
         MiddlewarePathHelper.IsUnderSegment(path, "/beacon", segment).Should().Be(expected);
+    }
+
+    [TestCase("/app/api/orders", "/api", true)]
+    [TestCase("/APP/setup", "/setup", true)]
+    [TestCase("/app/apix", "/api", false)]
+    [TestCase("/other/api/orders", "/api", false)]
+    public void IsUnderSegment_AlsoMatchesUnderConfiguredAdditionalPrefixes(string path, string segment, bool expected)
+    {
+        var prefixes = new AuthenticationPathPrefixes(Options.Create(new AuthenticationPathOptions { AdditionalPaths = ["/app"] }));
+
+        MiddlewarePathHelper.IsUnderSegment(path, "/beacon", segment, prefixes).Should().Be(expected);
+    }
+
+    [TestCase("/app/_content/Beacon.UI/app.bin", true)]
+    [TestCase("/other/_content/app.bin", false)]
+    public void IsStaticOrFrameworkPath_AlsoMatchesUnderConfiguredAdditionalPrefixes(string path, bool expected)
+    {
+        var prefixes = new AuthenticationPathPrefixes(Options.Create(new AuthenticationPathOptions { AdditionalPaths = ["/app"] }));
+
+        MiddlewarePathHelper.IsStaticOrFrameworkPath(path, "/beacon", prefixes).Should().Be(expected);
     }
 }
