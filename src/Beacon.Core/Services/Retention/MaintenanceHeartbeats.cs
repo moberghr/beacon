@@ -44,8 +44,9 @@ internal sealed class MaintenanceHeartbeatRecorder(
             context.MaintenanceHeartbeats.Add(new MaintenanceHeartbeat { Name = name, LastRunTime = now });
             await context.SaveChangesAsync(cancellationToken);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
+        catch (Exception ex)
         {
+            // Cancellation lands here too: the maintenance this reports already finished, so it must not throw after its work.
             // A second instance may have inserted the row first (unique name): its heartbeat is as good as this one.
             logger.LogWarning("Could not record the heartbeat of the maintenance job {Job} ({Failure})", name, FailureCodes.Describe(ex));
         }
