@@ -389,5 +389,9 @@ public class CustomSqlRuleApprovalTests
             TestChangeApprovals.Hasher,
             TestChangeApprovals.On(),
             new RecordingSecurityAudit(),
+            TestPermissions.Admin,
+            TestChangeApprovals.NoDefinitions,
+            TestChangeApprovals.NoProbe,
+            TestChangeApprovals.Llm(),
             NullLogger<ChangeApprovalService>.Instance);
 }

@@ -781,6 +781,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
 
+                    b.Property<string>("EncryptedPayload")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<int>("Kind")
                         .HasColumnType("int");
 
@@ -831,6 +834,10 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasColumnType("int");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("Kind", "ResourceId")
+                        .IsUnique()
+                        .HasFilter("[Kind] = 5 AND [Status] = 1");
 
                     b.HasIndex("Status", "CreatedTime");
 
@@ -1324,6 +1331,10 @@ namespace Beacon.Core.SqlServer.Data.Migrations
 
                     b.Property<bool>("AllowMigrationWrites")
                         .HasColumnType("bit");
+
+                    b.Property<string>("ApprovedTargetHash")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
 
                     b.Property<DateTime?>("ArchivedTime")
                         .HasColumnType("datetime2");

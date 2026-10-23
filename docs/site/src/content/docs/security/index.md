@@ -57,7 +57,7 @@ The Admin role's duties are split into six **functional permissions** (Approver,
 
 ## 5. Four-eyes approvals
 
-With the approval workflow on (opt-in), changes that decide what SQL runs or where data goes take effect only after a **second person** approves exactly what they reviewed: query changes, migration jobs, Custom SQL rules and notification destinations. Approvals are bound to a content hash, the requester cannot approve, and scheduled runs execute only reviewed SQL. → [Approvals](/security/approvals/)
+With the approval workflow on (opt-in), changes that decide what SQL runs or where data goes take effect only after a **second person** approves exactly what they reviewed: query changes, migration jobs, Custom SQL rules and notification destinations, and, when switched on, data-source connections and the LLM connection. Approvals are bound to a content hash, the requester cannot approve, and scheduled runs execute only reviewed SQL. → [Approvals](/security/approvals/)
 
 ## 6. The SQL execution gate
 

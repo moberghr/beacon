@@ -86,4 +86,27 @@ public class ProjectListScopeShapeTests
             "a restricted caller's list is filtered in the SQL");
         restricted.Should().NotBe(fastPath, "the fast path adds no predicate");
     }
+
+    // A caller who is no Approver asking for the LLM connection's change requests: the list is scoped in the SQL to the
+    // migration jobs and data contracts it reads, so no LLM connection request can match.
+    [Test]
+    public async Task TheLlmConnectionRequests_AreUnreachable_ForARestrictedReaderWhoIsNoApprover()
+    {
+        var capture = await new ListHandlerHarness(Restricted).CaptureAsync(new GetChangeApprovalsQuery { Kind = Beacon.Core.Data.Enums.ChangeApprovalKind.LlmConnection });
+
+        capture.Commands.Should().NotBeEmpty().And.OnlyContain(x => x.Contains("project_data_sources", StringComparison.Ordinal));
+        capture.Commands.Should().OnlyContain(x => x.Contains("c.kind = 1", StringComparison.Ordinal) && x.Contains("c.kind = 2", StringComparison.Ordinal));
+        capture.Commands.Should().NotContain(x => x.Contains("c.kind = 5", StringComparison.Ordinal), "only a live Admin reads them, never through a project");
+        capture.Commands.Should().NotContain(x => x.Contains("c.kind = 4", StringComparison.Ordinal) || x.Contains("c.kind = 3", StringComparison.Ordinal), "a connection's or a recipient's change is an Approver's to read");
+    }
+
+    // The same reader asking for data-source connection requests reaches none of them either.
+    [Test]
+    public async Task TheDataSourceConnectionRequests_AreUnreachable_ForARestrictedReaderWhoIsNoApprover()
+    {
+        var capture = await new ListHandlerHarness(Restricted).CaptureAsync(new GetChangeApprovalsQuery { Kind = Beacon.Core.Data.Enums.ChangeApprovalKind.DataSourceConnection });
+
+        capture.Commands.Should().NotBeEmpty().And.OnlyContain(x => x.Contains("c.kind = 1", StringComparison.Ordinal) && x.Contains("c.kind = 2", StringComparison.Ordinal));
+        capture.Commands.Should().NotContain(x => x.Contains("c.kind = 4", StringComparison.Ordinal), "an Approver's to read, never through a project");
+    }
 }

@@ -117,6 +117,146 @@ public class ChangeApprovalTranslationTests
         capture.Commands[5].Should().StartWith("UPDATE beacon.recipients").And.Contain("SET approved_destination_hash = @");
     }
 
+    // A data source's connection: probed before the decision, then its row taken by a no-op update of its approved hash and
+    // the full source read under that lock (the definition reader hashes its stored connection); a source gone by then is
+    // not decided.
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task Approve_ADataSourceConnection_TakesItsRowFirst_ThenReadsTheSource_Translates(bool sqlServer)
+    {
+        var capture = Decision(sqlServer, ChangeApprovalKind.DataSourceConnection, "v1:proposed")
+            .ThenRowsAffected(1)
+            .ThenNoRows();
+        var probe = TestChangeApprovals.Probe();
+
+        var act = () => Service(capture, probe).ApproveAsync(90, null, Payload, CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconConflictException>().WithMessage(ChangeApprovalService.ResourceGoneMessage);
+        probe.Probed.Should().Equal(5);
+        capture.Commands.Should().HaveCount(4);
+        capture.Commits.Should().Be(0);
+        if (sqlServer)
+        {
+            capture.Commands[2].Should().Be("UPDATE [d]\nSET [d].[ApprovedTargetHash] = [d].[ApprovedTargetHash]\nFROM [beacon].[DataSources] AS [d]\nWHERE [d].[ArchivedTime] IS NULL AND [d].[Id] = @dataSourceId");
+            capture.Commands[3].Should().Contain("FROM [beacon].[DataSources] AS [d]").And.Contain("[d].[EncryptedConnectionData]").And.Contain("[d].[ArchivedTime] IS NULL AND [d].[Id] = @resourceId");
+            return;
+        }
+
+        capture.Commands[2].Should().Be("UPDATE beacon.data_sources AS d\nSET approved_target_hash = d.approved_target_hash\nWHERE d.archived_time IS NULL AND d.id = @dataSourceId");
+        capture.Commands[3].Should().Contain("FROM beacon.data_sources AS d").And.Contain("d.encrypted_connection_data").And.Contain("d.archived_time IS NULL AND d.id = @resourceId");
+    }
+
+    // An Approver who is no live Admin lists every kind but the LLM connection's, filtered in the SQL; a live Admin every one,
+    // once the LLM connection's requests past their expiry are superseded (the list's first statement).
+    [TestCase(false, false, "c.kind <> 5")]
+    [TestCase(false, true, null)]
+    [TestCase(true, false, "[c].[Kind] <> 5")]
+    [TestCase(true, true, null)]
+    public async Task TheApproversList_LeavesOutTheLlmConnectionsUnlessALiveAdminReads_Translates(bool sqlServer, bool isLiveAdmin, string? filter)
+    {
+        var capture = Capture(sqlServer).AnsweringCountsWithOne();
+        var scope = ChangeApprovalScope.Approver with { IsLiveAdmin = isLiveAdmin };
+
+        await Service(capture).GetPendingAsync(new GetChangeApprovalsQuery(), null, scope, CancellationToken.None);
+
+        if (filter == null)
+        {
+            capture.Commands.Should().HaveCount(3);
+            capture.Commands[0].Should().StartWith("UPDATE").And.MatchRegex(@"(?i)kind\]? = 5");
+            capture.Commands.Skip(1).Should().OnlyContain(x => !x.Contains("<> 5", StringComparison.Ordinal) && x.StartsWith("SELECT", StringComparison.Ordinal));
+            return;
+        }
+
+        capture.Commands.Should().HaveCount(2);
+        capture.Commands.Should().OnlyContain(x => x.Contains(filter, StringComparison.Ordinal));
+    }
+
+    // The LLM connection's requests that waited past their expiry: superseded from Pending by one conditional update that
+    // wipes what they staged; a list of another kind does not run it.
+    [TestCase(false, "UPDATE beacon.change_approval_requests AS c", "encrypted_payload = NULL", "c.kind = 5", "c.status = 1", "c.created_time < @")]
+    [TestCase(true, "UPDATE [c]", "[c].[EncryptedPayload] = NULL", "[c].[Kind] = 5", "[c].[Status] = 1", "[c].[CreatedTime] < @")]
+    public async Task TheLlmConnectionsExpiry_SupersedesAndWipesWhatWaitedTooLong_Translates(
+        bool sqlServer,
+        string update,
+        string wipe,
+        string kind,
+        string pending,
+        string expired)
+    {
+        var capture = Capture(sqlServer).ThenRowsAffected(2).AnsweringCountsWithOne();
+        await using var context = await capture.Factory().CreateDbContextAsync(CancellationToken.None);
+
+        var count = await TestChangeApprovals.Llm().ExpireAsync(context, CancellationToken.None);
+        await Service(capture).GetPendingAsync(new GetChangeApprovalsQuery(), ChangeApprovalKind.MigrationJob, ChangeApprovalScope.Approver with { IsLiveAdmin = true }, CancellationToken.None);
+
+        count.Should().Be(2);
+        capture.Commands[0].Should().StartWith(update).And.Contain(wipe).And.Contain(kind).And.Contain(pending).And.Contain(expired);
+        capture.Commands.Skip(1).Should().OnlyContain(x => x.StartsWith("SELECT", StringComparison.Ordinal), "a list of migration jobs expires nothing");
+    }
+
+    // A decision on one LLM connection request first supersedes it alone when it waited past its expiry (409), and a stale
+    // one is superseded alone after the rollback; both wipe what it staged.
+    [TestCase(false, "c.id = @requestId", "c.kind = 5", "c.created_time < @", "encrypted_payload = NULL")]
+    [TestCase(true, "[c].[Id] = @requestId", "[c].[Kind] = 5", "[c].[CreatedTime] < @", "[c].[EncryptedPayload] = NULL")]
+    public async Task TheLlmConnectionRequestsOwnExpiryAndSupersede_Translate(bool sqlServer, string byId, string kind, string expired, string wipe)
+    {
+        var capture = Capture(sqlServer).ThenRowsAffected(1).ThenRowsAffected(1);
+        await using var context = await capture.Factory().CreateDbContextAsync(CancellationToken.None);
+        var llm = TestChangeApprovals.Llm();
+
+        var refuse = () => llm.RefuseIfExpiredAsync(context, 90, CancellationToken.None);
+        await refuse.Should().ThrowAsync<BeaconConflictException>().WithMessage(LlmConnectionApproval.ExpiredMessage);
+        await llm.SupersedeStaleAsync(context, 90, CancellationToken.None);
+
+        capture.Commands.Should().HaveCount(2);
+        capture.Commands[0].Should().Contain(byId).And.Contain(kind).And.Contain(expired).And.Contain(wipe).And.MatchRegex(@"(?i)status\]? = 1");
+        capture.Commands[1].Should().Contain(byId).And.Contain(kind).And.Contain(wipe).And.NotContain(expired);
+    }
+
+    // The re-encryption run's read of the pending LLM connection requests: only while a previous key is configured, and
+    // never more than the hash, the shown view and the staged connection of each.
+    [TestCase(false, "c.kind = 5", "c.status = 1", "c.encrypted_payload")]
+    [TestCase(true, "[c].[Kind] = 5", "[c].[Status] = 1", "[c].[EncryptedPayload]")]
+    public async Task TheLlmConnectionsKeyDependencyRead_Translates(bool sqlServer, string kind, string pending, string payload)
+    {
+        var capture = Capture(sqlServer).ThenNoRows();
+        await using var context = await capture.Factory().CreateDbContextAsync(CancellationToken.None);
+
+        var withoutPreviousKey = await TestChangeApprovals.Llm().KeyDependenciesAsync(context, CancellationToken.None);
+        var withPreviousKey = await TestChangeApprovals.Llm(hasher: new ConnectionDefinitionHasher(TestTransport.DefinitionKey, ["an earlier key"]))
+            .KeyDependenciesAsync(context, CancellationToken.None);
+
+        withoutPreviousKey.Should().BeEmpty();
+        withPreviousKey.Should().BeEmpty();
+        capture.Commands.Should().ContainSingle().Which.Should().Contain(kind).And.Contain(pending).And.Contain(payload).And.NotContain("review_comment").And.NotContain("ReviewComment");
+    }
+
+    // The detail selects the columns it shows: a staged LLM connection's encrypted values are never read with it.
+    [TestCase(false, "encrypted_payload", "c.proposed_json")]
+    [TestCase(true, "EncryptedPayload", "[c].[ProposedJson]")]
+    public async Task TheDetail_NeverReadsTheEncryptedPayload_Translates(bool sqlServer, string payload, string proposed)
+    {
+        var capture = Capture(sqlServer).ThenNoRows();
+
+        var detail = await Service(capture).GetDetailAsync(90, ChangeApprovalScope.Approver with { IsLiveAdmin = true }, CancellationToken.None);
+
+        detail.Should().BeNull();
+        capture.Commands.Should().ContainSingle().Which.Should().Contain(proposed).And.NotContain(payload);
+    }
+
+    // An Approver who is no live Admin opens no LLM connection request by id: the detail's own SQL leaves them out.
+    [TestCase(false, "c.kind <> 5")]
+    [TestCase(true, "[c].[Kind] <> 5")]
+    public async Task TheDetail_ForAnApproverWhoIsNoLiveAdmin_LeavesOutTheLlmConnections_Translates(bool sqlServer, string filter)
+    {
+        var capture = Capture(sqlServer).ThenNoRows();
+
+        var detail = await Service(capture).GetDetailAsync(90, ChangeApprovalScope.Approver, CancellationToken.None);
+
+        detail.Should().BeNull();
+        capture.Commands.Should().ContainSingle().Which.Should().Contain(filter);
+    }
+
     // A decision that matches no row (decided or superseded since it was read) answers 409: nothing is committed and the
     // approved hash is not written.
     [TestCase(false)]
@@ -433,7 +573,9 @@ public class ChangeApprovalTranslationTests
         sql.Should().StartWith("UPDATE beacon.change_approval_requests").And.EndWith("AND c.status = 1");
     }
 
-    private static ChangeApprovalService Service(SqlCapture capture) =>
+    private static ChangeApprovalService Service(SqlCapture capture) => Service(capture, TestChangeApprovals.NoProbe);
+
+    private static ChangeApprovalService Service(SqlCapture capture, IHeldDataSourceProbe probe) =>
         new(
             capture.Factory(),
             TestChangeApprovals.Caller("ext-ada"),
@@ -442,6 +584,10 @@ public class ChangeApprovalTranslationTests
             TestChangeApprovals.Hasher,
             TestChangeApprovals.On(),
             new RecordingSecurityAudit(),
+            TestPermissions.Admin,
+            TestChangeApprovals.NoDefinitions,
+            probe,
+            TestChangeApprovals.Llm(),
             NullLogger<ChangeApprovalService>.Instance);
 
     private static SqlCapture Capture(bool sqlServer) => sqlServer ? SqlCapture.OnSqlServer() : new SqlCapture();

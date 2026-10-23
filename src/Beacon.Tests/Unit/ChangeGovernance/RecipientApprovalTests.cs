@@ -542,6 +542,10 @@ public class RecipientApprovalTests
             TestChangeApprovals.Hasher,
             configuration ?? TestChangeApprovals.On(),
             new RecordingSecurityAudit(),
+            TestPermissions.Admin,
+            TestChangeApprovals.NoDefinitions,
+            TestChangeApprovals.NoProbe,
+            TestChangeApprovals.Llm(),
             NullLogger<ChangeApprovalService>.Instance);
 
     private static RecipientDestinationView View(string json) =>

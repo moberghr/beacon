@@ -290,8 +290,57 @@ public class ApprovalWorkflowStartupNoteTests
 
         ApprovalWorkflowStartupNote.Note(recorder.For<ApprovalWorkflowStartupNote>(), new ApprovalWorkflowOptions { Enabled = true }, isDevelopment: false);
 
-        recorder.Entries.Should().HaveCount(2).And.OnlyContain(x => x.Level == LogLevel.Information);
+        recorder.Entries.Should().HaveCount(3).And.OnlyContain(x => x.Level == LogLevel.Information);
         recorder.Entries[1].Message.Should().Contain("migration jobs").And.Contain("Custom SQL rules").And.Contain("recipients");
+        recorder.Entries[2].Message.Should().Contain("ApprovalWorkflow.CoversDataSourceConnections").And.Contain("ApprovalWorkflow.CoversLlmConnection");
+    }
+
+    // The connection kinds are off by default: covered, they are named with what the workflow holds.
+    [Test]
+    public void TheConnectionKindsCovered_AreNamedWithWhatTheWorkflowHolds()
+    {
+        using var recorder = new LogRecorder();
+        var workflow = new ApprovalWorkflowOptions { Enabled = true, CoversDataSourceConnections = true, CoversLlmConnection = true };
+
+        ApprovalWorkflowStartupNote.Note(recorder.For<ApprovalWorkflowStartupNote>(), workflow, isDevelopment: false);
+
+        recorder.Entries.Should().HaveCount(2);
+        recorder.Entries[1].Message.Should().Contain("new data sources and changed connections").And.Contain("changes of the LLM connection's provider");
+    }
+
+    // Only a live Admin other than the requester approves an LLM connection change: with self-approval off, fewer than two
+    // Admins leave it undecidable, and the note says so (with it on, one Admin decides their own); Approvers who are no
+    // Admin do not count.
+    [TestCase(1, false, true)]
+    [TestCase(2, false, false)]
+    [TestCase(1, true, false)]
+    public async Task TooFewAdmins_WhileLlmConnectionChangesAreReviewed_IsAWarning(int admins, bool allowSelfApproval, bool warned)
+    {
+        var store = new GovernanceStore();
+        store.Users.AddRange([Approver(3, "ext-ada"), Approver(4, "ext-ben")]);
+        foreach (var id in Enumerable.Range(10, admins))
+        {
+            store.Users.Add(new BeaconUser { Id = id, ExternalId = $"ext-admin-{id}", UserName = $"admin-{id}", IsEnabled = true, IsSuperAdmin = true });
+        }
+
+        store.Users.Add(new BeaconUser { Id = 30, ExternalId = "ext-gone", UserName = "gone", IsEnabled = false, IsSuperAdmin = true });
+        using var recorder = new LogRecorder();
+        using var uncovered = new LogRecorder();
+
+        await Note(recorder, new ApprovalWorkflowOptions { Enabled = true, CoversLlmConnection = true, AllowSelfApproval = allowSelfApproval }).NoteCountsAsync(Services(store), CancellationToken.None);
+        await Note(uncovered, new ApprovalWorkflowOptions { Enabled = true }).NoteCountsAsync(Services(store), CancellationToken.None);
+
+        var warning = recorder.Entries
+            .Where(x => x.Level == LogLevel.Warning)
+            .Where(x => x.Message.Contains("are Admins", StringComparison.Ordinal))
+            .ToList();
+        warning.Should().HaveCount(warned ? 1 : 0);
+        if (warned)
+        {
+            warning[0].Message.Should().StartWith("1 active users are Admins").And.Contain("ApprovalWorkflow.CoversLlmConnection").And.Contain("ApprovalWorkflow.AllowSelfApproval");
+        }
+
+        uncovered.Entries.Should().NotContain(x => x.Message.Contains("are Admins", StringComparison.Ordinal));
     }
 
     // A host may leave a kind of change out of the workflow: the note names the option, and says nothing else is left out.
@@ -346,6 +395,30 @@ public class ApprovalWorkflowStartupNoteTests
 
         recorder.Entries.Where(x => x.Level == LogLevel.Warning).Where(x => x.Message.Contains("the approval workflow governed", StringComparison.Ordinal)).Should().ContainSingle()
             .Which.Message.Should().StartWith("1 recipients the approval workflow governed").And.Contain("ApprovalWorkflow.CoversRecipientDestinations");
+    }
+
+    // With connections not covered, the data sources held since their creation connect as they are, and a staged LLM
+    // connection change is not applied: each is counted, by its stored state alone.
+    [Test]
+    public async Task TheConnectionKindsOff_CountTheHeldSourcesAndTheStagedLlmChanges()
+    {
+        var store = new ChangeApprovalStore();
+        store.DataSources[0].ApprovedTargetHash = Beacon.Core.ChangeApprovals.DataSourceApprovalDefinition.Held;
+        store.DataSources[1].ApprovedTargetHash = "v1:approved";
+        store.AddRequest(ChangeApprovalKind.DataSourceConnection, store.DataSources[0].Id, "a", "ext-ben");
+        store.AddRequest(ChangeApprovalKind.LlmConnection, 0, "b", "ext-ben");
+        store.AddRequest(ChangeApprovalKind.LlmConnection, 0, "c", "ext-ben", ApprovalStatus.Rejected);
+        using var recorder = new LogRecorder();
+
+        await Note(recorder, new ApprovalWorkflowOptions { Enabled = true }).NoteCountsAsync(ReleaseServices(store), CancellationToken.None);
+
+        recorder.Entries
+            .Where(x => x.Level == LogLevel.Warning)
+            .Where(x => x.Message.Contains("are pending", StringComparison.Ordinal))
+            .Select(x => x.Message)
+            .Should().Equal(
+            "1 data sources the approval workflow governed hold a change nobody approved (new, changed or rejected), and 1 of their change requests are pending: with ApprovalWorkflow.CoversDataSourceConnections off they connect as they are, unreviewed. Turn it on to hold them until they are approved",
+            "1 staged changes of the LLM connection are pending, and with ApprovalWorkflow.CoversLlmConnection off nobody decides them: they are not applied. Turn it on to decide them");
     }
 
     [Test]

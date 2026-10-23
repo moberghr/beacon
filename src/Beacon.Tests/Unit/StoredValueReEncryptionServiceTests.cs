@@ -8,12 +8,15 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using NUnit.Framework;
 using Beacon.Api;
+using Beacon.Core;
 using Beacon.Core.Authorization;
 using Beacon.Core.ChangeApprovals;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.HostData;
+using Beacon.Core.Models.Settings;
 using Beacon.Core.Notifications;
 using Beacon.Core.Services;
 using Beacon.Tests.Common;
@@ -105,9 +108,9 @@ public class StoredValueReEncryptionServiceTests
         _logs.Entries.Should().NotContain(x => x.Message.Contains("Host=foreign"));
     }
 
-    // On the Npgsql provider with every command captured: the reads take archived rows and only sensitive settings and
-    // encrypted recipient secrets, and each write is conditional on the value read, so a value saved meanwhile (the
-    // database answers that no row matched) is counted as changed and kept.
+    // On the Npgsql provider with every command captured: the reads take archived rows and only sensitive settings,
+    // encrypted recipient secrets and staged LLM connection changes, and each write is conditional on the value read, so a
+    // value saved meanwhile (the database answers that no row matched) is counted as changed and kept.
     [Test]
     public async Task EachWrite_IsConditionalOnTheValueRead_AndAValueChangedMeanwhileIsKept_Translates()
     {
@@ -117,23 +120,26 @@ public class StoredValueReEncryptionServiceTests
 
         var result = await service.ReEncryptAsync(CancellationToken.None);
 
-        result.Should().Be(new StoredValueReEncryptionResult(UnderPreviousKeys: 3, ReEncrypted: 0, SkippedAsChanged: 3, Unreadable: 0, Failed: 0));
+        result.Should().Be(new StoredValueReEncryptionResult(UnderPreviousKeys: 4, ReEncrypted: 0, SkippedAsChanged: 4, Unreadable: 0, Failed: 0));
         var reads = database.Commands
             .Where(x => x.Text.StartsWith("SELECT", StringComparison.Ordinal))
             .Select(x => x.Text)
             .ToList();
-        reads.Should().HaveCount(4);
+        reads.Should().HaveCount(5);
         reads[0].Should().Contain("FROM beacon.data_sources").And.NotContain("archived_time");
         reads[2].Should().Contain("a.is_sensitive").And.Contain("a.value IS NOT NULL");
         reads[3].Should().Contain("LIKE 'enc:%'").And.NotContain("archived_time");
+        reads[4].Should().Contain("FROM beacon.change_approval_requests").And.Contain("c.encrypted_payload IS NOT NULL");
         var writes = database.Commands
             .Where(x => x.Text.StartsWith("UPDATE", StringComparison.Ordinal))
             .ToList();
-        writes.Should().HaveCount(3);
+        writes.Should().HaveCount(4);
         writes[0].Text.Should().Contain("encrypted_connection_data = @").And.Contain("WHERE d.id = @").And.Contain("d.encrypted_connection_data = @");
         writes[0].Parameters.Should().Contain(old, "the write is conditional on the value read");
         writes[1].Text.Should().Contain("g.encrypted_access_token = @");
         writes[2].Text.Should().Contain("a.value = @");
+        writes[3].Text.Should().Contain("encrypted_payload = @").And.Contain("c.encrypted_payload = @");
+        writes[3].Parameters.Should().Contain(old);
     }
 
     [Test]
@@ -192,7 +198,7 @@ public class StoredValueReEncryptionServiceTests
         var run = () => service.ReEncryptAsync(CancellationToken.None);
 
         await run.Should().ThrowAsync<InvalidOperationException>().WithMessage("1 stored values could not be re-encrypted*");
-        database.Writes.Should().Be(3, "a failed write does not stop the run");
+        database.Writes.Should().Be(4, "a failed write does not stop the run");
         _logs.Entries.Should().Contain(x => x.Level == LogLevel.Error && x.Message == "Stored value of data source 1 could not be re-encrypted (InvalidOperationException)");
         _logs.Entries.Should().ContainSingle(x => x.Level == LogLevel.Warning && x.Message.Contains("1 failed", StringComparison.Ordinal));
         _logs.Entries.Should().NotContain(x => x.Message.Contains("Host=old", StringComparison.Ordinal));
@@ -261,7 +267,7 @@ public class StoredValueReEncryptionServiceTests
         result.Should().BeEquivalentTo(new { UnderPreviousKeys = 1, ReEncrypted = 1, Unreadable = 0, Failed = 0, UnresolvedKeyDependencies = 1, PreviousKeysRemovable = false });
         request.DefinitionHash.Should().Be(RecipientDestinationDefinition.Hash(hasher, NotificationType.Webhook, moved, null), "the request names the destination the recipient holds");
         _logs.Entries.Should().Contain(x => x.Level == LogLevel.Warning && x.Message == "The keyed hash of recipient approval 8 names a definition recipient 8 does not hold, so it cannot be rewritten under the current key and may still need a previous key");
-        _logs.Entries.Should().Contain(x => x.Level == LogLevel.Warning && x.Message.StartsWith("0 stored values are still encrypted with a key in Beacon:PreviousEncryptionKeys, and 0 with no configured key; 1 keyed recipient hashes", StringComparison.Ordinal));
+        _logs.Entries.Should().Contain(x => x.Level == LogLevel.Warning && x.Message.StartsWith("0 stored values are still encrypted with a key in Beacon:PreviousEncryptionKeys, and 0 with no configured key; 1 keyed hashes name a definition their recipient or data source does not hold", StringComparison.Ordinal));
         _logs.Entries.Should().NotContain(x => x.Message.Contains("can be removed", StringComparison.Ordinal));
         _logs.Entries.Should().NotContain(x => x.Message.Contains("hooks.example.test", StringComparison.Ordinal));
 
@@ -300,6 +306,89 @@ public class StoredValueReEncryptionServiceTests
         reEncryption.Verify(x => x.ReEncryptAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    // A staged LLM connection change is encrypted at rest like any other value: one under a previous key is re-encrypted.
+    [Test]
+    public async Task AStagedLlmConnectionChangeUnderAPreviousKey_IsReEncryptedWithTheCurrentKey()
+    {
+        var store = new Store();
+        var request = LlmChange(80, _previous.Encrypt("""{"provider":1}"""), "v1:based-on");
+        store.Requests.Add(request);
+
+        var result = await Service(store).ReEncryptAsync(CancellationToken.None);
+
+        result.Should().BeEquivalentTo(new { UnderPreviousKeys = 1, ReEncrypted = 1, Unreadable = 0, Failed = 0 });
+        UnderCurrentKeyOnly(request.EncryptedPayload!).Should().Be("""{"provider":1}""");
+    }
+
+    // A governed data source's approved hash, and its pending request's, that match its definition only under the previous
+    // key are recomputed under the current key from its stored connection; an approved hash naming a definition the source
+    // no longer holds (its change waits) cannot be, and keeps the previous key needed.
+    [Test]
+    public async Task DataSourceDefinitionHashesUnderAPreviousKey_AreRecomputedWithTheCurrentKey()
+    {
+        const string connection = "Host=db.example.com;Database=sales;Username=reader;Password=pw;SSL Mode=VerifyFull";
+        const string moved = "Host=db.example.com;Database=ledger;Username=reader;Password=pw;SSL Mode=VerifyFull";
+        var before = new ConnectionDefinitionHasher(PreviousKey);
+        var hasher = new ConnectionDefinitionHasher(CurrentKey, [PreviousKey]);
+        var store = new Store();
+        var approved = Governed(store, 1, connection, DefinitionHash(before, connection));
+        var waiting = Governed(store, 2, moved, DefinitionHash(before, connection));
+        var request = LlmChange(81, null, DefinitionHash(before, moved));
+        request.Kind = ChangeApprovalKind.DataSourceConnection;
+        request.ResourceId = waiting.Id;
+        store.Requests.Add(request);
+
+        var counted = await Service(store, hasher).CountAsync(CancellationToken.None);
+        var result = await Service(store, hasher).ReEncryptAsync(CancellationToken.None);
+
+        counted.Should().BeEquivalentTo(new { UnderPreviousKeys = 2, UnresolvedKeyDependencies = 1, PreviousKeysRemovable = false });
+        result.Should().BeEquivalentTo(new { UnderPreviousKeys = 2, ReEncrypted = 2, Failed = 0, UnresolvedKeyDependencies = 1, PreviousKeysRemovable = false });
+        approved.ApprovedTargetHash.Should().Be(DefinitionHash(hasher, connection));
+        request.DefinitionHash.Should().Be(DefinitionHash(hasher, moved));
+        waiting.ApprovedTargetHash.Should().Be(DefinitionHash(before, connection), "its plaintext is not stored");
+        _logs.Entries.Should().Contain(x => x.Level == LogLevel.Warning && x.Message == "The keyed hash of data source approval 2 cannot be rewritten under the current key and may still need a previous key");
+        _logs.Entries.Should().NotContain(x => x.Message.Contains("db.example.com", StringComparison.Ordinal) || x.Message.Contains("ledger", StringComparison.Ordinal));
+    }
+
+    // A pending LLM connection change made under the previous key (the stored connection's hash it records, or the
+    // fingerprints it shows) cannot be rewritten (its reviewer's view is bound by its payload hash): it keeps the previous
+    // key needed until it is decided or expires. A run wipes one past its expiry; one made under the current key needs no
+    // previous key.
+    [Test]
+    public async Task APendingLlmConnectionChangeUnderAPreviousKey_KeepsThePreviousKeysNeeded_AndARunExpiresTheOldOnes()
+    {
+        var before = new ConnectionDefinitionHasher(PreviousKey);
+        var hasher = new ConnectionDefinitionHasher(CurrentKey, [PreviousKey]);
+        var store = new Store();
+        store.Settings.Add(new AppSetting { Id = 1, Key = "LLM.Provider", Category = "LLM", Value = nameof(AiProvider.OpenAI) });
+        var stored = LlmConnectionDefinition.Of(new AppSettingsData { LlmProvider = AiProvider.OpenAI });
+        var proposed = new LlmConnectionDefinition { Provider = AiProvider.Claude, ApiKey = "proposed-key" };
+        var payload = _encryption.Encrypt(JsonSerializer.Serialize(proposed, new JsonSerializerOptions(JsonSerializerDefaults.Web)));
+        var basedOnBefore = LlmChange(82, payload, stored.Hash(before), proposed.View(hasher, null));
+        var shownBefore = LlmChange(84, payload, stored.Hash(hasher), proposed.View(before, null));
+        var current = LlmChange(85, payload, stored.Hash(hasher), proposed.View(hasher, null));
+        var expired = LlmChange(83, payload, stored.Hash(before), proposed.View(before, null));
+        expired.CreatedTime = DateTime.UtcNow.AddDays(-31);
+        store.Requests.AddRange([basedOnBefore, shownBefore, current, expired]);
+        var llm = TestChangeApprovals.Llm(store.Factory(), TestChangeApprovals.On(), hasher: hasher, encryption: _encryption);
+
+        var counted = await Service(store, hasher, llm).CountAsync(CancellationToken.None);
+        var expiredAfterCount = expired.Status;
+        var result = await Service(store, hasher, llm).ReEncryptAsync(CancellationToken.None);
+
+        counted.UnresolvedKeyDependencies.Should().Be(3, "counting changes nothing, so the old request is still pending");
+        expiredAfterCount.Should().Be(ApprovalStatus.Pending);
+        result.Should().BeEquivalentTo(new { UnresolvedKeyDependencies = 2, PreviousKeysRemovable = false });
+        expired.Should().BeEquivalentTo(new { Status = ApprovalStatus.Superseded, EncryptedPayload = (string?)null }, x => x.ExcludingMissingMembers());
+        _logs.Entries.Should().Contain(x => x.Level == LogLevel.Warning && x.Message == "The keyed hash of LLM connection change request 82 cannot be rewritten under the current key and may still need a previous key");
+        _logs.Entries.Should().Contain(x => x.Message.EndsWith("request 84 cannot be rewritten under the current key and may still need a previous key", StringComparison.Ordinal));
+        _logs.Entries.Should().NotContain(x => x.Message.Contains("request 85", StringComparison.Ordinal));
+
+        var withoutPreviousKey = await Service(store, new ConnectionDefinitionHasher(CurrentKey), TestChangeApprovals.Llm(store.Factory(), hasher: new ConnectionDefinitionHasher(CurrentKey), encryption: _encryption))
+            .CountAsync(CancellationToken.None);
+        withoutPreviousKey.UnresolvedKeyDependencies.Should().Be(0);
+    }
+
     private string UnderCurrentKeyOnly(string cipherText)
     {
         _encryption.Identify(cipherText).Should().Be(EncryptionService.KeyMatch.Current);
@@ -310,6 +399,59 @@ public class StoredValueReEncryptionServiceTests
     private StoredValueReEncryptionService Service(Store store, RecipientDestinationHasher? hasher = null)
     {
         return new StoredValueReEncryptionService(store.Factory(), _encryption, _logs.For<StoredValueReEncryptionService>(), hasher);
+    }
+
+    // With the data-source definition hashes (read through the connection resolver under connectionHasher) and the LLM
+    // connection changes in the run.
+    private StoredValueReEncryptionService Service(Store store, ConnectionDefinitionHasher connectionHasher, LlmConnectionApproval? llm = null)
+    {
+        var resolver = new DataSourceConnectionResolver(_encryption, new ConfigurationBuilder().Build(), TestTransport.Policy(), new BeaconConfiguration(), connectionHasher);
+
+        return new StoredValueReEncryptionService(store.Factory(), _encryption, _logs.For<StoredValueReEncryptionService>(), null, resolver, connectionHasher, llm);
+    }
+
+    private static string DefinitionHash(ConnectionDefinitionHasher hasher, string connection)
+    {
+        return hasher.Hash(
+            ConnectionDefinitionPurpose.DataSourceDefinition,
+            DataSourceApprovalDefinition.Canonical(TestTransport.Policy(), DataSourceType.Database, DatabaseEngineType.PostgreSQL, connection));
+    }
+
+    // A governed PostgreSQL source whose connection is encrypted with the current key.
+    private DataSource Governed(Store store, int id, string connection, string approvedHash)
+    {
+        var source = new DataSource
+        {
+            Id = id,
+            Name = $"source-{id}",
+            DataSourceType = DataSourceType.Database,
+            DatabaseEngineType = DatabaseEngineType.PostgreSQL,
+            EncryptedConnectionData = _encryption.Encrypt(connection),
+            ApprovedTargetHash = approvedHash
+        };
+        store.DataSources.Add(source);
+
+        return source;
+    }
+
+    // A pending change of the LLM connection, its staged payload and recorded hash as given.
+    private static ChangeApprovalRequest LlmChange(int id, string? payload, string definitionHash, Beacon.Core.Models.Approvals.LlmConnectionView? view = null)
+    {
+        var proposedJson = view == null ? "{}" : JsonSerializer.Serialize(view, new JsonSerializerOptions(JsonSerializerDefaults.Web));
+
+        return new ChangeApprovalRequest
+        {
+            Id = id,
+            Kind = ChangeApprovalKind.LlmConnection,
+            ResourceId = LlmConnectionApproval.ResourceId,
+            ResourceName = LlmConnectionApproval.ResourceName,
+            Status = ApprovalStatus.Pending,
+            DefinitionHash = definitionHash,
+            ProposedJson = proposedJson,
+            PayloadHash = ChangeApprovalHashes.Sha256(proposedJson),
+            RequestedByUserId = "ext-ada",
+            EncryptedPayload = payload
+        };
     }
 
     private ServiceProvider Services(Store store, RecipientDestinationHasher hasher)
@@ -335,6 +477,10 @@ public class StoredValueReEncryptionServiceTests
             hasher,
             TestChangeApprovals.On(),
             new RecordingSecurityAudit(),
+            TestPermissions.Admin,
+            TestChangeApprovals.NoDefinitions,
+            TestChangeApprovals.NoProbe,
+            TestChangeApprovals.Llm(),
             NullLogger<ChangeApprovalService>.Instance);
     }
 

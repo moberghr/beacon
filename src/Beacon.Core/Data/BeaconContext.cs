@@ -189,6 +189,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
         ConfigureAppSettingEntities(modelBuilder);
         ConfigureQueryVersionEntities(modelBuilder);
         ConfigureApprovalEntities(modelBuilder);
+        ConfigurePendingLlmConnectionIndex(modelBuilder);
         ConfigureQueryMcpToolEntities(modelBuilder);
         ConfigureDataQualityEntities(modelBuilder);
         ConfigureProjectEntities(modelBuilder);
@@ -926,6 +927,10 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
         modelBuilder.Entity<Recipient>()
             .Property(e => e.ApprovedDestinationHash)
             .HasMaxLength(64);
+
+        modelBuilder.Entity<DataSource>()
+            .Property(e => e.ApprovedTargetHash)
+            .HasMaxLength(100);
     }
 
     protected void ConfigureQueryMcpToolEntities(ModelBuilder modelBuilder)
@@ -1717,5 +1722,19 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.HasIndex(e => e.EvalRunId);
             entity.HasIndex(e => e.EvalCaseId);
         });
+    }
+
+    // One pending LLM connection change at a time (there is one stored connection): a concurrent second submission fails on
+    // this index. Filter column names differ per provider (SQL Server keeps PascalCase, PostgreSQL uses snake_case via the
+    // naming convention).
+    private void ConfigurePendingLlmConnectionIndex(ModelBuilder modelBuilder)
+    {
+        var pendingLlmConnectionFilter = Database.ProviderName == HostModelReader.SqlServerProviderName
+            ? $"[Kind] = {(int)ChangeApprovalKind.LlmConnection} AND [Status] = {(int)ApprovalStatus.Pending}"
+            : $"kind = {(int)ChangeApprovalKind.LlmConnection} AND status = {(int)ApprovalStatus.Pending}";
+        modelBuilder.Entity<ChangeApprovalRequest>()
+            .HasIndex(e => new { e.Kind, e.ResourceId })
+            .IsUnique()
+            .HasFilter(pendingLlmConnectionFilter);
     }
 }

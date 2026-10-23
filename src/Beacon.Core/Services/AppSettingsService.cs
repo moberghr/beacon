@@ -9,7 +9,7 @@ using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Services;
 
-public class AppSettingsService : IAppSettingsService
+public class AppSettingsService : IAppSettingsService, IAppSettingsStager
 {
     private const string CacheKey = "AppSettings_All";
     private static readonly TimeSpan CacheDuration = TimeSpan.FromHours(1);
@@ -43,11 +43,25 @@ public class AppSettingsService : IAppSettingsService
             return cached;
 
         await using var context = await _contextFactory.CreateDbContextAsync(ct);
+        var data = await ReadAsync(context, ct);
+
+        _cache.Set(CacheKey, data, CacheDuration);
+        return data;
+    }
+
+    Task<AppSettingsData> IAppSettingsStager.ReadStoredAsync(BeaconContext context, CancellationToken cancellationToken)
+    {
+        return ReadAsync(context, cancellationToken);
+    }
+
+    // The stored settings as the context reads them now (never the cache), sensitive values decrypted.
+    private async Task<AppSettingsData> ReadAsync(BeaconContext context, CancellationToken ct)
+    {
         var rows = await context.AppSettings.AsNoTracking().ToListAsync(ct);
 
         var dict = rows.ToDictionary(r => r.Key, r => new { r.Value, r.IsSensitive });
 
-        var data = new AppSettingsData
+        return new AppSettingsData
         {
             BaseUrl = GetValue("General.BaseUrl"),
             LlmProvider = GetEnum<AiProvider>("LLM.Provider"),
@@ -70,9 +84,6 @@ public class AppSettingsService : IAppSettingsService
                 || dict.ContainsKey("LLM.RequestsPerMinute")
                 || dict.ContainsKey("LLM.RateLimitsEnabled"),
         };
-
-        _cache.Set(CacheKey, data, CacheDuration);
-        return data;
 
         string? GetValue(string key)
         {
@@ -115,6 +126,35 @@ public class AppSettingsService : IAppSettingsService
     public async Task SaveSettingsAsync(AppSettingsData settings, string? userId, bool saveLimits, CancellationToken ct = default)
     {
         await using var context = await _contextFactory.CreateDbContextAsync(ct);
+        var staged = await StageAsync(context, settings, userId, AppSettingsParts.Everything, saveLimits, ct);
+
+        // One security audit event per save that changed something, naming the keys and their history rows.
+        await _securityAudit.SaveWithEventsAsync(context, staged.AuditEntries, ct);
+
+        await staged.AfterCommitAsync(ct);
+    }
+
+    Task<StagedAppSettings> IAppSettingsStager.StageAsync(
+        BeaconContext context,
+        AppSettingsData settings,
+        string? changedByUserId,
+        AppSettingsParts parts,
+        bool saveLimits,
+        CancellationToken cancellationToken)
+    {
+        return StageAsync(context, settings, changedByUserId, parts, saveLimits, cancellationToken);
+    }
+
+    // The rows and history of a save of the parts given, added to the context unsaved; what follows the commit is the
+    // staged save's AfterCommitAsync.
+    private async Task<StagedAppSettings> StageAsync(
+        BeaconContext context,
+        AppSettingsData settings,
+        string? userId,
+        AppSettingsParts parts,
+        bool saveLimits,
+        CancellationToken ct)
+    {
         var rows = await context.AppSettings.ToListAsync(ct);
         var dict = rows.ToDictionary(r => r.Key);
         var historyEntries = new List<AppSettingHistory>();
@@ -175,22 +215,33 @@ public class AppSettingsService : IAppSettingsService
             row.Value = isSensitive && newValue != null ? _encryption.Encrypt(newValue) : newValue;
         }
 
-        SetValue("General.BaseUrl", settings.BaseUrl, false, "General");
+        if (parts != AppSettingsParts.ConnectionOnly)
+        {
+            SetValue("General.BaseUrl", settings.BaseUrl, false, "General");
+        }
 
-        SetValue("LLM.Provider", settings.LlmProvider?.ToString(), false, "LLM");
-        SetValue("LLM.ApiKey", settings.LlmApiKey, true, "LLM");
-        SetValue("LLM.Endpoint", settings.LlmEndpoint, true, "LLM");
-        SetValue("LLM.Region", settings.LlmRegion, false, "LLM");
-        SetValue("LLM.SessionToken", settings.LlmSessionToken, true, "LLM");
-        SetValue("LLM.AwsAccessKeyId", settings.LlmAwsAccessKeyId, true, "LLM");
-        SetValue("LLM.AwsSecretAccessKey", settings.LlmAwsSecretAccessKey, true, "LLM");
-        SetValue("LLM.BedrockAuthMode", settings.LlmBedrockAuthMode.ToString(), false, "LLM");
-        SetValue("LLM.Model", settings.LlmModel, false, "LLM");
-        SetValue("LLM.FastModel", settings.LlmFastModel, false, "LLM");
-        SetValue("LLM.MonthlyBudget", settings.LlmMonthlyBudget.ToString(CultureInfo.InvariantCulture), false, "LLM");
+        // The LLM connection and its models: left as stored while a change of the connection waits for approval.
+        if (parts != AppSettingsParts.AllButConnection)
+        {
+            SetValue("LLM.Provider", settings.LlmProvider?.ToString(), false, "LLM");
+            SetValue("LLM.ApiKey", settings.LlmApiKey, true, "LLM");
+            SetValue("LLM.Endpoint", settings.LlmEndpoint, true, "LLM");
+            SetValue("LLM.Region", settings.LlmRegion, false, "LLM");
+            SetValue("LLM.SessionToken", settings.LlmSessionToken, true, "LLM");
+            SetValue("LLM.AwsAccessKeyId", settings.LlmAwsAccessKeyId, true, "LLM");
+            SetValue("LLM.AwsSecretAccessKey", settings.LlmAwsSecretAccessKey, true, "LLM");
+            SetValue("LLM.BedrockAuthMode", settings.LlmBedrockAuthMode.ToString(), false, "LLM");
+            SetValue("LLM.Model", settings.LlmModel, false, "LLM");
+            SetValue("LLM.FastModel", settings.LlmFastModel, false, "LLM");
+        }
+
+        if (parts != AppSettingsParts.ConnectionOnly)
+        {
+            SetValue("LLM.MonthlyBudget", settings.LlmMonthlyBudget.ToString(CultureInfo.InvariantCulture), false, "LLM");
+        }
 
         // The limits are an Admin's: anyone else's save leaves the stored ones (or the host's, when none are stored) alone.
-        if (saveLimits)
+        if (saveLimits && parts != AppSettingsParts.ConnectionOnly)
         {
             SetValue("LLM.MaxConcurrentRequests", settings.LlmMaxConcurrentRequests.ToString(), false, "LLM");
             SetValue("LLM.TokensPerMinute", settings.LlmTokensPerMinute.ToString(), false, "LLM");
@@ -203,27 +254,32 @@ public class AppSettingsService : IAppSettingsService
             context.AppSettingHistory.AddRange(historyEntries);
         }
 
-        // One security audit event per save that changed something, naming the keys and their history rows.
-        await _securityAudit.SaveWithEventsAsync(
-            context,
-            () => SettingsAuditEntries.Changed(SecurityAuditActions.AdminSettingsChanged, null, historyEntries),
-            ct);
+        var applyLimits = saveLimits && parts != AppSettingsParts.ConnectionOnly;
 
-        // Invalidate cache
-        _cache.Remove(CacheKey);
-
-        // Mutate BeaconConfiguration singleton
-        _config.BaseUrl = settings.BaseUrl;
-
-        // Update LLM configuration if updater is available; the limits in force change only with an Admin's save.
-        if (saveLimits)
+        return new StagedAppSettings(historyEntries, async cancellationToken =>
         {
-            _llmUpdater?.UpdateConfiguration(settings);
-        }
-        else
-        {
-            _llmUpdater?.UpdateConfiguration(settings, applyLimits: false);
-        }
+            // Invalidate cache
+            _cache.Remove(CacheKey);
+
+            if (parts != AppSettingsParts.ConnectionOnly)
+            {
+                // Mutate BeaconConfiguration singleton
+                _config.BaseUrl = settings.BaseUrl;
+            }
+
+            // A save of part of the settings applies them as they are now stored, read again after the commit.
+            var applied = parts == AppSettingsParts.Everything ? settings : await GetSettingsAsync(cancellationToken);
+
+            // Update LLM configuration if updater is available; the limits in force change only with an Admin's save.
+            if (applyLimits)
+            {
+                _llmUpdater?.UpdateConfiguration(applied);
+            }
+            else
+            {
+                _llmUpdater?.UpdateConfiguration(applied, applyLimits: false);
+            }
+        });
     }
 
     public async Task<List<AppSettingHistory>> GetHistoryAsync(string? key = null, CancellationToken ct = default)
@@ -235,5 +291,64 @@ public class AppSettingsService : IAppSettingsService
             query = query.Where(h => h.SettingKey == key);
 
         return await query.OrderByDescending(h => h.ChangedAt).Take(200).ToListAsync(ct);
+    }
+}
+
+/// <summary>Which settings a staged save writes (<see cref="IAppSettingsStager"/>).</summary>
+internal enum AppSettingsParts
+{
+    /// <summary>Every setting, as <see cref="IAppSettingsService.SaveSettingsAsync(AppSettingsData, string?, bool, CancellationToken)"/> writes them.</summary>
+    Everything = 1,
+
+    /// <summary>Every setting but the LLM connection (provider, endpoint, region, authentication mode, credentials) and its models.</summary>
+    AllButConnection = 2,
+
+    /// <summary>The LLM connection and its models only, never the limits.</summary>
+    ConnectionOnly = 3
+}
+
+/// <summary>
+/// Writes admin settings inside a unit of work its caller owns: a change of the LLM connection staged for approval saves the
+/// other settings with its request, and its approval writes the connection with the decision. Implemented by
+/// <see cref="AppSettingsService"/>.
+/// </summary>
+internal interface IAppSettingsStager
+{
+    /// <summary>The stored settings as <paramref name="context"/> reads them now (never a cached copy).</summary>
+    Task<AppSettingsData> ReadStoredAsync(BeaconContext context, CancellationToken cancellationToken);
+
+    /// <summary>
+    /// Adds the setting rows and history of a save of <paramref name="parts"/> of <paramref name="settings"/> to
+    /// <paramref name="context"/>, unsaved, the history attributed to <paramref name="changedByUserId"/>; the limits only
+    /// with <paramref name="saveLimits"/> (never with <see cref="AppSettingsParts.ConnectionOnly"/>). The caller saves with
+    /// <see cref="StagedAppSettings.AuditEntries"/> and, after the commit, calls <see cref="StagedAppSettings.AfterCommitAsync"/>.
+    /// </summary>
+    Task<StagedAppSettings> StageAsync(
+        BeaconContext context,
+        AppSettingsData settings,
+        string? changedByUserId,
+        AppSettingsParts parts,
+        bool saveLimits,
+        CancellationToken cancellationToken);
+}
+
+/// <summary>
+/// A staged save of admin settings: its history rows, the security audit event they make (once the save gave them ids), and
+/// what follows the commit (the settings cache cleared, the base URL and the LLM configuration applied).
+/// </summary>
+internal sealed class StagedAppSettings(IReadOnlyList<AppSettingHistory> history, Func<CancellationToken, Task> afterCommit)
+{
+    public IReadOnlyList<AppSettingHistory> History => history;
+
+    /// <summary>The <c>AdminSettingsChanged</c> event of the save; none when it changed nothing.</summary>
+    public IEnumerable<SecurityAuditEntry> AuditEntries()
+    {
+        return SettingsAuditEntries.Changed(SecurityAuditActions.AdminSettingsChanged, null, history);
+    }
+
+    /// <summary>After the commit: clears the settings cache and applies what is now stored.</summary>
+    public Task AfterCommitAsync(CancellationToken cancellationToken)
+    {
+        return afterCommit(cancellationToken);
     }
 }

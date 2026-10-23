@@ -397,7 +397,7 @@ public class HostDataSourceSynchronizerTests
     [Test]
     public void ConnectionResolver_HostManagedSource_ResolvesFromConfigurationAtCallTime()
     {
-        var resolver = new DataSourceConnectionResolver(FakeEncryption.Instance, Configuration(ReadOnlyConnectionString), TestTransport.Policy());
+        var resolver = new DataSourceConnectionResolver(FakeEncryption.Instance, Configuration(ReadOnlyConnectionString), TestTransport.Policy(), new BeaconConfiguration(), TestTransport.Hasher());
 
         var connection = resolver.GetConnectionString(HostDataSource());
 
@@ -407,7 +407,7 @@ public class HostDataSourceSynchronizerTests
     [Test]
     public void ConnectionResolver_HostManagedSourceWithoutConfiguredString_Throws()
     {
-        var resolver = new DataSourceConnectionResolver(FakeEncryption.Instance, Configuration(null), TestTransport.Policy());
+        var resolver = new DataSourceConnectionResolver(FakeEncryption.Instance, Configuration(null), TestTransport.Policy(), new BeaconConfiguration(), TestTransport.Hasher());
 
         var act = () => resolver.GetConnectionString(HostDataSource());
 
@@ -417,7 +417,7 @@ public class HostDataSourceSynchronizerTests
     [Test]
     public void ConnectionResolver_OrdinarySource_DecryptsStoredString()
     {
-        var resolver = new DataSourceConnectionResolver(FakeEncryption.Instance, Configuration(ReadOnlyConnectionString), TestTransport.Policy());
+        var resolver = new DataSourceConnectionResolver(FakeEncryption.Instance, Configuration(ReadOnlyConnectionString), TestTransport.Policy(), new BeaconConfiguration(), TestTransport.Hasher());
         var dataSource = new DataSource
         {
             Id = 7,
@@ -545,6 +545,8 @@ public class HostDataSourceSynchronizerTests
             new RecordingSecurityAudit(),
             TestTransport.Policy(),
             TestEngineVerifier.Passing,
+            TestChangeApprovals.Submitter(),
+            TestTransport.Hasher(),
             NullLogger<DataSourceService>.Instance);
 
         var update = () => service.UpdateDataSource(new Beacon.Core.Models.DataSources.DataSourceData

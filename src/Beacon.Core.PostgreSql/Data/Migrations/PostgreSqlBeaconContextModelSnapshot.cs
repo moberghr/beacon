@@ -995,6 +995,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("character varying(64)")
                         .HasColumnName("definition_hash");
 
+                    b.Property<string>("EncryptedPayload")
+                        .HasColumnType("text")
+                        .HasColumnName("encrypted_payload");
+
                     b.Property<int>("Kind")
                         .HasColumnType("integer")
                         .HasColumnName("kind");
@@ -1059,6 +1063,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_change_approval_requests");
+
+                    b.HasIndex("Kind", "ResourceId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_change_approval_requests_kind_resource_id")
+                        .HasFilter("kind = 5 AND status = 1");
 
                     b.HasIndex("Status", "CreatedTime")
                         .HasDatabaseName("ix_change_approval_requests_status_created_time");
@@ -1688,6 +1697,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Property<bool>("AllowMigrationWrites")
                         .HasColumnType("boolean")
                         .HasColumnName("allow_migration_writes");
+
+                    b.Property<string>("ApprovedTargetHash")
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("approved_target_hash");
 
                     b.Property<DateTime?>("ArchivedTime")
                         .HasColumnType("timestamp with time zone")

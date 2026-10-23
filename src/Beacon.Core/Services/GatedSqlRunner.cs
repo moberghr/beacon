@@ -145,6 +145,13 @@ internal sealed class GatedSqlRunner(
                 return new GatedSqlRun([], report, dialect, result.ExecutionTimeMs, TimedOut: true);
             }
 
+            // A provider that caught the connection resolver's refusal of a source whose connection waits for approval
+            // reports its fixed message, which holds no value: raised again as that refusal, so a run records why.
+            if (string.Equals(result.ErrorMessage, DataSourceAwaitingApprovalException.RefusalMessage, StringComparison.Ordinal))
+            {
+                throw new DataSourceAwaitingApprovalException(request.DataSource.Id);
+            }
+
             throw new QueryExecutionFailedException(await CallerErrorAsync(request, result.ErrorMessage ?? "Query execution failed.", cancellationToken));
         }
 

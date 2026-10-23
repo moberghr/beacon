@@ -2,6 +2,8 @@ using Beacon.Core.Data;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Authorization;
+using Beacon.Core.ChangeApprovals;
+using Beacon.Core.Data.Enums;
 using Beacon.Core.Services.Providers;
 
 namespace Beacon.Core.Handlers.DataSources;
@@ -10,7 +12,10 @@ internal sealed class GetDataSourceHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IProjectAccessEvaluator projectAccess,
     IDataSourceProviderFactory providers,
-    DataSourceTransportStatus transportStatus)
+    DataSourceTransportStatus transportStatus,
+    IBeaconPermissionAccessor permissionAccessor,
+    IBeaconActorAccessor actorAccessor,
+    BeaconConfiguration configuration)
     : IRequestHandler<GetDataSourceQuery, DataSourceEntry?>
 {
     public async Task<DataSourceEntry?> Handle(GetDataSourceQuery request, CancellationToken cancellationToken)
@@ -20,6 +25,8 @@ internal sealed class GetDataSourceHandler(
         var shownProject = DataSourceProjects.Shown(readable);
         var otherProject = DataSourceProjects.Other(readable);
         var countsMigrationJobs = scope.IsUnrestricted;
+        var visibleRequest = await DataSourceProjects.VisibleApprovalAsync(configuration, permissionAccessor, actorAccessor, cancellationToken);
+        var coversConnections = configuration.ApprovalWorkflow.Covers(ChangeApprovalKind.DataSourceConnection);
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         var readableStep = DataSourceProjects.ReadableStep(context, readable);
 
@@ -69,7 +76,27 @@ internal sealed class GetDataSourceHandler(
                         .ToList(),
                     OtherProjectCount = context.Projects
                         .Where(y => y.DataSources.Any(z => z.DataSourceId == x.Id))
-                        .Count(otherProject)
+                        .Count(otherProject),
+                    AwaitsFirstApproval = coversConnections
+                        ? x.ApprovedTargetHash == DataSourceApprovalDefinition.Held
+                        : false,
+                    Approval = visibleRequest != null
+                        ? context.ChangeApprovalRequests
+                            .Where(y => y.Kind == ChangeApprovalKind.DataSourceConnection)
+                            .Where(y => y.Status == ApprovalStatus.Pending)
+                            .Where(y => y.ResourceId == x.Id)
+                            .Where(visibleRequest)
+                            .OrderByDescending(y => y.Id)
+                            .Select(y =>
+                                new DataSourceApproval
+                                {
+                                    RequestId = y.Id,
+                                    Kind = y.Kind,
+                                    RequestedTime = y.CreatedTime,
+                                    AwaitsFirstApproval = x.ApprovedTargetHash == DataSourceApprovalDefinition.Held
+                                })
+                            .FirstOrDefault()
+                        : null
                 })
             .FirstOrDefaultAsync(cancellationToken);
 

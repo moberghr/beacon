@@ -296,6 +296,7 @@ public class AdminSettingsLlmConnectionTests
             TestProjectAccess.Actors(),
             permissions,
             _catalog,
+            TestChangeApprovals.Llm(new ChangeGovernance.ChangeApprovalStore().Factory(), settingsService: _settings.Object),
             NullLogger<UpdateAdminSettingsHandler>.Instance);
     }
 

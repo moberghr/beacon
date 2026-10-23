@@ -373,6 +373,10 @@ public class ChangeApprovalDecisionTests
             TestChangeApprovals.Hasher,
             configuration ?? TestChangeApprovals.On(),
             new RecordingSecurityAudit(),
+            TestPermissions.Admin,
+            TestChangeApprovals.NoDefinitions,
+            TestChangeApprovals.NoProbe,
+            TestChangeApprovals.Llm(),
             NullLogger<ChangeApprovalService>.Instance,
             notifier);
 }

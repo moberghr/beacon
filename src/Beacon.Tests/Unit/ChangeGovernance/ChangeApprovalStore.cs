@@ -5,6 +5,7 @@ using Beacon.Core.Data.Entities.Base;
 using Beacon.Core.Data.Entities.DataMigration;
 using Beacon.Core.Data.Entities.DataQuality;
 using Beacon.Core.Data.Entities.Metadata;
+using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Notifications;
 using Beacon.Core.Services;
@@ -55,6 +56,15 @@ internal sealed class ChangeApprovalStore
 
     public List<BeaconUser> Users { get; } = [];
 
+    /// <summary>
+    /// The stored admin settings (the LLM connection's change reads and writes them); a save adds the rows it inserts. Their
+    /// history is tracked by EF's own set, so a save records it in <see cref="Saved"/>.
+    /// </summary>
+    public List<AppSetting> Settings { get; } = [];
+
+    /// <summary>The data sources' project links, each with its project (a data source's change shows them live).</summary>
+    public List<ProjectDataSource> ProjectLinks { get; } = [];
+
     /// <summary>The warehouse's and the ledger's metadata: one orders table each, which contract rules may name.</summary>
     public List<DatabaseMetadata> Metadata { get; } =
     [
@@ -88,7 +98,10 @@ internal sealed class ChangeApprovalStore
             [typeof(Recipient)] = RecordingBeaconContext.MemorySet(Recipients, Saved),
             [typeof(ChangeApprovalRequest)] = RecordingBeaconContext.MemorySet(Requests, Saved),
             [typeof(BeaconUser)] = RecordingBeaconContext.MemorySet(Users, Saved),
+            [typeof(ProjectDataSource)] = RecordingBeaconContext.MemorySet(ProjectLinks, Saved),
             [typeof(DatabaseMetadata)] = RecordingBeaconContext.MemorySet(Metadata, Saved),
+            [typeof(AppSetting)] = RecordingBeaconContext.MemorySet(Settings, Saved),
+            [typeof(ColumnMetadata)] = RecordingBeaconContext.MemorySet(new List<ColumnMetadata>(), Saved),
             [typeof(DataQualityRuleResult)] = RecordingBeaconContext.MemorySet(new List<DataQualityRuleResult>(), Saved),
             [typeof(DataQualityScore)] = RecordingBeaconContext.MemorySet(new List<DataQualityScore>(), Saved),
         };
@@ -272,6 +285,7 @@ internal sealed class ChangeApprovalStore
     private void OnSave()
     {
         SaveCount++;
+        Settings.AddRange(Saved.OfType<AppSetting>().Except(Settings).ToList());
         foreach (var entity in Saved.OfType<BaseEntity>().Where(x => x.Id == 0))
         {
             entity.Id = _nextId++;
