@@ -224,8 +224,8 @@ Internal users' passwords are hashed at 600,000 PBKDF2 iterations, and the count
 hashes keep working and are upgraded at each user's next successful password sign-in
 ([Password hashes](/security/user-management/#password-hashes)). Creating a user, and first-run setup, now trim the user
 name and e-mail address and refuse a user name outside 3 to 100 characters or with control characters, an e-mail address
-that is not one plain address, and (setup) a password confirmation that differs. Editing a user checks only the fields
-that change.
+that is not one plain address, and (setup) a password confirmation that differs. Editing a user keeps a value sent back
+exactly as stored, and trims and checks only the fields that change.
 
 When you upgrade:
 

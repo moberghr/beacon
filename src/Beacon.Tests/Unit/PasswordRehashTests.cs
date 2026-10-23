@@ -89,6 +89,39 @@ public class PasswordRehashTests
             Times.Once);
     }
 
+    [Test]
+    public async Task EveryFailedSignIn_PerformsTheSamePasswordWork()
+    {
+        var current = new PasswordHasher(NullLogger<PasswordHasher>.Instance).HashPassword(Password);
+        var disabled = User(UnversionedHash(Password));
+        disabled.IsEnabled = false;
+        var noCredential = User((null!, null!));
+        var cases = new (string Name, List<BeaconUser> Users, string Password)[]
+        {
+            ("unknown user", [], "wrong"),
+            ("current hash, wrong password", [User(current)], "wrong"),
+            ("older hash, wrong password", [User(UnversionedHash(Password))], "wrong"),
+            ("older hash, disabled account", [disabled], Password),
+            ("malformed hash", [User(("not base64!", current.salt))], "wrong"),
+            ("no stored credential", [noCredential], "wrong")
+        };
+
+        foreach (var (name, users, password) in cases)
+        {
+            var iterations = 0L;
+            var hasher = new PasswordHasher(NullLogger<PasswordHasher>.Instance, (x, y, z) =>
+            {
+                iterations += z;
+                return Rfc2898DeriveBytes.Pbkdf2(x, y, z, HashAlgorithmName.SHA256, 32);
+            });
+
+            var result = await Service(users, hasher).AuthenticateInternalUserAsync("ana", password);
+
+            result.Success.Should().BeFalse(name);
+            iterations.Should().Be(PasswordHasher.Iterations, name);
+        }
+    }
+
     private static BeaconUser User((string Hash, string Salt) credential)
     {
         return new BeaconUser

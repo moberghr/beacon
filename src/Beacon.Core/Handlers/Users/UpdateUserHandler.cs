@@ -10,10 +10,8 @@ internal sealed class UpdateUserHandler(IUserManagementService userService, User
 {
     public async Task Handle(UpdateUserCommand request, CancellationToken cancellationToken)
     {
-        var userName = UserAccountFields.Trimmed(request.UserName);
-        var email = UserAccountFields.TrimmedEmail(request.Email);
         await rules.DemandMayChangeUserAsync(request.UserId, cancellationToken);
-        await rules.DemandMayChangeSignInIdentityAsync(request.UserId, userName, email, cancellationToken);
+        var (userName, email) = await rules.DemandMayChangeSignInIdentityAsync(request.UserId, request.UserName, request.Email, cancellationToken);
 
         var serviceRequest = new UpdateUserRequest
         {
