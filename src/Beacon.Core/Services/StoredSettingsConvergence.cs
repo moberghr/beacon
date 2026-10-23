@@ -25,6 +25,8 @@ internal sealed class StoredSettingsConvergence(
     /// <summary>How long a replica can keep settings another replica changed before it checks again.</summary>
     public static readonly TimeSpan CheckInterval = TimeSpan.FromSeconds(60);
 
+    private static readonly TimeSpan CheckTimeout = TimeSpan.FromSeconds(30);
+
     private readonly SemaphoreSlim _gate = new(1, 1);
     private long _nextCheckTicks;
     private Stamp? _known;
@@ -53,9 +55,11 @@ internal sealed class StoredSettingsConvergence(
             // Set first: the settings read while the stored settings are applied below finds the check done.
             Interlocked.Exchange(ref _nextCheckTicks, (now + CheckInterval).UtcTicks);
 
-            await CheckAsync(cancellationToken);
+            // Not the caller's token: a request that ends mid-check must not leave this process half converged. Bounded.
+            using var timeout = new CancellationTokenSource(CheckTimeout);
+            await CheckAsync(timeout.Token);
         }
-        catch (Exception ex) when (ex is not OperationCanceledException)
+        catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
             logger.LogWarning(
                 "The settings stamp could not be checked ({ExceptionType}); this process keeps its cached settings until the next check",
@@ -64,6 +68,30 @@ internal sealed class StoredSettingsConvergence(
         finally
         {
             _gate.Release();
+        }
+    }
+
+    /// <summary>
+    /// Records the stamp the startup apply used (read before it read the settings). Without one (the apply failed) the
+    /// first check applies again. Ignored once a check has run.
+    /// </summary>
+    internal void RecordStartupApply(Stamp? stamp)
+    {
+        Interlocked.CompareExchange(ref _known, stamp ?? new Stamp(int.MinValue, int.MinValue), null);
+    }
+
+    /// <summary>The current stamp, or null when it cannot be read (logged by exception type only).</summary>
+    internal async Task<Stamp?> TryReadStampAsync(CancellationToken cancellationToken)
+    {
+        try
+        {
+            return new Stamp(await ReadLatestAsync(cancellationToken), await ReadLatestAdminAsync(cancellationToken));
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogWarning("The settings stamp could not be read ({ExceptionType})", ex.GetType().Name);
+
+            return null;
         }
     }
 
@@ -79,24 +107,24 @@ internal sealed class StoredSettingsConvergence(
         // The admin settings' own stamp is read only when something changed: it decides whether the LLM configuration
         // is rebuilt, which an MCP settings change alone never needs.
         var stamp = new Stamp(latest, await ReadLatestAdminAsync(cancellationToken));
-        _known = stamp;
 
-        // The first check only records the stamp (this process applied the stored settings when it started), but drops
-        // what was cached before it, which a save made while the process started could have outdated.
+        // Without a startup apply (a host that does not run one) the first check only records the stamp, but drops what
+        // was cached before it, which a save made while the process started could have outdated.
         AppSettingsService.ResetCache();
         McpSettingsProvider.ResetCache();
 
-        if (known == null || known.LatestAdmin == stamp.LatestAdmin)
+        if (known != null && known.LatestAdmin != stamp.LatestAdmin)
         {
-            return;
+            await using var scope = scopeFactory.CreateAsyncScope();
+            var applier = scope.ServiceProvider.GetService<StoredSettingsApplier>();
+            if (applier != null && !await applier.ApplyChangedAsync(cancellationToken))
+            {
+                // The stamp stays as it was: the next check tries again.
+                return;
+            }
         }
 
-        await using var scope = scopeFactory.CreateAsyncScope();
-        var applier = scope.ServiceProvider.GetService<StoredSettingsApplier>();
-        if (applier != null)
-        {
-            await applier.ApplyChangedAsync(cancellationToken);
-        }
+        _known = stamp;
     }
 
     private async Task<int?> ReadLatestAsync(CancellationToken cancellationToken)
@@ -116,5 +144,5 @@ internal sealed class StoredSettingsConvergence(
             .MaxAsync(x => (int?)x.Id, cancellationToken);
     }
 
-    private sealed record Stamp(int? Latest, int? LatestAdmin);
+    internal sealed record Stamp(int? Latest, int? LatestAdmin);
 }

@@ -63,7 +63,7 @@ app.UseForwardedHeaders(forwarded);
 ## Scaling
 
 - [ ] Several instances: shared Data Protection key ring (Beacon's database does this), a SignalR backplane (`ConfigureSignalR`), **session affinity for `/beacon/mcp`** (legacy MCP clients hold an `Mcp-Session-Id` in memory), and a job runner that fires each recurring job once.
-- [ ] Settings saved on one instance (admin settings, MCP settings) reach the others within about a minute: each instance checks the settings history for a newer change at most once every 60 seconds, on its next settings read, then drops its cached copies and applies the stored base URL and LLM configuration again. The instance that saved applies the change at once.
+- [ ] Settings saved on one instance (admin settings, MCP settings) reach the others within about a minute: each instance checks the settings history for a newer change at most once every 60 seconds, on its next settings read, then drops its cached copies and applies the stored base URL and LLM configuration again. The instance that saved applies the change at once and, because its own history rows move the stamp, applies the stored settings once more within the minute (harmless: it applies what is stored). A re-apply that fails is tried again at the next check.
 - [ ] Beacon shares the host's `IMemoryCache`: its keys start with `beacon:` and every entry has a size of 1, so a host `MemoryCacheOptions.SizeLimit` counts each Beacon entry as one.
 - [ ] Migrations run once per deployment, not from every replica at the same time. → [Metadata database](/integrate/database/#creating-and-migrating-the-schema)
 - [ ] Database pool sized for job workers plus web traffic.

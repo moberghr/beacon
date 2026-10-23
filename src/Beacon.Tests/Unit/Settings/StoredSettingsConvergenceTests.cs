@@ -37,6 +37,7 @@ public class StoredSettingsConvergenceTests
     private Mock<ILlmConfigurationUpdater> _updater = null!;
     private LogRecorder _log = null!;
     private bool _unreadable;
+    private int _settingsFailures;
 
     [SetUp]
     public void SetUp()
@@ -48,6 +49,7 @@ public class StoredSettingsConvergenceTests
         _updater = new Mock<ILlmConfigurationUpdater>();
         _log = new LogRecorder();
         _unreadable = false;
+        _settingsFailures = 0;
         McpSettingsProvider.ResetCache();
         AppSettingsService.ResetCache();
     }
@@ -114,6 +116,100 @@ public class StoredSettingsConvergenceTests
     }
 
     [Test]
+    public async Task AnApplyThatFailed_IsTriedAgainAtTheNextCheck()
+    {
+        var convergence = Convergence();
+        _history.Add(History(1, "LLM.Model"));
+        await convergence.EnsureCurrentAsync(CancellationToken.None);
+        _history.Add(History(2, "LLM.ApiKey"));
+        _settingsFailures = 1;
+        _time.Advance(StoredSettingsConvergence.CheckInterval);
+
+        await convergence.EnsureCurrentAsync(CancellationToken.None);
+
+        _updater.Verify(x => x.UpdateConfiguration(It.IsAny<AppSettingsData>(), It.IsAny<bool>()), Times.Never);
+
+        _time.Advance(StoredSettingsConvergence.CheckInterval);
+        await convergence.EnsureCurrentAsync(CancellationToken.None);
+
+        _updater.Verify(x => x.UpdateConfiguration(It.IsAny<AppSettingsData>(), false), Times.Once);
+    }
+
+    [Test]
+    public async Task ACheckOfACancelledRequest_StillAppliesTheChange()
+    {
+        var convergence = Convergence();
+        _history.Add(History(1, "LLM.Model"));
+        await convergence.EnsureCurrentAsync(CancellationToken.None);
+        _history.Add(History(2, "LLM.ApiKey"));
+        _time.Advance(StoredSettingsConvergence.CheckInterval);
+        using var cancelled = new CancellationTokenSource();
+
+        await convergence.EnsureCurrentAsync(cancelled.Token);
+        cancelled.Cancel();
+
+        _updater.Verify(x => x.UpdateConfiguration(It.IsAny<AppSettingsData>(), false), Times.Once);
+    }
+
+    [Test]
+    public async Task ASaveStoredBetweenTheStartupApplyAndTheFirstCheck_IsAppliedAtTheFirstCheck()
+    {
+        await using var provider = Provider();
+        _history.Add(History(1, "LLM.Model"));
+        using (var scope = provider.CreateScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<StoredSettingsApplier>().ApplyAsync(CancellationToken.None);
+        }
+
+        _updater.Invocations.Clear();
+        _history.Add(History(2, "LLM.ApiKey"));
+
+        await provider.GetRequiredService<StoredSettingsConvergence>().EnsureCurrentAsync(CancellationToken.None);
+
+        _updater.Verify(x => x.UpdateConfiguration(It.IsAny<AppSettingsData>(), false), Times.Once);
+    }
+
+    [Test]
+    public async Task AFirstCheckAfterAStartupApplyOfTheSameStamp_AppliesNothing()
+    {
+        await using var provider = Provider();
+        _history.Add(History(1, "LLM.Model"));
+        using (var scope = provider.CreateScope())
+        {
+            await scope.ServiceProvider.GetRequiredService<StoredSettingsApplier>().ApplyAsync(CancellationToken.None);
+        }
+
+        _updater.Invocations.Clear();
+
+        await provider.GetRequiredService<StoredSettingsConvergence>().EnsureCurrentAsync(CancellationToken.None);
+
+        _updater.Verify(x => x.UpdateConfiguration(It.IsAny<AppSettingsData>(), It.IsAny<bool>()), Times.Never);
+    }
+
+    [Test]
+    public async Task AnApply_WaitsForAnApplyInProgress()
+    {
+        await using var provider = Provider();
+        using var scope = provider.CreateScope();
+        var applier = scope.ServiceProvider.GetRequiredService<StoredSettingsApplier>();
+        await StoredSettingsApplyOrder.Gate.WaitAsync();
+        Task<bool> apply;
+        try
+        {
+            apply = applier.ApplyChangedAsync(CancellationToken.None);
+            await Task.Delay(100);
+
+            apply.IsCompleted.Should().BeFalse();
+        }
+        finally
+        {
+            StoredSettingsApplyOrder.Gate.Release();
+        }
+
+        (await apply).Should().BeTrue();
+    }
+
+    [Test]
     public async Task AStampThatCannotBeRead_KeepsTheCachedSettings_AndIsLoggedByExceptionType()
     {
         var convergence = Convergence();
@@ -150,7 +246,7 @@ public class StoredSettingsConvergenceTests
     public void EveryCacheEntryBeaconWrites_HasABeaconKeyAndASize()
     {
         var root = RepositoryRoot();
-        var files = new[] { "Beacon.Core", "Beacon.AI", "Beacon.MCP", "Beacon.Api" }
+        var files = new[] { "Beacon.Core", "Beacon.AI", "Beacon.MCP", "Beacon.Api", "Beacon.Gateway" }
             .SelectMany(x => Directory.GetFiles(Path.Combine(root, "src", x), "*.cs", SearchOption.AllDirectories))
             .Where(x => !x.Contains($"{Path.DirectorySeparatorChar}obj{Path.DirectorySeparatorChar}", StringComparison.Ordinal))
             .ToList();
@@ -170,23 +266,31 @@ public class StoredSettingsConvergenceTests
 
     private StoredSettingsConvergence Convergence()
     {
+        return Provider().GetRequiredService<StoredSettingsConvergence>();
+    }
+
+    private ServiceProvider Provider()
+    {
         var settings = new Mock<IAppSettingsService>();
         settings
             .Setup(x => x.GetSettingsAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new AppSettingsData { LlmProvider = AiProvider.OpenAI, BaseUrl = "https://beacon.example" });
+            .Returns(() => _settingsFailures-- > 0
+                ? throw new InvalidOperationException("unreadable-detail")
+                : Task.FromResult(new AppSettingsData { LlmProvider = AiProvider.OpenAI, BaseUrl = "https://beacon.example" }));
         var services = new ServiceCollection();
         services.AddSingleton(settings.Object);
         services.AddSingleton(new BeaconConfiguration());
         services.AddSingleton(_updater.Object);
         services.AddSingleton<ILogger<StoredSettingsApplier>>(NullLogger<StoredSettingsApplier>.Instance);
         services.AddTransient<StoredSettingsApplier>();
-        var provider = services.BuildServiceProvider();
+        services.AddSingleton(x =>
+            new StoredSettingsConvergence(
+                Factory(),
+                x.GetRequiredService<IServiceScopeFactory>(),
+                _time,
+                _log.For<StoredSettingsConvergence>()));
 
-        return new StoredSettingsConvergence(
-            Factory(),
-            provider.GetRequiredService<IServiceScopeFactory>(),
-            _time,
-            _log.For<StoredSettingsConvergence>());
+        return services.BuildServiceProvider();
     }
 
     private AppSettingsService AdminSettings()
