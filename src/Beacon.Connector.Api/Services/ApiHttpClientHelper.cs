@@ -17,6 +17,9 @@ public static class ApiHttpClientHelper
         "X-Real-IP",
         "X-Client-IP",
         "True-Client-IP",
+        "CF-Connecting-IP",
+        "X-Cluster-Client-IP",
+        "Fastly-Client-IP",
         "X-Original-URL",
         "X-Rewrite-URL",
         "X-Original-Host",
@@ -42,7 +45,7 @@ public static class ApiHttpClientHelper
         ApiConnectionConfig config,
         ApiQueryDefinition query)
     {
-        var url = BuildUrl(config.BaseUrl, query.Path, query.Parameters);
+        var url = BuildUrl(config.BaseUrl, query.Path, query.Parameters, config.Auth);
 
         // Enforce a read-only verb whitelist. Only GET/HEAD/OPTIONS are allowed by
         // default; POST is permitted solely when the connection explicitly opts in
@@ -173,10 +176,27 @@ public static class ApiHttpClientHelper
         }
     }
 
+    // Same scheme, host and port; anything that cannot be read is not the same origin.
+    internal static bool SameOrigin(string? url, string? baseUrl) =>
+        Uri.TryCreate(url, UriKind.Absolute, out var uri)
+        && Uri.TryCreate(baseUrl, UriKind.Absolute, out var baseUri)
+        && Uri.Compare(uri, baseUri, UriComponents.SchemeAndServer, UriFormat.UriEscaped, StringComparison.OrdinalIgnoreCase) == 0;
+
+    // Redirects are not followed (the client's handler), so a redirect answer is a failure that says so.
+    internal static void EnsureNotRedirected(HttpResponseMessage response)
+    {
+        var status = (int)response.StatusCode;
+        if (status is >= 300 and < 400)
+        {
+            throw new BeaconException(
+                $"The API answered with a redirect (HTTP {status}), which Beacon does not follow. Point BaseUrl and OpenApiSpecUrl at the final address.");
+        }
+    }
+
     private static BeaconException TooLarge(string what, long maxBytes) =>
         new($"The {what} is larger than the {maxBytes / (1024 * 1024)} MB Beacon reads.");
 
-    private static string BuildUrl(string baseUrl, string path, ApiQueryParameters? parameters)
+    private static string BuildUrl(string baseUrl, string path, ApiQueryParameters? parameters, ApiAuthConfig? auth)
     {
         // Substitute path parameters
         var resolvedPath = path;
@@ -196,16 +216,26 @@ public static class ApiHttpClientHelper
                 $"Endpoint path must be a server-relative path starting with '/'. Got: '{resolvedPath}'.");
         }
 
+        if (resolvedPath.Contains('?'))
+        {
+            throw new InvalidOperationException("Endpoint path must not contain '?'; pass query values as query parameters.");
+        }
+
         EnsurePathStaysPut(resolvedPath);
 
         var url = baseUrl.TrimEnd('/') + resolvedPath;
 
         // Add query parameters
-        if (parameters?.Query != null && parameters.Query.Count > 0)
+        // The data source's own API key wins: a caller's query value of the same name is dropped, never sent before it.
+        var keyName = auth is { Type: ApiAuthType.ApiKey, ApiKeyLocation: ApiKeyLocation.Query } ? auth.ApiKeyName : null;
+        var callerQuery = (parameters?.Query ?? [])
+            .Where(x => keyName == null || !string.Equals(x.Key, keyName, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+        if (callerQuery.Count > 0)
         {
             var queryString = string.Join("&",
-                parameters.Query.Select(kvp =>
-                    $"{Uri.EscapeDataString(kvp.Key)}={Uri.EscapeDataString(kvp.Value)}"));
+                callerQuery.Select(x =>
+                    $"{Uri.EscapeDataString(x.Key)}={Uri.EscapeDataString(x.Value)}"));
             url += "?" + queryString;
         }
 
@@ -239,7 +269,8 @@ public static class ApiHttpClientHelper
         var segments = decoded
             .Replace('\\', '/')
             .Split('/');
-        if (segments.Any(x => x is "." or "..") || decoded.Any(char.IsControl))
+        // A path parameter (`..;x=1`) is stripped by many servers before they resolve the dot segment.
+        if (segments.Select(x => x.Split(';')[0]).Any(x => x is "." or "..") || decoded.Any(char.IsControl))
         {
             throw new InvalidOperationException("Endpoint path must not contain '.' or '..' segments or encoded control characters.");
         }

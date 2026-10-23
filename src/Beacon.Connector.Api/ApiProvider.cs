@@ -64,13 +64,13 @@ public class ApiProvider(
             // Test by fetching the OpenAPI spec URL; only its status is needed, so its body is never read. The data
             // source's credentials go only to the base URL's origin: a description served elsewhere is fetched without them.
             using var request = new HttpRequestMessage(HttpMethod.Get, config.OpenApiSpecUrl);
-            if (SameOrigin(config.OpenApiSpecUrl, config.BaseUrl))
+            if (ApiHttpClientHelper.SameOrigin(config.OpenApiSpecUrl, config.BaseUrl))
             {
                 ApiHttpClientHelper.ApplyAuth(request, config.Auth);
             }
 
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
-            EnsureNotRedirected(response);
+            ApiHttpClientHelper.EnsureNotRedirected(response);
             response.EnsureSuccessStatusCode();
 
             stopwatch.Stop();
@@ -108,6 +108,7 @@ public class ApiProvider(
         CancellationToken cancellationToken = default)
     {
         var stopwatch = Stopwatch.StartNew();
+        var scrubber = ApiSecretScrubber.For(null);
 
         try
         {
@@ -117,6 +118,7 @@ public class ApiProvider(
             }
 
             var config = ParseConfiguration(dataSource);
+            scrubber = ApiSecretScrubber.For(config.Auth);
             var queryDef = JsonSerializer.Deserialize<ApiQueryDefinition>(query, JsonOptions)
                 ?? throw new BeaconException("Failed to parse API query definition");
 
@@ -147,7 +149,7 @@ public class ApiProvider(
             try
             {
                 using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token);
-                EnsureNotRedirected(response);
+                ApiHttpClientHelper.EnsureNotRedirected(response);
                 response.EnsureSuccessStatusCode();
                 statusCode = (int)response.StatusCode;
 
@@ -161,7 +163,6 @@ public class ApiProvider(
             }
 
             // The data source's own credentials never reach the caller, also when the API echoes the request.
-            var scrubber = ApiSecretScrubber.For(config.Auth);
             var rows = tabularizer.Tabularize(scrubber.Scrub(responseBody), queryDef.ResultMapping, out var truncated, out var totalAvailable);
             scrubber.Scrub(rows);
 
@@ -205,7 +206,7 @@ public class ApiProvider(
                 TotalRows = 0,
                 ExecutionTimeMs = stopwatch.Elapsed.TotalMilliseconds,
                 Success = false,
-                ErrorMessage = ex.Message
+                ErrorMessage = scrubber.Scrub(ex.Message)
             };
         }
     }
@@ -220,6 +221,7 @@ public class ApiProvider(
             var endpoints = await openApiImportService.ImportAsync(
                 config.OpenApiSpecUrl,
                 config.EndpointFilter,
+                config,
                 cancellationToken);
 
             return new DataSourceMetadata
@@ -301,6 +303,11 @@ public class ApiProvider(
             return;
         }
 
+        if (Uri.TryCreate(config?.BaseUrl, UriKind.Absolute, out var baseUri) && !string.IsNullOrEmpty(baseUri.UserInfo))
+        {
+            throw new InvalidOperationException("BaseUrl must not contain credentials (user:password@host); configure them in Auth.");
+        }
+
         if (SendsKeyInQuery(config?.Auth))
         {
             throw new InvalidOperationException(QueryKeyRefusedMessage);
@@ -311,23 +318,6 @@ public class ApiProvider(
 
     private static bool SendsKeyInQuery(ApiAuthConfig? auth) =>
         auth is { Type: ApiAuthType.ApiKey, ApiKeyLocation: ApiKeyLocation.Query };
-
-    // Same scheme, host and port; anything that cannot be read is not the same origin.
-    private static bool SameOrigin(string? url, string? baseUrl) =>
-        Uri.TryCreate(url, UriKind.Absolute, out var uri)
-        && Uri.TryCreate(baseUrl, UriKind.Absolute, out var baseUri)
-        && Uri.Compare(uri, baseUri, UriComponents.SchemeAndServer, UriFormat.UriEscaped, StringComparison.OrdinalIgnoreCase) == 0;
-
-    // Redirects are not followed (the client's handler), so a redirect answer is a failure that says so.
-    private static void EnsureNotRedirected(HttpResponseMessage response)
-    {
-        var status = (int)response.StatusCode;
-        if (status is >= 300 and < 400)
-        {
-            throw new BeaconException(
-                $"The API answered with a redirect (HTTP {status}), which Beacon does not follow. Point BaseUrl and OpenApiSpecUrl at the final address.");
-        }
-    }
 
     private void WarnOnQueryKey(DataSource dataSource, ApiConnectionConfig config)
     {

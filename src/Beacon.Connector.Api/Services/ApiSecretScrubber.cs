@@ -1,6 +1,8 @@
+using System.Net;
 using System.Text;
 using System.Text.Encodings.Web;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using Beacon.Connector.Api.Models;
 
 namespace Beacon.Connector.Api.Services;
@@ -8,11 +10,16 @@ namespace Beacon.Connector.Api.Services;
 /// <summary>
 /// Removes an API data source's own credentials (bearer token, API key, Basic password and the Basic header value) from
 /// what the API answered, before it reaches the caller: an API that echoes the request URL or headers would otherwise hand
-/// the stored credential back as a row. Each credential is matched as sent and in its URL- and JSON-escaped forms.
+/// the stored credential back as a row. Each credential is matched as sent and in its URL- (upper and lower case hex,
+/// <c>%20</c> and <c>+</c>) and JSON-escaped forms. A credential shorter than <see cref="MinSecretLength"/> characters is
+/// not scrubbed: replacing a short or common value (a password such as <c>admin</c>, a number) would corrupt keys and
+/// unrelated data in the body.
 /// </summary>
 internal sealed class ApiSecretScrubber
 {
     public const string Mask = "***";
+
+    public const int MinSecretLength = 8;
 
     private readonly List<string> _forms;
 
@@ -36,7 +43,7 @@ internal sealed class ApiSecretScrubber
         }
 
         var forms = secrets
-            .Where(x => !string.IsNullOrEmpty(x))
+            .Where(x => x is { Length: >= MinSecretLength })
             .SelectMany(x => FormsOf(x!))
             .Distinct(StringComparer.Ordinal)
             .OrderByDescending(x => x.Length)
@@ -75,10 +82,18 @@ internal sealed class ApiSecretScrubber
         }
     }
 
+    private static string LowerHex(string encoded) =>
+        Regex.Replace(encoded, "%[0-9A-F]{2}", x => x.Value.ToLowerInvariant());
+
     private static IEnumerable<string> FormsOf(string secret)
     {
         yield return secret;
-        yield return Uri.EscapeDataString(secret);
+        var escaped = Uri.EscapeDataString(secret);
+        yield return escaped;
+        yield return LowerHex(escaped);
+        var formEncoded = WebUtility.UrlEncode(secret);
+        yield return formEncoded;
+        yield return LowerHex(formEncoded);
         yield return JsonEncodedText.Encode(secret).Value;
         yield return JsonEncodedText.Encode(secret, JavaScriptEncoder.UnsafeRelaxedJsonEscaping).Value;
     }

@@ -1,6 +1,7 @@
 using System.Net;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
@@ -18,6 +19,7 @@ using Beacon.Core;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Models;
 using Beacon.Core.Models.DataSources;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Metadata;
@@ -420,6 +422,121 @@ public class ApiConnectorOutboundTests
         endpoints.Should().ContainSingle();
         log.Entries.Should().NotBeEmpty();
         log.Entries.Should().OnlyContain(x => !x.FullText.Contains("specs.example.org") && !x.FullText.Contains(TestCredentials.ProviderSecretKey));
+    }
+
+    private const string SpecJson = """{"openapi":"3.0.3","info":{"title":"t","version":"1"},"paths":{"/items":{"get":{"responses":{"200":{"description":"ok"}}}}}}""";
+
+    [Test]
+    public async Task ImportingADescription_UsesTheConnectorsClient_AndARedirectAnswerFails()
+    {
+        var clients = new Mock<IHttpClientFactory>(MockBehavior.Strict);
+        clients
+            .Setup(x => x.CreateClient(ApiConnectorHttpClient.Name))
+            .Returns(() => new HttpClient(new RespondingHandler(_ => new HttpResponseMessage(HttpStatusCode.Found))));
+        var service = new OpenApiImportService(clients.Object, NullLogger<OpenApiImportService>.Instance);
+
+        var act = () => service.ImportAsync(BaseUrl + "/openapi.json", null, Config(), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<BeaconException>()).Which.Message.Should().Contain("redirect").And.Contain("302");
+    }
+
+    [Test]
+    public async Task ImportingADescription_OnTheBaseUrlsOrigin_SendsTheCredentials_ElsewhereNot()
+    {
+        var requests = new List<HttpRequestMessage>();
+        var clients = Clients(x =>
+        {
+            requests.Add(x);
+
+            return Json(SpecJson);
+        });
+        var service = new OpenApiImportService(clients, NullLogger<OpenApiImportService>.Instance);
+        var config = Config(new ApiAuthConfig { Type = ApiAuthType.Bearer, Token = Secret });
+
+        await service.ImportAsync(BaseUrl + "/openapi.json", null, config, CancellationToken.None);
+        await service.ImportAsync("https://specs.example.org/openapi.json", null, config, CancellationToken.None);
+
+        requests.Should().HaveCount(2);
+        requests[0].Headers.Authorization!.Parameter.Should().Be(Secret);
+        requests[1].Headers.Authorization.Should().BeNull();
+    }
+
+    [TestCase("/..;x=1/admin")]
+    [TestCase("/items/.;x/y")]
+    [TestCase("/items/%2e%2e%3bx/y")]
+    [TestCase("/items/..%3B/y")]
+    public void CreateRequest_RefusesADotSegmentWithAPathParameter(string path)
+    {
+        var act = () => ApiHttpClientHelper.CreateRequest(Config(baseUrl: "https://api.example.test/v1"), Query(path));
+
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Test]
+    public void CreateRequest_RefusesAQuestionMarkInThePath()
+    {
+        var act = () => ApiHttpClientHelper.CreateRequest(Config(), Query("/items?a=1"));
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*'?'*");
+    }
+
+    [Test]
+    public void CreateRequest_TheConfiguredApiKeyWinsOverACallerQueryKeyOfTheSameName()
+    {
+        var config = Config(new ApiAuthConfig { Type = ApiAuthType.ApiKey, ApiKeyName = "api_key", ApiKeyValue = Secret, ApiKeyLocation = ApiKeyLocation.Query });
+        var query = Query("/items");
+        query.Parameters!.Query["API_KEY"] = "caller";
+        query.Parameters.Query["page"] = "2";
+
+        using var request = ApiHttpClientHelper.CreateRequest(config, query);
+
+        request.RequestUri!.Query.Should().Be($"?page=2&api_key={Uri.EscapeDataString(Secret)}");
+    }
+
+    [TestCase("CF-Connecting-IP")]
+    [TestCase("X-Cluster-Client-IP")]
+    [TestCase("Fastly-Client-IP")]
+    [TestCase("True-Client-IP")]
+    public void CreateRequest_RefusesTheClientIpHeaders(string name)
+    {
+        var act = () => ApiHttpClientHelper.CreateRequest(Config(), Query("/items", headers: new() { [name] = "10.0.0.1" }));
+
+        act.Should().Throw<InvalidOperationException>();
+    }
+
+    [Test]
+    public async Task ExecuteQuery_AnErrorMessageThatQuotesTheCredential_ReturnsItMasked()
+    {
+        var clients = Clients(_ => throw new HttpRequestException($"failed for {Secret}"));
+        var config = ConfigJson(new { type = "Bearer", token = Secret });
+
+        var result = await Provider(clients, config).ExecuteQueryAsync(Source(), QueryJson(), []);
+
+        result.Success.Should().BeFalse();
+        result.ErrorMessage.Should().Contain("***").And.NotContain(Secret);
+    }
+
+    [Test]
+    public void TheScrubber_MasksLowercasePercentEncodingAndPlusFormEncoding_AndSkipsShortSecrets()
+    {
+        var secret = "pa ss/word+1";
+        var lower = Regex.Replace(Uri.EscapeDataString(secret), "%[0-9A-F]{2}", x => x.Value.ToLowerInvariant());
+        var scrubber = ApiSecretScrubber.For(new ApiAuthConfig { Type = ApiAuthType.Bearer, Token = secret, Password = "admin" });
+
+        var text = scrubber.Scrub($"a={lower}&b={WebUtility.UrlEncode(secret)}&c={Uri.EscapeDataString(secret)} admin");
+
+        text.Should().Be("a=***&b=***&c=*** admin", "a secret under 8 characters is never replaced");
+    }
+
+    [Test]
+    public void ANewConfiguration_WithCredentialsInTheBaseUrl_IsRefusedWithAClearMessage()
+    {
+        var provider = Provider(Clients(_ => Json("{}")), ConfigJson());
+        var withUserInfo = JsonSerializer.Serialize(new { baseUrl = "https://user:pw@api.example.test", openApiSpecUrl = BaseUrl + "/openapi.json" });
+
+        var act = () => provider.EnsureNewConnectionDataAllowed(withUserInfo);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("*BaseUrl*Auth*").Which.Message.Should().NotContain("pw");
     }
 
     private static ApiConnectionConfig Config(ApiAuthConfig? auth = null, string baseUrl = BaseUrl)
