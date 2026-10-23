@@ -34,6 +34,20 @@ public sealed class SecurityAuditOptions
     /// deleted by the security audit retention job, which the host schedules, and the deletion is itself recorded.
     /// </summary>
     public int? RetentionDays { get; set; }
+
+    /// <summary>The execution log of the statements Beacon runs on data sources (<c>Beacon:Audit:ExecutionLog</c>).</summary>
+    public ExecutionLogOptions ExecutionLog { get; set; } = new();
+}
+
+/// <summary>The execution log of the statements Beacon runs on data sources for its own features.</summary>
+public sealed class ExecutionLogOptions
+{
+    /// <summary>
+    /// Off (the default): a statement whose Started row cannot be written still runs, and a Warning is logged. On: such a
+    /// statement does not run, and its caller gets an error. The end of a statement that ran is recorded either way, never
+    /// in place of its result.
+    /// </summary>
+    public bool Required { get; set; }
 }
 
 internal sealed class SecurityAuditOptionsValidator : IValidateOptions<SecurityAuditOptions>

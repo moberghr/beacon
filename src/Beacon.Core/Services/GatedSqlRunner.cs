@@ -1,6 +1,7 @@
 using Microsoft.Extensions.Options;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Data.Enums;
 using Beacon.Core.Exceptions;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
@@ -20,6 +21,8 @@ namespace Beacon.Core.Services;
 /// <param name="Pii">The settings whose PII detection applies; null detects nothing in the SQL text (a host data source's
 /// masked columns are reported and masked either way).</param>
 /// <param name="Timeout">A shorter statement timeout than the runner's own (a subscription's); never a longer one.</param>
+/// <param name="ExecutionContext">What runs the statement, as its execution log row records it
+/// (<see cref="SqlExecutionContexts"/>); null records <see cref="SqlExecutionContexts.QueryStep"/>.</param>
 internal sealed record GatedSqlRequest(
     DataSource DataSource,
     string Sql,
@@ -27,7 +30,8 @@ internal sealed record GatedSqlRequest(
     int MaxRows,
     RowSecurityContext RowSecurity,
     McpSettingsData? Pii = null,
-    TimeSpan? Timeout = null);
+    TimeSpan? Timeout = null,
+    string? ExecutionContext = null);
 
 /// <summary>A statement that ran: its rows (host-masked by the provider), the gate's report and the dialect it was judged in.</summary>
 internal sealed record GatedSqlRun(
@@ -48,14 +52,17 @@ internal sealed record GatedSqlRun(
 /// failure on the data source throws <see cref="QueryExecutionFailedException"/>; a timeout is reported, not thrown. The
 /// failure's message is the database's own error, which can quote row values: while the data source's effective PII
 /// detection is on (the request's settings, else the global settings tightened by the projects that link the source —
-/// on, when none can be read), it is redacted (<see cref="DatabaseErrorRedactor.ForCaller"/>).
+/// on, when none can be read), it is redacted (<see cref="DatabaseErrorRedactor.ForCaller"/>). Every statement that passes
+/// the gate is in the execution log (<see cref="ISqlExecutionAudit"/>) before it is sent, and its row is closed with how it
+/// ended (succeeded, failed with the caller's message, cancelled, timed out).
 /// </summary>
 internal sealed class GatedSqlRunner(
     ISqlExecutionGate gate,
     IDataSourceProviderFactory providerFactory,
     IConfiguredDatabaseResolver configuredDatabases,
     IOptions<QueryExecutionOptions> queryOptions,
-    ISharedSourceSettings? sharedSourceSettings = null)
+    ISharedSourceSettings? sharedSourceSettings = null,
+    ISqlExecutionAudit? executionAudit = null)
 {
     /// <summary>How long one statement may run (<c>Beacon:Query:StatementTimeoutSeconds</c>). Settable for tests.</summary>
     internal TimeSpan StatementTimeout { get; init; } = TimeSpan.FromSeconds(queryOptions.Value.StatementTimeoutSeconds);
@@ -105,6 +112,77 @@ internal sealed class GatedSqlRunner(
 
         cancellationToken.ThrowIfCancellationRequested();
 
+        if (executionAudit == null)
+        {
+            return await ExecuteAsync(request, report, cancellationToken);
+        }
+
+        var entry = await executionAudit.StartAsync(
+            new SqlExecutionStart(request.DataSource.Id, report.FinalSql, request.ExecutionContext ?? SqlExecutionContexts.QueryStep),
+            cancellationToken);
+        var stopwatch = System.Diagnostics.Stopwatch.StartNew();
+        SqlExecutionEnd? end = null;
+        try
+        {
+            var run = await ExecuteAsync(request, report, cancellationToken);
+            end = run.TimedOut
+                ? new SqlExecutionEnd(QueryExecutionLogStatus.TimedOut, 0, run.ExecutionTimeMs, "The statement timed out.")
+                : new SqlExecutionEnd(QueryExecutionLogStatus.Succeeded, run.Rows.Count, run.ExecutionTimeMs);
+
+            return run;
+        }
+        catch (QueryExecutionFailedException ex)
+        {
+            end = new SqlExecutionEnd(QueryExecutionLogStatus.Failed, 0, stopwatch.Elapsed.TotalMilliseconds, ex.Message);
+            throw;
+        }
+        finally
+        {
+            end ??= cancellationToken.IsCancellationRequested
+                ? new SqlExecutionEnd(QueryExecutionLogStatus.Cancelled, 0, stopwatch.Elapsed.TotalMilliseconds)
+                : new SqlExecutionEnd(QueryExecutionLogStatus.Failed, 0, stopwatch.Elapsed.TotalMilliseconds, "The statement failed.");
+            await executionAudit.CompleteAsync(entry, end);
+        }
+    }
+
+    /// <summary>
+    /// Checks a statement on its data source without running it, for SQL that may not run before it is reviewed. The
+    /// statement passes the verdict <see cref="RunAsync"/> acts on (nothing reaches the provider when it is refused), then
+    /// the provider's own non-executing validation (<see cref="IDataSourceProvider.ValidateQueryAsync"/>), never an
+    /// execution: <c>EXPLAIN</c> without <c>ANALYZE</c> on PostgreSQL, MySQL and Snowflake and
+    /// <c>sp_describe_first_result_set</c> on SQL Server and Azure Synapse, which plan the statement or describe its result
+    /// and return none of its rows, and a local parse on the other providers. An engine without such a validation (the
+    /// provider reports it skipped) is left to the gate. Null when the statement passes; otherwise why not, a database
+    /// error redacted as <see cref="RunAsync"/> redacts one.
+    /// </summary>
+    /// <param name="sql">The statement as it would run, flattened and with no bind markers: a dry run binds no values.</param>
+    /// <param name="rowSecurity">Row-level security for the caller on <paramref name="dataSource"/>, from
+    /// <see cref="IRowSecurityResolver"/>: the validation reaches the source, so it is judged as a run would be.</param>
+    public async Task<string?> ValidationFailureAsync(DataSource dataSource, string sql, RowSecurityContext rowSecurity, CancellationToken cancellationToken)
+    {
+        var request = new GatedSqlRequest(dataSource, sql, new Dictionary<string, object?>(), MaxRows: 1, rowSecurity);
+        var report = Evaluate(request);
+        if (report.Blocked)
+        {
+            return report.BlockReason ?? "The SQL was rejected.";
+        }
+
+        var validation = await providerFactory
+            .GetProvider(dataSource.DataSourceType)
+            .ValidateQueryAsync(dataSource, sql, cancellationToken);
+        if (validation.IsValid || validation.Skipped)
+        {
+            return null;
+        }
+
+        var error = validation.Errors is { Count: > 0 } ? string.Join("; ", validation.Errors) : "Query validation failed.";
+
+        return await CallerErrorAsync(request, error, cancellationToken);
+    }
+
+    // The statement on the provider, after the gate passed it.
+    private async Task<GatedSqlRun> ExecuteAsync(GatedSqlRequest request, SqlGateReport report, CancellationToken cancellationToken)
+    {
         var dialect = DataSourceSqlDialect.Of(request.DataSource);
         var provider = providerFactory.GetProvider(request.DataSource.DataSourceType);
         var timeout = request.Timeout is { } requested && requested > TimeSpan.Zero && requested < StatementTimeout
@@ -149,41 +227,6 @@ internal sealed class GatedSqlRunner(
         }
 
         return new GatedSqlRun(result.Rows ?? [], report, dialect, result.ExecutionTimeMs, TimedOut: false);
-    }
-
-    /// <summary>
-    /// Checks a statement on its data source without running it, for SQL that may not run before it is reviewed. The
-    /// statement passes the verdict <see cref="RunAsync"/> acts on (nothing reaches the provider when it is refused), then
-    /// the provider's own non-executing validation (<see cref="IDataSourceProvider.ValidateQueryAsync"/>), never an
-    /// execution: <c>EXPLAIN</c> without <c>ANALYZE</c> on PostgreSQL, MySQL and Snowflake and
-    /// <c>sp_describe_first_result_set</c> on SQL Server and Azure Synapse, which plan the statement or describe its result
-    /// and return none of its rows, and a local parse on the other providers. An engine without such a validation (the
-    /// provider reports it skipped) is left to the gate. Null when the statement passes; otherwise why not, a database
-    /// error redacted as <see cref="RunAsync"/> redacts one.
-    /// </summary>
-    /// <param name="sql">The statement as it would run, flattened and with no bind markers: a dry run binds no values.</param>
-    /// <param name="rowSecurity">Row-level security for the caller on <paramref name="dataSource"/>, from
-    /// <see cref="IRowSecurityResolver"/>: the validation reaches the source, so it is judged as a run would be.</param>
-    public async Task<string?> ValidationFailureAsync(DataSource dataSource, string sql, RowSecurityContext rowSecurity, CancellationToken cancellationToken)
-    {
-        var request = new GatedSqlRequest(dataSource, sql, new Dictionary<string, object?>(), MaxRows: 1, rowSecurity);
-        var report = Evaluate(request);
-        if (report.Blocked)
-        {
-            return report.BlockReason ?? "The SQL was rejected.";
-        }
-
-        var validation = await providerFactory
-            .GetProvider(dataSource.DataSourceType)
-            .ValidateQueryAsync(dataSource, sql, cancellationToken);
-        if (validation.IsValid || validation.Skipped)
-        {
-            return null;
-        }
-
-        var error = validation.Errors is { Count: > 0 } ? string.Join("; ", validation.Errors) : "Query validation failed.";
-
-        return await CallerErrorAsync(request, error, cancellationToken);
     }
 
     // A host data source's error is already Beacon's own generic text.

@@ -47,7 +47,8 @@ internal class JobService(
     IEmbeddingIndexingService? embeddingIndexingService = null,
     IDocChunkIndexingService? docChunkIndexingService = null,
     IMcpEvalService? mcpEvalService = null,
-    IOptions<SubscriptionOptions>? subscriptionOptions = null)
+    IOptions<SubscriptionOptions>? subscriptionOptions = null,
+    IBeaconActorAccessor? actorAccessor = null)
     : IJobService
 {
     // AI Actor service is optional - only available if Beacon.AI is added
@@ -79,7 +80,7 @@ internal class JobService(
         }
         catch (ExecutionRefusedException ex) when (isScheduledRun)
         {
-            await RecordRunNotMadeAsync(context, subscriptionId, ex.DataSourceIds, NotificationStatus.Skipped, NotificationFailureReasons.OwnerNotAuthorized, cancellationToken);
+            await RecordRunNotMadeAsync(context, subscriptionId, await TriggeredByAsync(cancellationToken), ex.DataSourceIds, NotificationStatus.Skipped, NotificationFailureReasons.OwnerNotAuthorized, cancellationToken);
 
             return;
         }
@@ -87,7 +88,7 @@ internal class JobService(
         {
             // Nothing ran: recorded as failed with a generic reason (never the exception's text), with the data sources the
             // run would have read. A run a request asks for then answers 409.
-            await RecordRunNotMadeAsync(context, subscriptionId, ex.DataSourceIds, NotificationStatus.Failed, NotificationFailureReasons.DataSourceDisabled, cancellationToken);
+            await RecordRunNotMadeAsync(context, subscriptionId, await TriggeredByAsync(cancellationToken), ex.DataSourceIds, NotificationStatus.Failed, NotificationFailureReasons.DataSourceDisabled, cancellationToken);
             if (isScheduledRun)
             {
                 return;
@@ -99,7 +100,7 @@ internal class JobService(
         {
             // With the approval workflow on, the stored SQL is not the reviewed version: nothing ran. Recorded for a run a
             // request asks for too, which then answers 409.
-            await RecordRunNotMadeAsync(context, subscriptionId, ex.DataSourceIds, NotificationStatus.Skipped, NotificationFailureReasons.NotApproved, cancellationToken);
+            await RecordRunNotMadeAsync(context, subscriptionId, await TriggeredByAsync(cancellationToken), ex.DataSourceIds, NotificationStatus.Skipped, NotificationFailureReasons.NotApproved, cancellationToken);
             if (isScheduledRun)
             {
                 return;
@@ -185,9 +186,11 @@ internal class JobService(
                 cancellationToken);
         }
 
+        var triggeredByUserId = await TriggeredByAsync(cancellationToken);
         var executedQuery = new QueryExecutionHistory
         {
             SubscriptionId = subscriptionId,
+            TriggeredByUserId = triggeredByUserId,
             ResultCount = queryResult.TotalRecords,
             CompiledSql = queryResult.SqlQuery,
             NotificationStatus = status,
@@ -683,6 +686,18 @@ internal class JobService(
             .ExecuteUpdateAsync(x => x.SetProperty(y => y.OwnerNotAuthorizedSince, DateTime.UtcNow), cancellationToken);
     }
 
+    // The Users.Id a run is recorded for: the caller who asked for it, or the owner a scheduled run runs as (the scope's
+    // caller once IRunAsScope is set).
+    private async Task<int?> TriggeredByAsync(CancellationToken cancellationToken)
+    {
+        if (actorAccessor == null)
+        {
+            return null;
+        }
+
+        return (await actorAccessor.GetCurrentAsync(cancellationToken)).BeaconUserId;
+    }
+
     // A run that may not happen (a scheduled run its owner may no longer make, a run of SQL the approval workflow has not
     // approved: skipped; a run on a disabled data source: failed): recorded with a neutral reason, with the data sources it
     // would have read so the readers of the subscription see it, and nothing else happens (no task, no baseline, no
@@ -690,6 +705,7 @@ internal class JobService(
     private static async Task RecordRunNotMadeAsync(
         BeaconContext context,
         int subscriptionId,
+        int? triggeredByUserId,
         IReadOnlyList<int> dataSourceIds,
         NotificationStatus status,
         string reason,
@@ -698,6 +714,7 @@ internal class JobService(
         var run = new QueryExecutionHistory
         {
             SubscriptionId = subscriptionId,
+            TriggeredByUserId = triggeredByUserId,
             ResultCount = 0,
             CompiledSql = string.Empty,
             NotificationStatus = status,

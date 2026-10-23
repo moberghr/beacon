@@ -78,7 +78,9 @@ describe('the catalogue', () => {
       'migrations.job_started',
       'migrations.job_run_ended',
       'audit.mcp_audit_read',
+      'audit.execution_log_read',
+      'audit.execution_log_exported',
     ]));
-    expect(SECURITY_AUDIT_RESOURCE_TYPES).toEqual(expect.arrayContaining(['dashboard', 'glossary_term', 'documentation_section', 'mcp_audit']));
+    expect(SECURITY_AUDIT_RESOURCE_TYPES).toEqual(expect.arrayContaining(['dashboard', 'glossary_term', 'documentation_section', 'mcp_audit', 'execution_log']));
   });
 });

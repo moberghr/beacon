@@ -1,4 +1,5 @@
 using Beacon.Core.Authorization;
+using Beacon.Core.Handlers.ExecutionLog;
 using Beacon.Core.Handlers.AiActors;
 using Beacon.Core.Handlers.Approvals;
 using Beacon.Core.Handlers.ControlTower;
@@ -58,7 +59,9 @@ public class ProjectListScopeShapeTests
         [typeof(GetAiActorListQuery)] = new GetAiActorListQuery(),
         [typeof(GetLearnedPatternsQuery)] = new GetLearnedPatternsQuery(),
         [typeof(GetDocumentationPatchesQuery)] = new GetDocumentationPatchesQuery(),
-        [typeof(GetLearningStatsQuery)] = new GetLearningStatsQuery()
+        [typeof(GetLearningStatsQuery)] = new GetLearningStatsQuery(),
+        [typeof(GetExecutionLogQuery)] = new GetExecutionLogQuery { From = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc), To = new DateTime(2026, 10, 8, 0, 0, 0, DateTimeKind.Utc) },
+        [typeof(ExportExecutionLogQuery)] = new ExportExecutionLogQuery { From = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc), To = new DateTime(2026, 10, 8, 0, 0, 0, DateTimeKind.Utc) }
     };
 
     public static IEnumerable<TestCaseData> FilteredRequests() =>

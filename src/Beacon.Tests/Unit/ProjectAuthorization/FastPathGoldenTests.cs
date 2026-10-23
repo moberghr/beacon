@@ -1,5 +1,6 @@
 using FluentAssertions;
 using NUnit.Framework;
+using Beacon.Core.Handlers.ExecutionLog;
 using Beacon.Core.Handlers.AiActors;
 using Beacon.Core.Handlers.Approvals;
 using Beacon.Core.Handlers.ControlTower;
@@ -55,6 +56,8 @@ public class FastPathGoldenTests
         yield return Case("GetLearnedPatterns", new GetLearnedPatternsQuery());
         yield return Case("GetDocumentationPatches", new GetDocumentationPatchesQuery());
         yield return Case("GetLearningStats", new GetLearningStatsQuery());
+        yield return Case("GetExecutionLog", new GetExecutionLogQuery { From = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc), To = new DateTime(2026, 10, 8, 0, 0, 0, DateTimeKind.Utc) });
+        yield return Case("ExportExecutionLog", new ExportExecutionLogQuery { From = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc), To = new DateTime(2026, 10, 8, 0, 0, 0, DateTimeKind.Utc) });
     }
 
     [TestCaseSource(nameof(ListRequests))]

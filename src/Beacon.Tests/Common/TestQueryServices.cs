@@ -74,7 +74,8 @@ internal static class TestQueryServices
         IConfiguredDatabaseResolver? configuredDatabases = null,
         IDataSourceProviderFactory? providers = null,
         ISqlExecutionGate? gate = null,
-        TimeSpan? statementTimeout = null)
+        TimeSpan? statementTimeout = null,
+        ISqlExecutionAudit? executionAudit = null)
     {
         var guard = hostGuard ?? new HostDataSourceGuard(new TestHostDataSources());
         var databases = configuredDatabases ?? TestConfiguredDatabases.None;
@@ -83,7 +84,8 @@ internal static class TestQueryServices
             gate ?? TestSqlGate.Create(hostGuard: guard),
             providers ?? Providers(DatabaseProvider(connections, guard, databases)),
             databases,
-            QueryOptions)
+            QueryOptions,
+            executionAudit: executionAudit)
         {
             StatementTimeout = statementTimeout ?? TimeSpan.FromSeconds(QueryOptions.Value.StatementTimeoutSeconds)
         };
@@ -109,7 +111,8 @@ internal static class TestQueryServices
         int? finalQueryTimeoutSeconds = null,
         ISqlExecutionGate? gate = null,
         TimeSpan? statementTimeout = null,
-        ILogger<QueryService>? logger = null)
+        ILogger<QueryService>? logger = null,
+        ISqlExecutionAudit? executionAudit = null)
     {
         var guard = hostGuard ?? new HostDataSourceGuard(new TestHostDataSources());
         var databases = configuredDatabases ?? TestConfiguredDatabases.None;
@@ -128,7 +131,7 @@ internal static class TestQueryServices
             executionAccess ?? TestProjectAccess.ExecutionAllowed(),
             TestRowSecurity.Resolver,
             executionGate,
-            Runner(connections, guard, databases, providers, executionGate, statementTimeout),
+            Runner(connections, guard, databases, providers, executionGate, statementTimeout, executionAudit),
             new StepSqlSaveCheck(contextFactory, executionGate, databases),
             new QueryGuardrailService(),
             sharedSourceSettings ?? DefaultSettings(),
