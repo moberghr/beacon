@@ -166,3 +166,55 @@ async function advanceToTestStep() {
   fireEvent.click(screen.getByTestId('stepper-next'));
   await screen.findByRole('button', { name: /test connection/i });
 }
+
+describe('AddDataSourceDialog (API authentication)', () => {
+  async function createApiSource(fill: () => void, authType: string) {
+    let captured: { connectionString: string } | null = null;
+    mswServer.use(
+      http.post('*/beacon/api/data-sources', async ({ request }) => {
+        captured = (await request.json()) as { connectionString: string };
+        return HttpResponse.json({ success: true, message: 'Created.' });
+      }),
+    );
+
+    const onClose = vi.fn();
+    renderWithProviders(<AddDataSourceDialog open onClose={onClose} />);
+
+    fireEvent.change(screen.getByLabelText(/data source type/i), { target: { value: 'Api' } });
+    fireEvent.click(screen.getByTestId('stepper-next'));
+
+    fireEvent.input(await screen.findByLabelText(/^Name/), { target: { value: 'payments' } });
+    fireEvent.input(screen.getByLabelText(/^Base URL/), { target: { value: 'https://api.example.test' } });
+    fireEvent.input(screen.getByLabelText(/^OpenAPI spec URL/), { target: { value: 'https://api.example.test/openapi.json' } });
+    fireEvent.change(screen.getByLabelText(/^Authentication/), { target: { value: authType } });
+    fill();
+    fireEvent.click(screen.getByTestId('stepper-next'));
+
+    await screen.findByRole('button', { name: /create data source/i });
+    fireEvent.click(screen.getByRole('button', { name: /create data source/i }));
+
+    await waitFor(() => {
+      expect(onClose).toHaveBeenCalled();
+    });
+
+    expect(captured).not.toBeNull();
+    return JSON.parse(captured!.connectionString) as { Auth: Record<string, unknown> };
+  }
+
+  it('sends a bearer token with the default key location, never null', async () => {
+    const config = await createApiSource(() => {
+      fireEvent.input(screen.getByLabelText(/^Bearer token/), { target: { value: 'token-value' } });
+    }, 'bearer');
+
+    expect(config.Auth).toMatchObject({ Type: 'Bearer', Token: 'token-value', ApiKeyLocation: 'header' });
+  });
+
+  it('sends basic credentials with the default key location, never null', async () => {
+    const config = await createApiSource(() => {
+      fireEvent.input(screen.getByLabelText(/^Username/), { target: { value: 'reader' } });
+      fireEvent.input(screen.getByLabelText(/^Password/), { target: { value: 'pass-value' } });
+    }, 'basic');
+
+    expect(config.Auth).toMatchObject({ Type: 'Basic', Username: 'reader', Password: 'pass-value', ApiKeyLocation: 'header' });
+  });
+});

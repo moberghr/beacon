@@ -57,7 +57,7 @@ app.UseForwardedHeaders(forwarded);
 - [ ] To make the trail append-only at the database as well, Beacon's connection uses a role that cannot update or delete `security_audit_events` rows other than through the purge, or triggers do the same. → [What the trail does and does not prove](/security/audit-trail/#what-the-trail-does-and-does-not-prove)
 - [ ] Where MCP audit content is retained, the SQL of every statement a call ran is stored with it: reviewed against your privacy policy; `Beacon:Mcp:Audit:RequireContent` pins retention on if the evidence must be kept. → [MCP observability & audit](/mcp/observability-and-audit/#keeping-audit-content-the-requirecontent-lock)
 - [ ] Structured JSON console logs (`Logging:Console:FormatterName=json`, `IncludeScopes=true`) if your platform correlates by trace id.
-- [ ] OpenTelemetry: add `AddBeaconInstrumentation()` to your tracer and meter providers; you choose the exporter. Keep notification HTTP calls out of traces (their URLs carry secrets). `NotificationRequests.IsNotificationRequest` identifies them.
+- [ ] OpenTelemetry: add `AddBeaconInstrumentation()` to your tracer and meter providers; you choose the exporter. Keep notification HTTP calls out of traces (their URLs carry secrets), and the REST API connector's (their paths and queries can carry identifiers or a credential). `NotificationRequests.IsNotificationRequest` and `ApiConnectorRequests.IsApiConnectorRequest` identify them.
 - [ ] Health check `GET /beacon/api/health` (anonymous, checks the database within 5 s) wired to your load balancer. It answers before the first administrator exists too, so a brand-new deployment passes the probe while setup is still pending.
 
 ## Scaling

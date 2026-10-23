@@ -7,6 +7,37 @@ namespace Beacon.Connector.Api.Services;
 
 public static class ApiHttpClientHelper
 {
+    // Headers a query may not set: routing (Host, forwarding, URL rewrites), method overrides, framing and connection
+    // management, and credentials.
+    private static readonly HashSet<string> RestrictedHeaders = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "Host",
+        "Forwarded",
+        "Via",
+        "X-Real-IP",
+        "X-Client-IP",
+        "True-Client-IP",
+        "X-Original-URL",
+        "X-Rewrite-URL",
+        "X-Original-Host",
+        "X-Host",
+        "X-HTTP-Method",
+        "X-HTTP-Method-Override",
+        "X-Method-Override",
+        "Content-Length",
+        "Transfer-Encoding",
+        "TE",
+        "Trailer",
+        "Connection",
+        "Keep-Alive",
+        "Upgrade",
+        "Expect",
+        "Authorization",
+        "Cookie"
+    };
+
+    private static readonly string[] RestrictedHeaderPrefixes = ["X-Forwarded-", "Proxy-"];
+
     public static HttpRequestMessage CreateRequest(
         ApiConnectionConfig config,
         ApiQueryDefinition query)
@@ -31,17 +62,18 @@ public static class ApiHttpClientHelper
 
         var request = new HttpRequestMessage(method, url);
 
-        // Apply auth
-        ApplyAuth(request, config.Auth);
-
-        // Apply custom headers from query parameters
+        // The query's own headers first, each checked: none may route the request elsewhere, change its method or framing,
+        // or replace the data source's credentials, which are applied after them.
         if (query.Parameters?.Header != null)
         {
             foreach (var header in query.Parameters.Header)
             {
+                EnsureHeaderAllowed(header.Key, header.Value, config.Auth);
                 request.Headers.TryAddWithoutValidation(header.Key, header.Value);
             }
         }
+
+        ApplyAuth(request, config.Auth);
 
         // Set body if present
         if (!string.IsNullOrEmpty(query.Body))
@@ -164,6 +196,8 @@ public static class ApiHttpClientHelper
                 $"Endpoint path must be a server-relative path starting with '/'. Got: '{resolvedPath}'.");
         }
 
+        EnsurePathStaysPut(resolvedPath);
+
         var url = baseUrl.TrimEnd('/') + resolvedPath;
 
         // Add query parameters
@@ -175,16 +209,92 @@ public static class ApiHttpClientHelper
             url += "?" + queryString;
         }
 
-        // Verify the composed URL still targets the configured host — defends against
-        // path-based host injection slipping past the prefix check.
-        var configuredHost = new Uri(baseUrl).Host;
-        if (!Uri.TryCreate(url, UriKind.Absolute, out var builtUri) ||
-            !string.Equals(builtUri.Host, configuredHost, StringComparison.OrdinalIgnoreCase))
-        {
-            throw new InvalidOperationException(
-                $"Resolved request URL host does not match the configured base URL host '{configuredHost}'.");
-        }
+        EnsureUnderBaseUrl(baseUrl, url);
 
         return url;
+    }
+
+    // The path names a resource under the base URL: no dot segment (also percent-encoded, once or more, or behind a
+    // backslash), no control character, no fragment.
+    private static void EnsurePathStaysPut(string resolvedPath)
+    {
+        var pathPart = resolvedPath.Split('?', 2)[0];
+        if (resolvedPath.Any(char.IsControl) || resolvedPath.Contains('#'))
+        {
+            throw new InvalidOperationException("Endpoint path must not contain control characters or a fragment ('#').");
+        }
+
+        var decoded = pathPart;
+        for (var i = 0; i < 5; i++)
+        {
+            var next = Uri.UnescapeDataString(decoded);
+            if (next == decoded)
+            {
+                break;
+            }
+
+            decoded = next;
+        }
+
+        var segments = decoded
+            .Replace('\\', '/')
+            .Split('/');
+        if (segments.Any(x => x is "." or "..") || decoded.Any(char.IsControl))
+        {
+            throw new InvalidOperationException("Endpoint path must not contain '.' or '..' segments or encoded control characters.");
+        }
+    }
+
+    // The composed URL keeps the base URL's scheme, host and port and stays under its path, after the URL is normalised.
+    private static void EnsureUnderBaseUrl(string baseUrl, string url)
+    {
+        var baseUri = new Uri(baseUrl);
+        if (!Uri.TryCreate(url, UriKind.Absolute, out var builtUri)
+            || !string.Equals(builtUri.Scheme, baseUri.Scheme, StringComparison.OrdinalIgnoreCase)
+            || !string.Equals(builtUri.Host, baseUri.Host, StringComparison.OrdinalIgnoreCase)
+            || builtUri.Port != baseUri.Port
+            || !string.IsNullOrEmpty(builtUri.UserInfo))
+        {
+            throw new InvalidOperationException(
+                $"Resolved request URL host does not match the configured base URL host '{baseUri.Host}'.");
+        }
+
+        var basePath = baseUri.AbsolutePath.TrimEnd('/');
+        var builtPath = builtUri.AbsolutePath;
+        if (basePath.Length > 0
+            && !string.Equals(builtPath, basePath, StringComparison.Ordinal)
+            && !builtPath.StartsWith(basePath + "/", StringComparison.Ordinal))
+        {
+            throw new InvalidOperationException("Resolved request URL is not under the configured base URL's path.");
+        }
+    }
+
+    // A caller's header: a valid name and value (no CR, LF or other control character), and not one that routes the
+    // request, overrides its method, changes its framing or carries credentials.
+    private static void EnsureHeaderAllowed(string name, string? value, ApiAuthConfig? auth)
+    {
+        if (string.IsNullOrEmpty(name) || !name.All(IsTokenChar))
+        {
+            throw new InvalidOperationException("A header name must be a non-empty HTTP token (letters, digits and !#$%&'*+-.^_`|~).");
+        }
+
+        if (value != null && value.Any(x => char.IsControl(x) && x != '\t'))
+        {
+            throw new InvalidOperationException($"The value of header '{name}' must not contain control characters (CR, LF and the like).");
+        }
+
+        var restricted = RestrictedHeaders.Contains(name)
+            || RestrictedHeaderPrefixes.Any(x => name.StartsWith(x, StringComparison.OrdinalIgnoreCase))
+            || (auth is { Type: ApiAuthType.ApiKey } && string.Equals(name, auth.ApiKeyName, StringComparison.OrdinalIgnoreCase));
+        if (restricted)
+        {
+            throw new InvalidOperationException($"Header '{name}' cannot be set by a query: it routes the request, changes its method or framing, or carries credentials.");
+        }
+    }
+
+    private static bool IsTokenChar(char x)
+    {
+        return x is (>= 'a' and <= 'z') or (>= 'A' and <= 'Z') or (>= '0' and <= '9')
+            or '!' or '#' or '$' or '%' or '&' or '\'' or '*' or '+' or '-' or '.' or '^' or '_' or '`' or '|' or '~';
     }
 }

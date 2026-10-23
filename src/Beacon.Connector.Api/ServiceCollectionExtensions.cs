@@ -13,6 +13,7 @@ public static class ServiceCollectionExtensions
     {
         ConnectorRegistry.RegisterDataSourceType(DataSourceType.Api, "REST API");
         builder.Services.AddTransient<IDataSourceProvider, ApiProvider>();
+        builder.Services.AddApiConnectorHttpClient();
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceTransportInspector, ApiTransportInspector>());
         builder.Services.AddTransient<OpenApiImportService>();
         builder.Services.AddTransient<JsonResponseTabularizer>();

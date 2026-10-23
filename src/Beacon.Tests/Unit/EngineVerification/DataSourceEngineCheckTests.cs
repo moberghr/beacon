@@ -373,7 +373,7 @@ public class DataSourceEngineCheckTests
         return new DataSourceService(
             Factory(sources, saved),
             Encryption,
-            Mock.Of<IDataSourceProviderFactory>(),
+            TestProviderFactory.Accepting(),
             new MemoryCache(new MemoryCacheOptions()),
             Mock.Of<ISchemaGraphService>(),
             new RecordingSecurityAudit(),

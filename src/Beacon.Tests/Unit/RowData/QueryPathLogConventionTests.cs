@@ -32,6 +32,7 @@ public class QueryPathLogConventionTests
         "src/Beacon.Core/SavedQueries/*.cs",
         "src/Beacon.Core/Worker/Services/JobService.cs",
         "src/Beacon.Connector.Api/ApiProvider.cs",
+        "src/Beacon.Connector.Api/Services/*.cs",
         "src/Beacon.Connector.BigQuery/BigQueryProvider.cs",
         "src/Beacon.Connector.CloudWatch/CloudWatchProvider.cs",
         "src/Beacon.Connector.Databricks/DatabricksProvider.cs",

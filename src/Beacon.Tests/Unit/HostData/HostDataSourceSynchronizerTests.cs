@@ -539,7 +539,7 @@ public class HostDataSourceSynchronizerTests
         var service = new DataSourceService(
             factory.Object,
             FakeEncryption.Instance,
-            Mock.Of<Beacon.Core.Services.Providers.IDataSourceProviderFactory>(),
+            TestProviderFactory.Accepting(),
             new MemoryCache(new MemoryCacheOptions()),
             Mock.Of<Beacon.Core.Services.Metadata.ISchemaGraphService>(),
             new RecordingSecurityAudit(),

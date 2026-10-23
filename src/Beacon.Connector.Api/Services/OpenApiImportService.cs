@@ -21,8 +21,6 @@ public class OpenApiImportService(
         ApiEndpointFilter? filter,
         CancellationToken ct)
     {
-        logger.LogInformation("Importing OpenAPI spec from {SpecUrl}", specUrl);
-
         var client = httpClientFactory.CreateClient();
         client.Timeout = SpecFetchTimeout;
 

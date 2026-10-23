@@ -728,7 +728,7 @@ public class MetadataRefreshTests
             return new DataSourceService(
                 Factory(),
                 Encryption(),
-                Mock.Of<IDataSourceProviderFactory>(),
+                TestProviderFactory.Accepting(),
                 Cache,
                 Graph.Object,
                 new RecordingSecurityAudit(),

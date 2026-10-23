@@ -270,7 +270,7 @@ public class ProjectCreationAccessTests
         var service = new DataSourceService(
             factory.Object,
             encryption.Object,
-            Mock.Of<IDataSourceProviderFactory>(),
+            TestProviderFactory.Accepting(),
             new MemoryCache(new MemoryCacheOptions()),
             Mock.Of<Beacon.Core.Services.Metadata.ISchemaGraphService>(),
             new RecordingSecurityAudit(),

@@ -67,6 +67,7 @@ internal class DataSourceService(
 
         var connectionString = dataSourceData.ConnectionString;
         transportPolicy.EnsureNewConnectionAllowed(dataSourceData.DataSourceType, dataSourceData.DatabaseEngineType, connectionString);
+        providerFactory.GetProvider(dataSourceData.DataSourceType).EnsureNewConnectionDataAllowed(connectionString);
         await EnsureDeclaredEngineAsync(null, dataSourceData.DataSourceType, dataSourceData.DatabaseEngineType, connectionString, cancellationToken);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
@@ -275,6 +276,7 @@ internal class DataSourceService(
             // A connection kept as it is stays a stored one (warned about when it connects); a new one must authenticate
             // the server.
             transportPolicy.EnsureNewConnectionAllowed(dataSource.DataSourceType, dataSourceData.DatabaseEngineType, connectionString);
+            providerFactory.GetProvider(dataSource.DataSourceType).EnsureNewConnectionDataAllowed(connectionString);
         }
 
         // Pointing a source somewhere else is confirmed: the queries, contracts and grounding built on the old target would
@@ -519,17 +521,18 @@ internal class DataSourceService(
             : Task.CompletedTask;
     }
 
-    // A connection test is refused, never opened, when the connection does not authenticate the server: its message names
-    // the option to change, never a value from the connection string.
+    // A connection test is refused, never opened, when the connection does not authenticate the server or its connector does
+    // not accept the configuration: its message names the option to change, never a value from the connection string.
     private BaseResponse? TransportRefusal(DataSourceType dataSourceType, DatabaseEngineType? databaseEngineType, string connectionString)
     {
         try
         {
             transportPolicy.EnsureNewConnectionAllowed(dataSourceType, databaseEngineType, connectionString);
+            providerFactory.GetProvider(dataSourceType).EnsureNewConnectionDataAllowed(connectionString);
 
             return null;
         }
-        catch (DataSourceTransportException ex)
+        catch (Exception ex) when (ex is BeaconException or InvalidOperationException)
         {
             return new BaseResponse
             {
