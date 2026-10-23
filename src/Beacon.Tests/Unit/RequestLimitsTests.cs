@@ -6,6 +6,7 @@ using Beacon.Core.Configuration;
 using Beacon.Core.Mcp;
 using Beacon.MCP;
 using Beacon.MCP.Services;
+using Microsoft.AspNetCore.Routing;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Http.Features;
@@ -83,6 +84,28 @@ public class RequestLimitsTests
         await middleware.InvokeAsync(context);
 
         context.Response.StatusCode.Should().Be(StatusCodes.Status504GatewayTimeout);
+    }
+
+    [Test]
+    public async Task Middleware_DoesNotTimeOutARouteMarkedLongRunning()
+    {
+        var context = CreateContext("/beacon/api/slow", new BodySizeFeature());
+        context.SetEndpoint(new Endpoint(null, new EndpointMetadataCollection(BeaconLongRunningMetadata.Instance), "long"));
+        var original = context.RequestAborted;
+        var seen = default(CancellationToken);
+        var middleware = new BeaconRequestLimitsMiddleware(
+            async x =>
+            {
+                seen = x.RequestAborted;
+                await Task.Delay(1500);
+            },
+            Options.Create(new RequestLimitsOptions { ApiTimeoutSeconds = 1 }));
+
+        await middleware.InvokeAsync(context);
+
+        seen.Should().Be(original);
+        seen.IsCancellationRequested.Should().BeFalse();
+        context.Response.StatusCode.Should().Be(StatusCodes.Status200OK);
     }
 
     [Test]
@@ -193,6 +216,76 @@ public class RequestLimitsTests
         (await reader.ReadToEndAsync()).Should().Contain("initialize");
     }
 
+    [Test]
+    public async Task Admit_ReadsOnlyABoundedPrefix_OfALargeBody()
+    {
+        var limiter = CreateLimiter(new FakeTimeProvider(), new RequestLimitsOptions { McpMaxInitializesPerCaller = 1 });
+        var big = new string('x', 2 * 1024 * 1024);
+        var body = """{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"arguments":{"sql":"PAD"}}}""".Replace("PAD", big);
+        var context = McpPost(body, withSession: false);
+        var stream = new CountingStream(Encoding.UTF8.GetBytes(body));
+        context.Request.Body = stream;
+
+        (await limiter.AdmitAsync(context)).Should().BeTrue();
+        (await limiter.AdmitAsync(McpPost("""{"jsonrpc":"2.0","id":1,"method":"initialize"}""", withSession: false))).Should().BeTrue();
+
+        stream.BytesRead.Should().BeLessThan(64 * 1024);
+    }
+
+    [Test]
+    public async Task Admit_CountsAnInitializeWhoseMethodFollowsAHugeParams()
+    {
+        var limiter = CreateLimiter(new FakeTimeProvider(), new RequestLimitsOptions { McpMaxInitializesPerCaller = 1 });
+        var pad = new string('x', 20_000);
+        var body = """{"params":{"pad":"PAD"},"jsonrpc":"2.0","id":1,"method":"initialize"}""".Replace("PAD", pad);
+
+        (await limiter.AdmitAsync(McpPost(body, withSession: false))).Should().BeTrue();
+        (await limiter.AdmitAsync(McpPost(body, withSession: false))).Should().BeFalse();
+    }
+
+    [TestCase("""{"jsonrpc":"2.0","id":1,"method":"initialize","params":{}}""", true)]
+    [TestCase("""{"params":{"a":[1,{"b":2}]},"method":"initialize"}""", true)]
+    [TestCase("""{"method":"tools/call","params":{}}""", false)]
+    [TestCase("""{"params":{"method":"initialize"},"method":"ping"}""", false)]
+    [TestCase("""[{"method":"initialize"}]""", false)]
+    public void MayBeInitialize_ReadsTheTopLevelMethod(string json, bool expected)
+    {
+        McpInitializeLimiter.MayBeInitialize(Encoding.UTF8.GetBytes(json), complete: true).Should().Be(expected);
+    }
+
+    [Test]
+    public void Limiter_SweepsAtMostOncePerWindow_AndNeverLosesALiveCount()
+    {
+        var time = new FakeTimeProvider();
+        var limiter = CreateLimiter(time, new RequestLimitsOptions { McpMaxInitializesPerCaller = 1, McpInitializeWindowSeconds = 60 });
+
+        for (var i = 0; i < 10_000; i++)
+        {
+            limiter.TryAcquire($"key:{i}").Should().BeTrue();
+        }
+
+        limiter.TryAcquire("key:new").Should().BeTrue();
+        limiter.TryAcquire("key:5").Should().BeFalse();
+
+        time.Advance(TimeSpan.FromSeconds(61));
+
+        limiter.TryAcquire("key:5").Should().BeTrue();
+    }
+
+    [Test]
+    public void Limiter_PastTheHardCap_NewCallersShareOneBucket()
+    {
+        var limiter = CreateLimiter(new FakeTimeProvider(), new RequestLimitsOptions { McpMaxInitializesPerCaller = 1, McpInitializeWindowSeconds = 60 });
+
+        for (var i = 0; i < 20_000; i++)
+        {
+            limiter.TryAcquire($"key:{i}");
+        }
+
+        limiter.TryAcquire("key:fresh-a").Should().BeTrue();
+        limiter.TryAcquire("key:fresh-b").Should().BeFalse();
+    }
+
     private static McpInitializeLimiter CreateLimiter(TimeProvider time, RequestLimitsOptions options) =>
         new(Options.Create(options), NullLogger<McpInitializeLimiter>.Instance, time);
 
@@ -226,5 +319,18 @@ public class RequestLimitsTests
         public bool IsReadOnly => false;
 
         public long? MaxRequestBodySize { get; set; }
+    }
+
+    private sealed class CountingStream(byte[] data) : MemoryStream(data)
+    {
+        public long BytesRead { get; private set; }
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            var count = await base.ReadAsync(buffer, cancellationToken);
+            BytesRead += count;
+
+            return count;
+        }
     }
 }

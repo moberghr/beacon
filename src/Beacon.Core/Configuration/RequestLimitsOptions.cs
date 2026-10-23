@@ -19,8 +19,9 @@ public sealed class RequestLimitsOptions
     public long McpMaxBodyBytes { get; set; } = 4 * 1024 * 1024;
 
     /// <summary>
-    /// How long one <c>/beacon/api</c> request may run before its cancellation token is cancelled (the hub is exempt). The
-    /// default equals the 5-minute AI timeout, so no AI-backed call is shortened; lower it to bound the rest. Seconds.
+    /// How long one <c>/beacon/api</c> request may run before its cancellation token is cancelled (the hub and the routes that
+    /// run long work inline, such as a migration run, a metadata refresh or an LLM flow of several calls, are exempt and keep
+    /// their own timeouts). Seconds.
     /// </summary>
     public int ApiTimeoutSeconds { get; set; } = 300;
 

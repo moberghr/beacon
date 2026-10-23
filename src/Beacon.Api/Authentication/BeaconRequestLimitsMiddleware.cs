@@ -8,7 +8,8 @@ namespace Beacon.Api.Authentication;
 
 /// <summary>
 /// Request bounds for Beacon's own routes (<see cref="RequestLimitsOptions"/>): the body size limit on
-/// <c>/beacon/api</c> and <c>/beacon/mcp</c>, and a timeout on <c>/beacon/api</c> (the hub is exempt). Any other
+/// <c>/beacon/api</c> and <c>/beacon/mcp</c>, and a timeout on <c>/beacon/api</c> (the hub and routes marked <see cref="BeaconLongRunningEndpointExtensions.WithBeaconLongRunning{TBuilder}"/> are exempt; the
+/// endpoint comes from routing, which runs before this middleware by default). Any other
 /// path passes untouched. A limit the host already set lower stays: the body limit is never raised, and a timeout longer than
 /// the request's own cancellation changes nothing.
 /// </summary>
@@ -32,7 +33,7 @@ public sealed class BeaconRequestLimitsMiddleware(RequestDelegate next, IOptions
         var limits = options.Value;
         LimitBody(context, isMcp ? limits.McpMaxBodyBytes : limits.ApiMaxBodyBytes);
 
-        if (!isApi || limits.ApiTimeoutSeconds <= 0)
+        if (!isApi || limits.ApiTimeoutSeconds <= 0 || context.GetEndpoint()?.Metadata.GetMetadata<BeaconLongRunningMetadata>() != null)
         {
             await next(context);
             return;

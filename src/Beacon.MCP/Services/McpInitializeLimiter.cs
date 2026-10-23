@@ -13,7 +13,7 @@ namespace Beacon.MCP.Services;
 /// <summary>
 /// Caps how many MCP <c>initialize</c> requests one caller may send in a window (<see cref="RequestLimitsOptions"/>), so a
 /// caller cannot open sessions without bound. The SDK offers an idle-session cap but no per-caller one. In memory and per
-/// instance; counts every attempt, refused ones included.
+/// instance; only attempts that were admitted count, so the window slides while a caller keeps being refused.
 /// </summary>
 internal sealed class McpInitializeLimiter(
     IOptions<RequestLimitsOptions> options,
@@ -21,9 +21,13 @@ internal sealed class McpInitializeLimiter(
     TimeProvider? timeProvider = null)
 {
     private const int MaxTrackedCallers = 10_000;
+    private const string OverflowKey = "overflow";
+    // The method of a JSON-RPC request is read from this much of the body; the rest is never buffered or parsed here.
+    private const int PeekBytes = 8 * 1024;
 
     private readonly TimeProvider _time = timeProvider ?? TimeProvider.System;
-    private readonly ConcurrentDictionary<string, Queue<long>> _attempts = new(StringComparer.Ordinal);
+    private readonly ConcurrentDictionary<string, Bucket> _attempts = new(StringComparer.Ordinal);
+    private long _nextSweep;
 
     /// <summary>Records one initialize attempt; false when the caller is over the limit.</summary>
     public bool TryAcquire(string callerKey)
@@ -37,27 +41,43 @@ internal sealed class McpInitializeLimiter(
         var now = _time.GetTimestamp();
         var window = (long)(limits.McpInitializeWindowSeconds * (double)_time.TimestampFrequency);
 
-        if (_attempts.Count >= MaxTrackedCallers)
+        if (_attempts.Count >= MaxTrackedCallers && now >= Interlocked.Read(ref _nextSweep))
         {
             Sweep(now, window);
+            Interlocked.Exchange(ref _nextSweep, now + window);
         }
 
-        var queue = _attempts.GetOrAdd(callerKey, _ => new Queue<long>());
-        lock (queue)
+        // A caller that would grow the map past twice the sweep threshold shares one bucket, so memory stays bounded.
+        if (_attempts.Count >= MaxTrackedCallers * 2 && !_attempts.ContainsKey(callerKey))
         {
-            while (queue.Count > 0 && now - queue.Peek() >= window)
+            callerKey = OverflowKey;
+        }
+
+        while (true)
+        {
+            var bucket = _attempts.GetOrAdd(callerKey, _ => new Bucket());
+            lock (bucket)
             {
-                queue.Dequeue();
+                if (bucket.Removed)
+                {
+                    continue;
+                }
+
+                var queue = bucket.Attempts;
+                while (queue.Count > 0 && now - queue.Peek() >= window)
+                {
+                    queue.Dequeue();
+                }
+
+                if (queue.Count >= limits.McpMaxInitializesPerCaller)
+                {
+                    return false;
+                }
+
+                queue.Enqueue(now);
+
+                return true;
             }
-
-            if (queue.Count >= limits.McpMaxInitializesPerCaller)
-            {
-                return false;
-            }
-
-            queue.Enqueue(now);
-
-            return true;
         }
     }
 
@@ -121,23 +141,92 @@ internal sealed class McpInitializeLimiter(
     private static async Task<bool> IsInitializeAsync(HttpRequest request, CancellationToken cancellationToken)
     {
         request.EnableBuffering();
+        var buffer = new byte[PeekBytes];
+        var read = 0;
         try
         {
-            using var document = await JsonDocument.ParseAsync(request.Body, cancellationToken: cancellationToken);
+            while (read < buffer.Length)
+            {
+                var count = await request.Body.ReadAsync(buffer.AsMemory(read), cancellationToken);
+                if (count == 0)
+                {
+                    break;
+                }
 
-            return document.RootElement.ValueKind == JsonValueKind.Object
-                && document.RootElement.TryGetProperty("method", out var method)
-                && method.ValueKind == JsonValueKind.String
-                && method.ValueEquals("initialize");
-        }
-        catch (JsonException)
-        {
-            return false;
+                read += count;
+            }
         }
         finally
         {
             request.Body.Position = 0;
         }
+
+        return MayBeInitialize(buffer.AsSpan(0, read), complete: read < buffer.Length);
+    }
+
+    // Reads the top-level "method" from the prefix. A method that cannot be read because the prefix ends first counts as an
+    // initialize: a request that hides its method behind a large body is not a normal client's.
+    internal static bool MayBeInitialize(ReadOnlySpan<byte> prefix, bool complete)
+    {
+        var reader = new Utf8JsonReader(prefix, isFinalBlock: complete, default);
+        try
+        {
+            if (!reader.Read() || reader.TokenType != JsonTokenType.StartObject)
+            {
+                return false;
+            }
+
+            while (reader.Read())
+            {
+                if (reader.TokenType == JsonTokenType.EndObject)
+                {
+                    return false;
+                }
+
+                var isMethod = reader.ValueTextEquals("method"u8);
+                if (!reader.Read())
+                {
+                    break;
+                }
+
+                if (isMethod)
+                {
+                    return reader.TokenType == JsonTokenType.String && reader.ValueTextEquals("initialize"u8);
+                }
+
+                if (reader.TokenType is JsonTokenType.StartObject or JsonTokenType.StartArray && !SkipValue(ref reader))
+                {
+                    break;
+                }
+            }
+        }
+        catch (JsonException)
+        {
+            return false;
+        }
+
+        return !complete;
+    }
+
+    private static bool SkipValue(ref Utf8JsonReader reader)
+    {
+        var depth = 1;
+        while (depth > 0)
+        {
+            if (!reader.Read())
+            {
+                return false;
+            }
+
+            depth += reader.TokenType switch
+            {
+                JsonTokenType.StartObject or JsonTokenType.StartArray => 1,
+                JsonTokenType.EndObject or JsonTokenType.EndArray => -1,
+                _ => 0
+            };
+        }
+
+        return true;
     }
 
     private void Sweep(long now, long window)
@@ -146,11 +235,19 @@ internal sealed class McpInitializeLimiter(
         {
             lock (entry.Value)
             {
-                if (entry.Value.Count == 0 || now - entry.Value.Last() >= window)
+                if (entry.Value.Attempts.Count == 0 || now - entry.Value.Attempts.Last() >= window)
                 {
+                    entry.Value.Removed = true;
                     _attempts.TryRemove(entry.Key, out _);
                 }
             }
         }
+    }
+
+    private sealed class Bucket
+    {
+        public Queue<long> Attempts { get; } = new();
+
+        public bool Removed { get; set; }
     }
 }

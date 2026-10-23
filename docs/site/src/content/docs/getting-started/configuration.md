@@ -511,7 +511,7 @@ Bound from `Beacon:RequestLimits`, validated at startup. They apply to Beacon's 
 |---|---|---|---|
 | `ApiMaxBodyBytes` | long | `2097152` | Largest request body on `/beacon/api`; a larger one answers `413` |
 | `McpMaxBodyBytes` | long | `4194304` | Largest request body on `/beacon/mcp` |
-| `ApiTimeoutSeconds` | int | `300` | A `/beacon/api` request still running after this has its cancellation token cancelled and, if nothing was sent yet, answers `504`. The hub is exempt. The default equals the AI timeout; lower it only if no endpoint of yours needs longer |
+| `ApiTimeoutSeconds` | int | `300` | A `/beacon/api` request still running after this has its cancellation token cancelled and, if nothing was sent yet, answers `504`. The hub and the routes that run long work inline (migration run, metadata refresh, documentation generation, repository scan, eval run, playground tool run) are exempt and keep their own timeouts. A host's own long route opts out with `.WithBeaconLongRunning()` |
 | `HubMaxReceiveMessageBytes` | long | `8192` | Largest message the hub takes from a client (it has no client-callable methods) |
 | `HubMaxParallelInvocationsPerClient` | int | `1` | Hub invocations in flight per connection |
 | `HubClientTimeoutSeconds` | int | `30` | Silence after which the hub drops a connection |
