@@ -146,8 +146,12 @@ The documents belong to one project and are only ever visible to callers authori
   titles, and how to use Beacon's tools (`get_query_context` → `dry_run` → `query`, read-only, masked columns stay
   masked; a project without data sources is pointed at `search` and `get_documentation` instead). Built from the
   catalog only, with no LLM call, and audited like every tool call. The brief opens with a notice that catalog text
-  is untrusted data, prints the project description as one truncated code-span line, and states the read-only and
-  masking guarantees from the project's effective MCP settings (it says so when either is switched off).
+  is untrusted data, prints the project description as one truncated code-span line, and renders every other
+  catalog-derived field (names, identifiers, document paths, glossary text, tool descriptions) as data: on one line,
+  with hidden characters shown as `�`, identifiers and paths in code spans no backtick can close, and Markdown
+  delimiters escaped. It states the read-only and PII-detection guarantees from the project's effective MCP settings
+  (it says so when either is switched off); the masked columns it lists are a host-managed source's host-policy
+  masked columns, which stay masked whatever the PII detection setting.
 
 The REST API exposes the same documents: `GET /beacon/api/projects/{id}/imported-documents` (listing) and
 `GET /beacon/api/projects/{id}/imported-documents/{documentId}` (one document with its content). Both need Read in

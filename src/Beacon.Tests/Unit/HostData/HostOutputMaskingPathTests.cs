@@ -9,6 +9,7 @@ using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using Beacon.Core.HostData;
+using Beacon.Core.HostDocs;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
 using Beacon.Core.Services;
@@ -233,6 +234,49 @@ public class HostOutputMaskingPathTests
         result.StructuredContent!.Value.GetProperty("rows").EnumerateArray()
             .Select(x => (x[0].GetInt32(), x[1].GetString()))
             .Should().Equal((1, HostResultMasker.MaskedValue));
+    }
+
+    // With PII detection off the project brief still states that the host's masked columns are masked, because the query
+    // tool masks them from the host policy whatever the detection setting.
+    [Test]
+    public async Task ProjectBrief_PiiDetectionOff_StatesTheMaskingTheQueryToolApplies()
+    {
+        var snapshot = HostTestModelFactory.Read(x => x.AllowTables("Customer").MaskColumns(y => y.Name == "SSN"), npgsql: true);
+        var maskedColumns = snapshot.Tables
+            .SelectMany(x => x.Columns
+                .Where(y => y.Description != null)
+                .Where(y => y.Description!.Contains(HostModelReader.MaskedDescriptionMarker))
+                .Select(y => new BriefMaskedColumn(x.SchemaName, x.TableName, y.ColumnName)))
+            .ToList();
+        var brief = ProjectBriefService.Render(new ProjectBriefData(
+            "Netgiro",
+            null,
+            [new BriefDataSource("Netgiro", DataSourceType.Database, DatabaseEngineType.PostgreSQL, false, true, 1)],
+            [],
+            0,
+            maskedColumns,
+            [],
+            0,
+            [],
+            0,
+            Guarantees: new BriefGuarantees(ReadOnlyEnforced: true, PiiDetection: false)));
+        var provider = new Mock<IDataSourceProvider>();
+        provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderQueryResult
+            {
+                Success = true,
+                Rows = [new Dictionary<string, object?> { ["Id"] = 1, ["kt"] = Ssn }]
+            });
+
+        var result = await QueryTool(provider.Object, piiDetection: false).ExecuteAsync(datasource_id: HostDataSourceId, sql: PostgresSql, cancellationToken: CancellationToken.None);
+
+        maskedColumns.Should().ContainSingle().Which.ColumnName.Should().Be("SSN");
+        brief.Should().Contain("Values of these columns are masked in every query result by the host application's policy");
+        brief.Should().Contain("- `public.Customer.SSN`");
+        result.StructuredContent!.Value.GetProperty("rows").EnumerateArray()
+            .Select(x => x[1].GetString())
+            .Should().Equal(HostResultMasker.MaskedValue);
     }
 
     private static IReadOnlyList<(string Name, Func<int, object?> Value)> ServerColumns() => [("Id", x => x + 1), (ServerLabel, _ => Ssn)];
