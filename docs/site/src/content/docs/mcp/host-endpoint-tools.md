@@ -241,7 +241,9 @@ project does not exist.
   MCP principal, plus any `HostClaims` the caller mapper assigned (none with the configured mapper). The default
   gives a user **no host permissions**, and deliberately does **not** copy Entra `roles` or `groups`: a host role
   that happens to share a name (`Admin`) would otherwise be granted implicitly. Map users to host permissions in
-  your own factory.
+  your own factory. The name, email and preferred username are **display data**: Entra lets a tenant change them,
+  and a guest's email comes from its home tenant, so never map a user to host permissions by one of them. Use the
+  object id (`oid`) together with the tenant id (`tid`).
 - `null` → the call is refused.
 
 A host whose permissions live in its own user store registers its own factory. The example below maps the Entra user
@@ -249,7 +251,7 @@ to the host's admin user and its `AdminPermission` set. The host's permission cl
 (`http://schemas.example.com/claims/permission`) and its value is the permission's **integer** value
 (`AdminPermission.ViewLoans.ToValueString()` → `"1007"`), which is what the host's `Identity.HasPermission` compares
 against. The admin lookup is a **placeholder**: use whatever service the host already has for loading an active
-admin and their permissions:
+admin and their permissions (it stores the Entra tenant id and object id on the admin record):
 
 ```csharp
 builder.Services.AddSingleton<IMcpHostPrincipalFactory, HostPrincipalFactory>();
@@ -264,11 +266,15 @@ internal sealed class HostPrincipalFactory(IServiceScopeFactory scopes) : IMcpHo
             return new ClaimsPrincipal(new ClaimsIdentity(caller.HostClaims, "BeaconMcpSystem"));
         }
 
-        var email = mcpPrincipal.FindFirst(ClaimTypes.Email)?.Value;
+        // Key the lookup on the immutable object id (and the tenant id), never on email, UPN or preferred username.
+        var objectId = mcpPrincipal.FindFirst("oid")?.Value;
+        var tenantId = mcpPrincipal.FindFirst("tid")?.Value;
         await using var scope = scopes.CreateAsyncScope();
         // PLACEHOLDER: your own lookup of an active admin user and their AdminPermission set.
         var admins = scope.ServiceProvider.GetRequiredService<IYourAdminLookup>();
-        var admin = email == null ? null : await admins.FindActiveAdminByEmailAsync(email, ct);
+        var admin = objectId == null || tenantId == null
+            ? null
+            : await admins.FindActiveAdminByEntraIdAsync(tenantId, objectId, ct);
         if (admin == null)
         {
             return null;                               // not an admin: refused

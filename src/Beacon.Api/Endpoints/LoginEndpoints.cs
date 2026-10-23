@@ -117,7 +117,7 @@ public static partial class LoginEndpoints
             // An administrator set the password: the user signs in by choosing a new one in the same request.
             if (result.PasswordChangeRequired && !string.IsNullOrEmpty(request.NewPassword))
             {
-                var users = context.RequestServices.GetService<IUserManagementService>();
+                var users = context.RequestServices.GetService<IUserManagementService>().OrNull();
                 result = users == null
                     ? AuthenticationResult.Failed(InvalidCredentials)
                     : await users.CompleteRequiredPasswordChangeAsync(request.Username, request.Password, request.NewPassword, context.RequestAborted);
