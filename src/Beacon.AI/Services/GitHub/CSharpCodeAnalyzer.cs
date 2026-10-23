@@ -8,6 +8,9 @@ internal sealed class CSharpCodeAnalyzer : ICodeAnalyzer
 {
     public string Language => "C#";
 
+    // A pattern that backtracks on hostile input stops with RegexMatchTimeoutException instead of holding a thread.
+    private static readonly TimeSpan MatchTimeout = TimeSpan.FromSeconds(2);
+
     private static readonly string[] CSharpExtensions = { ".cs" };
 
     public bool CanAnalyze(string filePath) =>
@@ -18,9 +21,10 @@ internal sealed class CSharpCodeAnalyzer : ICodeAnalyzer
         var references = new List<CodeReference>();
         var lines = content.Split('\n');
         var className = ExtractClassName(content);
+        var methodNames = new Lazy<List<(int End, string Name)>>(() => FindMethodNames(content));
 
         // Detect EF Core DbSet<T> declarations
-        var dbSetMatches = Regex.Matches(content, @"DbSet<(\w+)>\s+(\w+)", RegexOptions.Compiled);
+        var dbSetMatches = Regex.Matches(content, @"DbSet<(\w+)>\s+(\w+)", RegexOptions.Compiled, MatchTimeout);
         foreach (Match match in dbSetMatches)
         {
             references.Add(new CodeReference
@@ -35,7 +39,7 @@ internal sealed class CSharpCodeAnalyzer : ICodeAnalyzer
         }
 
         // Detect ToTable("tablename") or ToTable("tablename", "schema")
-        var toTableMatches = Regex.Matches(content, @"\.ToTable\(\s*""([^""]+)""(?:\s*,\s*""([^""]+)"")?\s*\)", RegexOptions.Compiled);
+        var toTableMatches = Regex.Matches(content, @"\.ToTable\(\s*""([^""]+)""(?:\s*,\s*""([^""]+)"")?\s*\)", RegexOptions.Compiled, MatchTimeout);
         foreach (Match match in toTableMatches)
         {
             references.Add(new CodeReference
@@ -51,7 +55,7 @@ internal sealed class CSharpCodeAnalyzer : ICodeAnalyzer
         }
 
         // Detect [Table("name")] attribute
-        var tableAttrMatches = Regex.Matches(content, @"\[Table\(\s*""([^""]+)""(?:\s*,\s*Schema\s*=\s*""([^""]+)"")?\s*\)\]", RegexOptions.Compiled);
+        var tableAttrMatches = Regex.Matches(content, @"\[Table\(\s*""([^""]+)""(?:\s*,\s*Schema\s*=\s*""([^""]+)"")?\s*\)\]", RegexOptions.Compiled, MatchTimeout);
         foreach (Match match in tableAttrMatches)
         {
             references.Add(new CodeReference
@@ -67,14 +71,14 @@ internal sealed class CSharpCodeAnalyzer : ICodeAnalyzer
         }
 
         // Detect Dapper queries: connection.Query/Execute/QueryAsync/ExecuteAsync
-        var dapperMatches = Regex.Matches(content, @"\.(Query|Execute|QueryAsync|ExecuteAsync|QueryFirst|QuerySingle|QueryFirstOrDefault|QuerySingleOrDefault)\w*(?:<[^>]+>)?\s*\(\s*(?:""([^""]*)""|@""([^""]*)""|(\$""[^""]*""))", RegexOptions.Compiled);
+        var dapperMatches = Regex.Matches(content, @"\.(Query|Execute|QueryAsync|ExecuteAsync|QueryFirst|QuerySingle|QueryFirstOrDefault|QuerySingleOrDefault)\w*(?:<[^>]+>)?\s*\(\s*(?:""([^""]*)""|@""([^""]*)""|(\$""[^""]*""))", RegexOptions.Compiled, MatchTimeout);
         foreach (Match match in dapperMatches)
         {
             var sql = match.Groups[2].Success ? match.Groups[2].Value :
                       match.Groups[3].Success ? match.Groups[3].Value :
                       match.Groups[4].Value;
             var tables = ExtractTableNamesFromSql(sql);
-            var method = ExtractMethodName(content, match.Index);
+            var method = ExtractMethodName(methodNames.Value, match.Index);
             foreach (var table in tables)
             {
                 references.Add(new CodeReference
@@ -92,14 +96,14 @@ internal sealed class CSharpCodeAnalyzer : ICodeAnalyzer
         }
 
         // Detect FromSqlRaw / ExecuteSqlRaw / ExecuteSqlInterpolated
-        var efRawMatches = Regex.Matches(content, @"\.(FromSqlRaw|ExecuteSqlRaw|ExecuteSqlInterpolated|FromSqlInterpolated)\s*\(\s*(?:""([^""]*)""|@""([^""]*)""|(\$""[^""]*""))", RegexOptions.Compiled);
+        var efRawMatches = Regex.Matches(content, @"\.(FromSqlRaw|ExecuteSqlRaw|ExecuteSqlInterpolated|FromSqlInterpolated)\s*\(\s*(?:""([^""]*)""|@""([^""]*)""|(\$""[^""]*""))", RegexOptions.Compiled, MatchTimeout);
         foreach (Match match in efRawMatches)
         {
             var sql = match.Groups[2].Success ? match.Groups[2].Value :
                       match.Groups[3].Success ? match.Groups[3].Value :
                       match.Groups[4].Value;
             var tables = ExtractTableNamesFromSql(sql);
-            var method = ExtractMethodName(content, match.Index);
+            var method = ExtractMethodName(methodNames.Value, match.Index);
             foreach (var table in tables)
             {
                 references.Add(new CodeReference
@@ -117,7 +121,7 @@ internal sealed class CSharpCodeAnalyzer : ICodeAnalyzer
         }
 
         // Detect migration CreateTable
-        var migrationMatches = Regex.Matches(content, @"migrationBuilder\.(CreateTable|AddColumn|DropTable|DropColumn|RenameTable|RenameColumn|AlterColumn)\s*(?:<[^>]+>)?\s*\(\s*(?:name:\s*)?""([^""]+)""", RegexOptions.Compiled);
+        var migrationMatches = Regex.Matches(content, @"migrationBuilder\.(CreateTable|AddColumn|DropTable|DropColumn|RenameTable|RenameColumn|AlterColumn)\s*(?:<[^>]+>)?\s*\(\s*(?:name:\s*)?""([^""]+)""", RegexOptions.Compiled, MatchTimeout);
         foreach (Match match in migrationMatches)
         {
             references.Add(new CodeReference
@@ -132,7 +136,7 @@ internal sealed class CSharpCodeAnalyzer : ICodeAnalyzer
         }
 
         // Detect API endpoints: [HttpGet], [HttpPost], MapGet, MapPost
-        var apiMatches = Regex.Matches(content, @"\[(Http(?:Get|Post|Put|Delete|Patch))\s*(?:\(""([^""]*)""\))?\]", RegexOptions.Compiled);
+        var apiMatches = Regex.Matches(content, @"\[(Http(?:Get|Post|Put|Delete|Patch))\s*(?:\(""([^""]*)""\))?\]", RegexOptions.Compiled, MatchTimeout);
         foreach (Match match in apiMatches)
         {
             references.Add(new CodeReference
@@ -146,7 +150,7 @@ internal sealed class CSharpCodeAnalyzer : ICodeAnalyzer
         }
 
         // Detect minimal API: app.MapGet/MapPost/MapPut/MapDelete
-        var minimalApiMatches = Regex.Matches(content, @"\.(MapGet|MapPost|MapPut|MapDelete|MapPatch)\s*\(\s*""([^""]+)""", RegexOptions.Compiled);
+        var minimalApiMatches = Regex.Matches(content, @"\.(MapGet|MapPost|MapPut|MapDelete|MapPatch)\s*\(\s*""([^""]+)""", RegexOptions.Compiled, MatchTimeout);
         foreach (Match match in minimalApiMatches)
         {
             references.Add(new CodeReference
@@ -164,16 +168,37 @@ internal sealed class CSharpCodeAnalyzer : ICodeAnalyzer
 
     private static string? ExtractClassName(string content)
     {
-        var match = Regex.Match(content, @"(?:class|record|struct)\s+(\w+)");
+        var match = Regex.Match(content, @"(?:class|record|struct)\s+(\w+)", RegexOptions.None, MatchTimeout);
         return match.Success ? match.Groups[1].Value : null;
     }
 
-    private static string? ExtractMethodName(string content, int position)
+    private static List<(int End, string Name)> FindMethodNames(string content)
     {
-        // Look backwards from position to find enclosing method
-        var before = content[..Math.Min(position, content.Length)];
-        var matches = Regex.Matches(before, @"(?:public|private|protected|internal|static|async|override|virtual)\s+[\w<>\[\]?,\s]+\s+(\w+)\s*\(");
-        return matches.Count > 0 ? matches[^1].Groups[1].Value : null;
+        var results = new List<(int, string)>();
+        var matches = Regex.Matches(content, @"(?:public|private|protected|internal|static|async|override|virtual)\s+[\w<>\[\]?,\s]+\s+(\w+)\s*\(", RegexOptions.None, MatchTimeout);
+        foreach (Match match in matches)
+        {
+            results.Add((match.Index + match.Length, match.Groups[1].Value));
+        }
+
+        return results;
+    }
+
+    private static string? ExtractMethodName(List<(int End, string Name)> methodNames, int position)
+    {
+        // The enclosing method is the last declaration that ends before the reference
+        string? name = null;
+        foreach (var method in methodNames)
+        {
+            if (method.End > position)
+            {
+                break;
+            }
+
+            name = method.Name;
+        }
+
+        return name;
     }
 
     private static int GetLineNumber(string[] lines, int charIndex)
@@ -191,7 +216,7 @@ internal sealed class CSharpCodeAnalyzer : ICodeAnalyzer
     {
         var results = new List<(string?, string)>();
         // Match FROM/JOIN/INTO/UPDATE table references
-        var matches = Regex.Matches(sql, @"(?:FROM|JOIN|INTO|UPDATE|INSERT\s+INTO)\s+(?:""?(\w+)""?\.)?""?(\w+)""?", RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        var matches = Regex.Matches(sql, @"(?:FROM|JOIN|INTO|UPDATE|INSERT\s+INTO)\s+(?:""?(\w+)""?\.)?""?(\w+)""?", RegexOptions.IgnoreCase | RegexOptions.Compiled, MatchTimeout);
         foreach (Match match in matches)
         {
             var schema = match.Groups[1].Success ? match.Groups[1].Value : null;

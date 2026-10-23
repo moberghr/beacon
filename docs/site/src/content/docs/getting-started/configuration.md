@@ -628,6 +628,19 @@ At startup the provider is built from `Beacon:LLM`. Saving the AI provider in [A
 
 These keys are read by the `Moberg.Beacon.AI.Embeddings.Onnx` package (`AddBeaconOnnxEmbeddings()`). The service is available only when `Enabled` is `true` and both files exist; otherwise retrieval falls back to lexical matching. On PostgreSQL the vectors live in a pgvector column, so the `vector` extension must be available to Beacon's migrations; on SQL Server they are compared in memory. The sample host re-indexes every 12 hours (`mcp-embedding-reindex`, `mcp-docchunk-reindex`).
 
+## GitHub repository scan (`Beacon:GitHub`)
+
+A project's repository scan reads source files from `https://github.com` with the repository's stored token. Only `https://github.com/owner/repo` URLs (or `owner/repo`) are scanned; a URL on another Git host (GitHub Enterprise Server, GitLab, Azure DevOps) fails the scan with a message saying so, and no request is made. Every scan is bounded:
+
+| Key | Type | Default | Meaning |
+|---|---|---|---|
+| `MaxFilesPerRepository` | int | `5000` | The most source files read from one repository. The rest are left out |
+| `ScanTimeout` | timespan | `00:05:00` | The longest one repository scan runs. A scan that reaches it keeps what it found |
+| `MaxFileBytes` | int | `1000000` | A larger source file is skipped |
+| `MaxTreeResponseBytes` | int | `33554432` | The most bytes read from the repository's file list |
+
+A scan that hits a bound still ends as completed, and its error text starts with "Partial scan:" and names what was left out (files over the cap, files over the size limit, the time limit, files that could not be read, or a file list GitHub itself truncated), so a partial result is never mistaken for a full one. The caller cancelling the request fails the scan.
+
 ## Notification destinations (optional)
 
 Bound from `Beacon:Notifications`, validated at startup (each bad entry is named); the effective policy is logged once.
