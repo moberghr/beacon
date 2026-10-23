@@ -120,19 +120,22 @@ jobs:
         fi
         for PACKAGE in $UI_PACKAGES; do
           LISTING=$(unzip -Z1 "$PACKAGE")
-          if ! echo "$LISTING" | grep -q '^staticwebassets/'; then
+          if ! grep -q '^staticwebassets/' <<< "$LISTING"; then
             echo "::error::$PACKAGE has no staticwebassets/ entries."
             FAILED=1
           fi
-          if echo "$LISTING" | grep -q '^content/'; then
+          if grep -q '^content/' <<< "$LISTING"; then
             echo "::error::$PACKAGE ships a content/ layout, which PackageReference consumers never copy."
             FAILED=1
           fi
         done
 
+        # Source maps would expose the UI bundle's sources. .pdb files are allowed: Beacon.Doctor is a dotnet tool,
+        # and a tool package carries its publish output including the pdbs (symbols are not secrets).
         for PACKAGE in artifacts/*.nupkg; do
-          if unzip -Z1 "$PACKAGE" | grep -E '\.(map|pdb)$' > /dev/null; then
-            echo "::error::$PACKAGE contains .map or .pdb files."
+          LISTING=$(unzip -Z1 "$PACKAGE")
+          if grep -qE '\.map$' <<< "$LISTING"; then
+            echo "::error::$PACKAGE contains .map files."
             FAILED=1
           fi
         done
@@ -169,15 +172,20 @@ jobs:
         AFTER_SHA: ${{ github.sha }}
       run: |
         set -euo pipefail
+        # Trusted baseline for a new or recreated branch (all-zero before): history up to it holds known findings
+        # handled outside CI. When it is not an ancestor, the full history reachable from the pushed commit is scanned.
+        BASELINE_SHA="0ecf936b094ad56483d71341b37b0e7878113a3e"
         if [ "$EVENT_NAME" = "pull_request" ]; then
           RANGE="$BASE_SHA..$HEAD_SHA"
         elif [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
           RANGE="$BEFORE_SHA..$AFTER_SHA"
+        elif git merge-base --is-ancestor "$BASELINE_SHA" "$AFTER_SHA"; then
+          RANGE="$BASELINE_SHA..$AFTER_SHA"
         else
-          RANGE="$AFTER_SHA~1..$AFTER_SHA"
+          RANGE="$AFTER_SHA"
         fi
         echo "Scanning $RANGE"
-        "$RUNNER_TEMP/gitleaks/gitleaks" git --redact --no-banner --log-opts="$RANGE" .
+        "$RUNNER_TEMP/gitleaks/gitleaks" git --redact --no-banner --log-opts="--diff-merges=first-parent $RANGE" .
 
   # Advisory: reports known vulnerabilities in dependencies and never fails the run.
   audit:
