@@ -18,6 +18,7 @@ using Beacon.Core.Models;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Security;
 using Beacon.Tests.Common;
+using Beacon.Tests.Unit.Grounding;
 
 namespace Beacon.Tests.Unit;
 
@@ -28,8 +29,8 @@ namespace Beacon.Tests.Unit;
 /// real logic against a mocked <see cref="BeaconContext"/> backed by the async-queryable doubles (no DB,
 /// no forbidden <c>UseInMemoryDatabase</c> — §4.7). The raw pgvector path needs a live DB, so the context
 /// spoofs a non-Npgsql provider and the deterministic in-memory cosine path runs with
-/// <see cref="FakeEmbeddingService"/>. Golden-case EMBEDDINGS are data-source-scoped, but the loaded
-/// cases are hard-filtered by the caller's authorized ProjectId (codex PR-11 R4).
+/// <see cref="FakeEmbeddingService"/>. Golden-case embeddings carry their case's project and the search filters on
+/// the caller's authorized ProjectId; the loaded cases are hard-filtered by it too.
 /// </summary>
 [TestFixture]
 public class GoldenExemplarInjectionTests
@@ -213,6 +214,36 @@ public class GoldenExemplarInjectionTests
 
         block.Should().Contain("SELECT count(*) FROM orders WHERE status = 4");
         block.Should().NotContain("other_project_orders");
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task BuildGoldenExemplarBlock_AVectorIndexedBeforeItCarriedAProject_IsFoundOnceTheUpgradeStampsIt(bool sqlServer)
+    {
+        var embedder = new FakeEmbeddingService();
+        var queryVector = await embedder.EmbedAsync(EmbeddingMaskingHelper.Mask(Question), CancellationToken.None);
+        var cases = new List<McpEvalCase>
+        {
+            NewCase(1, Question, "SELECT count(*) FROM orders WHERE status = 4", isActive: true)
+        };
+        var legacy = NewGoldenEmbedding(1, queryVector, projectId: null);
+        var settings = new McpSettingsData
+        {
+            EnableGoldenExemplars = true,
+            EnableSemanticRetrieval = true,
+            GoldenExemplarTopK = 4,
+            GoldenExemplarBudgetChars = 4000
+        };
+
+        var before = await BuildService(embedder, cases, [legacy], settings)
+            .BuildGoldenExemplarBlockAsync(DataSourceId, ProjectId, Question, settings, Dialect, CancellationToken.None);
+        legacy.ProjectId = GoldenCaseEmbeddingProjectBackfillTests.RunBackfill(sqlServer, [legacy], cases)[legacy.Id];
+        var after = await BuildService(embedder, cases, [legacy], settings)
+            .BuildGoldenExemplarBlockAsync(DataSourceId, ProjectId, Question, settings, Dialect, CancellationToken.None);
+
+        before.Should().NotContain("SELECT count(*) FROM orders WHERE status = 4", "a vector without a project matches no project");
+        legacy.ProjectId.Should().Be(ProjectId);
+        after.Should().Contain("SELECT count(*) FROM orders WHERE status = 4");
     }
 
     [Test]
@@ -676,10 +707,10 @@ public class GoldenExemplarInjectionTests
             IsActive = isActive
         };
 
-    private static McpEmbedding NewGoldenEmbedding(int ownerId, float[] vector, int projectId = ProjectId) =>
+    private static McpEmbedding NewGoldenEmbedding(int ownerId, float[] vector, int? projectId = ProjectId) =>
         NewEmbedding(500 + ownerId, McpEmbeddingOwnerType.GoldenCase, ownerId, vector, projectId);
 
-    private static McpEmbedding NewEmbedding(int id, McpEmbeddingOwnerType ownerType, int ownerId, float[] vector, int projectId = ProjectId) =>
+    private static McpEmbedding NewEmbedding(int id, McpEmbeddingOwnerType ownerType, int ownerId, float[] vector, int? projectId = ProjectId) =>
         new()
         {
             Id = id,

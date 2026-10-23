@@ -17,6 +17,7 @@ using Beacon.Core.Services.Validation;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace Beacon.AI.Services.Knowledge;
 
@@ -65,8 +66,8 @@ internal sealed class KnowledgeGraphService(
     // so retrieval passes both the dataSourceId and the projectId to the shared nearest-neighbour helpers.
     private static readonly int[] GoldenCaseOwnerTypes = [(int)McpEmbeddingOwnerType.GoldenCase];
 
-    // How much of a data-quality rule result's text table knowledge shows.
-    private const int RuleResultDetailsMaxLength = 200;
+    // The number a built-in data-quality rule's actual value starts with ("3", "9.25%", "90 minutes").
+    private static readonly Regex LeadingNumber = new("^[0-9]{1,20}(?:[.,][0-9]{1,6})?", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
 
     public Task<TableKnowledge> GetTableKnowledgeAsync(int dataSourceId, int projectId, string schemaName, string tableName, CancellationToken ct = default)
     {
@@ -114,9 +115,9 @@ internal sealed class KnowledgeGraphService(
             .FirstOrDefaultAsync(ct);
 
         // The table's enabled contracts, each rule as its contract's latest evaluation found it. A rule that evaluation did
-        // not run (disabled, waiting for approval, added since) is left out, never reported as failing. Contracts belong
-        // to the data source, so a result's text is shown on one line, cut, and left out when it holds hidden characters:
-        // a Custom SQL rule's message is whatever its query returned.
+        // not run (disabled, waiting for approval, added since) is left out, never reported as failing. A result's stored
+        // text never reaches grounding (a Custom SQL rule's message and value are whatever its query returned): each rule
+        // gets a status written here from its type, its outcome and the digits of its actual value.
         var ruleResults = await context.DataContracts
             .Where(x => x.DataSourceId == dataSourceId)
             .Where(x => x.SchemaName == schemaName)
@@ -136,11 +137,11 @@ internal sealed class KnowledgeGraphService(
                     x.DataContractRule.RuleType,
                     x.DataContractRule.ColumnName,
                     x.Passed,
-                    x.Message
+                    x.ActualValue
                 })
             .ToListAsync(ct);
         var qualityRules = ruleResults
-            .Select(x => new QualityRuleInfo(x.RuleType.ToString(), x.ColumnName, x.Passed, RuleResultDetails(x.Message)))
+            .Select(x => new QualityRuleInfo(x.RuleType.ToString(), x.ColumnName, x.Passed, RuleStatus(x.RuleType, x.Passed, x.ActualValue)))
             .ToList();
 
         // Count query executions that touched this data source via query steps
@@ -1978,7 +1979,7 @@ internal sealed class KnowledgeGraphService(
             var maskedVector = await embeddingService.EmbedAsync(EmbeddingMaskingHelper.Mask(question), ct);
 
             // The data source AND the caller's project, so another project's cases on a shared data source never take
-            // the top-k slots. A vector indexed before it carried its project is not matched until the re-index stamps it.
+            // the top-k slots. A vector indexed before vectors carried their project is stamped by a migration (and by the re-index).
             var hits = context.Database.ProviderName == NpgsqlProviderName
                 ? await GetNearestPostgresAsync(context, maskedVector, [dataSourceId], GoldenCaseOwnerTypes, limit, ct, projectId: projectId)
                 : await GetNearestInMemoryAsync(context, maskedVector, [dataSourceId], GoldenCaseOwnerTypes, limit, ct, projectId: projectId);
@@ -2853,25 +2854,40 @@ internal sealed class KnowledgeGraphService(
             .Select(x => x.DataSourceId);
     }
 
-    // A rule result's text as grounding shows it: on one line, at most RuleResultDetailsMaxLength characters; null when
-    // it is empty or holds a character a reviewer cannot see.
-    private static string? RuleResultDetails(string? message)
+    // A data-quality rule result's status as grounding shows it, written here and never taken from the stored result: the
+    // rule's outcome in words, and for a failed built-in rule the number its actual value starts with (digits and one
+    // decimal separator only). A Custom SQL rule's value is whatever its query returned, so it is never shown.
+    private static string? RuleStatus(DataContractRuleType ruleType, bool passed, string? actualValue)
     {
-        var line = GroundingText.Question(message);
-        if (line == null)
+        // The value the evaluator stores when the rule's query did not run or its result could not be read.
+        if (!passed && actualValue == "Error")
         {
-            return null;
+            return "The rule did not complete";
         }
 
-        if (line.Length <= RuleResultDetailsMaxLength)
+        var number = ruleType == DataContractRuleType.CustomSql || actualValue == null
+            ? null
+            : LeadingNumber.Match(actualValue) is { Success: true } match ? match.Value : null;
+
+        return ruleType switch
         {
-            return line;
-        }
-
-        // Never between the two halves of a surrogate pair.
-        var cut = char.IsHighSurrogate(line[RuleResultDetailsMaxLength - 1]) ? RuleResultDetailsMaxLength - 1 : RuleResultDetailsMaxLength;
-
-        return string.Concat(line.AsSpan(0, cut), "…");
+            DataContractRuleType.Freshness when passed => "Data is fresh",
+            DataContractRuleType.Freshness => number == null ? "Data is stale" : $"Data is stale ({number} minutes old)",
+            DataContractRuleType.Volume when passed => "Row count within expected range",
+            DataContractRuleType.Volume => number == null ? "Row count outside expected range" : $"Row count {number} outside expected range",
+            DataContractRuleType.NullRate when passed => "Null rate within threshold",
+            DataContractRuleType.NullRate => number == null ? "Null rate exceeds threshold" : $"Null rate {number}% exceeds threshold",
+            DataContractRuleType.Uniqueness when passed => "All values are unique",
+            DataContractRuleType.Uniqueness => number == null ? "Duplicate values found" : $"{number} duplicate values found",
+            DataContractRuleType.Referential when passed => "All references are valid",
+            DataContractRuleType.Referential => number == null ? "Orphaned records found" : $"{number} orphaned records found",
+            DataContractRuleType.Range when passed => "All values within range",
+            DataContractRuleType.Range => number == null ? "Values out of range" : $"{number} values out of range",
+            DataContractRuleType.Pattern when passed => "All values match pattern",
+            DataContractRuleType.Pattern => number == null ? "Values don't match pattern" : $"{number} values don't match pattern",
+            DataContractRuleType.CustomSql => passed ? "Custom check passed" : "Custom check failed",
+            _ => null
+        };
     }
 
     private static async Task<DataSource> LinkedDataSourceAsync(

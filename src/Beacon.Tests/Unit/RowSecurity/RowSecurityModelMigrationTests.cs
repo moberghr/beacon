@@ -25,7 +25,7 @@ namespace Beacon.Tests.Unit.RowSecurity;
 /// are stored as integers; table names and values compare ordinally (SQL Server through a binary collation). A data source
 /// cannot be deleted under its policies or classes, a user's or an attribute's values go with it, a policy's versions go
 /// with the policy, and the active version adds no second cascade path. Its target model is the snapshot, the model has no
-/// pending changes, and it sorts last.
+/// pending changes, and it sorts right after the unused-feature removal.
 /// </summary>
 [TestFixture]
 public class RowSecurityModelMigrationTests
@@ -76,9 +76,12 @@ public class RowSecurityModelMigrationTests
         differ.GetDifferences(target, Initialized(migrations.ModelSnapshot!.Model, initializer).GetRelationalModel())
             .Should().BeEmpty("the migration's target model is the snapshot");
         context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
+        // The data-only golden-case backfill that follows it is pinned by GoldenCaseEmbeddingProjectBackfillTests.
         migrations.Migrations.Keys
             .Order(StringComparer.Ordinal)
-            .Last()
+            .SkipWhile(x => !x.EndsWith("_RemoveUnusedFeatures", StringComparison.Ordinal))
+            .Skip(1)
+            .First()
             .Should().EndWith(Suffix, "it sorts after every earlier migration");
     }
 

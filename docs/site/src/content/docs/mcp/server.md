@@ -298,7 +298,7 @@ Retrieve AI-generated documentation at three levels of detail.
 
 Table documentation, code references and lineage come from the resolved project only: on a data source several projects share, another project's documentation and repositories never appear.
 
-The quality rules on table level are those of the table's enabled data contracts, each as its contract's latest evaluation found it: a disabled rule, a Custom SQL rule waiting for approval and a rule added since are not listed. Data contracts belong to the data source, so each result's text (a Custom SQL rule's `message` is whatever its query returned) is shown on one line and cut at 200 characters, and left out when it holds characters a reviewer cannot see.
+The quality rules on table level are those of the table's enabled data contracts, each as its contract's latest evaluation found it: a disabled rule, a Custom SQL rule waiting for approval and a rule added since are not listed. Each result is shown as a status Beacon writes itself, never the result's stored text: the rule's outcome in words (`3 duplicate values found`, `Data is stale`, `The rule did not complete`) with, for a failed built-in rule, the number its actual value starts with. A Custom SQL rule shows only `Custom check passed` or `Custom check failed`: its `message` and `actual_value` are whatever its query returned, and never reach the model.
 
 When the host ships documents with [`ExposeDocs`](/mcp/host-docs/), the project-level response ends with an *Imported documents* listing (title + path) and `document: "<path>"` returns one of them.
 
