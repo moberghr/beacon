@@ -71,7 +71,7 @@ Register these yourself at startup (the reference host's schedule):
 | `mcp-learning-cleanup` | `0 3 * * *` | `IJobService.CleanupOldSignals` | Delete signals past their retention. |
 | `mcp-audit-retention` | `30 3 * * *` | `IMcpAuditRetentionService.PurgeExpiredAsync` | Purge MCP audit rows older than `Beacon:Mcp:Audit:RetentionDays` (no-op when unset). |
 | `security-audit-retention` | `45 3 * * *` | `ISecurityAuditRetentionService.PurgeExpiredAsync` | Purge security audit events older than `Beacon:Audit:RetentionDays` (no-op when unset: events are kept forever). |
-| `security-audit-verify` | `15 * * * *` | `ISecurityAuditVerificationService.VerifyNewEventsAsync` | Check events written since the last run against their integrity hashes; failures are logged at Error. |
+| `security-audit-verify` | `15 * * * *` | `ISecurityAuditVerificationService.VerifyNewEventsAsync` | Check events, then MCP audit rows, written since the last run against their integrity hashes; failures are logged at Error. |
 | `mcp-embedding-reindex` | `0 */12 * * *` | `IJobService.ReindexEmbeddings` | Re-embed metadata and examples for semantic retrieval. |
 | `mcp-docchunk-reindex` | `0 */12 * * *` | `IJobService.ReindexDocChunks` | Re-chunk and re-embed project documentation. |
 

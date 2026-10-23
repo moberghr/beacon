@@ -234,6 +234,7 @@ public static class SecurityAuditActions
     public const string AuditVerified = "audit.verified";
     public const string AuditPurged = "audit.purged";
     public const string McpAuditRead = "audit.mcp_audit_read";
+    public const string McpAuditVerified = "audit.mcp_audit_verified";
 
     /// <summary>Every action in the catalogue.</summary>
     public static IReadOnlySet<string> All { get; } = typeof(SecurityAuditActions)

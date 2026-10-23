@@ -164,7 +164,7 @@ Beacon's guarantees assume the host does its share:
 - `UseForwardedHeaders` with known proxies, and `Beacon:PublicBaseUrl` set, behind a reverse proxy;
 - the middleware order from [Host wiring](/integrate/host-setup/#the-middleware-pipeline);
 - every job scope marked as system work;
-- security log events and the `Beacon.Audit` category (including the security audit trail's copies and verification checkpoints, 9104 to 9110) shipped to a monitored log store;
+- security log events and the `Beacon.Audit` category (including the security audit trail's copies and verification checkpoints, 9104 to 9112) shipped to a monitored log store;
 - `Beacon:Audit:IntegrityKey` set from a secret store, and the security audit verification and retention jobs scheduled (the sample host schedules both).
 
 The [production checklist](/integrate/production/) collects all of these.

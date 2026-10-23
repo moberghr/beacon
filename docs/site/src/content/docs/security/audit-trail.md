@@ -289,6 +289,8 @@ forged event is found within the schedule's period without anyone asking:
   committed). Kept in your SIEM, the checkpoints anchor the trail outside the database: an event deleted later leaves a
   gap below a checkpoint that once covered it, and an id passed as never committed is named there.
 - A run that checked events records them as a `system` `audit.verified` event, which is the next run's starting point.
+- Each run then verifies the [MCP audit](#the-mcp-audit-rows) rows written since its own last run, so the one job covers
+  both.
 
 The sample host schedules it hourly as the Warp recurring job `security-audit-verify` (`15 * * * *`,
 `VerifySecurityAuditEventsJob` in `Beacon.SampleProject/Warp/Jobs/McpMaintenanceJobs.cs`). **A host embedding Beacon
@@ -387,6 +389,8 @@ to keep a copy Beacon's database cannot change.
 | 9108 | `SecurityAuditVerificationFailed` | Error | The scheduled verification or the retention purge found stored events that fail verification (or a checkpoint that does). | The counts by verdict, the first failing ids |
 | 9109 | `SecurityAuditCheckpoint` | Information | Each run of the scheduled verification. | `FromEventId`, `MaxEventId`, `Checked`, `Failed`, `LastHmac`, `KeyId`, `NeverCommitted`, `FirstNeverCommittedId`, `LastNeverCommittedId`, `WaitingForEventId` |
 | 9110 | `SecurityAuditPurgeFailed` | Error | The retention purge did not run. | The cutoff, the failure's type and code |
+| 9111 | `McpAuditVerificationFailed` | Error | The scheduled verification found MCP audit rows that fail verification (or an MCP audit checkpoint that does). | The counts by verdict, the first failing row ids |
+| 9112 | `McpAuditCheckpoint` | Information | Each run of the MCP audit verification. | `FromAuditId`, `MaxAuditId`, `Checked`, `Failed`, `Unsealed`, `LastHmac`, `KeyId`, `SealedFromAuditId`, `NeverCommitted`, `WaitingForAuditId` |
 
 Match a log-stream copy to its row by `EventGuid`. The copy holds the same identifiers, codes and digests as the row,
 nothing more.
@@ -412,9 +416,32 @@ disagree.
   the table append-only at the database itself, give Beacon's connection a role that may not update or delete
   `SecurityAuditEvents` rows other than through the purge, or add triggers; that is the host's to configure. A chain of
   signatures across events, which would make a deletion visible inside the trail, is not part of this version.
-- **MCP audit rows are evidence, not sealed.** The [MCP audit](/mcp/observability-and-audit/) rows and their
-  statements carry keyed hashes of their content, but no signature over the row: they record what a call ran, and an
-  edit at the database is not detected. The security audit trail records who read that export.
+- **MCP audit rows are sealed too.** See [The MCP audit rows](#the-mcp-audit-rows): a changed row or statement is found
+  by the next scheduled run; a deleted one, as here, only through the checkpoints. Rows written before this version are
+  reported as unsealed. The security audit trail records who read that export.
+
+## The MCP audit rows
+
+The [MCP audit](/mcp/observability-and-audit/) rows (`McpAuditLogs`) are sealed the same way as events, with the same
+keys and rotation: each row carries an HMAC-SHA256 (`Hmac`) under a key derived from the current integrity key for the
+MCP audit only, the id of that key (`HmacKeyId`), the version of the field list it covers (`SealVersion`) and a guid of
+its own (`AuditGuid`, unique in the table, so a row cannot be copied into a second one). The seal covers every field of
+the row but its database id, and every statement the row holds (`McpAuditStatements`): a statement changed, removed,
+added or moved to another row fails its row. A row is sealed as it is saved, with what the content retention lock leaves
+of it. Beacon's data context refuses to change or delete a row or a statement, or to add a statement to a row already
+saved; the MCP audit retention purge deletes whole rows by age.
+
+Each run of the scheduled verification (`ISecurityAuditVerificationService.VerifyNewEventsAsync`) then checks the MCP
+audit rows written since the last intact `audit.mcp_audit_verified` checkpoint, by id, with their statements, the same
+way: *intact*, *modified*, *unknown key*, or out of range (a sealed row dated in the future, or older than
+`Beacon:Mcp:Audit:RetentionDays` allows), waiting for a missing id and passing it as never committed after an hour.
+Rows written before this version carry no seal and are reported as **unsealed**, never as modified: those below the
+first intact sealed row, and, while an upgrade rolls out, rows a node still on the version before writes within a day
+of that first sealed row. Later, a row without a seal is a row whose seal was removed, and is reported as modified.
+Failures are logged at Error (`Beacon.Audit` 9111) and counted on `beacon.security_audit.verification_failures`
+(tagged `audit.mcp_audit_verified`); every run writes a checkpoint to the log stream (9112); a run that read rows
+records them as a `system` `audit.mcp_audit_verified` event, sealed in this trail, which is the next run's starting
+point.
 
 ## Table growth
 
@@ -457,14 +484,18 @@ lets a deployment pin the MCP audit's content on. See
   the events written since its last run and writes a checkpoint to the log stream) and `security-audit-retention`
   (daily; a no-op until `Beacon:Audit:RetentionDays` is set). A host embedding Beacon schedules
   `ISecurityAuditVerificationService.VerifyNewEventsAsync` and `ISecurityAuditRetentionService.PurgeExpiredAsync`
-  itself; nothing is verified on a schedule, and nothing is purged, until it does.
+  itself; nothing is verified on a schedule, and nothing is purged, until it does. The verification also checks the MCP
+  audit rows.
+- **MCP audit rows are sealed.** The migration `AddMcpAuditSeal` adds `AuditGuid`, `SealVersion`, `HmacKeyId` and `Hmac`
+  to `McpAuditLogs` (nullable, no backfill) and a unique index on `AuditGuid`. Rows written before it are reported as
+  unsealed. Upgrade every node within a day: past that, a row without a seal is reported as modified.
 - **Retention needs no action now.** Events are kept forever until you set `Beacon:Audit:RetentionDays` (365 to 36,500
   days). The purge verifies the events it is about to delete first and, while any fails verification, deletes nothing,
   records a refused `audit.purged` event and throws (its job fails): investigate the events it names.
 - **Alert on two counters.** `beacon.security_audit.write_failures` (an event written on its own was not stored, and the
   log stream holds it as 9107 with `Persisted=False`; or a purge did not run, 9110) and
   `beacon.security_audit.verification_failures` (stored events failed verification, 9108). Ship the `Beacon.Audit` events
-  9104 to 9110 to your SIEM; the database stays the source of truth, the 9104 copy is best-effort.
+  9104 to 9112 to your SIEM; the database stays the source of truth, the 9104 copy is best-effort.
 - **Reads of audit data fail closed.** `GET /security-audit`, `POST /security-audit/verify`, `GET /mcp/audit` and
   `GET /users/{id}/owned-resources` are recorded in the trail before they return anything and fail when that record
   cannot be written (so they fail while the database cannot take writes). An identical read by the same actor within 60
@@ -483,8 +514,7 @@ lets a deployment pin the MCP audit's content on. See
   rest), and every audit row keeps a keyed `ContentHash` of its parameters. Review this against your privacy policy:
   switch content retention off for projects that must not keep it, pin it off with `Beacon:Mcp:ForceNoContentRetention`,
   or bound it with `Beacon:Mcp:Audit:RetentionDays`. Under no retention, statements keep their keyed `SqlHash` and no
-  text. Audit rows written before the upgrade have no statements and no content hash. MCP audit rows are evidence but
-  not sealed: they carry no signature.
+  text. Audit rows written before the upgrade have no statements and no content hash.
 - **Audit content can be pinned on.** `Beacon:Mcp:Audit:RequireContent: true` pins `RetainQueryContent` on, globally and
   for every project; a save that switches it off is refused with `409`, an Admin's too, and the MCP Settings page shows
   the switch disabled with the reason. A call whose project settings cannot be read keeps its content under the lock

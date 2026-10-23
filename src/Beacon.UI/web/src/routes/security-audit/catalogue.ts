@@ -190,7 +190,7 @@ export const SECURITY_AUDIT_CATEGORIES: readonly SecurityAuditCategory[] = [
   {
     code: 'audit',
     label: 'The audit itself',
-    actions: ['audit.read', 'audit.verified', 'audit.purged', 'audit.mcp_audit_read'],
+    actions: ['audit.read', 'audit.verified', 'audit.purged', 'audit.mcp_audit_read', 'audit.mcp_audit_verified'],
   },
 ];
 

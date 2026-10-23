@@ -100,6 +100,14 @@ The secret itself is never the key, and nobody without it can test guesses again
 comparable across an encryption-key change while `Beacon:Mcp:CallerHashKey` is set (see
 [Replacing the Key](/getting-started/configuration/#replacing-the-key)).
 
+### Sealed rows
+
+Every row is sealed as it is saved: an HMAC-SHA256 over its fields and the statements it holds, under the
+[security audit trail](/security/audit-trail/#the-mcp-audit-rows)'s integrity keys (`Hmac`, `HmacKeyId`, `SealVersion`,
+`AuditGuid`). Beacon refuses to change or delete a row or a statement, and the scheduled security audit verification
+checks the rows written since its last run, reporting changed ones at Error (9111) and writing a checkpoint (9112).
+Rows written before seals were introduced are reported as unsealed.
+
 ## The `Beacon.Audit` log event catalogue
 
 Every event below is logged at category **`Beacon.Audit`**, structured, with identifiers and counts only, never
@@ -113,7 +121,7 @@ your log sink (CloudWatch, a SIEM) at this category to get the audit trail witho
 | 9102 | `McpAuditPurged` | Information | The retention purge runs with `RetentionDays` set. | Deleted count, cutoff |
 | 9103 | `McpAuditRead` | Information | `GET /beacon/api/mcp/audit` is called. | `RequestedByUserId`, `From`, `To`, `ProjectId`, `HasToolFilter` (bool: the admin-supplied `Tool` filter is free text, so only its presence is logged, never the value), `UserId`, `HasCallerHashFilter` (bool, same reasoning), `Page`, `PageSize`, `ReturnedCount` |
 
-The same category carries the [security audit trail](/security/audit-trail/#shipping-to-a-siem)'s events 9104 to 9110: a copy of every committed security audit event, reads and verifications of the trail, purges, write and verification failures, and the checkpoints of its scheduled verification.
+The same category carries the [security audit trail](/security/audit-trail/#shipping-to-a-siem)'s events 9104 to 9112: a copy of every committed security audit event, reads and verifications of the trail, purges, write and verification failures, the checkpoints of its scheduled verification, and the failures (9111) and checkpoints (9112) of the MCP audit rows' verification.
 
 ### Row data sent to the LLM provider
 
@@ -365,10 +373,9 @@ purges them. Plan the privacy review for that, and set `Beacon:Mcp:Audit:Retenti
 retention setting cannot be read while the lock is on, the call keeps its content (logged at Error); without the lock it
 is audited structurally, as before.
 
-The audit rows and their statements are **evidence, not sealed records**: they carry keyed hashes of their content
-(`ContentHash`, `SqlHash`) but no signature over the row, so an edit made at the database is not detected the way the
-[security audit trail](/security/audit-trail/#what-the-trail-does-and-does-not-prove) detects one. Ship the
-`Beacon.Audit` events to a store you control for a copy the database cannot change.
+The audit rows and their statements are [sealed](#sealed-rows): an edit made at the database is found by the next
+scheduled verification, as in the [security audit trail](/security/audit-trail/#what-the-trail-does-and-does-not-prove);
+a deleted row is not. Ship the `Beacon.Audit` events to a store you control for a copy the database cannot change.
 
 ## Retention
 

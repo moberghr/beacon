@@ -1366,6 +1366,8 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.Property(e => e.McpSessionId).HasMaxLength(128);
             entity.Property(e => e.UpstreamRequestId).HasMaxLength(128);
             entity.Property(e => e.ContentHash).HasMaxLength(64);
+            entity.Property(e => e.HmacKeyId).HasMaxLength(32);
+            entity.Property(e => e.Hmac).HasMaxLength(64);
 
             entity.HasOne(e => e.User)
                 .WithMany()
@@ -1375,6 +1377,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.HasIndex(e => e.UserId);
             entity.HasIndex(e => e.CreatedTime);
             entity.HasIndex(e => e.Tool);
+            entity.HasIndex(e => e.AuditGuid).IsUnique();
         });
 
         // One row per statement an audited call ran on a data source, deleted with its audit row (so the audit purge
