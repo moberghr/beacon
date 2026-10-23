@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Authorization;
 using Beacon.Core.Models;
@@ -11,7 +12,7 @@ namespace Beacon.Core.Handlers.McpLearning;
 
 /// <summary>
 /// Applies a proposed documentation patch. A section patch appends its content to the project's latest documentation
-/// section of that title. A column or table patch replaces the data source's description, which every project linking
+/// section of that title and marks the section curated (edited by the applying user, at the time of applying). A column or table patch replaces the data source's description, which every project linking
 /// the source sees, so it applies only while the description still holds the content captured when the patch was
 /// proposed (<see cref="McpDocumentationPatch.CurrentContent"/>, compared exactly; null and empty are different values, as
 /// the proposal captured them): a description changed since, by hand or by another project's patch, refuses the patch
@@ -96,14 +97,16 @@ internal sealed class ApplyDocumentationPatchHandler(IDbContextFactory<BeaconCon
 
     private async Task ApplyToSectionAsync(BeaconContext context, McpDocumentationPatch patch, ApplyDocumentationPatchCommand request, CancellationToken ct)
     {
-        if (!await ApplyDocumentationSectionAsync(context, patch, ct))
-        {
-            throw TargetNotFound(patch);
-        }
+        var section = await FindDocumentationSectionAsync(context, patch, ct) ?? throw TargetNotFound(patch);
 
         patch.Status = McpDocPatchStatus.Applied;
         patch.AppliedByUserId = request.AppliedByUserId;
         patch.AppliedAt = DateTime.UtcNow;
+
+        // A curator's decision changes the section like an edit by hand: it is curated from now on (regeneration keeps it).
+        section.Content += "\n\n" + patch.ProposedContent;
+        section.EditedByUserId = request.AppliedByUserId;
+        section.EditedTime = patch.AppliedAt;
 
         await securityAudit.StageAsync(context, DocumentationPatchAudit.Decided(SecurityAuditActions.DocumentationPatchApplied, patch), ct);
         await context.SaveChangesAsync(ct);
@@ -174,7 +177,7 @@ internal sealed class ApplyDocumentationPatchHandler(IDbContextFactory<BeaconCon
                 .ExecuteUpdateAsync(x => x.SetProperty(y => y.TableDescription, proposed), ct);
     }
 
-    private static async Task<bool> ApplyDocumentationSectionAsync(BeaconContext context, McpDocumentationPatch patch, CancellationToken ct)
+    private static async Task<ProjectDocumentationSection?> FindDocumentationSectionAsync(BeaconContext context, McpDocumentationPatch patch, CancellationToken ct)
     {
         // TargetIdentifier format: "ProjectDocumentation:{docId}:SectionType:{sectionType}"
         // Or simpler: find the latest doc section of the given type for this project
@@ -185,21 +188,13 @@ internal sealed class ApplyDocumentationPatchHandler(IDbContextFactory<BeaconCon
 
         if (latestDoc == null)
         {
-            return false;
+            return null;
         }
 
-        var section = await context.ProjectDocumentationSections
+        return await context.ProjectDocumentationSections
             .FirstOrDefaultAsync(s =>
                 s.ProjectDocumentationId == latestDoc.Id &&
                 s.Title == patch.TargetIdentifier, ct);
-
-        if (section == null)
-        {
-            return false;
-        }
-
-        section.Content += "\n\n" + patch.ProposedContent;
-        return true;
     }
 
     private sealed record DescriptionTarget(int Id, string? Content);

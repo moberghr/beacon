@@ -118,6 +118,13 @@ Curate is held by project admin members and Admins (see [Who curates grounding](
 In the UI, the **Documentation** tab of a project (`/beacon/projects/{id}`) shows the latest documentation and lets a
 curator edit its sections.
 
+**Curated sections.** A section a person changed, by editing it or by applying a documentation patch to it, records who
+changed it (`Users.Id`) and when (`editedTime` in the API) and is marked **Curated** in the UI. Regenerating keeps it:
+the new documentation takes the latest documentation's curated sections in place of what the run generated for their
+type, still marked curated, so regeneration never replaces curated text with fresh LLM output. A section that failed to
+generate holds a fixed "Generation failed for this section" text, never the provider's error. Each finished generation
+is recorded in the security audit as `curation.documentation_generated`.
+
 The documentation is also grounding: it is chunked, optionally embedded, and retrieved when an agent asks a question
 over MCP, so a better table description improves generated SQL (see
 [Documentation chunking](/mcp/knowledge-base/#documentation-chunking)).

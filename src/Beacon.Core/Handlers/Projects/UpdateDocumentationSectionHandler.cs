@@ -8,12 +8,17 @@ using Beacon.Core.SecurityAudit;
 namespace Beacon.Core.Handlers.Projects;
 
 /// <summary>
-/// Replaces a documentation section's content (grounding for the project's prompts). The edit is recorded in the security
-/// audit, by section and project and with the content's length (never the content), in the same save.
+/// Replaces a documentation section's content (grounding for the project's prompts) and marks the section curated: who
+/// edited it (<see cref="Data.Entities.Projects.ProjectDocumentationSection.EditedByUserId"/>, null for a caller without a
+/// stored Beacon user) and when, so regenerating the documentation carries it forward instead of replacing it. The edit is
+/// recorded in the security audit, by section and project and with the content's length (never the content), in the same
+/// save.
 /// </summary>
 internal sealed class UpdateDocumentationSectionHandler(
     IDbContextFactory<BeaconContext> contextFactory,
-    ISecurityAuditRecorder securityAudit)
+    ISecurityAuditRecorder securityAudit,
+    IBeaconActorAccessor actorAccessor,
+    TimeProvider timeProvider)
     : IRequestHandler<UpdateDocumentationSectionCommand>
 {
     public async Task Handle(
@@ -31,7 +36,10 @@ internal sealed class UpdateDocumentationSectionHandler(
             throw new InvalidOperationException("Documentation section not found.");
         }
 
+        var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
         section.Content = DocumentationContentParser.SanitizeMermaidDiagrams(request.Content);
+        section.EditedByUserId = actor.BeaconUserId;
+        section.EditedTime = timeProvider.GetUtcNow().UtcDateTime;
 
         var projectId = await context.ProjectDocumentations
             .Where(x => x.Id == section.ProjectDocumentationId)

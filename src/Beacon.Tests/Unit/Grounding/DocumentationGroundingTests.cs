@@ -134,6 +134,7 @@ public class DocumentationGroundingTests
             Mock.Of<ISharedSourceSettings>(),
             new QueryGuardrailService(),
             TestRowDataEgress.Discarding(),
+            new RecordingSecurityAudit(),
             logs.For<ProjectDocumentationService>());
     }
 }

@@ -164,7 +164,9 @@ internal sealed class PromoteSignalToGoldenHandler(
                         .InProject(projectId)
                         .With(new SecurityAuditDetails()
                             .Add("signalId", signal.Id)
-                            .Add("dataSourceId", dataSourceId))
+                            .Add("dataSourceId", dataSourceId)
+                            .AddCodes(CurationContentAudit.FieldsKey, CurationContentAudit.GoldenFields))
+                        .Digesting(CurationContentAudit.AfterKey, CurationContentAudit.Of(evalCase))
                 ],
                 cancellationToken);
 

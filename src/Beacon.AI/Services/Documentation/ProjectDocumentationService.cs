@@ -13,6 +13,7 @@ using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.AI.Services.Documentation;
 
@@ -26,8 +27,15 @@ internal sealed class ProjectDocumentationService(
     ISharedSourceSettings sharedSourceSettings,
     IQueryGuardrailService guardrail,
     ILlmRowDataEgress rowDataEgress,
+    ISecurityAuditRecorder securityAudit,
     ILogger<ProjectDocumentationService> logger) : IProjectDocumentationService
 {
+    /// <summary>
+    /// What a section whose generation failed holds: a fixed text, never the failure's own message (a provider's error
+    /// text would otherwise be served to agents as documentation). The failure is logged by its code.
+    /// </summary>
+    internal const string FailedSectionContent = "*Generation failed for this section. Please regenerate.*";
+
     public async Task<ProjectDocumentation> GenerateDocumentationAsync(
         int projectId, int userId, CancellationToken ct = default)
     {
@@ -72,7 +80,7 @@ internal sealed class ProjectDocumentationService(
             {
                 logger.LogWarning("Documentation generation failed for section {SectionType} ({Failure})", pass.Type, FailureCodes.Describe(ex));
                 return (pass.Type, pass.Title, pass.SortOrder,
-                    Content: $"*Generation failed for this section: {ex.Message}. Please regenerate.*",
+                    Content: FailedSectionContent,
                     InputTokens: 0, OutputTokens: 0, Cost: 0m, Model: "unknown", Error: ex.Message);
             }
         }).ToList();
@@ -99,6 +107,8 @@ internal sealed class ProjectDocumentationService(
             if (result.Model != "unknown") model = result.Model;
         }
 
+        var failedSections = results.Count(x => x.Error != null);
+
         // Pass 8: Glossary — runs after others so it can reference their content
         try
         {
@@ -119,19 +129,23 @@ internal sealed class ProjectDocumentationService(
         catch (Exception ex)
         {
             logger.LogWarning("Documentation generation failed for Glossary ({Failure})", FailureCodes.Describe(ex));
+            failedSections++;
             sections.Add(new ProjectDocumentationSection
             {
                 SectionType = ProjectDocSectionType.Glossary,
                 Title = "Glossary",
-                Content = $"*Generation failed for this section: {ex.Message}. Please regenerate.*",
+                Content = FailedSectionContent,
                 SortOrder = 7
             });
         }
 
         sw.Stop();
 
-        // Persist
+        // Persist. The sections a person edited in the latest documentation are read now, right before the save, and replace
+        // what this run generated for them: regeneration never silently supersedes curated text.
         await using var context = await contextFactory.CreateDbContextAsync(ct);
+        var curated = await CuratedSectionsOfLatestAsync(context, projectId, ct);
+        var carried = CarryCuratedSections(sections, curated);
         var documentation = new ProjectDocumentation
         {
             ProjectId = projectId,
@@ -149,7 +163,21 @@ internal sealed class ProjectDocumentationService(
         };
 
         context.ProjectDocumentations.Add(documentation);
-        await context.SaveChangesAsync(ct);
+        await securityAudit.SaveWithEventsAsync(
+            context,
+            () =>
+            [
+                new SecurityAuditEntry(SecurityAuditActions.DocumentationGenerated)
+                    .On(SecurityAuditResources.Project, projectId)
+                    .InProject(projectId)
+                    .By(userId > 0 ? SecurityAuditActor.OfUser(userId) : SecurityAuditActor.System)
+                    .With(new SecurityAuditDetails()
+                        .Add("documentationId", documentation.Id)
+                        .Add("sectionCount", sections.Count)
+                        .Add("curatedSectionsKept", carried)
+                        .Add("failedSections", failedSections))
+            ],
+            ct);
 
         logger.LogInformation(
             "Project documentation {DocId} generated for Project {ProjectId} in {Duration:F1}s ({Sections} sections, {Tokens} tokens)",
@@ -282,6 +310,66 @@ internal sealed class ProjectDocumentationService(
         return await ExportToMarkdownAsync(latestId.Value, leaveOut, ct);
     }
 
+    /// <summary>
+    /// Puts each curated section (<paramref name="curated"/>, edited by a person) in place of the section of its type in
+    /// <paramref name="sections"/>, or adds it when this run generated none of its type: a copy with its title, content
+    /// and who edited it when, so it stays curated in the new documentation. Returns how many were carried.
+    /// </summary>
+    internal static int CarryCuratedSections(List<ProjectDocumentationSection> sections, IReadOnlyList<ProjectDocumentationSection> curated)
+    {
+        foreach (var edited in curated)
+        {
+            var generated = sections.FindIndex(x => x.SectionType == edited.SectionType);
+            var kept = new ProjectDocumentationSection
+            {
+                SectionType = edited.SectionType,
+                Title = edited.Title,
+                Content = edited.Content,
+                SortOrder = generated >= 0 ? sections[generated].SortOrder : edited.SortOrder,
+                EditedByUserId = edited.EditedByUserId,
+                EditedTime = edited.EditedTime
+            };
+
+            if (generated >= 0)
+            {
+                sections[generated] = kept;
+            }
+            else
+            {
+                sections.Add(kept);
+            }
+        }
+
+        return curated.Count;
+    }
+
+    // The sections of the project's latest documentation that a person edited, one per type (the latest edit).
+    private static async Task<List<ProjectDocumentationSection>> CuratedSectionsOfLatestAsync(BeaconContext context, int projectId, CancellationToken ct)
+    {
+        var latestId = await context.ProjectDocumentations
+            .Where(x => x.ProjectId == projectId)
+            .OrderByDescending(x => x.GeneratedAt)
+            .Select(x => (int?)x.Id)
+            .FirstOrDefaultAsync(ct);
+        if (latestId == null)
+        {
+            return [];
+        }
+
+        var edited = await context.ProjectDocumentationSections
+            .Where(x => x.ProjectDocumentationId == latestId)
+            .Where(x => x.EditedTime != null)
+            .OrderBy(x => x.SortOrder)
+            .ToListAsync(ct);
+
+        return edited
+            .GroupBy(x => x.SectionType)
+            .Select(x => x
+                .OrderByDescending(y => y.EditedTime)
+                .First())
+            .ToList();
+    }
+
     // --- Section helpers ---
 
     // Generates the API-documentation section. Kept as a named method so the caller
@@ -302,7 +390,7 @@ internal sealed class ProjectDocumentationService(
         {
             logger.LogWarning("Documentation generation failed for API Documentation ({Failure})", FailureCodes.Describe(ex));
             return (ProjectDocSectionType.ApiDocumentation, "API Documentation", 6,
-                Content: $"*Generation failed for this section: {ex.Message}. Please regenerate.*",
+                Content: FailedSectionContent,
                 InputTokens: 0, OutputTokens: 0, Cost: 0m, Model: "unknown", Error: ex.Message);
         }
     }

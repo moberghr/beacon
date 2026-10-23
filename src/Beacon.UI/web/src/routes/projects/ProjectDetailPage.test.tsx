@@ -542,7 +542,7 @@ describe('ProjectDetailPage documentation', () => {
     );
   }
 
-  function documentation(canCurate: boolean) {
+  function documentation(canCurate: boolean, editedTime: string | null = null) {
     return {
       latest: {
         id: 1,
@@ -555,7 +555,7 @@ describe('ProjectDetailPage documentation', () => {
         outputTokens: 20,
         estimatedCost: 0,
         generationDuration: '00:00:05',
-        sections: [{ id: 4, sectionType: 0, title: 'Overview', content: 'The ledger.', sortOrder: 0 }],
+        sections: [{ id: 4, sectionType: 0, title: 'Overview', content: 'The ledger.', sortOrder: 0, editedTime }],
       },
       history: [],
       canCurate,
@@ -574,6 +574,33 @@ describe('ProjectDetailPage documentation', () => {
 
     expect(await screen.findByRole('button', { name: 'Edit Overview' })).toBeInTheDocument();
     expect(screen.queryByText(/regenerates its documentation/)).not.toBeInTheDocument();
+  });
+
+  it('marks a section a person edited as curated, and no other', async () => {
+    mswServer.use(
+      signedIn([]),
+      http.get('*/beacon/api/projects/5', () => HttpResponse.json(project({ hasDocumentation: true }))),
+      http.get('*/beacon/api/projects/5/documentation', () => HttpResponse.json(documentation(false, '2026-10-20T08:00:00Z'))),
+    );
+
+    renderPage();
+    fireEvent.click(await screen.findByRole('tab', { name: /documentation/i }));
+
+    expect(await screen.findByText('Curated')).toBeInTheDocument();
+  });
+
+  it('shows no curated mark on generated sections', async () => {
+    mswServer.use(
+      signedIn([]),
+      http.get('*/beacon/api/projects/5', () => HttpResponse.json(project({ hasDocumentation: true }))),
+      http.get('*/beacon/api/projects/5/documentation', () => HttpResponse.json(documentation(false))),
+    );
+
+    renderPage();
+    fireEvent.click(await screen.findByRole('tab', { name: /documentation/i }));
+
+    expect(await screen.findByText('The ledger.')).toBeInTheDocument();
+    expect(screen.queryByText('Curated')).not.toBeInTheDocument();
   });
 
   it('shows anyone else the documentation without the edit action, and says who edits it', async () => {

@@ -3019,6 +3019,12 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("datetime2");
 
+                    b.Property<int?>("EditedByUserId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("EditedTime")
+                        .HasColumnType("datetime2");
+
                     b.Property<int>("ProjectDocumentationId")
                         .HasColumnType("int");
 

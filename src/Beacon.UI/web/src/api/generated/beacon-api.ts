@@ -19453,6 +19453,7 @@ export interface ProjectDocSectionEntry {
   title: string;
   content: string;
   sortOrder: number;
+  editedTime?: Date | null;
 
   [key: string]: any;
 }

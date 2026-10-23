@@ -483,6 +483,7 @@ public class DocumentationEnumDiscoveryTests
             shared.Object,
             new QueryGuardrailService(),
             egress ?? TestRowDataEgress.Discarding(),
+            new RecordingSecurityAudit(),
             logger ?? NullLogger<ProjectDocumentationService>.Instance);
     }
 

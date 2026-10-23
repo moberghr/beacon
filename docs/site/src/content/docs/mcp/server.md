@@ -551,7 +551,8 @@ or screened, and each is logged:
   it agrees with the lock; a save under the lock keeps the values stored before it (globally and per project), so
   lifting the lock restores them. After startup the host logs one warning listing the stored rows the lock overrides
   (global row and project ids), and one naming the projects whose stored documentation still has value-listing sections;
-  values discovered before the lock stay in that documentation until it is regenerated.
+  values discovered before the lock stay in that documentation until it is regenerated (a curated section, one a
+  person edited, is kept by regeneration: edit it to remove them).
 - **Egress log.** Every request whose prompt carries row data is logged at Information with event id `7123`
   (`RowDataSentToLlm`) as it is handed to the provider. The data may leave even when the provider then fails, so a
   failure adds a Warning under the same event with the failure's type and code. Each record names the categories, the

@@ -37,11 +37,26 @@ public class DocumentationCurationEffectTests
     {
         var store = new Store();
 
-        await new UpdateDocumentationSectionHandler(store.Factory, new RecordingSecurityAudit())
+        await new UpdateDocumentationSectionHandler(store.Factory, new RecordingSecurityAudit(), TestProjectAccess.Actors(beaconUserId: CuratorUserId), TimeProvider.System)
             .Handle(new UpdateDocumentationSectionCommand(6, "Orders are placed by customers."), CancellationToken.None);
 
         store.Sections.Single(x => x.Id == 6).Content.Should().Be("Orders are placed by customers.");
         store.Sections.Single(x => x.Id == 7).Content.Should().Be("Older overview.", "only the edited section changes");
+    }
+
+    [Test]
+    public async Task EditingASection_MarksItCurated_ByTheEditor_AtTheTimeOfTheEdit()
+    {
+        var store = new Store();
+        var now = new DateTimeOffset(2026, 10, 24, 9, 30, 0, TimeSpan.Zero);
+
+        await new UpdateDocumentationSectionHandler(store.Factory, new RecordingSecurityAudit(), TestProjectAccess.Actors(beaconUserId: CuratorUserId), new FixedTime(now))
+            .Handle(new UpdateDocumentationSectionCommand(6, "Orders are placed by customers."), CancellationToken.None);
+
+        var section = store.Sections.Single(x => x.Id == 6);
+        section.EditedByUserId.Should().Be(CuratorUserId);
+        section.EditedTime.Should().Be(now.UtcDateTime);
+        store.Sections.Single(x => x.Id == 7).EditedTime.Should().BeNull("only the edited section is curated");
     }
 
     [Test]
@@ -51,7 +66,7 @@ public class DocumentationCurationEffectTests
         var audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(CuratorUserId, "ext-curator"));
         const string content = "Orders are placed by customers.";
 
-        await new UpdateDocumentationSectionHandler(store.Factory, audit)
+        await new UpdateDocumentationSectionHandler(store.Factory, audit, TestProjectAccess.Actors(beaconUserId: CuratorUserId), TimeProvider.System)
             .Handle(new UpdateDocumentationSectionCommand(6, content), CancellationToken.None);
 
         var edited = audit.Single("Orders are placed");
@@ -67,7 +82,7 @@ public class DocumentationCurationEffectTests
     {
         var store = new Store();
 
-        var act = () => new UpdateDocumentationSectionHandler(store.Factory, new RecordingSecurityAudit())
+        var act = () => new UpdateDocumentationSectionHandler(store.Factory, new RecordingSecurityAudit(), TestProjectAccess.Actors(beaconUserId: CuratorUserId), TimeProvider.System)
             .Handle(new UpdateDocumentationSectionCommand(99, "content"), CancellationToken.None);
 
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("Documentation section not found.");
@@ -108,6 +123,20 @@ public class DocumentationCurationEffectTests
 
         store.Sections.Single(x => x.Id == 6).Content.Should().Be("Current overview.\n\nRefunds are orders with a negative total.");
         store.Sections.Single(x => x.Id == 7).Content.Should().Be("Older overview.", "an older documentation's section is not written");
+    }
+
+    [Test]
+    public async Task ApplyingADocumentationSectionPatch_MarksTheSectionCurated_ByTheApplyingUser()
+    {
+        var store = new Store();
+        var patch = store.Add(Patch(31, McpDocPatchTarget.DocumentationSection, "Overview", "Refunds are orders with a negative total."));
+
+        await Apply(store, 31);
+
+        var section = store.Sections.Single(x => x.Id == 6);
+        section.EditedByUserId.Should().Be(CuratorUserId);
+        section.EditedTime.Should().Be(patch.AppliedAt);
+        store.Sections.Single(x => x.Id == 7).EditedTime.Should().BeNull();
     }
 
     [Test]
@@ -286,6 +315,11 @@ public class DocumentationCurationEffectTests
             Reasoning = "Asked about often.",
             Status = McpDocPatchStatus.Proposed
         };
+    }
+
+    private sealed class FixedTime(DateTimeOffset now) : TimeProvider
+    {
+        public override DateTimeOffset GetUtcNow() => now;
     }
 
     /// <summary>

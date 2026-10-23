@@ -110,6 +110,8 @@ export interface ProjectDocSectionEntry {
   title: string;
   content: string;
   sortOrder: number;
+  /** When a person last edited the section; null for generated text. Regenerating keeps an edited (curated) section. */
+  editedTime?: string | null;
 }
 
 export interface ProjectDocumentationDetailEntry {

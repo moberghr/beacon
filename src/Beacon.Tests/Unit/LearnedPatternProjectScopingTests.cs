@@ -91,6 +91,7 @@ public class LearnedPatternProjectScopingTests
             Mock.Of<Beacon.Core.Services.ISharedSourceSettings>(),
             new Beacon.Core.Services.Security.QueryGuardrailService(),
             TestRowDataEgress.Discarding(),
+            new RecordingSecurityAudit(),
             NullLogger<ProjectDocumentationService>.Instance);
     }
 

@@ -3842,6 +3842,14 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_time");
 
+                    b.Property<int?>("EditedByUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("edited_by_user_id");
+
+                    b.Property<DateTime?>("EditedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("edited_time");
+
                     b.Property<int>("ProjectDocumentationId")
                         .HasColumnType("integer")
                         .HasColumnName("project_documentation_id");
