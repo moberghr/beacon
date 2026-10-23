@@ -4,6 +4,7 @@ using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.Extensions.Options;
+using Microsoft.Net.Http.Headers;
 
 namespace Beacon.Api.Security;
 
@@ -28,7 +29,9 @@ internal enum OriginGuardVerdict
 /// endpoints. Their <c>Origin</c> must be an allowed origin (<see cref="BeaconHostSecurityOptions.AllowedOrigins"/> and
 /// <c>Beacon:PublicBaseUrl</c>, or the request's own origin when neither is set); without an <c>Origin</c>, a browser's
 /// <c>Sec-Fetch-Site</c> must not be cross-site or same-site. With configured origins, a browser's Host must also be one of
-/// them, so Beacon answers browsers only under the names it is configured for. Requests no browser sent (no <c>Origin</c>, no
+/// them, so Beacon answers browsers only under the names it is configured for (without configured origins the Host check does
+/// not run, so DNS-rebinding protection needs them). Requests with an <c>Authorization</c> header pass: they are not
+/// cookie-authenticated. In the MCP gateway the check runs before routing, so its anonymous-endpoint rule does not apply there. Requests no browser sent (no <c>Origin</c>, no
 /// <c>Sec-Fetch-Site</c>: API keys, MCP clients, probes) pass, and so do an OpenID Connect scheme's own callback paths
 /// (the identity provider posts there from its origin), also where the check runs before authentication (the MCP gateway).
 /// </summary>
@@ -52,6 +55,11 @@ internal sealed class OriginGuardMiddleware
         _logger = logger;
         _mode = options.Value.OriginGuard;
         _configured = ConfiguredOrigins(options.Value, configuration[PublicBaseUrlKey], logger);
+        if (_mode == BeaconOriginGuardMode.Enforce && _configured.Count == 0)
+        {
+            logger.LogWarning(
+                "Beacon:Security:OriginGuard is Enforce but no origin is configured (Beacon:Security:AllowedOrigins, Beacon:PublicBaseUrl), so the check compares each Origin with the request's own scheme and Host. Behind a TLS-terminating proxy that does not forward the scheme every browser write is refused, and without configured origins the Host check does not run, so it gives no DNS-rebinding protection.");
+        }
     }
 
     public async Task InvokeAsync(HttpContext context)
@@ -127,6 +135,13 @@ internal sealed class OriginGuardMiddleware
     internal static OriginGuardVerdict Evaluate(HttpContext context, IReadOnlyList<BeaconOrigin> configured)
     {
         var request = context.Request;
+        if (request.Headers.ContainsKey(HeaderNames.Authorization))
+        {
+            // A page on another origin cannot add an Authorization header without a CORS preflight, so a request that
+            // carries one (API key, bearer token) is not the ambient-cookie request the check is for.
+            return OriginGuardVerdict.Allowed;
+        }
+
         var stateChanging = !HttpMethods.IsGet(request.Method)
             && !HttpMethods.IsHead(request.Method)
             && !HttpMethods.IsOptions(request.Method)

@@ -344,6 +344,49 @@ public class BeaconHostSecurityTests
     }
 
     [Test]
+    public async Task CrossOriginPostWithAnAuthorizationHeader_IsAllowed()
+    {
+        await using var host = await SecurityHost.StartAsync(new() { ["Beacon:Security:OriginGuard"] = EnforceGuard });
+
+        var bearer = await host.SendAsync(HttpMethod.Post, "http://localhost/beacon/api/data", origin: "https://other.example", authorization: "Bearer token");
+        var cookieOnly = await host.SendAsync(HttpMethod.Post, "http://localhost/beacon/api/data", origin: "https://other.example");
+
+        bearer.StatusCode.Should().Be(HttpStatusCode.OK);
+        cookieOnly.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Test]
+    public async Task EnforceWithoutConfiguredOrigins_WarnsAtStartup()
+    {
+        await using var unconfigured = await SecurityHost.StartAsync(new() { ["Beacon:Security:OriginGuard"] = EnforceGuard });
+        await using var configured = await SecurityHost.StartAsync(new()
+        {
+            ["Beacon:Security:OriginGuard"] = EnforceGuard,
+            ["Beacon:PublicBaseUrl"] = "https://beacon.example.com"
+        });
+        await using var logOnly = await SecurityHost.StartAsync();
+
+        unconfigured.Warnings.Should().ContainSingle().Which.Should().Contain("no origin is configured");
+        configured.Warnings.Should().BeEmpty();
+        logOnly.Warnings.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task ConfiguredUnicodeHost_MatchesTheBrowsersPunycodeForm()
+    {
+        var settings = new Dictionary<string, string?>
+        {
+            ["Beacon:Security:OriginGuard"] = EnforceGuard,
+            ["Beacon:Security:AllowedOrigins:0"] = "https://b\u00fccher.example"
+        };
+        await using var host = await SecurityHost.StartAsync(settings);
+
+        var response = await host.SendAsync(HttpMethod.Post, "https://xn--bcher-kva.example/beacon/api/data", origin: "https://xn--bcher-kva.example");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Test]
     public async Task ConfiguredOrigin_WithAPort_IsAllowed()
     {
         var settings = new Dictionary<string, string?>
@@ -501,7 +544,7 @@ public class BeaconHostSecurityTests
             return new SecurityHost(app, warnings);
         }
 
-        public async Task<HttpResponseMessage> SendAsync(HttpMethod method, string url, string? origin = null, string? fetchSite = null)
+        public async Task<HttpResponseMessage> SendAsync(HttpMethod method, string url, string? origin = null, string? fetchSite = null, string? authorization = null)
         {
             using var request = new HttpRequestMessage(method, url);
             if (origin != null)
@@ -512,6 +555,11 @@ public class BeaconHostSecurityTests
             if (fetchSite != null)
             {
                 request.Headers.TryAddWithoutValidation("Sec-Fetch-Site", fetchSite);
+            }
+
+            if (authorization != null)
+            {
+                request.Headers.TryAddWithoutValidation("Authorization", authorization);
             }
 
             return await Client.SendAsync(request);

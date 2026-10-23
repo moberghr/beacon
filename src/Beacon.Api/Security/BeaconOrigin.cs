@@ -39,7 +39,7 @@ internal sealed record BeaconOrigin(string Scheme, string Host, int Port)
 
         var scheme = request.Scheme.ToLowerInvariant();
 
-        return new BeaconOrigin(scheme, request.Host.Host.ToLowerInvariant(), request.Host.Port ?? DefaultPort(scheme));
+        return new BeaconOrigin(scheme, Punycode(request.Host.Host).ToLowerInvariant(), request.Host.Port ?? DefaultPort(scheme));
     }
 
     /// <summary>
@@ -48,7 +48,7 @@ internal sealed record BeaconOrigin(string Scheme, string Host, int Port)
     /// </summary>
     public bool MatchesHost(HostString host)
     {
-        if (!host.HasValue || !string.Equals(host.Host, Host, StringComparison.OrdinalIgnoreCase))
+        if (!host.HasValue || !string.Equals(Punycode(host.Host), Host, StringComparison.OrdinalIgnoreCase))
         {
             return false;
         }
@@ -70,7 +70,19 @@ internal sealed record BeaconOrigin(string Scheme, string Host, int Port)
             return null;
         }
 
-        return new BeaconOrigin(uri.Scheme, uri.Host.ToLowerInvariant(), uri.Port);
+        return new BeaconOrigin(uri.Scheme, uri.IdnHost.ToLowerInvariant(), uri.Port);
+    }
+
+    private static string Punycode(string host)
+    {
+        if (host.All(char.IsAscii))
+        {
+            return host;
+        }
+
+        return Uri.TryCreate("http://" + host, UriKind.Absolute, out var uri)
+            ? uri.IdnHost
+            : host;
     }
 
     private static int DefaultPort(string scheme)

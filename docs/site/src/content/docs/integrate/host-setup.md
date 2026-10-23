@@ -411,7 +411,15 @@ first-run setup, health). Their `Origin` must be an allowed origin; without an `
 must not be `cross-site` or `same-site`. The allowed origins are `Beacon:Security:AllowedOrigins` plus the origin of
 `Beacon:PublicBaseUrl`; when neither is set, the request's own scheme and Host. With either set, a browser request must
 also arrive with one of their hosts, so Beacon answers browsers only under the names you configured. Clients that are not
-browsers (API keys, MCP clients, health probes) send neither header and are not affected.
+browsers (API keys, MCP clients, health probes) send neither header and are not affected, and a request that carries an
+`Authorization` header (API key, bearer token) is not checked at all: a page on another origin cannot add one without a
+CORS preflight, so only cookie-authenticated requests need the check.
+
+Set `Beacon:Security:AllowedOrigins` or `Beacon:PublicBaseUrl` before you enforce: without them the check compares the
+`Origin` with the request's own scheme and Host (behind a TLS-terminating proxy that does not forward the scheme, every
+browser write is refused, and Beacon logs a startup warning in `Enforce`), and the Host check does not run, so there is no
+DNS-rebinding protection. In the MCP gateway the check runs before routing, so the anonymous-endpoint rule does not apply
+there; the state-changing and hub rules do. Configured hosts are compared in their punycode form.
 
 `Beacon:Security:OriginGuard` is `LogOnly` (default for this release: a request it would refuse goes on and is logged as a
 warning naming the method, path and reason) or `Enforce` (answered 403 problem+json). Run a release in `LogOnly`, look

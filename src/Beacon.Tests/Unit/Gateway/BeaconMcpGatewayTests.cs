@@ -129,11 +129,14 @@ public class BeaconMcpGatewayTests
     {
         await using var app = await StartAsync(settings: new() { ["Beacon:Security:OriginGuard"] = "Enforce" });
 
-        var foreign = await PostInitializeAsync(app, Token(KnownPerson), hostSession: false, origin: "https://other.example");
+        // The check is for requests without an Authorization header (an ambient cookie); a bearer caller passes.
+        var foreign = await PostInitializeAsync(app, null, hostSession: false, origin: "https://other.example");
+        var foreignBearer = await PostInitializeAsync(app, Token(KnownPerson), hostSession: false, origin: "https://other.example");
         var publicOrigin = await PostInitializeAsync(app, Token(KnownPerson), hostSession: false, origin: "https://inventhor.example.com");
         var noBrowser = await PostInitializeAsync(app, Token(KnownPerson), hostSession: false);
 
         foreign.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        foreignBearer.StatusCode.Should().Be(HttpStatusCode.OK);
         publicOrigin.StatusCode.Should().Be(HttpStatusCode.OK, await publicOrigin.Content.ReadAsStringAsync());
         noBrowser.StatusCode.Should().Be(HttpStatusCode.OK);
     }
