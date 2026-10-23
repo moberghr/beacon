@@ -8,10 +8,13 @@ using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
+using Beacon.AI.Handlers.Projects;
 using Beacon.AI.Services.GitHub;
+using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Handlers.Projects;
 using Beacon.Core.Services;
 using Beacon.Tests.Common;
 
@@ -74,6 +77,80 @@ public class GitHubScannerBoundsTests
 
         await scan.Should().ThrowAsync<OperationCanceledException>();
         repo.ScanStatus.Should().Be(ScanStatus.Failed);
+    }
+
+    [TestCase(Stall.Repository)]
+    [TestCase(Stall.Tree)]
+    public async Task Scan_WhoseResponseBodyStalls_FailsAtTheTimeLimit(Stall stall)
+    {
+        var handler = new FakeGitHub([("src/A.cs", 100)]) { StallBodyOf = stall };
+        var (scanner, repo) = Build(handler, new GitHubScanOptions { ScanTimeout = TimeSpan.FromMilliseconds(300) });
+
+        var scan = () => scanner.ScanRepositoryAsync(ProjectId, RepositoryId);
+
+        await scan.Should().ThrowWithinAsync<TimeoutException>(TimeSpan.FromSeconds(10));
+        repo.ScanStatus.Should().Be(ScanStatus.Failed);
+        repo.LastScanError.Should().Contain("time limit");
+        handler.ContentRequests.Should().Be(0);
+    }
+
+    [Test]
+    public async Task Scan_CancelledDuringTheFirstBatch_KeepsTheExistingReferences()
+    {
+        var handler = new FakeGitHub([("src/A.cs", 100), ("src/B.cs", 100)]) { ContentDelay = TimeSpan.FromSeconds(30) };
+        var references = ExistingReferences();
+        var (scanner, repo) = Build(handler, new GitHubScanOptions(), references: references);
+        using var cts = new CancellationTokenSource(TimeSpan.FromMilliseconds(100));
+
+        var scan = () => scanner.ScanRepositoryAsync(ProjectId, RepositoryId, cts.Token);
+
+        await scan.Should().ThrowAsync<OperationCanceledException>();
+        repo.ScanStatus.Should().Be(ScanStatus.Failed);
+        references.Should().HaveCount(2);
+    }
+
+    [Test]
+    public async Task Scan_ThatFinishes_ReplacesTheExistingReferences()
+    {
+        var handler = new FakeGitHub([("src/A.cs", 100)]);
+        var references = ExistingReferences();
+        var (scanner, repo) = Build(handler, new GitHubScanOptions(), references: references);
+
+        await scanner.ScanRepositoryAsync(ProjectId, RepositoryId);
+
+        repo.ScanStatus.Should().Be(ScanStatus.Completed);
+        references.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task ScanProgress_OfACappedScan_IsPartial_WithTheReason()
+    {
+        var handler = new FakeGitHub(Enumerable.Range(0, 7).Select(x => ($"src/F{x}.cs", 100)).ToList());
+        var (scanner, _) = Build(handler, new GitHubScanOptions { MaxFilesPerRepository = 3 });
+
+        await scanner.ScanRepositoryAsync(ProjectId, RepositoryId);
+        var progress = await scanner.GetScanProgressAsync(ProjectId, RepositoryId);
+
+        progress.Status.Should().Be(ScanStatus.Completed);
+        progress.PartialScan.Should().BeTrue();
+        progress.PartialScanReasons.Should().ContainSingle().Which.Should().Contain("first 3 of 7");
+    }
+
+    [Test]
+    public async Task ScanAll_WithACappedRepository_ReturnsItAsPartial_WithTheReason()
+    {
+        var handler = new FakeGitHub(Enumerable.Range(0, 7).Select(x => ($"src/F{x}.cs", 100)).ToList());
+        var factory = new Mock<IDbContextFactory<BeaconContext>>();
+        var (scanner, _) = Build(handler, new GitHubScanOptions { MaxFilesPerRepository = 3 }, factory: factory);
+        var audit = new RecordingSecurityAudit(new BeaconActor("ext-ada", false) { Kind = BeaconPrincipalKind.User, BeaconUserId = 3, IsActiveUser = true });
+
+        var result = await new ScanAllRepositoriesHandler(factory.Object, scanner, TestProjectAccess.Actors(), audit, NullLogger<ScanAllRepositoriesHandler>.Instance)
+            .Handle(new ScanAllRepositoriesCommand(ProjectId), CancellationToken.None);
+
+        result.ScannedCount.Should().Be(1);
+        result.Errors.Should().BeEmpty();
+        result.PartialScans.Should().ContainSingle().Which.Should().Match<RepositoryPartialScan>(x => x.RepositoryId == RepositoryId);
+        result.PartialScans[0].Reasons.Should().ContainSingle().Which.Should().Contain("first 3 of 7");
     }
 
     [Test]
@@ -141,16 +218,27 @@ public class GitHubScannerBoundsTests
         refs.Select(x => (x.TableName, x.MethodName)).Should().BeEquivalentTo(new[] { ("orders", "First"), ("items", "Second") });
     }
 
-    private static (GitHubScannerService Scanner, GitHubRepository Repo) Build(FakeGitHub handler, GitHubScanOptions limits, string url = "https://github.com/acme/ledger")
+    private static List<CodeReference> ExistingReferences() =>
+    [
+        new() { Id = 1, GitHubRepositoryId = RepositoryId, FilePath = "src/Old.cs", TableName = "orders" },
+        new() { Id = 2, GitHubRepositoryId = RepositoryId, FilePath = "src/Old.cs", TableName = "items" }
+    ];
+
+    private static (GitHubScannerService Scanner, GitHubRepository Repo) Build(
+        FakeGitHub handler,
+        GitHubScanOptions limits,
+        string url = "https://github.com/acme/ledger",
+        List<CodeReference>? references = null,
+        Mock<IDbContextFactory<BeaconContext>>? factory = null)
     {
         var repo = new GitHubRepository { Id = RepositoryId, ProjectId = ProjectId, RepositoryUrl = url, Branch = "main" };
         var saved = new List<object>();
         var sets = new Dictionary<Type, object>
         {
             [typeof(GitHubRepository)] = RecordingBeaconContext.MemorySet([repo], saved),
-            [typeof(CodeReference)] = RecordingBeaconContext.MemorySet(new List<CodeReference>(), saved)
+            [typeof(CodeReference)] = RecordingBeaconContext.MemorySet(references ?? [], saved)
         };
-        var factory = new Mock<IDbContextFactory<BeaconContext>>();
+        factory ??= new Mock<IDbContextFactory<BeaconContext>>();
         factory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => new RecordingBeaconContext(sets, saved));
@@ -169,12 +257,22 @@ public class GitHubScannerBoundsTests
         return (scanner, repo);
     }
 
+    public enum Stall
+    {
+        None,
+        Repository,
+        Tree
+    }
+
     private sealed class FakeGitHub(List<(string Path, int Size)> files) : HttpMessageHandler
     {
         private int _requests;
         private int _contentRequests;
 
         public TimeSpan ContentDelay { get; init; }
+
+        /// <summary>The response whose headers arrive and whose body then never does.</summary>
+        public Stall StallBodyOf { get; init; }
 
         public int Requests => _requests;
 
@@ -194,8 +292,18 @@ public class GitHubScannerBoundsTests
 
             if (path.Contains("/git/trees/", StringComparison.Ordinal))
             {
+                if (StallBodyOf == Stall.Tree)
+                {
+                    return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StalledContent() };
+                }
+
                 var tree = files.Select(x => new { path = x.Path, type = "blob", size = x.Size }).ToList();
                 return Json(JsonSerializer.Serialize(new { tree, truncated = false }));
+            }
+
+            if (StallBodyOf == Stall.Repository)
+            {
+                return new HttpResponseMessage(HttpStatusCode.OK) { Content = new StalledContent() };
             }
 
             return Json(JsonSerializer.Serialize(new { default_branch = "main" }));
@@ -203,5 +311,57 @@ public class GitHubScannerBoundsTests
 
         private static HttpResponseMessage Json(string json) =>
             new(HttpStatusCode.OK) { Content = new StringContent(json, Encoding.UTF8, "application/json") };
+    }
+
+    private sealed class StalledContent : HttpContent
+    {
+        protected override Task SerializeToStreamAsync(Stream stream, TransportContext? context) => Task.Delay(Timeout.Infinite);
+
+        protected override Task<Stream> CreateContentReadStreamAsync() => Task.FromResult<Stream>(new StalledStream());
+
+        protected override bool TryComputeLength(out long length)
+        {
+            length = 0;
+            return false;
+        }
+    }
+
+    // A body that never sends a byte: a read ends only when its token is cancelled.
+    private sealed class StalledStream : Stream
+    {
+        public override bool CanRead => true;
+
+        public override bool CanSeek => false;
+
+        public override bool CanWrite => false;
+
+        public override long Length => throw new NotSupportedException();
+
+        public override long Position
+        {
+            get => throw new NotSupportedException();
+            set => throw new NotSupportedException();
+        }
+
+        public override async ValueTask<int> ReadAsync(Memory<byte> buffer, CancellationToken cancellationToken = default)
+        {
+            await Task.Delay(Timeout.Infinite, cancellationToken);
+            return 0;
+        }
+
+        public override Task<int> ReadAsync(byte[] buffer, int offset, int count, CancellationToken cancellationToken) =>
+            ReadAsync(buffer.AsMemory(offset, count), cancellationToken).AsTask();
+
+        public override int Read(byte[] buffer, int offset, int count) => throw new NotSupportedException();
+
+        public override void Flush()
+        {
+        }
+
+        public override long Seek(long offset, SeekOrigin origin) => throw new NotSupportedException();
+
+        public override void SetLength(long value) => throw new NotSupportedException();
+
+        public override void Write(byte[] buffer, int offset, int count) => throw new NotSupportedException();
     }
 }

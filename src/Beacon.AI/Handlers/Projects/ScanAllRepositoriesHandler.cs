@@ -44,14 +44,14 @@ internal sealed class ScanAllRepositoriesHandler(
             cancellationToken);
 
         var errors = new List<string>();
-        var scanned = 0;
+        var scannedIds = new List<int>();
 
         foreach (var repoId in repoIds)
         {
             try
             {
                 await scanner.ScanRepositoryAsync(request.ProjectId, repoId, cancellationToken);
-                scanned++;
+                scannedIds.Add(repoId);
             }
             catch (Exception ex)
             {
@@ -60,6 +60,24 @@ internal sealed class ScanAllRepositoriesHandler(
             }
         }
 
-        return new ScanAllRepositoriesResult(scanned, errors);
+        // A scan that hit a limit still completes: the caller is told which ones are partial, and why
+        var outcomes = await context.GitHubRepositories
+            .Where(x => x.ProjectId == request.ProjectId)
+            .Where(x => scannedIds.Contains(x.Id))
+            .Select(x =>
+                new
+                {
+                    x.Id,
+                    x.ScanStatus,
+                    x.LastScanError
+                })
+            .ToListAsync(cancellationToken);
+        var partialScans = outcomes
+            .Select(x => new RepositoryPartialScan(x.Id, RepositoryScanNotes.PartialReasons(x.ScanStatus, x.LastScanError)))
+            .Where(x => x.Reasons.Count > 0)
+            .OrderBy(x => x.RepositoryId)
+            .ToList();
+
+        return new ScanAllRepositoriesResult(scannedIds.Count, errors) { PartialScans = partialScans };
     }
 }

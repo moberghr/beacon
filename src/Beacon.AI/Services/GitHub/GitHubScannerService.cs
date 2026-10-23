@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Handlers.Projects;
 using Beacon.Core.Services;
 
 namespace Beacon.AI.Services.GitHub;
@@ -48,16 +49,13 @@ internal sealed class GitHubScannerService(
                 ? encryptionService.Decrypt(repo.EncryptedAccessToken)
                 : null;
 
-            // Auto-detect default branch from GitHub API
-            var branch = await gitHubApiClient.GetDefaultBranchAsync(owner, repoName, accessToken, cancellationToken);
+            var (branch, tree, treeTruncated) = await ReadFileListAsync(owner, repoName, accessToken, limits, scanToken, cancellationToken);
             if (repo.Branch != branch)
             {
                 repo.Branch = branch;
                 await context.SaveChangesAsync(cancellationToken);
             }
 
-            // Get all files in the repo
-            var (tree, treeTruncated) = await gitHubApiClient.GetRepositoryTreeAsync(owner, repoName, branch, accessToken, scanToken);
             var relevantFiles = tree
                 .Where(f => RelevantExtensions.Any(ext => f.Path.EndsWith(ext, StringComparison.OrdinalIgnoreCase)))
                 .ToList();
@@ -81,12 +79,6 @@ internal sealed class GitHubScannerService(
             }
 
             logger.LogInformation("Found {FileCount} relevant files in {Owner}/{Repo}", relevantFiles.Count, owner, repoName);
-
-            // Clear old references
-            var oldRefs = await context.CodeReferences
-                .Where(r => r.GitHubRepositoryId == repositoryId)
-                .ToListAsync(cancellationToken);
-            context.CodeReferences.RemoveRange(oldRefs);
 
             var allReferences = new List<CodeReference>();
             var filesScanned = 0;
@@ -156,11 +148,15 @@ internal sealed class GitHubScannerService(
                 notes.Add($"{filesFailed} files could not be read or analyzed");
             }
 
-            // Save all references
+            // The old references are replaced only now, in the same save as the result, so a failed scan keeps them
+            var oldRefs = await context.CodeReferences
+                .Where(x => x.GitHubRepositoryId == repositoryId)
+                .ToListAsync(cancellationToken);
+            context.CodeReferences.RemoveRange(oldRefs);
             context.CodeReferences.AddRange(allReferences);
 
             // A partial scan is still completed, with the reason in the error text so it is never mistaken for a full one
-            repo.LastScanError = notes.Count > 0 ? $"Partial scan: {string.Join("; ", notes)}." : null;
+            repo.LastScanError = RepositoryScanNotes.Format(notes);
             repo.ScanStatus = ScanStatus.Completed;
             repo.LastScanAt = DateTime.UtcNow;
             repo.TotalFilesScanned = filesScanned;
@@ -172,9 +168,19 @@ internal sealed class GitHubScannerService(
         catch (Exception ex)
         {
             logger.LogError(ex, "Failed to scan repository {RepoId}", repositoryId);
-            repo.ScanStatus = ScanStatus.Failed;
-            repo.LastScanError = ex.Message;
-            await context.SaveChangesAsync(CancellationToken.None);
+
+            // Through a context of its own: nothing the scan staged on its context is written with the failure
+            await using var failureContext = await contextFactory.CreateDbContextAsync(CancellationToken.None);
+            var failed = await failureContext.GitHubRepositories
+                .Where(x => x.Id == repositoryId)
+                .FirstOrDefaultAsync(CancellationToken.None);
+            if (failed != null)
+            {
+                failed.ScanStatus = ScanStatus.Failed;
+                failed.LastScanError = ex.Message;
+                await failureContext.SaveChangesAsync(CancellationToken.None);
+            }
+
             throw;
         }
     }
@@ -188,7 +194,12 @@ internal sealed class GitHubScannerService(
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new InvalidOperationException($"Repository {repositoryId} not found");
 
-        return new ScanProgressInfo(repo.ScanStatus, repo.TotalFilesScanned, repo.TotalReferencesFound, repo.LastScanError);
+        var partialReasons = RepositoryScanNotes.PartialReasons(repo.ScanStatus, repo.LastScanError);
+        return new ScanProgressInfo(repo.ScanStatus, repo.TotalFilesScanned, repo.TotalReferencesFound, repo.LastScanError)
+        {
+            PartialScan = partialReasons.Count > 0,
+            PartialScanReasons = partialReasons
+        };
     }
 
     internal static (string Owner, string Repo) ParseRepositoryUrl(string url)
@@ -233,4 +244,25 @@ internal sealed class GitHubScannerService(
 
     private static readonly System.Text.RegularExpressions.Regex IdentifierPattern =
         new(@"^[A-Za-z0-9_.-]+$", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1));
+
+    // The repository's metadata and file list are read under the scan's time limit, response bodies included
+    private async Task<(string Branch, List<GitHubTreeItem> Tree, bool Truncated)> ReadFileListAsync(
+        string owner,
+        string repoName,
+        string? accessToken,
+        GitHubScanOptions limits,
+        CancellationToken scanToken,
+        CancellationToken cancellationToken)
+    {
+        try
+        {
+            var branch = await gitHubApiClient.GetDefaultBranchAsync(owner, repoName, accessToken, scanToken);
+            var (tree, truncated) = await gitHubApiClient.GetRepositoryTreeAsync(owner, repoName, branch, accessToken, scanToken);
+            return (branch, tree, truncated);
+        }
+        catch (OperationCanceledException) when (scanToken.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
+        {
+            throw new TimeoutException($"The {limits.ScanTimeout.TotalSeconds:0}-second scan time limit was reached before the repository's file list was read.");
+        }
+    }
 }

@@ -68,6 +68,7 @@ internal sealed class GetProjectDetailHandler(
                 r.ScanStatus,
                 r.LastScanAt,
                 r.TotalReferencesFound,
+                r.LastScanError,
                 HasAccessToken = r.EncryptedAccessToken != null
             })
             .ToListAsync(cancellationToken);
@@ -75,6 +76,7 @@ internal sealed class GetProjectDetailHandler(
         var repoEntries = repos.Select(r =>
         {
             var name = ExtractRepoName(r.RepositoryUrl);
+            var partialReasons = RepositoryScanNotes.PartialReasons(r.ScanStatus, r.LastScanError);
             return new ProjectRepositoryEntry(
                 r.Id,
                 name,
@@ -82,7 +84,11 @@ internal sealed class GetProjectDetailHandler(
                 r.ScanStatus.ToString(),
                 r.LastScanAt,
                 r.TotalReferencesFound,
-                r.HasAccessToken);
+                r.HasAccessToken)
+            {
+                PartialScan = partialReasons.Count > 0,
+                PartialScanReasons = partialReasons
+            };
         }).ToList();
 
         var hasDocumentation = await context.ProjectDocumentations
@@ -202,4 +208,11 @@ public record ProjectDetailEntry(
 
 public record ProjectDataSourceEntry(int Id, string Name, string Type, int TableCount, double? QualityScore);
 
-public record ProjectRepositoryEntry(int Id, string Name, string Url, string? ScanStatus, DateTime? LastScanAt, int ReferenceCount, bool HasAccessToken);
+public record ProjectRepositoryEntry(int Id, string Name, string Url, string? ScanStatus, DateTime? LastScanAt, int ReferenceCount, bool HasAccessToken)
+{
+    /// <summary>The last scan completed but hit a limit (files, file size or time): the references are incomplete.</summary>
+    public bool PartialScan { get; init; }
+
+    /// <summary>Why the last scan was partial; empty for a full scan.</summary>
+    public List<string> PartialScanReasons { get; init; } = [];
+}
