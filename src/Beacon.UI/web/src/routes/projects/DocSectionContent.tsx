@@ -47,10 +47,17 @@ function splitContent(raw: string): Block[] {
   return blocks;
 }
 
+const SANITIZE_CONFIG = {
+  FORBID_TAGS: ['style', 'form', 'input', 'button', 'textarea', 'select', 'iframe', 'object', 'embed'],
+  FORBID_ATTR: ['style'],
+  ALLOW_DATA_ATTR: false,
+  ALLOWED_URI_REGEXP: /^(?:https?:|mailto:|#)/i,
+};
+
 function MarkdownBlock({ content }: { content: string }) {
   const html = useMemo(() => {
     try {
-      return DOMPurify.sanitize(marked.parse(content, { async: false }) as string);
+      return DOMPurify.sanitize(marked.parse(content, { async: false }) as string, SANITIZE_CONFIG);
     } catch {
       // Render the raw source as escaped text — never inject unsanitized markup.
       return `<pre>${escapeHtml(content)}</pre>`;
