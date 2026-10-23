@@ -294,6 +294,7 @@ Bound from `Beacon:Authentication:Session`, validated at startup.
 |---|---|---|---|---|
 | `RevalidateMinutes` | int | `5` | 0–1440 (`0` = every request) | How often, at most, a session is checked against the user store (user exists, enabled, not archived, same security stamp; roles replaced by the stored ones). Also how long a realtime connection lives before it is checked again (at least 1 minute) |
 | `AbsoluteLifetimeHours` | int | `12` | 1–8760 | A session ends this long after sign-in, however often it is renewed; caps the cookie's expiry and "remember me" |
+| `PersistSsoCookie` | bool | `false` | | A single sign-on session's cookie outlives the browser session. `false`: a session cookie, dropped when the browser closes; `true`: kept until it expires (within `AbsoluteLifetimeHours`) |
 
 ### Local password sign-in
 

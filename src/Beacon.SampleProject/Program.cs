@@ -111,8 +111,8 @@ builder.Services.AddWarpServer<WarpDbContext>(opt =>
     opt.WorkerCount = Math.Min(Environment.ProcessorCount * 2, 20);
 });
 
-// Host-level identity + SignalR plumbing (claims transformer, job status → SignalR bridge,
-// SignalR user-id provider). Registered together via AuthServiceExtensions (§2.12).
+// Host-level identity plumbing (claims transformer; the job status → SignalR bridge is a Warp
+// behavior). The SignalR user-id provider comes with AddBeaconApiServices below (§2.12).
 builder.Services.AddBeaconHostInfrastructure<SampleClaimsTransformation>();
 
 // ============================================================================

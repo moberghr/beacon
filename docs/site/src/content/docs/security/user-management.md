@@ -285,6 +285,7 @@ A `Beacon.Auth` session is checked on the server, not only by its cookie:
 - **Security stamp.** It changes when a password is changed or reset, when the user is disabled, re-enabled or archived, when their roles, user name or e-mail address change, and on **Sign out everywhere**. Changing your own password keeps the current session and ends the others.
 - **Sign out everywhere.** An Admin, or a UserAdmin for a user they may change, ends every session of a user from the user dialog (`POST /beacon/api/users/{id}/sign-out-everywhere`). A user ends all their own sessions from the account menu (`POST /beacon/api/auth/logout?everywhere=true`), offered when `/auth/me` reports `signOutEverywhereEnabled`. When the sessions cannot be signed out (user management off, or an API key or MCP caller) the answer is `409`. API keys are not affected.
 - **Absolute lifetime.** A session ends `Beacon:Authentication:Session:AbsoluteLifetimeHours` (default **12**) after sign-in, however often sliding expiration or "remember me" renews its cookie. The requested cookie lifetimes (`options.Authentication.CookieExpirationHours`, default 24, and `RememberMeExpirationDays`, default 30, for "remember me") are capped by it.
+- **Single sign-on cookie.** A single sign-on session gets a browser-session cookie: closing the browser ends it, and the next visit signs in through the identity provider again. `Beacon:Authentication:Session:PersistSsoCookie: true` keeps the cookie until it expires instead, within the absolute lifetime.
 - **Realtime.** A SignalR connection is checked when opened and closed when the session's next check is due (at least one minute); the shell reconnects through a new check.
 
 ```json
@@ -369,7 +370,7 @@ All routes are under `/beacon/api`. The OpenAPI document is at `/openapi/v1.json
 
 | Route | Description |
 |---|---|
-| `POST /auth/login` | Sign in with user name and password. `401` with `passwordChangeRequired: true` when an Admin set the password (send `newPassword`). Not mapped while local login is off and no break-glass account is listed. Throttled per address |
+| `POST /auth/login` | Sign in with user name and password. Needs the antiforgery token (`X-XSRF-TOKEN`, from `GET /csrf`), `400` without it. `401` with `passwordChangeRequired: true` when an Admin set the password (send `newPassword`). Not mapped while local login is off and no break-glass account is listed. Throttled per address |
 | `POST /auth/logout` | End the current session; needs the antiforgery token (`X-XSRF-TOKEN`), `400` without it. `?everywhere=true` ends every session of the user |
 | `GET /auth/me` | The current user, and flags such as `realtimeEnabled` and `signOutEverywhereEnabled`. Anonymous |
 | `GET /auth/permissions` | `canRead`, `canWrite`, `isAdmin` and the functional `permissions` held now |

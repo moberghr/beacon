@@ -159,7 +159,7 @@ public class SignInEventTests
         await using var app = await StartAsync(SignedIn(7, "ext-ana"), audit);
         using var client = app.GetTestClient();
 
-        var response = await client.PostAsJsonAsync("/beacon/api/auth/login", new LoginRequest(TypedName, ""));
+        var response = await client.PostAsJsonWithAntiforgeryAsync(app.Services, "/beacon/api/auth/login", new LoginRequest(TypedName, ""));
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         audit.Events.Should().BeEmpty();
@@ -275,7 +275,7 @@ public class SignInEventTests
     {
         using var client = app.GetTestClient();
 
-        return await client.PostAsJsonAsync("/beacon/api/auth/login", new LoginRequest(TypedName, Password));
+        return await client.PostAsJsonWithAntiforgeryAsync(app.Services, "/beacon/api/auth/login", new LoginRequest(TypedName, Password));
     }
 
     // The login endpoints over a real cookie scheme; with a break-glass user, local login is off and that user is the

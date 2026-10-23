@@ -3,7 +3,6 @@ using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -203,18 +202,16 @@ public static class AuthServiceExtensions
     }
 
     /// <summary>
-    /// Registers host-level identity and SignalR plumbing that depends on the authenticated
-    /// user: the claims transformer that materialises Beacon role claims after cookie/OIDC
-    /// sign-in and the SignalR <c>IUserIdProvider</c> that maps connections to
-    /// <c>BeaconUser.Id</c>. The Warp → SignalR job-state bridge is <c>JobStatusChangedBehavior</c>,
-    /// a Warp pipeline behavior auto-registered by the source generator. Kept here (§2.12) so
-    /// <c>Program.cs</c> stays a thin composition root.
+    /// Registers host-level identity plumbing that depends on the authenticated user: the claims transformer that
+    /// materialises Beacon role claims after cookie/OIDC sign-in. The SignalR <c>IUserIdProvider</c>
+    /// (<see cref="HubUserIdProvider"/>) is registered once, by <c>AddBeaconApiServices</c>, with realtime on.
+    /// The Warp → SignalR job-state bridge is <c>JobStatusChangedBehavior</c>, a Warp pipeline behavior auto-registered
+    /// by the source generator. Kept here (§2.12) so <c>Program.cs</c> stays a thin composition root.
     /// </summary>
     public static IServiceCollection AddBeaconHostInfrastructure<TClaimsTransformation>(this IServiceCollection services)
         where TClaimsTransformation : class, Microsoft.AspNetCore.Authentication.IClaimsTransformation
     {
         services.AddScoped<Microsoft.AspNetCore.Authentication.IClaimsTransformation, TClaimsTransformation>();
-        services.AddSingleton<IUserIdProvider, HubUserIdProvider>();
         return services;
     }
 

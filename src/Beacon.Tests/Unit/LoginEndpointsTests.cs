@@ -231,6 +231,41 @@ public class LoginEndpointsTests
     }
 
     [Test]
+    public async Task Login_WithoutAnAntiforgeryToken_IsRefused_BeforeThePasswordIsChecked()
+    {
+        var authProvider = RefusingProvider();
+        await using var app = await StartSessionHostAsync(authProvider.Object);
+        using var client = app.GetTestClient();
+
+        var response = await client.PostAsJsonAsync("/beacon/api/auth/login", new LoginRequest("ana", "secret"));
+
+        response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("antiforgery", "the SPA re-primes its token on this answer");
+        authProvider.Verify(x => x.AuthenticateAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public async Task Login_WithTheSpaToken_ChecksThePassword()
+    {
+        var authProvider = RefusingProvider();
+        await using var app = await StartSessionHostAsync(authProvider.Object);
+        using var client = app.GetTestClient();
+        var primed = await client.GetAsync("/test/anonymous-token");
+        var cookies = string.Join("; ", primed.Headers.GetValues("Set-Cookie").Select(x => x.Split(';')[0]));
+
+        using var request = new HttpRequestMessage(HttpMethod.Post, "/beacon/api/auth/login")
+        {
+            Content = JsonContent.Create(new LoginRequest("ana", "secret"))
+        };
+        request.Headers.Add("Cookie", cookies);
+        request.Headers.Add(AntiforgeryEndpointFilter.SpaHeaderName, await primed.Content.ReadAsStringAsync());
+        var response = await client.SendAsync(request);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized, "the token passed, so the credentials were checked");
+        authProvider.Verify(x => x.AuthenticateAsync("ana", "secret", It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
     public async Task Logout_SameOriginWithTheSpaToken_SignsOut()
     {
         var authProvider = new Mock<IBeaconAuthenticationProvider>();
@@ -291,6 +326,16 @@ public class LoginEndpointsTests
         (await response.Content.ReadAsStringAsync()).Should().Contain("not checked against Beacon's user store");
         response.Headers.Contains("Set-Cookie").Should().BeFalse("this session is not signed out either");
         authProvider.Verify(x => x.SignOutAsync(It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    private static Mock<IBeaconAuthenticationProvider> RefusingProvider()
+    {
+        var authProvider = new Mock<IBeaconAuthenticationProvider>();
+        authProvider
+            .Setup(x => x.AuthenticateAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AuthenticationResult { Success = false, ErrorMessage = "Invalid credentials." });
+
+        return authProvider;
     }
 
     private static HttpRequestMessage LogoutRequest(Session session, string query)
@@ -381,6 +426,8 @@ public class LoginEndpointsTests
 
             return Results.Text(antiforgery.GetAndStoreTokens(context).RequestToken);
         });
+        app.MapGet("/test/anonymous-token", (HttpContext context, IAntiforgery antiforgery) =>
+            Results.Text(antiforgery.GetAndStoreTokens(context).RequestToken));
         app.MapLoginEndpoints("/beacon", new BeaconConfiguration());
         await app.StartAsync();
 

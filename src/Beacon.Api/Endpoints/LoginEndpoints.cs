@@ -208,6 +208,11 @@ public static partial class LoginEndpoints
         .Produces<LoginResponse>(StatusCodes.Status200OK)
         .Produces<LoginResponse>(StatusCodes.Status400BadRequest)
         .Produces<LoginResponse>(StatusCodes.Status401Unauthorized)
+        // Only with a valid antiforgery token, anonymous callers included (the SPA primes one from GET /csrf and sends it
+        // like on every mutation): a cross-site form POST cannot sign the browser in to another account. Refused (400)
+        // before the throttle or the password check; a caller authenticated by its Authorization header is not checked.
+        .AddEndpointFilter<AntiforgeryEndpointFilter>()
+        .WithMetadata(AntiforgeryForAnonymousCallers.Instance)
         .AddEndpointFilter<LoginRateLimitFilter>()
         .DisableAntiforgery();
     }
