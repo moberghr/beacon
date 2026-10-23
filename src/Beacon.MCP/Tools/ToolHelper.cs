@@ -192,6 +192,36 @@ internal static class ToolHelper
     public static CallToolResult Success(string text) =>
         Success(text, null);
 
+    /// <summary>
+    /// Cuts <paramref name="text"/> to at most <paramref name="maxBytes"/> UTF-8 bytes (notice included) on a character
+    /// boundary, appending a note that it was cut; text within the budget is returned as is.
+    /// </summary>
+    public static string WithinByteBudget(string text, int maxBytes)
+    {
+        if (Encoding.UTF8.GetByteCount(text) <= maxBytes)
+        {
+            return text;
+        }
+
+        const string notice = "\n\n_Truncated: the response reached the result size limit._\n";
+        var budget = Math.Max(0, maxBytes - Encoding.UTF8.GetByteCount(notice));
+        var length = 0;
+        var bytes = 0;
+        foreach (var rune in text.EnumerateRunes())
+        {
+            var runeBytes = rune.Utf8SequenceLength;
+            if (bytes + runeBytes > budget)
+            {
+                break;
+            }
+
+            bytes += runeBytes;
+            length += rune.Utf16SequenceLength;
+        }
+
+        return text[..length] + notice;
+    }
+
     // SDK 2.2's CallToolResult.StructuredContent is a JsonElement?, so the JsonNode payload the
     // tools build is converted at this single boundary; null structured leaves the field unset.
     public static CallToolResult Success(string text, JsonNode? structured) =>
