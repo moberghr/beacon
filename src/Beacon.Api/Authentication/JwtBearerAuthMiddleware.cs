@@ -183,7 +183,7 @@ internal sealed class JwtBearerAuthMiddleware(
         ClaimsPrincipal tokenPrincipal,
         string? tokenType)
     {
-        var users = context.RequestServices.GetService<IUserManagementService>();
+        var users = context.RequestServices.GetService<IUserManagementService>().OrNull();
         if (users == null)
         {
             if (Interlocked.Exchange(ref _warnedNoUserStore, 1) == 0)

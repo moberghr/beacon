@@ -398,7 +398,17 @@ public static class ServiceConfiguration
         // stored internal break-glass user passes.
         services.TryAddScoped<PasswordSignInGate>();
 
-        // User Management services (opt-in feature)
+        // User Management services (opt-in feature). While it is off, stand-ins refuse every call, so the handlers that
+        // need the user store still resolve; code that falls back without a user store reads it through OrNull().
+        if (!configurationOptions.UserManagement.Enabled)
+        {
+            services.TryAddTransient<IRoleService, DisabledRoleService>();
+            services.TryAddTransient<IUserManagementService, DisabledUserManagementService>();
+
+            // Constructing it writes nothing: only the setup endpoints announce it, and they never do while user management is off.
+            services.TryAddSingleton<Services.Security.FirstRunSetupToken>();
+        }
+
         if (configurationOptions.UserManagement.Enabled)
         {
             services.TryAddSingleton<Services.Security.IPasswordHasher, Services.Security.PasswordHasher>();

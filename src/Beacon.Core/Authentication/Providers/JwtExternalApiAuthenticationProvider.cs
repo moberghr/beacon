@@ -71,7 +71,7 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
         _options = options;
         _logger = logger;
         _keyCache = keyCache;
-        _userService = userService;
+        _userService = userService.OrNull();
         _oidcOptions = oidcOptions;
         _configuration = configuration;
     }
