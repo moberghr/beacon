@@ -22,8 +22,8 @@ interface BuildBadgeProps {
 /**
  * Single source of truth for the running build's identity. Renders
  * `<short-sha> · <build-date>` and exposes the full ISO timestamp on hover.
- * Used in the in-app Sidebar header and the login footer so both surfaces
- * agree on what's deployed.
+ * Used in the in-app Sidebar header only (never before sign-in), so
+ * every signed-in view shows what is deployed.
  */
 export function BuildBadge({ className }: BuildBadgeProps) {
   // Build-time env vars may be missing (e.g. dev shells without git) —
