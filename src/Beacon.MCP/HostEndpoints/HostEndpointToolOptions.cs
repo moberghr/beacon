@@ -53,15 +53,23 @@ public sealed class HostEndpointToolOptions
     /// <summary>
     /// The most endpoint tool calls in flight at once, across all callers. A call counts until its endpoint has really
     /// ended — also after <see cref="RequestTimeout"/> or the caller's cancellation, while an endpoint that ignores its
-    /// <c>RequestAborted</c> token is still running. A call past the limit is refused at once and audited. Default 16.
+    /// <c>RequestAborted</c> token is still running. A call past the limit waits up to <see cref="QueueWait"/> for a
+    /// slot, then is refused and audited. The defaults are meant not to affect ordinary agents; lower them to protect a
+    /// small host. Default 64.
     /// </summary>
-    public int MaxConcurrentCalls { get; set; } = 16;
+    public int MaxConcurrentCalls { get; set; } = 64;
 
     /// <summary>
     /// The most endpoint tool calls one MCP caller has in flight at once, counted as <see cref="MaxConcurrentCalls"/> is.
-    /// Default 4.
+    /// Default 16.
     /// </summary>
-    public int MaxConcurrentCallsPerCaller { get; set; } = 4;
+    public int MaxConcurrentCallsPerCaller { get; set; } = 16;
+
+    /// <summary>
+    /// How long a call waits for a free slot (<see cref="MaxConcurrentCalls"/>, <see cref="MaxConcurrentCallsPerCaller"/>)
+    /// before it is refused. Zero refuses at once. Default 5 seconds.
+    /// </summary>
+    public TimeSpan QueueWait { get; set; } = TimeSpan.FromSeconds(5);
 
     /// <summary>
     /// Run the host's <c>IExceptionHandler</c>s around a dispatched call, as <c>UseExceptionHandler()</c> runs them around
@@ -138,6 +146,11 @@ public sealed class HostEndpointToolOptions
         if (RequestTimeout <= TimeSpan.Zero)
         {
             throw new InvalidOperationException("AddHostEndpointTools: RequestTimeout must be positive.");
+        }
+
+        if (QueueWait < TimeSpan.Zero)
+        {
+            throw new InvalidOperationException("AddHostEndpointTools: QueueWait must not be negative.");
         }
 
         if (MaxConcurrentCalls < 1 || MaxConcurrentCallsPerCaller < 1)

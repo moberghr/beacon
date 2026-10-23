@@ -113,9 +113,25 @@ internal sealed class HostEndpointToolRegistry
                 continue;
             }
 
-            var policy = HostEndpointDispatcher.CombinedPolicyAsync(tool.Endpoint.Metadata, policyProvider)
-                .GetAwaiter()
-                .GetResult();
+            AuthorizationPolicy? policy;
+            try
+            {
+                policy = HostEndpointDispatcher.CombinedPolicyAsync(tool.Endpoint.Metadata, policyProvider)
+                    .GetAwaiter()
+                    .GetResult();
+            }
+            catch (Exception ex)
+            {
+                // An unregistered policy name fails that one tool at call time; it must not fail discovery for all of them.
+                logger?.LogWarning(
+                    "Beacon host endpoint tool {Endpoint} [{Tool}]: its authorization policy could not be resolved ({ExceptionType}); the authentication-only check was skipped.",
+                    tool.Endpoint.DisplayName,
+                    tool.Name,
+                    ex.GetType().Name);
+
+                continue;
+            }
+
             if (policy == null || !policy.Requirements.All(x => x is DenyAnonymousAuthorizationRequirement))
             {
                 continue;

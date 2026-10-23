@@ -24,8 +24,9 @@ builder.Services.AddBeaconMcp()
         o.MaxResponseBytes = 1_048_576;                // default 1 MiB
         o.NamedToolLimit = 20;                         // above this: search_api + call_api
         o.RequestTimeout = TimeSpan.FromSeconds(30);   // default 30 s
-        o.MaxConcurrentCalls = 16;                     // default 16 calls in flight in total
-        o.MaxConcurrentCallsPerCaller = 4;             // default 4 per MCP caller
+        o.MaxConcurrentCalls = 64;                     // default 64 calls in flight in total
+        o.MaxConcurrentCallsPerCaller = 16;            // default 16 per MCP caller
+        o.QueueWait = TimeSpan.FromSeconds(5);         // how long a call over a limit waits before it is refused
         // o.AllowReadOnlyPost = false;              // default true; false: read-only tools on GET/HEAD only
         // o.TrustedAuthenticationSchemes = ["..."];   // default none; see "Authentication schemes" below
         // o.AllowWriteTools = true;                   // default false; see "Write tools" below
@@ -320,8 +321,9 @@ System identity host claims, in configuration (the value is the integer `AdminPe
 
 1. The caller, project and arguments are checked; the host principal is built.
    The call then takes a slot: at most `MaxConcurrentCallsPerCaller` calls per MCP caller and `MaxConcurrentCalls`
-   in total are in flight. A call past either limit is refused at once ("Too many host endpoint calls are in
-   progress; retry shortly.") and audited.
+   in total are in flight. A call past either limit waits up to `QueueWait` (5 s) for a slot, then is refused ("Too many host endpoint
+   calls are in progress; retry shortly.") and audited. The slot is held until the endpoint really ends, so an
+   endpoint that ignores its `RequestAborted` token keeps it after a timeout.
 2. A **new DI scope** and a new `HttpContext` are created. The request carries the method, the route filled from the
    endpoint's route pattern, the query string, the declared headers only, and a JSON or
    `application/x-www-form-urlencoded` body. **Nothing of the MCP request is forwarded**: no `Authorization` header,

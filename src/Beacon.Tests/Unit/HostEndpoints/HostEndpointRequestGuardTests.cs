@@ -1,9 +1,11 @@
 using FluentAssertions;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Mvc;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using NUnit.Framework;
 using Beacon.Core.HostEndpoints;
 using Beacon.MCP.HostEndpoints;
@@ -237,7 +239,11 @@ public class HostEndpointRequestGuardTests
     public async Task ACallerAtItsLimit_IsRefused_UntilItsCallEnds()
     {
         var gate = new HeldEndpoint();
-        await using var host = await StartHeldAsync(gate, x => x.MaxConcurrentCallsPerCaller = 1);
+        await using var host = await StartHeldAsync(gate, x =>
+        {
+            x.MaxConcurrentCallsPerCaller = 1;
+            x.QueueWait = TimeSpan.Zero;
+        });
         var service = host.CreateService(HostEndpointTestHost.OuterRequest(HostEndpointTestHost.SystemCaller(CanView)));
 
         var first = service.CallAsync("api_guarded_held", null, CancellationToken.None);
@@ -263,6 +269,7 @@ public class HostEndpointRequestGuardTests
         {
             x.MaxConcurrentCalls = 1;
             x.MaxConcurrentCallsPerCaller = 4;
+            x.QueueWait = TimeSpan.Zero;
         });
         var service = host.CreateService(HostEndpointTestHost.OuterRequest(HostEndpointTestHost.SystemCaller(CanView)));
 
@@ -283,6 +290,7 @@ public class HostEndpointRequestGuardTests
         await using var host = await StartHeldAsync(gate, x =>
         {
             x.MaxConcurrentCallsPerCaller = 1;
+            x.QueueWait = TimeSpan.Zero;
             x.RequestTimeout = TimeSpan.FromMilliseconds(200);
         });
         var service = host.CreateService(HostEndpointTestHost.OuterRequest(HostEndpointTestHost.SystemCaller(CanView)));
@@ -319,6 +327,90 @@ public class HostEndpointRequestGuardTests
         b3.Should().NotBeNull("a refused call must not keep a slot of its own");
     }
 
+    [Test]
+    public async Task ACallAtItsLimit_WaitsForASlot_WithinTheQueueWait()
+    {
+        var gate = new HeldEndpoint();
+        await using var host = await StartHeldAsync(gate, x =>
+        {
+            x.MaxConcurrentCallsPerCaller = 1;
+            x.QueueWait = TimeSpan.FromSeconds(10);
+        });
+        var service = host.CreateService(HostEndpointTestHost.OuterRequest(HostEndpointTestHost.SystemCaller(CanView)));
+
+        var first = service.CallAsync("api_guarded_held", null, CancellationToken.None);
+        await gate.Started.Task.WaitAsync(TimeSpan.FromSeconds(5));
+        var second = service.CallAsync("api_guarded_held", null, CancellationToken.None);
+        await Task.Delay(150);
+        second.IsCompleted.Should().BeFalse("the second call queues for the first call's slot");
+        gate.Release.SetResult();
+
+        (await first).IsError.Should().NotBe(true);
+        (await second).IsError.Should().NotBe(true);
+        gate.Runs.Should().Be(2);
+    }
+
+    [Test]
+    public async Task TheLimiter_RefusesAfterTheQueueWait_WhenNoSlotFrees()
+    {
+        var limiter = new HostEndpointCallLimiter(new HostEndpointToolOptions { ProjectName = "p", MaxConcurrentCalls = 1, MaxConcurrentCallsPerCaller = 1, QueueWait = TimeSpan.FromMilliseconds(100) });
+        using var held = limiter.TryAcquire("a");
+
+        var refused = await limiter.AcquireAsync("a", CancellationToken.None);
+
+        refused.Should().BeNull();
+    }
+
+    [Test]
+    public async Task AnEndpointWhosePolicyCannotBeResolvedForTheWarning_DoesNotFailDiscoveryOfTheOthers()
+    {
+        var logs = new LogRecorder();
+
+        await using var host = await HostEndpointTestHost.StartAsync(
+            [],
+            mapDefaultMinimalApis: false,
+            services: x =>
+            {
+                x.AddSingleton<ILoggerProvider>(logs);
+                x.AddSingleton<IAuthorizationPolicyProvider, FlakyPolicyProvider>();
+            },
+            map: x =>
+            {
+                x.MapGet("/guarded/typo", () => Results.Ok())
+                    .RequireAuthorization(FlakyPolicyProvider.FlakyPolicy)
+                    .WithBeaconTool("guarded_typo", "Its policy resolves once, then throws.", readOnly: true);
+                x.MapGet("/guarded/fine", () => Results.Ok())
+                    .RequireAuthorization(HostEndpointTestHost.ViewThingPolicy)
+                    .WithBeaconTool("guarded_fine", "Has a policy.", readOnly: true);
+            });
+
+        host.Registry.Tools.Should().Contain(x => x.Name == "guarded_fine");
+        logs.Entries
+            .Where(x => x.Level == LogLevel.Warning)
+            .Select(x => x.Message)
+            .Should().Contain(x => x.Contains("guarded_typo") && x.Contains("could not be resolved"));
+    }
+
+    [TestCase("x-y")]
+    [TestCase("a-b-c")]
+    public async Task ARouteValueHoldingTheSeparatorOfAComplexSegment_IsRefused(string value)
+    {
+        await using var host = await HostEndpointTestHost.StartAsync(
+            [],
+            mapDefaultMinimalApis: false,
+            map: x => x.MapGet("/guarded/pair/{first}-{second}", (string first, string second) => Results.Ok(new { first, second }))
+                .RequireAuthorization(HostEndpointTestHost.ViewThingPolicy)
+                .WithBeaconTool("guarded_pair", "A pair.", readOnly: true));
+        var service = host.CreateService(HostEndpointTestHost.OuterRequest(HostEndpointTestHost.SystemCaller(CanView)));
+
+        var refused = await service.CallAsync("api_guarded_pair", Args(new { first = value, second = "z" }), CancellationToken.None);
+        var accepted = await service.CallAsync("api_guarded_pair", Args(new { first = "xy", second = "z" }), CancellationToken.None);
+
+        refused.IsError.Should().BeTrue();
+        Text(refused).Should().Contain("'first'").And.Contain("separator");
+        accepted.IsError.Should().NotBe(true);
+    }
+
     [TestCase(0, 4)]
     [TestCase(16, 0)]
     public void AddHostEndpointTools_RejectsALimitBelowOne(int total, int perCaller)
@@ -336,12 +428,13 @@ public class HostEndpointRequestGuardTests
     }
 
     [Test]
-    public void TheDefaults_AreSixteenCallsInTotal_FourPerCaller_AndReadOnlyPostOn()
+    public void TheDefaults_AreSixtyFourCallsInTotal_SixteenPerCaller_FiveSecondsOfQueueing_AndReadOnlyPostOn()
     {
         var options = new HostEndpointToolOptions();
 
-        options.MaxConcurrentCalls.Should().Be(16);
-        options.MaxConcurrentCallsPerCaller.Should().Be(4);
+        options.MaxConcurrentCalls.Should().Be(64);
+        options.MaxConcurrentCallsPerCaller.Should().Be(16);
+        options.QueueWait.Should().Be(TimeSpan.FromSeconds(5));
         options.AllowReadOnlyPost.Should().BeTrue();
     }
 
@@ -375,6 +468,26 @@ public class HostEndpointRequestGuardTests
             }
 
             await Task.Delay(20);
+        }
+    }
+
+    // Resolves the named policy for the first lookup (the startup scheme check) and throws on every later one.
+    private sealed class FlakyPolicyProvider(IOptions<AuthorizationOptions> options) : DefaultAuthorizationPolicyProvider(options)
+    {
+        public const string FlakyPolicy = "FlakyPolicy";
+
+        private int _lookups;
+
+        public override Task<AuthorizationPolicy?> GetPolicyAsync(string policyName)
+        {
+            if (policyName == FlakyPolicy)
+            {
+                return Interlocked.Increment(ref _lookups) == 1
+                    ? Task.FromResult<AuthorizationPolicy?>(new AuthorizationPolicyBuilder().RequireAssertion(_ => true).Build())
+                    : throw new InvalidOperationException("no such policy");
+            }
+
+            return base.GetPolicyAsync(policyName);
         }
     }
 

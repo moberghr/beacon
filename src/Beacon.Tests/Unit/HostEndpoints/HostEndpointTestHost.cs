@@ -250,7 +250,8 @@ internal sealed class HostEndpointTestHost : IAsyncDisposable
             TestProjectAccess.Evaluator(TestProjectAccess.ReadableIn([.. contextProjects ?? [ProjectId]])),
             accessor,
             audit,
-            App.Services.GetRequiredService<HostEndpointToolOptions>());
+            App.Services.GetRequiredService<HostEndpointToolOptions>(),
+            NullLogger<HostEndpointToolService>.Instance);
     }
 
     public async ValueTask DisposeAsync()

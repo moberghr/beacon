@@ -1,3 +1,4 @@
+using Microsoft.Extensions.Logging;
 using System.Security.Claims;
 using System.Diagnostics;
 using System.Text;
@@ -31,7 +32,8 @@ internal sealed class HostEndpointToolService(
     IProjectAccessEvaluator projectAccess,
     IHttpContextAccessor httpContextAccessor,
     McpAuditService auditService,
-    HostEndpointToolOptions options) : IHostEndpointToolOverview, IHostEndpointToolCatalog
+    HostEndpointToolOptions options,
+    ILogger<HostEndpointToolService> logger) : IHostEndpointToolOverview, IHostEndpointToolCatalog
 {
     public const string SearchToolName = "search_api";
     public const string CallToolName = "call_api";
@@ -209,23 +211,33 @@ internal sealed class HostEndpointToolService(
         }
 
         // The dispatcher frees the slot when the endpoint has ended, which can be after a timed-out call has returned.
-        var slot = callLimiter.TryAcquire("caller:" + access.Caller!.SubjectHash);
-        if (slot == null)
-        {
-            await AuditAsync(auditTool, arguments, access.ProjectId, sw, HostEndpointCallLimiter.RefusalMessage);
-
-            return ToolHelper.Error(HostEndpointCallLimiter.RefusalMessage);
-        }
-
+        // The slot is taken after the cheap-to-refuse steps above; moving it earlier would need a release on each of them.
         HostEndpointDispatchResult result;
         try
         {
+            var slot = await callLimiter.AcquireAsync("caller:" + access.Caller!.SubjectHash, cancellationToken);
+            if (slot == null)
+            {
+                await AuditAsync(auditTool, arguments, access.ProjectId, sw, HostEndpointCallLimiter.RefusalMessage);
+
+                return ToolHelper.Error(HostEndpointCallLimiter.RefusalMessage);
+            }
+
             result = await dispatcher.DispatchAsync(tool, parts, principal, access.Caller!, slot, cancellationToken);
         }
         catch (OperationCanceledException)
         {
             await AuditAsync(auditTool, arguments, access.ProjectId, sw, "Cancelled by the caller.");
             throw;
+        }
+        catch (Exception ex)
+        {
+            // §1.11 — the type is enough; the message can quote arguments or row data.
+            logger.LogWarning("Host endpoint tool {Tool} dispatch failed with {ExceptionType}", tool.ToolName, ex.GetType().Name);
+            const string failed = "The host endpoint call failed with an unexpected error.";
+            await AuditAsync(auditTool, arguments, access.ProjectId, sw, failed);
+
+            return ToolHelper.Error(failed);
         }
 
         var (toolResult, auditError) = MapResult(tool, result, options.MaxResponseBytes, options.RequestTimeout);

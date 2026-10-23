@@ -279,6 +279,33 @@ internal static class HostEndpointRequestBuilder
             {
                 throw new HostEndpointArgumentException($"Invalid arguments: '{name}' must not contain a '.' or '..' path segment.");
             }
+
+            // In a complex segment ({a}-{b}, {id}.{ext}) routing splits at the literal between the parts, so a value
+            // holding that literal would reach the endpoint as a different combination than routing could deliver.
+            if (!parameter.IsCatchAll && ComplexSegmentSeparators(pattern, name).Any(x => value.Contains(x, StringComparison.Ordinal)))
+            {
+                throw new HostEndpointArgumentException($"Invalid arguments: '{name}' must not contain the separator that follows or precedes it in {pattern.RawText}.");
+            }
+        }
+    }
+
+    private static IEnumerable<string> ComplexSegmentSeparators(RoutePattern pattern, string name)
+    {
+        foreach (var segment in pattern.PathSegments)
+        {
+            if (segment.Parts.Count < 2
+                || !segment.Parts.Any(x => x is RoutePatternParameterPart parameter && string.Equals(parameter.Name, name, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            foreach (var literal in segment.Parts.OfType<RoutePatternLiteralPart>())
+            {
+                if (literal.Content.Length > 0)
+                {
+                    yield return literal.Content;
+                }
+            }
         }
     }
 

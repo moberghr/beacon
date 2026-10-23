@@ -94,27 +94,33 @@ internal sealed class HostEndpointDispatcher(
         string? traceId,
         CancellationToken cancellationToken)
     {
-        var scope = scopeFactory.CreateAsyncScope();
-        var timeout = new CancellationTokenSource(options.RequestTimeout);
-        var linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
-        var responseBody = new CappedResponseStream(options.MaxResponseBytes);
-        var accessor = scope.ServiceProvider.GetService<IHttpContextAccessor>();
+        AsyncServiceScope? scope = null;
+        CancellationTokenSource? timeout = null;
+        CancellationTokenSource? linked = null;
+        CappedResponseStream? responseBody = null;
+        IHttpContextAccessor? accessor = null;
         Task? invocation = null;
 
         try
         {
-            var httpContext = CreateHttpContext(tool, parts, principal, scope.ServiceProvider, responseBody, traceId, linked.Token);
+            scope = scopeFactory.CreateAsyncScope();
+            timeout = new CancellationTokenSource(options.RequestTimeout);
+            linked = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
+            responseBody = new CappedResponseStream(options.MaxResponseBytes);
+            accessor = scope.Value.ServiceProvider.GetService<IHttpContextAccessor>();
+
+            var httpContext = CreateHttpContext(tool, parts, principal, scope.Value.ServiceProvider, responseBody, traceId, linked.Token);
             if (accessor != null)
             {
                 accessor.HttpContext = httpContext;
             }
 
-            if (!await AuthorizeAsync(tool.Endpoint, httpContext, principal, scope.ServiceProvider))
+            if (!await AuthorizeAsync(tool.Endpoint, httpContext, principal, scope.Value.ServiceProvider))
             {
                 return HostEndpointDispatchResult.Of(HostEndpointDispatchOutcome.Forbidden);
             }
 
-            await ValidateMinimalApiAntiforgeryAsync(tool.Endpoint, httpContext, scope.ServiceProvider);
+            await ValidateMinimalApiAntiforgeryAsync(tool.Endpoint, httpContext, scope.Value.ServiceProvider);
 
             // The host's dispatch middleware, chained in registration order around the endpoint, so ambient state
             // one sets before `await next()` (Thread.CurrentPrincipal) is visible to the endpoint's filters.
@@ -126,7 +132,7 @@ internal sealed class HostEndpointDispatcher(
                 return tool.Endpoint.RequestDelegate!(httpContext);
             };
 
-            var middlewares = scope.ServiceProvider.GetServices<IHostEndpointDispatchMiddleware>().ToList();
+            var middlewares = scope.Value.ServiceProvider.GetServices<IHostEndpointDispatchMiddleware>().ToList();
             for (var i = middlewares.Count - 1; i >= 0; i--)
             {
                 var middleware = middlewares[i];
@@ -138,7 +144,7 @@ internal sealed class HostEndpointDispatcher(
             if (options.UseHostExceptionHandlers)
             {
                 var guarded = pipeline;
-                pipeline = () => HandleWithHostExceptionHandlersAsync(httpContext, responseBody, guarded, scope.ServiceProvider, linked.Token);
+                pipeline = () => HandleWithHostExceptionHandlersAsync(httpContext, responseBody, guarded, scope.Value.ServiceProvider, linked.Token);
             }
 
             invocation = pipeline();
@@ -162,7 +168,7 @@ internal sealed class HostEndpointDispatcher(
                 httpContext.Response.ContentType,
                 responseBody.ToArray());
         }
-        catch (Exception) when (responseBody.Exceeded)
+        catch (Exception) when (responseBody?.Exceeded == true)
         {
             return HostEndpointDispatchResult.Of(HostEndpointDispatchOutcome.ResponseTooLarge);
         }
@@ -170,7 +176,7 @@ internal sealed class HostEndpointDispatcher(
         {
             throw;
         }
-        catch (OperationCanceledException) when (timeout.IsCancellationRequested)
+        catch (OperationCanceledException) when (timeout?.IsCancellationRequested == true)
         {
             return HostEndpointDispatchResult.Of(HostEndpointDispatchOutcome.TimedOut);
         }
@@ -255,11 +261,11 @@ internal sealed class HostEndpointDispatcher(
         }
     }
 
-    private static async Task CleanupAsync(
-        AsyncServiceScope scope,
+    private async Task CleanupAsync(
+        AsyncServiceScope? scope,
         IHttpContextAccessor? accessor,
-        CancellationTokenSource timeout,
-        CancellationTokenSource linked,
+        CancellationTokenSource? timeout,
+        CancellationTokenSource? linked,
         IDisposable slot)
     {
         try
@@ -269,9 +275,17 @@ internal sealed class HostEndpointDispatcher(
                 accessor.HttpContext = null;
             }
 
-            linked.Dispose();
-            timeout.Dispose();
-            await scope.DisposeAsync();
+            linked?.Dispose();
+            timeout?.Dispose();
+            if (scope != null)
+            {
+                await scope.Value.DisposeAsync();
+            }
+        }
+        catch (Exception ex)
+        {
+            // A host service whose Dispose throws must not replace a completed call's result (§1.11: type only).
+            logger.LogWarning("Host endpoint dispatch cleanup failed with {ExceptionType}", ex.GetType().Name);
         }
         finally
         {
