@@ -121,6 +121,7 @@ public static class BeaconApiEndpoints
 
         // Notes at startup which key seals security audit events (a Warning when it is derived) and how long they are kept.
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, SecurityAuditStartupNote>());
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, RetentionScheduleStartupCheck>());
 
         // Applies the stored Admin settings (base URL, LLM provider configuration) once the host has started.
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, StoredSettingsStartupApplier>());

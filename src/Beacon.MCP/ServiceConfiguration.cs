@@ -155,6 +155,7 @@ public static class ServiceConfiguration
 
         // Notes at startup that provisioned user callers get the Viewer role (catalog only) by default.
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, McpUserCallerStartupNote>());
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, McpAuditStartupWarning>());
 
         return services;
     }

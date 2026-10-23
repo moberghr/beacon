@@ -48,6 +48,9 @@ internal sealed partial class McpAuditService(
         IReadOnlyList<string>? tables = null, CancellationToken ct = default)
     {
         var retainContent = false;
+
+        // Minted here, before anything can fail, so the audit log event of a call whose row never got built still carries it.
+        var correlationId = Guid.NewGuid().ToString("N");
         McpAuditLog? entry = null;
         var persisted = false;
 
@@ -122,6 +125,7 @@ internal sealed partial class McpAuditService(
                 ErrorMessage = loggedErrorMessage,
                 CallerKind = callerKind,
                 CallerHash = callerHash,
+                CorrelationId = correlationId,
                 TraceId = activity?.TraceId.ToHexString(),
                 SpanId = activity?.SpanId.ToHexString(),
                 McpSessionId = mcpSessionId,
@@ -148,7 +152,7 @@ internal sealed partial class McpAuditService(
             logger.LogError("Failed to log MCP audit entry for tool {Tool} ({Failure})", BoundedToolName(tool), FailureCodes.Describe(ex));
         }
 
-        EmitTelemetry(entry, persisted, retainContent, tool, userId, projectId, dataSourceId, executionTimeMs,
+        EmitTelemetry(entry, correlationId, persisted, retainContent, tool, userId, projectId, dataSourceId, executionTimeMs,
             resultRowCount, errorMessage, parameters);
     }
 
@@ -250,7 +254,7 @@ internal sealed partial class McpAuditService(
     // §1.11 — the Beacon.Audit event, span tags and metrics carry identifiers and counts only: never parameters, SQL,
     // question or the raw error (ErrorClassOf). The one exception is beacon.tool.input on the span, behind the double
     // opt-in CaptureContent AND the project's retain-content decision. Telemetry must never lose or fail the audit.
-    private void EmitTelemetry(McpAuditLog? entry, bool persisted, bool retainContent, string tool, int? userId,
+    private void EmitTelemetry(McpAuditLog? entry, string correlationId, bool persisted, bool retainContent, string tool, int? userId,
         int? projectId, int? dataSourceId, int executionTimeMs, int? resultRowCount, string? errorMessage,
         string? parameters)
     {
@@ -270,7 +274,7 @@ internal sealed partial class McpAuditService(
                 "MCP tool audited: Tool={Tool} AuditId={AuditId} Persisted={Persisted} ProjectId={ProjectId} " +
                 "DataSourceId={DataSourceId} UserId={UserId} ApiKeyId={ApiKeyId} CallerKind={CallerKind} " +
                 "CallerHash={CallerHash} DurationMs={DurationMs} Rows={Rows} ErrorClass={ErrorClass} " +
-                "TraceId={TraceId} McpSessionId={McpSessionId} UpstreamRequestId={UpstreamRequestId}",
+                "CorrelationId={CorrelationId} TraceId={TraceId} McpSessionId={McpSessionId} UpstreamRequestId={UpstreamRequestId}",
                 boundedTool,
                 persisted ? entry?.Id : null,
                 persisted,
@@ -283,6 +287,7 @@ internal sealed partial class McpAuditService(
                 executionTimeMs,
                 resultRowCount,
                 errorClass,
+                correlationId,
                 traceId,
                 entry?.McpSessionId,
                 entry?.UpstreamRequestId);

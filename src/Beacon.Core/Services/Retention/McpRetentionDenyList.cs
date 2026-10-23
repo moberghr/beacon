@@ -61,6 +61,7 @@ public static class McpRetentionDenyList
         Rule<McpAuditLog>(nameof(McpAuditLog.ErrorMessage), RetentionKind.ErrorClass),
         Rule<McpAuditLog>(nameof(McpAuditLog.CallerKind), RetentionKind.Structural),
         Rule<McpAuditLog>(nameof(McpAuditLog.CallerHash), RetentionKind.Structural),
+        Rule<McpAuditLog>(nameof(McpAuditLog.CorrelationId), RetentionKind.Structural),
         Rule<McpAuditLog>(nameof(McpAuditLog.TraceId), RetentionKind.Structural),
         Rule<McpAuditLog>(nameof(McpAuditLog.SpanId), RetentionKind.Structural),
         Rule<McpAuditLog>(nameof(McpAuditLog.McpSessionId), RetentionKind.Structural),

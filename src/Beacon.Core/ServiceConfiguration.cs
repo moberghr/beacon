@@ -473,6 +473,8 @@ public static class ServiceConfiguration
         // MCP audit retention purge (Beacon:Mcp:Audit:RetentionDays); a null window is a no-op. Scheduled by
         // the host as a Warp recurring job (Beacon.SampleProject/Warp/Jobs/McpMaintenanceJobs.cs).
         services.TryAddTransient<IMcpAuditRetentionService, McpAuditRetentionService>();
+        services.TryAddTransient<IMaintenanceHeartbeat, MaintenanceHeartbeatRecorder>();
+        services.TryAddTransient<IRetentionScheduleCheck, RetentionScheduleCheck>();
 
         // Telemetry (Beacon:Telemetry). An absent section = no content on spans.
         services.AddOptions<Configuration.BeaconTelemetryOptions>()

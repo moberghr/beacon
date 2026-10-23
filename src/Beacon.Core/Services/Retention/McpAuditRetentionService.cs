@@ -23,7 +23,8 @@ internal sealed class McpAuditRetentionService(
     IDbContextFactory<BeaconContext> contextFactory,
     IOptions<McpDeploymentOptions> deploymentOptions,
     TimeProvider timeProvider,
-    ILoggerFactory loggerFactory) : IMcpAuditRetentionService
+    ILoggerFactory loggerFactory,
+    IMaintenanceHeartbeat? heartbeat = null) : IMcpAuditRetentionService
 {
     internal static readonly EventId AuditPurgedEvent = new(9102, "McpAuditPurged");
 
@@ -50,6 +51,11 @@ internal sealed class McpAuditRetentionService(
             "MCP audit purge deleted {Deleted} rows older than {Cutoff}",
             deleted,
             cutoff);
+
+        if (heartbeat != null)
+        {
+            await heartbeat.RecordAsync(MaintenanceJobNames.McpAuditRetention, cancellationToken);
+        }
 
         return deleted;
     }
