@@ -24,6 +24,7 @@ namespace Beacon.MCP.HostEndpoints;
 internal sealed class HostEndpointToolService(
     HostEndpointToolRegistry registry,
     HostEndpointDispatcher dispatcher,
+    HostEndpointCallLimiter callLimiter,
     IHostEndpointProjectResolver projectResolver,
     IMcpHostPrincipalFactory principalFactory,
     IProjectContext projectContext,
@@ -207,10 +208,19 @@ internal sealed class HostEndpointToolService(
             return ToolHelper.Error(ex.Message);
         }
 
+        // The dispatcher frees the slot when the endpoint has ended, which can be after a timed-out call has returned.
+        var slot = callLimiter.TryAcquire("caller:" + access.Caller!.SubjectHash);
+        if (slot == null)
+        {
+            await AuditAsync(auditTool, arguments, access.ProjectId, sw, HostEndpointCallLimiter.RefusalMessage);
+
+            return ToolHelper.Error(HostEndpointCallLimiter.RefusalMessage);
+        }
+
         HostEndpointDispatchResult result;
         try
         {
-            result = await dispatcher.DispatchAsync(tool, parts, principal, access.Caller!, cancellationToken);
+            result = await dispatcher.DispatchAsync(tool, parts, principal, access.Caller!, slot, cancellationToken);
         }
         catch (OperationCanceledException)
         {

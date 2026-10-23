@@ -1,4 +1,5 @@
 using Microsoft.AspNetCore.Authorization;
+using Microsoft.AspNetCore.Authorization.Infrastructure;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
@@ -57,6 +58,7 @@ internal sealed class HostEndpointToolRegistry
             .ToList() ?? [];
         var hasFallbackPolicy = services.GetService<IOptions<AuthorizationOptions>>()?.Value.FallbackPolicy != null;
         var policyProvider = services.GetService<IAuthorizationPolicyProvider>();
+        var warnings = new List<string>();
 
         var discovery = new HostEndpointToolDiscovery(
             services.GetService<IXmlDocumentationProvider>() ?? NoXmlDocumentation.Instance,
@@ -70,10 +72,61 @@ internal sealed class HostEndpointToolRegistry
             options.TrustedAuthenticationSchemes,
             options.AllowWriteTools,
             options.CallerBindings.Keys.ToList(),
-            options.DescriptionNote);
+            options.DescriptionNote,
+            options.AllowReadOnlyPost,
+            warnings,
+            services.GetService<ParameterPolicyFactory>());
+
+        var logger = services.GetService<ILoggerFactory>()?.CreateLogger<HostEndpointToolRegistry>();
+        foreach (var warning in warnings)
+        {
+            logger?.LogWarning("Beacon host endpoint tool not exposed: {Reason}", warning);
+        }
+
+        if (policyProvider != null)
+        {
+            WarnAboutAuthenticationOnlyEndpoints(logger, options, tools, policyProvider);
+        }
+
         WarnAboutUnusedCallerBindings(services, options, tools);
 
         return tools;
+    }
+
+    /// <summary>
+    /// An endpoint whose only requirement is an authenticated user (<c>[Authorize]</c> or <c>RequireAuthorization()</c>
+    /// with no policy or roles, under the default policy, or such a fallback policy) admits every mapped MCP caller of
+    /// the project. That may be intended, so it is a warning; an authorization filter on the endpoint is not seen here.
+    /// A tool that binds an argument from the caller (<see cref="HostEndpointToolOptions.BindFromCaller(string, string)"/>)
+    /// is the self-service pattern — any signed-in person, for their own records — and is not warned.
+    /// </summary>
+    private static void WarnAboutAuthenticationOnlyEndpoints(
+        ILogger? logger,
+        HostEndpointToolOptions options,
+        IReadOnlyList<HostEndpointToolDescriptor> tools,
+        IAuthorizationPolicyProvider policyProvider)
+    {
+        foreach (var tool in tools)
+        {
+            if (tool.Endpoint.Metadata.GetMetadata<IAllowAnonymous>() != null || tool.CallerBindings.Count > 0)
+            {
+                continue;
+            }
+
+            var policy = HostEndpointDispatcher.CombinedPolicyAsync(tool.Endpoint.Metadata, policyProvider)
+                .GetAwaiter()
+                .GetResult();
+            if (policy == null || !policy.Requirements.All(x => x is DenyAnonymousAuthorizationRequirement))
+            {
+                continue;
+            }
+
+            logger?.LogWarning(
+                "Beacon host endpoint tool {Endpoint} [{Tool}] requires only an authenticated user (no policy, roles or other requirement): every mapped MCP caller of project {Project} can call it. Give it a policy or roles unless an endpoint filter checks permissions.",
+                tool.Endpoint.DisplayName,
+                tool.Name,
+                options.ProjectName);
+        }
     }
 
     // A binding no tool uses is most likely a typo or a renamed parameter, and that argument is then still the agent's to send.

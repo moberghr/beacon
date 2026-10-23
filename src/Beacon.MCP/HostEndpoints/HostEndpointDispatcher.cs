@@ -44,7 +44,8 @@ internal sealed record HostEndpointDispatchResult(
 /// <see cref="DefaultHttpContext"/> that carries nothing of the MCP request (no Authorization header, no cookies, no
 /// connection info), the endpoint and route values set as routing would, the endpoint's authorization metadata (or
 /// the host's fallback policy) evaluated against the host principal BEFORE the endpoint runs, antiforgery tokens
-/// minted server-side for that principal, the host's <see cref="IHostEndpointDispatchMiddleware"/> chain, a capped response buffer and a timeout. The endpoint's
+/// minted server-side for that principal, the host's <see cref="IHostEndpointDispatchMiddleware"/> chain, a capped response buffer and a timeout. The
+/// call's <see cref="HostEndpointCallLimiter"/> slot is freed with the scope, when the endpoint has ended. The endpoint's
 /// <see cref="Endpoint.RequestDelegate"/> then runs its own model binding and filter pipeline; host middleware does
 /// not run.
 /// </summary>
@@ -63,6 +64,7 @@ internal sealed class HostEndpointDispatcher(
         HostEndpointRequestParts parts,
         ClaimsPrincipal principal,
         McpCaller caller,
+        IDisposable slot,
         CancellationToken cancellationToken)
     {
         // Captured before SuppressFlow: Activity.Current is itself AsyncLocal-backed, so it reads back null from
@@ -77,7 +79,7 @@ internal sealed class HostEndpointDispatcher(
         Task<HostEndpointDispatchResult> dispatch;
         using (ExecutionContext.SuppressFlow())
         {
-            dispatch = Task.Run(() => DispatchIsolatedAsync(tool, parts, principal, caller, traceId, cancellationToken), CancellationToken.None);
+            dispatch = Task.Run(() => DispatchIsolatedAsync(tool, parts, principal, caller, slot, traceId, cancellationToken), CancellationToken.None);
         }
 
         return await dispatch;
@@ -88,6 +90,7 @@ internal sealed class HostEndpointDispatcher(
         HostEndpointRequestParts parts,
         ClaimsPrincipal principal,
         McpCaller caller,
+        IDisposable slot,
         string? traceId,
         CancellationToken cancellationToken)
     {
@@ -182,16 +185,16 @@ internal sealed class HostEndpointDispatcher(
         {
             if (invocation is { IsCompleted: false })
             {
-                // The endpoint ignored its RequestAborted token: keep its scope alive until it finishes.
+                // The endpoint ignored its RequestAborted token: keep its scope, and its call slot, until it finishes.
                 _ = invocation.ContinueWith(
-                    _ => CleanupAsync(scope, accessor, timeout, linked),
+                    _ => CleanupAsync(scope, accessor, timeout, linked, slot),
                     CancellationToken.None,
                     TaskContinuationOptions.None,
                     TaskScheduler.Default).Unwrap();
             }
             else
             {
-                await CleanupAsync(scope, accessor, timeout, linked);
+                await CleanupAsync(scope, accessor, timeout, linked, slot);
             }
         }
     }
@@ -256,16 +259,24 @@ internal sealed class HostEndpointDispatcher(
         AsyncServiceScope scope,
         IHttpContextAccessor? accessor,
         CancellationTokenSource timeout,
-        CancellationTokenSource linked)
+        CancellationTokenSource linked,
+        IDisposable slot)
     {
-        if (accessor != null)
+        try
         {
-            accessor.HttpContext = null;
-        }
+            if (accessor != null)
+            {
+                accessor.HttpContext = null;
+            }
 
-        linked.Dispose();
-        timeout.Dispose();
-        await scope.DisposeAsync();
+            linked.Dispose();
+            timeout.Dispose();
+            await scope.DisposeAsync();
+        }
+        finally
+        {
+            slot.Dispose();
+        }
     }
 
     private static HttpContext CreateHttpContext(
@@ -418,6 +429,24 @@ internal sealed class HostEndpointDispatcher(
             return false;
         }
 
+        var policy = await CombinedPolicyAsync(metadata, policyProvider);
+        if (policy == null)
+        {
+            return false;
+        }
+
+        var ticket = new AuthenticationTicket(principal, principal.Identity?.AuthenticationType ?? "BeaconMcp");
+        var result = await policyEvaluator.AuthorizeAsync(policy, AuthenticateResult.Success(ticket), httpContext, httpContext);
+
+        return result.Succeeded;
+    }
+
+    /// <summary>
+    /// The policy <see cref="AuthorizeAsync"/> evaluates for a non-anonymous endpoint: its <c>[Authorize]</c>, policy and
+    /// requirement metadata combined, else the host's fallback policy; null when there is neither.
+    /// </summary>
+    internal static async Task<AuthorizationPolicy?> CombinedPolicyAsync(EndpointMetadataCollection metadata, IAuthorizationPolicyProvider policyProvider)
+    {
         var policy = await AuthorizationPolicy.CombineAsync(
             policyProvider,
             metadata.GetOrderedMetadata<IAuthorizeData>(),
@@ -440,16 +469,7 @@ internal sealed class HostEndpointDispatcher(
             policy = builder.Build();
         }
 
-        policy ??= await policyProvider.GetFallbackPolicyAsync();
-        if (policy == null)
-        {
-            return false;
-        }
-
-        var ticket = new AuthenticationTicket(principal, principal.Identity?.AuthenticationType ?? "BeaconMcp");
-        var result = await policyEvaluator.AuthorizeAsync(policy, AuthenticateResult.Success(ticket), httpContext, httpContext);
-
-        return result.Succeeded;
+        return policy ?? await policyProvider.GetFallbackPolicyAsync();
     }
 
     private sealed class RequestBodyDetectionFeature(bool canHaveBody) : IHttpRequestBodyDetectionFeature
