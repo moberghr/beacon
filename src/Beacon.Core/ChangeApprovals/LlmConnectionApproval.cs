@@ -163,7 +163,21 @@ internal sealed class LlmConnectionApproval(
             logger.LogInformation("Change request {RequestId} of the LLM connection submitted for approval", submission.Request?.Id);
         }
 
-        await staged!.AfterCommitAsync(cancellationToken);
+        // The save is committed: a failure to apply it in this process is logged (the exception type only), never a failed
+        // request that a retry would meet as a conflict.
+        try
+        {
+            await staged!.AfterCommitAsync(cancellationToken);
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogError(
+                "The settings save was committed (change request {RequestId} of the LLM connection {Outcome}), but could not be applied in this process ({ExceptionType}); it applies at the next start",
+                submission?.Request?.Id,
+                submission == null ? "not needed" : "submitted",
+                ex.GetType().Name);
+        }
+
         await submitter.NotifySupersededAsync(submission, cancellationToken);
     }
 

@@ -6,6 +6,7 @@ using Beacon.Core.ChangeApprovals;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.HostData;
 using Beacon.Core.Notifications;
 using Beacon.Core.Services;
 
@@ -57,6 +58,8 @@ internal sealed class ApprovalWorkflowStartupNote(
 
         return builder =>
         {
+            NoteConnectionResolver(logger, configuration.ApprovalWorkflow, builder.ApplicationServices);
+
             var lifetime = builder.ApplicationServices.GetService<IHostApplicationLifetime>();
             lifetime?.ApplicationStarted.Register(
                 () => _ = Task.Run(() => NoteCountsAsync(builder.ApplicationServices, lifetime.ApplicationStopping)));
@@ -117,6 +120,42 @@ internal sealed class ApprovalWorkflowStartupNote(
         {
             logger.LogInformation("The approval workflow does not review the changes these options leave out: {Options}", string.Join(", ", notCovered));
         }
+    }
+
+    /// <summary>
+    /// A Warning when the hold on data-source connections (<see cref="ApprovalWorkflowOptions.CoversDataSourceConnections"/>)
+    /// is on while the registered <see cref="IDataSourceConnectionResolver"/> is not Beacon's own: the resolver is the only
+    /// place the hold is enforced, so the host's resolver connects held sources while Beacon shows them as awaiting approval.
+    /// </summary>
+    internal static void NoteConnectionResolver(ILogger logger, ApprovalWorkflowOptions workflow, IServiceProvider services)
+    {
+        if (!workflow.Covers(ChangeApprovalKind.DataSourceConnection))
+        {
+            return;
+        }
+
+        object? resolver;
+        try
+        {
+            resolver = services.GetService<IDataSourceConnectionResolver>();
+        }
+        catch (Exception ex) when (ex is not OperationCanceledException)
+        {
+            logger.LogInformation("The registered data-source connection resolver could not be checked ({ExceptionType})", ex.GetType().Name);
+
+            return;
+        }
+
+        if (resolver == null || resolver.GetType().Assembly == typeof(IDataSourceConnectionResolver).Assembly)
+        {
+            return;
+        }
+
+        logger.LogWarning(
+            "{Option} is on, but the registered {Resolver} is {ResolverType}, not Beacon's: the hold is enforced only inside Beacon's resolver, so data sources awaiting approval connect through it unheld. Have it refuse a source whose connection is not approved, or turn the option off",
+            nameof(BeaconConfiguration.ApprovalWorkflow) + "." + nameof(ApprovalWorkflowOptions.CoversDataSourceConnections),
+            nameof(IDataSourceConnectionResolver),
+            resolver.GetType().Name);
     }
 
     /// <summary>The counts, logged; each read on its own, so one that cannot be read leaves the others.</summary>

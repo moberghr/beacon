@@ -28,6 +28,10 @@ namespace Beacon.Core.HostData;
 /// The resolved string then passes <see cref="IDataSourceTransportPolicy.EnsureStoredConnectionAllowed"/>: a connection
 /// that does not authenticate the server over TLS is warned about once per data source, or refused. Every connector and
 /// service that connects with a data source's stored connection data goes through this resolver; nothing else decrypts it.
+/// A host that registers its own implementation before Beacon's (registration is <c>TryAdd</c>) takes over that duty: the
+/// approval hold on data-source connections is enforced only here, so its resolver must refuse a source awaiting approval
+/// itself (<see cref="DataSourceAwaitingApprovalException"/>), or the hold is not enforced. The API host warns at startup
+/// when the hold is on and the resolver is not Beacon's.
 /// </summary>
 public interface IDataSourceConnectionResolver
 {

@@ -118,7 +118,8 @@ public class SqlExecutionPathCoverageTests
         ["src/Beacon.Core/Services/MigrationService.cs"] = "the migration writer's connection to its write target",
         ["src/Beacon.Core/Services/Providers/DataSourceTransportStatus.cs"] = "the transport badge, connects to nothing",
         ["src/Beacon.Core/Services/Validation/DataSourceConfiguredDatabase.cs"] = "reads the configured database's name, connects to nothing",
-        ["src/Beacon.Core/HostData/HostReadOnlyLoginCheck.cs"] = "the startup check of a host source's read-only login: fixed catalog SQL, outside the gate"
+        ["src/Beacon.Core/HostData/HostReadOnlyLoginCheck.cs"] = "the startup check of a host source's read-only login: fixed catalog SQL, outside the gate",
+        ["src/Beacon.Api/ApprovalWorkflowStartupNote.cs"] = "the startup warning that the registered resolver is not Beacon's, connects to nothing"
     };
 
     // The production files that name DbConnectionFactory (a driver connection from a connection string), and why.

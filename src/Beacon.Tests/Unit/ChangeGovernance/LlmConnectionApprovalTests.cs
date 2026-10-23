@@ -15,6 +15,7 @@ using Beacon.Tests.Common;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using Npgsql;
@@ -83,6 +84,21 @@ public class LlmConnectionApprovalTests
         harness.Audit.Of(SecurityAuditActions.AdminSettingsChanged).Should().ContainSingle();
         harness.History().Select(x => x.SettingKey).Should().NotContain(x => x == "LLM.Provider" || x == "LLM.Endpoint" || x == "LLM.Model" || x == "LLM.ApiKey");
         harness.Updater.Applied.Should().Equal((AiProvider.OpenAI, true));
+    }
+
+    [Test]
+    public async Task AMixedSave_WhoseAfterCommitFails_StandsAndLogsTheTypeOnly()
+    {
+        var harness = new Harness();
+        harness.StoreConnection();
+        harness.Updater.Fails = true;
+
+        await harness.Handler(Ben).Handle(ChangeOfProvider() with { BaseUrl = "https://beacon.new.example" }, CancellationToken.None);
+        harness.Store.Commit();
+
+        harness.Store.Requests.Should().ContainSingle().Which.Status.Should().Be(ApprovalStatus.Pending);
+        harness.Log.Entries.Should().ContainSingle(x => x.Level == LogLevel.Error)
+            .Which.Message.Should().Contain("InvalidOperationException").And.NotContain("could not be created");
     }
 
     [Test]
@@ -643,6 +659,8 @@ public class LlmConnectionApprovalTests
 
         public RecordingUpdater Updater { get; } = new();
 
+        public LogRecorder Log { get; } = new();
+
         public MemoryCache Cache { get; } = new(new MemoryCacheOptions());
 
         public ILlmProviderCatalog ApprovalCatalog { get; set; } = Catalog(AiProvider.OpenAI, AiProvider.AzureOpenAI, AiProvider.Claude);
@@ -742,7 +760,8 @@ public class LlmConnectionApprovalTests
                 Settings(),
                 cache: Cache,
                 stager: Stager,
-                connectionLock: Lock);
+                connectionLock: Lock,
+                logger: Log.For<LlmConnectionApproval>());
         }
 
         private static IBeaconUserContext UserContext(string caller)

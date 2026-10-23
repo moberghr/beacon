@@ -9,6 +9,7 @@ using Beacon.Core.SecurityAudit;
 using Beacon.Core.Services;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
@@ -125,7 +126,8 @@ internal static class TestChangeApprovals
         ConnectionDefinitionHasher? hasher = null,
         IEncryptionService? encryption = null,
         IAppSettingsStager? stager = null,
-        ILlmConnectionLock? connectionLock = null)
+        ILlmConnectionLock? connectionLock = null,
+        ILogger<LlmConnectionApproval>? logger = null)
     {
         factory ??= Mock.Of<IDbContextFactory<BeaconContext>>(MockBehavior.Strict);
         configuration ??= new BeaconConfiguration();
@@ -144,7 +146,7 @@ internal static class TestChangeApprovals
             audit,
             configuration,
             connectionLock ?? new RecordingLlmConnectionLock(),
-            NullLogger<LlmConnectionApproval>.Instance);
+            logger ?? NullLogger<LlmConnectionApproval>.Instance);
     }
 
     /// <summary>The data-source connection parts of the approval service for tests that decide no connection: asking them fails.</summary>

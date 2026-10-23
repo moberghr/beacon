@@ -5,6 +5,7 @@ using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.HostData;
 using Beacon.Core.Models.Queries;
 using Beacon.Core.Services;
 using Beacon.Tests.Common;
@@ -243,6 +244,27 @@ public class ApprovalWorkflowStartupNoteTests
         user.UserRoles.Add(new BeaconUserRole { Role = new BeaconRole { Name = "Approver", IsSystemRole = true, Level = RoleService.RoleLevels.Functional } });
 
         return user;
+    }
+
+    [TestCase(true, 1)]
+    [TestCase(false, 0)]
+    public void AHostsOwnConnectionResolver_IsWarnedAbout_OnlyWhileTheHoldIsOn(bool covers, int warnings)
+    {
+        using var recorder = new LogRecorder();
+        var services = new ServiceCollection()
+            .AddSingleton(Mock.Of<IDataSourceConnectionResolver>())
+            .BuildServiceProvider();
+
+        ApprovalWorkflowStartupNote.NoteConnectionResolver(
+            recorder.For<ApprovalWorkflowStartupNote>(),
+            new ApprovalWorkflowOptions { Enabled = true, CoversDataSourceConnections = covers },
+            services);
+
+        recorder.Entries.Where(x => x.Level == LogLevel.Warning).Should().HaveCount(warnings);
+        if (covers)
+        {
+            recorder.Contains("CoversDataSourceConnections").Should().BeTrue();
+        }
     }
 
     [TestCase(false, LogLevel.Warning)]
