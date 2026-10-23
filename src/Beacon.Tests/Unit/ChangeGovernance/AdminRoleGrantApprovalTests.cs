@@ -321,6 +321,62 @@ public class AdminRoleGrantApprovalTests
         harness.Audit.Events.Select(x => x.Action).Should().Equal(SecurityAuditActions.ChangeRejected);
     }
 
+    // Who decides is read again inside the decision's transaction, after the user's row is taken, from the user store as it
+    // is now: an Admin disabled, or left with the Approver role alone, while the decision waited does not decide; the grant
+    // stays pending and nothing is granted.
+    [TestCase("approve", "disabled")]
+    [TestCase("approve", "admin role replaced by approver")]
+    [TestCase("reject", "disabled")]
+    [TestCase("reject", "admin role replaced by approver")]
+    public async Task ADecision_ByAnAdminRevokedWhileItWaited_IsRefused_AndGrantsNothing(string decision, string revocation)
+    {
+        var harness = new Harness();
+        var grant = harness.PendingGrant(Ada);
+        var ben = harness.Store.Users.Single(x => x.Id == BenId);
+        var reviewers = new RevokingReviewerAuthority(TestChangeApprovals.Reviewers(), () =>
+        {
+            if (revocation == "disabled")
+            {
+                ben.IsEnabled = false;
+                return;
+            }
+
+            ben.UserRoles.Clear();
+            harness.Holds(BenId, ApproverRole);
+        });
+        var decisions = harness.Decisions(Ben, TestPermissions.Admin, reviewers);
+
+        Func<Task> act = decision == "approve"
+            ? () => decisions.ApproveAsync(grant.Id, null, grant.PayloadHash, CancellationToken.None)
+            : () => decisions.RejectAsync(grant.Id, null, CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(
+            revocation == "disabled" ? ChangeApprovalService.ReviewerInactiveMessage : ChangeApprovalService.AdminGrantLiveAdminRequiredMessage);
+        reviewers.ReadInsideTheTransaction.Should().BeTrue();
+        grant.Status.Should().Be(ApprovalStatus.Pending);
+        harness.Store.Saved.OfType<BeaconUserRole>().Should().BeEmpty();
+        harness.Store.Users.Single(x => x.Id == CidId).SecurityStamp.Should().Be("before");
+        harness.Audit.Events.Should().BeEmpty();
+    }
+
+    [TestCase("approve")]
+    [TestCase("reject")]
+    public async Task ADecision_ByAnAdminWhoStillIsOne_IsDecided(string decision)
+    {
+        var harness = new Harness();
+        var grant = harness.PendingGrant(Ada);
+        var reviewers = new RevokingReviewerAuthority(TestChangeApprovals.Reviewers(), () => { });
+        var decisions = harness.Decisions(Ben, TestPermissions.Admin, reviewers);
+
+        var result = decision == "approve"
+            ? await decisions.ApproveAsync(grant.Id, null, grant.PayloadHash, CancellationToken.None)
+            : await decisions.RejectAsync(grant.Id, null, CancellationToken.None);
+
+        reviewers.Reads.Should().Be(1);
+        result.Status.Should().Be(decision == "approve" ? ApprovalStatus.Approved : ApprovalStatus.Rejected);
+        grant.Status.Should().Be(result.Status);
+    }
+
     // What the user signs in with, or whether they may, changed after the grant was submitted: the grant is superseded in
     // the same save, its requester is told, and it can no longer be approved.
     [TestCase("userName")]
@@ -520,7 +576,7 @@ public class AdminRoleGrantApprovalTests
                 Grants(TestChangeApprovals.Caller(caller, AdaId, isAdmin: true)));
         }
 
-        public ChangeApprovalService Decisions(string caller, IBeaconPermissionAccessor permissions)
+        public ChangeApprovalService Decisions(string caller, IBeaconPermissionAccessor permissions, IReviewerAuthority? reviewers = null)
         {
             return new ChangeApprovalService(
                 Store.Factory(),
@@ -531,6 +587,7 @@ public class AdminRoleGrantApprovalTests
                 Configuration,
                 Audit,
                 permissions,
+                reviewers ?? TestChangeApprovals.ReviewerUnchanged,
                 TestChangeApprovals.NoDefinitions,
                 TestChangeApprovals.NoProbe,
                 TestChangeApprovals.Llm(),

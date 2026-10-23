@@ -523,8 +523,9 @@ internal sealed class ChangeApprovalService(
 
     // Who decides, checked again inside the decision's transaction, after the resource's lock (a decision may wait for it),
     // from the user store as it is now: the reviewer's own row taken, then still an active user and still holding what the
-    // kind needs (a live Admin for the LLM connection; the Approver permission, or Admin, for every other kind wherever the
-    // route's permission filter demands it). A refusal rolls the attempt back; every retried attempt checks again.
+    // kind needs (a live Admin for the LLM connection and a grant of the Admin role; the Approver permission, or Admin, for
+    // every other kind wherever the route's permission filter demands it). A refusal rolls the attempt back; every retried
+    // attempt checks again.
     private async Task EnsureReviewerStillDecidesAsync(BeaconContext context, BeaconActor reviewer, ChangeApprovalKind kind, int requestId, CancellationToken cancellationToken)
     {
         var live = await reviewerAuthority.ReadLockedAsync(context, reviewer, cancellationToken);
@@ -550,6 +551,11 @@ internal sealed class ChangeApprovalService(
         if (kind == ChangeApprovalKind.LlmConnection)
         {
             return live.Permissions.IsAdmin ? null : LiveAdminRequiredMessage;
+        }
+
+        if (kind == ChangeApprovalKind.AdminRoleGrant)
+        {
+            return live.Permissions.IsAdmin ? null : AdminGrantLiveAdminRequiredMessage;
         }
 
         var approverRequired = configuration.Authorization.Enabled || configuration.UserManagement.Enabled;
