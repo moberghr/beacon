@@ -1,5 +1,7 @@
 using Beacon.Core.Worker;
 using Warp.Core.Handlers;
+using Warp.Core.Concurrency;
+using Warp.Core.Timeout;
 
 namespace Beacon.SampleProject.Warp.Jobs;
 
@@ -8,6 +10,8 @@ namespace Beacon.SampleProject.Warp.Jobs;
 // chunks each project's latest documentation, optionally prepends an LLM-generated contextual blurb, embeds
 // the chunks, and upserts them into McpDocChunk + McpEmbedding.
 
+[Timeout(3600)]
+[Mutex("mcp-docchunk-reindex", Mode = ConcurrencyMode.Skip)]
 public sealed class ReindexDocChunksJob : IJob;
 
 public sealed class ReindexDocChunksJobHandler(IJobService jobService) : IJobHandler<ReindexDocChunksJob>

@@ -1,11 +1,15 @@
 using Beacon.Core.Notifications;
 using Warp.Core.Handlers;
+using Warp.Core.Concurrency;
+using Warp.Core.Timeout;
 
 namespace Beacon.SampleProject.Warp.Jobs;
 
 // Encrypts recipient secrets stored before they were encrypted at rest. Idempotent. Never enqueued automatically: an
 // operator runs it once, after every node runs a version that reads encrypted secrets, because a version older than
 // that cannot read what it writes. It fails (and Warp shows it) if any recipient could not be encrypted.
+[Timeout(3600)]
+[Mutex("encrypt-recipient-secrets", Mode = ConcurrencyMode.Wait)]
 public sealed class EncryptRecipientSecretsJob : IJob;
 
 public sealed class EncryptRecipientSecretsJobHandler(
