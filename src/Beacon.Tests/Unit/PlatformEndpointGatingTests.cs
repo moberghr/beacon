@@ -78,8 +78,26 @@ public class PlatformEndpointGatingTests
     }
 
     [Test]
-    public async Task Health_OverThePerIpLimit_Answers429WithRetryAfter()
+    public async Task Health_CachedAnswers_AreNeverThrottled()
     {
+        var (host, factory) = await StartHealthHostAsync();
+        await using var _host = host;
+        using var client = host.GetTestClient();
+        HttpResponseMessage? last = null;
+
+        for (var i = 0; i < 125; i++)
+        {
+            last = await client.GetAsync("/beacon/api/health");
+        }
+
+        last!.StatusCode.Should().Be(HttpStatusCode.ServiceUnavailable);
+        factory.Verify(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public async Task Health_ProbesOverThePerIpLimit_Answer429WithRetryAfter()
+    {
+        HealthProbeCache.SetTtl(TimeSpan.Zero);
         var (host, _) = await StartHealthHostAsync();
         await using var _host = host;
         using var client = host.GetTestClient();
@@ -92,6 +110,18 @@ public class PlatformEndpointGatingTests
 
         last!.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
         last.Headers.RetryAfter.Should().NotBeNull();
+    }
+
+    [Test]
+    public async Task Health_ConcurrentRequestsAtExpiry_ShareOneProbe()
+    {
+        var (host, factory) = await StartHealthHostAsync();
+        await using var _host = host;
+        using var client = host.GetTestClient();
+
+        await Task.WhenAll(Enumerable.Range(0, 20).Select(_ => client.GetAsync("/beacon/api/health")));
+
+        factory.Verify(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Test]

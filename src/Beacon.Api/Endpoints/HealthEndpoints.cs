@@ -25,29 +25,50 @@ internal static class HealthEndpoints
                     return HealthResult(http, cachedHealthy);
                 }
 
-                using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
-                timeoutCts.CancelAfter(TimeSpan.FromSeconds(5));
-
+                // One probe at a time: callers arriving while one runs wait for it and share its outcome.
+                await HealthProbeCache.Gate.WaitAsync(cancellationToken);
                 try
                 {
-                    await using var context = await contextFactory.CreateDbContextAsync(timeoutCts.Token);
-                    var canConnect = await context.Database.CanConnectAsync(timeoutCts.Token);
-                    HealthProbeCache.Store(canConnect);
+                    if (HealthProbeCache.TryGetFresh(out cachedHealthy))
+                    {
+                        return HealthResult(http, cachedHealthy);
+                    }
 
-                    return HealthResult(http, canConnect);
+                    // The throttle guards the database probe only; a cached answer is never refused.
+                    if (!HealthRateLimiter.TryAcquire(http, out var retryAfterSeconds))
+                    {
+                        http.Response.Headers.RetryAfter = retryAfterSeconds.ToString(CultureInfo.InvariantCulture);
+
+                        return Results.StatusCode(StatusCodes.Status429TooManyRequests);
+                    }
+
+                    using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+                    timeoutCts.CancelAfter(TimeSpan.FromSeconds(5));
+
+                    try
+                    {
+                        await using var context = await contextFactory.CreateDbContextAsync(timeoutCts.Token);
+                        var canConnect = await context.Database.CanConnectAsync(timeoutCts.Token);
+                        HealthProbeCache.Store(canConnect);
+
+                        return HealthResult(http, canConnect);
+                    }
+                    catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+                    {
+                        // Log server-side so a flapping readiness probe has a recorded cause; the response
+                        // itself stays generic and must not leak connection details.
+                        loggerFactory.CreateLogger("Beacon.Health").LogError(ex, "Health check database connectivity failed.");
+                    }
+
+                    HealthProbeCache.Store(false);
+
+                    return HealthResult(http, false);
                 }
-                catch (Exception ex) when (!cancellationToken.IsCancellationRequested)
+                finally
                 {
-                    // Log server-side so a flapping readiness probe has a recorded cause; the response
-                    // itself stays generic and must not leak connection details.
-                    loggerFactory.CreateLogger("Beacon.Health").LogError(ex, "Health check database connectivity failed.");
+                    HealthProbeCache.Gate.Release();
                 }
-
-                HealthProbeCache.Store(false);
-
-                return HealthResult(http, false);
             })
-            .AddEndpointFilter<HealthRateLimitFilter>()
             .AllowAnonymous()
             .DisableAntiforgery()
             .WithName("Health")
@@ -77,7 +98,8 @@ internal static class HealthEndpoints
 /// </summary>
 internal static class HealthProbeCache
 {
-    private static readonly long TtlTicks = Stopwatch.Frequency * 2;
+    private static long _ttlTicks = Stopwatch.Frequency * 2;
+    public static readonly SemaphoreSlim Gate = new(1, 1);
     private static ProbeOutcome? _last;
 
     public static bool TryGetFresh(out bool healthy)
@@ -85,7 +107,7 @@ internal static class HealthProbeCache
         var last = Volatile.Read(ref _last);
         healthy = last?.Healthy ?? false;
 
-        return last != null && Stopwatch.GetTimestamp() - last.Ticks < TtlTicks;
+        return last != null && Stopwatch.GetTimestamp() - last.Ticks < Volatile.Read(ref _ttlTicks);
     }
 
     public static void Store(bool healthy)
@@ -96,17 +118,23 @@ internal static class HealthProbeCache
     internal static void Reset()
     {
         Volatile.Write(ref _last, null);
+        Volatile.Write(ref _ttlTicks, Stopwatch.Frequency * 2);
+    }
+
+    internal static void SetTtl(TimeSpan ttl)
+    {
+        Volatile.Write(ref _ttlTicks, (long)(ttl.TotalSeconds * Stopwatch.Frequency));
     }
 
     private sealed record ProbeOutcome(long Ticks, bool Healthy);
 }
 
 /// <summary>
-/// A per-IP fixed window for the anonymous health route: 120 requests per minute, far above a load-balancer probe and far
-/// below a flood. Self-contained on purpose (no <c>AddRateLimiter</c>), like the login throttle; a general
-/// <c>Beacon:RateLimits</c> mechanism can replace it later.
+/// A per-IP fixed window on the database probe of the anonymous health route: 120 probes per minute. It is consulted only
+/// when a probe would actually run, so a cached answer (what a flood and the load-balancer probe both get) is never refused.
+/// Self-contained on purpose (no <c>AddRateLimiter</c>), like the login throttle.
 /// </summary>
-internal sealed class HealthRateLimitFilter : IEndpointFilter
+internal static class HealthRateLimiter
 {
     private const int PermitLimit = 120;
     private static readonly TimeSpan Window = TimeSpan.FromMinutes(1);
@@ -124,21 +152,20 @@ internal sealed class HealthRateLimitFilter : IEndpointFilter
                         AutoReplenishment = true
                     }));
 
-    public ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
+    public static bool TryAcquire(HttpContext httpContext, out int retryAfterSeconds)
     {
-        var httpContext = context.HttpContext;
         var remoteIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
         using var lease = Limiter.AttemptAcquire(remoteIp);
+        retryAfterSeconds = 0;
         if (lease.IsAcquired)
         {
-            return next(context);
+            return true;
         }
 
         var retryAfter = lease.TryGetMetadata(MetadataName.RetryAfter, out var value) ? value : Window;
-        var seconds = Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds));
-        httpContext.Response.Headers.RetryAfter = seconds.ToString(CultureInfo.InvariantCulture);
+        retryAfterSeconds = Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds));
 
-        return ValueTask.FromResult<object?>(Results.StatusCode(StatusCodes.Status429TooManyRequests));
+        return false;
     }
 }
 
