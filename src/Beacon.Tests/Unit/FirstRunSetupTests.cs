@@ -599,6 +599,84 @@ public class FirstRunSetupTests
         context.Response.Headers.Location.ToString().Should().Be("/beacon/setup");
     }
 
+    [TestCase("/beacon/setup")]
+    [TestCase("/beacon/api/setup/status")]
+    public async Task FirstRunMiddleware_LetsTheSetupPageAndItsApiThrough(string path)
+    {
+        var (reached, context) = await RunFirstRunMiddlewareAsync(path, FirstRunUsers());
+
+        reached.Should().BeTrue();
+        context.Response.StatusCode.Should().NotBe(StatusCodes.Status302Found);
+    }
+
+    [TestCase("/beacon/reports/setup-notes")]
+    [TestCase("/beacon/api/setups")]
+    public async Task FirstRunMiddleware_RedirectsAPathThatOnlyContainsSetup(string path)
+    {
+        var (reached, context) = await RunFirstRunMiddlewareAsync(path, FirstRunUsers());
+
+        reached.Should().BeFalse();
+        context.Response.Headers.Location.ToString().Should().Be("/beacon/setup");
+    }
+
+    [Test]
+    public async Task FirstRunMiddleware_AsksTheDatabaseOnlyUntilFirstRunIsOver()
+    {
+        var users = new Mock<IUserManagementService>();
+        users.Setup(x => x.IsFirstRunAsync(It.IsAny<CancellationToken>())).ReturnsAsync(false);
+        var configuration = new BeaconConfiguration();
+        configuration.EnableUserManagement();
+        var middleware = new FirstRunSetupMiddleware(_ => Task.CompletedTask, configuration, "/beacon");
+
+        for (var request = 0; request < 3; request++)
+        {
+            var context = new DefaultHttpContext { RequestServices = new ServiceCollection().BuildServiceProvider() };
+            context.Request.Path = "/beacon/projects";
+            await middleware.InvokeAsync(context, users.Object);
+        }
+
+        users.Verify(x => x.IsFirstRunAsync(It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public async Task FirstRunMiddleware_KeepsAskingWhileFirstRunLasts()
+    {
+        var users = FirstRunUsers();
+        var configuration = new BeaconConfiguration();
+        configuration.EnableUserManagement();
+        var middleware = new FirstRunSetupMiddleware(_ => Task.CompletedTask, configuration, "/beacon");
+
+        for (var request = 0; request < 2; request++)
+        {
+            var context = new DefaultHttpContext { RequestServices = new ServiceCollection().BuildServiceProvider() };
+            context.Request.Path = "/beacon/projects";
+            await middleware.InvokeAsync(context, users.Object);
+        }
+
+        users.Verify(x => x.IsFirstRunAsync(It.IsAny<CancellationToken>()), Times.Exactly(2));
+    }
+
+    private static async Task<(bool Reached, HttpContext Context)> RunFirstRunMiddlewareAsync(string path, Mock<IUserManagementService> users)
+    {
+        var configuration = new BeaconConfiguration();
+        configuration.EnableUserManagement();
+        var reached = false;
+        var middleware = new FirstRunSetupMiddleware(
+            _ =>
+            {
+                reached = true;
+                return Task.CompletedTask;
+            },
+            configuration,
+            "/beacon");
+        var context = new DefaultHttpContext { RequestServices = new ServiceCollection().BuildServiceProvider() };
+        context.Request.Path = path;
+
+        await middleware.InvokeAsync(context, users.Object);
+
+        return (reached, context);
+    }
+
     [Test]
     public async Task Startup_Check_IsBoundToTheHostLifetime()
     {

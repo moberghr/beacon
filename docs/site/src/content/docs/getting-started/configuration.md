@@ -150,7 +150,7 @@ Bearer-token and external-login settings are code-only too, through `builder.Ser
 | `ConnectionStrings:{Name}` | string | none | The connection of a host-managed data source, which stores only the name and reads the string at call time |
 | `Beacon:Schema` | string | `beacon` | **Not configurable.** Any value other than `beacon` stops the host (see below). Leave it out |
 | `Beacon:BaseUrl` | string | none (the sample host falls back to `https://localhost:7187`) | Read by the sample host into `options.BaseUrl` |
-| `Beacon:PublicBaseUrl` | string (origin) | derived from the request | The origin advertised in the MCP discovery documents and the `WWW-Authenticate` challenge. Unset, it follows the request's `Host` header, which the client controls, and startup logs a Warning. Set it behind any proxy |
+| `Beacon:PublicBaseUrl` | string (origin) | derived from the request | The origin advertised in the MCP discovery documents and the `WWW-Authenticate` challenge. Unset, it follows the request's `Host` header, which the client controls, the documents are sent with `Cache-Control: no-store`, and startup logs a Warning. Set it behind any proxy |
 | `Beacon:ForwardedHeaders:Enabled` | bool | `false` | Sample host: apply `X-Forwarded-For` and `X-Forwarded-Proto` from known proxies |
 | `Beacon:ForwardedHeaders:KnownProxies` | string[] | empty | Sample host: proxy IP addresses to trust; entries that are not IP addresses are skipped, and an empty list trusts none |
 | `AllowedHosts` | string | None | Standard ASP.NET Core host filtering |
@@ -165,7 +165,7 @@ Beacon only supports the 'beacon' schema, but 'tenant_a' was configured.
 Remove Beacon:Schema (or set it to 'beacon') and move any existing Beacon tables into 'beacon'.
 ```
 
-`.UsePostgreSql(connectionString, schema)` and `.UseSqlServer(connectionString, schema)` accept a schema argument for the same reason only as `beacon`. On PostgreSQL the search path is `beacon,public`, so a pgvector extension installed in `public` resolves.
+`.UsePostgreSql(connectionString, schema)` and `.UseSqlServer(connectionString, schema)` accept a schema argument for the same reason only as `beacon`. On PostgreSQL the search path is `beacon,public`, so a pgvector extension installed in `public` resolves. Startup logs a Warning when every role can create objects in `public` (the default before PostgreSQL 15); run `REVOKE CREATE ON SCHEMA public FROM PUBLIC` unless every role that can connect is trusted.
 
 ### Forwarded headers
 

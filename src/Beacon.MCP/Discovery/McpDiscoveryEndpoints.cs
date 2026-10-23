@@ -34,6 +34,7 @@ public static class McpDiscoveryEndpoints
     private const string PublicBaseUrlConfigKey = "Beacon:PublicBaseUrl";
     private const string OidcConfigSection = "Beacon:Authentication:Oidc";
     private const string CacheControlValue = "public, max-age=3600";
+    private const string NoStoreCacheControlValue = "no-store";
 
     /// <summary>
     /// The exact anonymous discovery paths mapped by <see cref="MapMcpDiscovery"/>. Forwards to
@@ -173,7 +174,7 @@ public static class McpDiscoveryEndpoints
             McpDiscoveryDocuments.ResolveScopesSupported(options),
             options.ResourceName,
             options.ResourceDocumentation);
-        context.Response.Headers.CacheControl = CacheControlValue;
+        context.Response.Headers.CacheControl = CacheControlFor(configuration);
         return Results.Text(document.ToJsonString(), "application/json");
     }
 
@@ -191,7 +192,7 @@ public static class McpDiscoveryEndpoints
             options.ResourceDocumentation,
             options.ResourceName,
             mcpOptions?.ServerDescription);
-        context.Response.Headers.CacheControl = CacheControlValue;
+        context.Response.Headers.CacheControl = CacheControlFor(configuration);
         return Results.Text(document.ToJsonString(), "application/json");
     }
 
@@ -276,6 +277,14 @@ public static class McpDiscoveryEndpoints
                 "{Section}:ResourceDocumentation is not an absolute https URL — the discovery documents publish it as set, and MCP clients show it to people as a link. Set an https URL.",
                 McpProtectedResourceOptions.SectionName);
         }
+    }
+
+    // A document built from the request's own Host header differs per Host value, so a shared cache must not keep it.
+    internal static string CacheControlFor(IConfiguration configuration)
+    {
+        return string.IsNullOrWhiteSpace(configuration[PublicBaseUrlConfigKey])
+            ? NoStoreCacheControlValue
+            : CacheControlValue;
     }
 
     private static string ResolvePublicBaseUrl(HttpRequest request, IConfiguration configuration)

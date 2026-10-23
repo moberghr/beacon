@@ -71,7 +71,7 @@ public sealed class LoginFormAuthMiddleware(
 
         // Allow setup page and API when user management is enabled (first-run scenario)
         if (configuration.UserManagement.Enabled &&
-            path.Contains("/setup", StringComparison.OrdinalIgnoreCase))
+            MiddlewarePathHelper.IsUnderSegment(requestPath, _basePath, "/setup"))
         {
             return true;
         }
@@ -79,7 +79,7 @@ public sealed class LoginFormAuthMiddleware(
         // Allow all /api/ endpoints (REST API + SignalR hub + auth endpoints).
         // Endpoints opt into auth via .RequireAuthorization(); JSON 401 is returned
         // rather than an HTML redirect, which is wrong for JSON callers.
-        if (path.Contains("/api/", StringComparison.OrdinalIgnoreCase))
+        if (MiddlewarePathHelper.IsUnderSegment(requestPath, _basePath, "/api"))
         {
             return true;
         }
@@ -117,6 +117,6 @@ public sealed class LoginFormAuthMiddleware(
             return true;
         }
 
-        return MiddlewarePathHelper.IsStaticOrFrameworkPath(path);
+        return MiddlewarePathHelper.IsStaticOrFrameworkPath(path, _basePath);
     }
 }

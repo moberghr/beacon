@@ -40,7 +40,13 @@ internal sealed class SchemaGraphService(
             .ToListAsync(cancellationToken);
 
         var graph = SchemaGraph.Build(tables, relationships);
-        cache.Set(CacheKey(dataSourceId), graph, CacheExpiration);
+
+        // An id with no tables and no relationships (a data source never scanned, or one that does not exist) is not
+        // kept: caching it would let any id fill the cache.
+        if (tables.Count > 0 || relationships.Count > 0)
+        {
+            cache.Set(CacheKey(dataSourceId), graph, CacheExpiration);
+        }
 
         return graph;
     }
