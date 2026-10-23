@@ -51,6 +51,48 @@ public class ContractRuleHistoryTests
         live.Id.Should().NotBe(old.Id);
     }
 
+    [Test]
+    public async Task Update_CarriesUnchangedRulesForward_AndRetiresOnlyChangedOnes()
+    {
+        var store = new ChangeApprovalStore();
+        var unchanged = ChangeApprovalStore.Volume("same volume");
+        var changed = ChangeApprovalStore.Volume("old volume");
+        var contract = store.AddContract(unchanged, changed);
+        var unchangedId = unchanged.Id;
+
+        await UpdateHandler(store).Handle(
+            new UpdateDataContractCommand(contract.Id, ChangeApprovalStore.Warehouse, "public", "orders", contract.Name, null, contract.CronExpression, false, false, 80, [Volume("same volume"), Volume("new volume")]),
+            CancellationToken.None);
+        store.Commit();
+
+        unchanged.ArchivedTime.Should().BeNull("an unchanged rule is carried forward, not retired and re-created");
+        changed.ArchivedTime.Should().NotBeNull();
+        contract.Rules.Select(x => x.Name).Should().Equal("same volume", "new volume");
+        contract.Rules[0].Id.Should().Be(unchangedId);
+        store.Rules.Count(x => x.Name == "same volume").Should().Be(1);
+    }
+
+    [Test]
+    public async Task Update_OnAnotherDataSource_RetiresEveryRule_AndDropsTheResultsOfTheOldSource()
+    {
+        var store = new ChangeApprovalStore();
+        var earlier = ChangeApprovalStore.Volume("earlier volume");
+        earlier.ArchivedTime = DateTime.UtcNow.AddDays(-1);
+        var live = ChangeApprovalStore.Volume("volume");
+        var contract = store.AddContract(earlier, live);
+        store.Results.Add(new DataQualityRuleResult { Id = 901, DataQualityEvaluationId = 800, DataContractRuleId = earlier.Id, Passed = true });
+        store.Results.Add(new DataQualityRuleResult { Id = 902, DataQualityEvaluationId = 800, DataContractRuleId = live.Id, Passed = true });
+
+        await UpdateHandler(store).Handle(
+            new UpdateDataContractCommand(contract.Id, ChangeApprovalStore.Ledger, "public", "orders", contract.Name, null, contract.CronExpression, false, false, 80, [Volume("volume")]),
+            CancellationToken.None);
+        store.Commit();
+
+        live.ArchivedTime.Should().NotBeNull("a rule is not carried onto another data source");
+        store.Results.Should().BeEmpty("no result of the old data source stays readable through the retargeted contract");
+        contract.Rules.Should().ContainSingle().Which.Id.Should().NotBe(live.Id);
+    }
+
     [TestCase(false)]
     [TestCase(true)]
     public async Task Update_WhenAnotherSaveRetiredTheRulesMeanwhile_IsRefused_AndCommitsNothing(bool sqlServer)
@@ -59,6 +101,7 @@ public class ContractRuleHistoryTests
             .ThenRow(DBNull.Value)
             .ThenScalar(false)
             .ThenRow("public", "orders", 1, "id", 10)
+            .ThenRowsAffected(1)
             .ThenRow(StoredContract())
             .ThenRow(StoredVolumeRule())
             .ThenRowsAffected(0);
@@ -66,7 +109,7 @@ public class ContractRuleHistoryTests
         var act = () => CapturedHandler(capture).Handle(ContractUpdate(), CancellationToken.None);
 
         await act.Should().ThrowAsync<BeaconConflictException>().WithMessage(UpdateDataContractHandler.RulesReplacedMessage);
-        var retire = capture.Timeline.Should().ContainSingle(x => x.StartsWith("UPDATE", StringComparison.Ordinal)).Subject;
+        var retire = capture.Timeline.Should().ContainSingle(x => x.StartsWith("UPDATE", StringComparison.Ordinal) && x.Contains(sqlServer ? "[DataContractRules]" : "data_contract_rules")).Subject;
         retire.Should().Contain(sqlServer ? "[ArchivedTime] = @" : "archived_time = @")
             .And.Contain(sqlServer ? "[ArchivedTime] IS NULL" : "archived_time IS NULL", "a rule another save retired is not retired again");
         capture.Timeline.Should().NotContain(x => x.StartsWith("DELETE", StringComparison.Ordinal), "nothing is deleted");
@@ -122,11 +165,13 @@ public class ContractRuleHistoryTests
             Name = name,
             RuleType = DataContractRuleType.Volume,
             Configuration = """{"minRows":1}""",
+            Severity = DataContractSeverity.Medium,
+            Weight = 1.0,
             IsEnabled = true
         };
 
     private static UpdateDataContractCommand ContractUpdate() =>
-        new(ContractId, ChangeApprovalStore.Warehouse, "public", "orders", "orders contract", null, "0 * * * *", false, false, 80, [Volume("volume")]);
+        new(ContractId, ChangeApprovalStore.Warehouse, "public", "orders", "orders contract", null, "0 * * * *", false, false, 80, [Volume("renamed volume")]);
 
     // The contract as stored (no recorded creator or modifier) with no recipients: the contract's columns, then the (empty)
     // recipient join's.

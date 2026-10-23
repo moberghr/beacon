@@ -126,21 +126,21 @@ public class ChangeLockOrderTests
         capture.TransactionIsolationLevels.Should().BeEmpty();
     }
 
-    // The contract's rule retirement keeps its own transaction with the workflow off, but no row is taken in it.
+    // The contract's row is taken first in the save's transaction, also with the workflow off: saves of one contract take turns.
     [TestCase(false)]
     [TestCase(true)]
-    public async Task UpdateDataContract_WithTheWorkflowOff_TakesNoRow(bool sqlServer)
+    public async Task UpdateDataContract_WithTheWorkflowOff_TakesTheContractRowFirst(bool sqlServer)
     {
-        var capture = ContractChecks(Capture(sqlServer)).ThenNoRows();
+        var capture = ContractChecks(Capture(sqlServer)).ThenRowsAffected(1).ThenNoRows();
 
         var act = () => ContractHandler(capture, new BeaconConfiguration()).Handle(ContractUpdate(), CancellationToken.None);
 
         await act.Should().ThrowAsync<BeaconException>().WithMessage($"Data contract {ContractId} not found");
         var timeline = capture.Timeline;
-        timeline.Should().HaveCount(5);
+        timeline.Should().HaveCount(6);
         timeline[3].Should().Be(SqlCapture.TransactionBegun);
-        timeline[4].Should().StartWith("SELECT");
-        timeline.Should().NotContain(x => x.StartsWith("UPDATE", StringComparison.Ordinal));
+        timeline[4].Should().StartWith("UPDATE").And.Contain(sqlServer ? "[DataContracts]" : "data_contracts");
+        timeline[5].Should().StartWith("SELECT");
     }
 
     private enum Table

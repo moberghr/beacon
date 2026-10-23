@@ -94,11 +94,9 @@ internal sealed class UpdateDataContractHandler(
         // the retirement, the new rules and the save share one explicit transaction.
         await using var tx = await context.Database.BeginTransactionAsync(cancellationToken);
 
-        // Under the workflow the contract's row first, as a decision on its Custom SQL rules takes it.
-        if (requester != null)
-        {
-            await CustomSqlChangeApproval.LockAsync(context, request.DataContractId, cancellationToken);
-        }
+        // The contract's row first, as a decision on its Custom SQL rules takes it: saves of one contract take turns, so a save
+        // always reads the rules the save before it left.
+        await CustomSqlChangeApproval.LockAsync(context, request.DataContractId, cancellationToken);
 
         var contract = await context.DataContracts
             .Include(c => c.Recipients)
@@ -141,25 +139,7 @@ internal sealed class UpdateDataContractHandler(
         contract.AlertOnFailure = request.AlertOnFailure;
         contract.FailureThresholdScore = request.FailureThresholdScore;
 
-        // Replace rules: the existing ones are retired (they and their results stay), the new ones added. Each rule read
-        // above is retired once: one another save retired meanwhile means its rules replaced these, refused.
-        if (replaced.Count > 0)
-        {
-            var replacedIds = replaced
-                .Select(x => x.Id)
-                .ToList();
-            var retiredTime = timeProvider.GetUtcNow().UtcDateTime;
-            var retired = await context.DataContractRules
-                .Where(x => x.DataContractId == request.DataContractId)
-                .Where(x => replacedIds.Contains(x.Id))
-                .ExecuteUpdateAsync(x => x.SetProperty(y => y.ArchivedTime, retiredTime), cancellationToken);
-            if (retired != replaced.Count)
-            {
-                throw new BeaconConflictException(RulesReplacedMessage);
-            }
-        }
-
-        contract.Rules = request.Rules
+        var definitions = request.Rules
             .Select((x, i) =>
                 new DataContractRule
                 {
@@ -172,6 +152,63 @@ internal sealed class UpdateDataContractHandler(
                     Weight = x.Weight,
                     IsEnabled = x.IsEnabled
                 })
+            .ToList();
+
+        // On the same data source a rule whose definition is unchanged stays as it is (one row, not a retired copy and a new
+        // one per save); only changed and removed rules are retired. A rule's results are never shown under another data
+        // source: a retarget keeps none of them.
+        var carriedIds = new Dictionary<int, int>();
+        if (request.DataSourceId == replacedDataSourceId)
+        {
+            for (var i = 0; i < definitions.Count; i++)
+            {
+                var match = replaced.FirstOrDefault(x => !carriedIds.ContainsValue(x.Id) && SameDefinition(x, definitions[i]));
+                if (match != null)
+                {
+                    carriedIds[i] = match.Id;
+                }
+            }
+        }
+        else
+        {
+            var everRuleIds = await context.DataContractRules
+                .IgnoreQueryFilters()
+                .Where(x => x.DataContractId == request.DataContractId)
+                .Select(x => x.Id)
+                .ToListAsync(cancellationToken);
+            await context.DataQualityRuleResults
+                .Where(x => everRuleIds.Contains(x.DataContractRuleId))
+                .ExecuteDeleteAsync(cancellationToken);
+        }
+
+        // Replace rules: the changed and removed ones are retired (they and their results stay), the new ones added. Each rule
+        // read above is retired once: one another save retired meanwhile means its rules replaced these, refused.
+        var retiring = replaced
+            .Where(x => !carriedIds.ContainsValue(x.Id))
+            .Select(x => x.Id)
+            .ToList();
+        if (retiring.Count > 0)
+        {
+            var retiredTime = timeProvider.GetUtcNow().UtcDateTime;
+            var retired = await context.DataContractRules
+                .Where(x => x.DataContractId == request.DataContractId)
+                .Where(x => retiring.Contains(x.Id))
+                .ExecuteUpdateAsync(x => x.SetProperty(y => y.ArchivedTime, retiredTime), cancellationToken);
+            if (retired != retiring.Count)
+            {
+                throw new BeaconConflictException(RulesReplacedMessage);
+            }
+        }
+
+        var carriedValues = carriedIds.Values.ToList();
+        var carried = carriedValues.Count == 0
+            ? []
+            : await context.DataContractRules
+                .Where(x => x.DataContractId == request.DataContractId)
+                .Where(x => carriedValues.Contains(x.Id))
+                .ToListAsync(cancellationToken);
+        contract.Rules = definitions
+            .Select((x, i) => carriedIds.TryGetValue(i, out var id) ? carried.First(y => y.Id == id) : x)
             .ToList();
         CustomSqlChangeApproval.CarryApprovals(contract, replaced, replacedDataSourceId, governed: requester != null);
         var submission = await changeApproval.SubmitAsync(context, requester, contract, replaced, replacedDataSourceId, cancellationToken);
@@ -202,6 +239,18 @@ internal sealed class UpdateDataContractHandler(
         {
             await scheduler.RemoveDataQualityJob(contract.Id, contract.Name);
         }
+    }
+
+    private static bool SameDefinition(DataContractRule stored, DataContractRule proposed)
+    {
+        return stored.Name == proposed.Name
+            && stored.Description == proposed.Description
+            && stored.RuleType == proposed.RuleType
+            && stored.ColumnName == proposed.ColumnName
+            && stored.Configuration == proposed.Configuration
+            && stored.Severity == proposed.Severity
+            && stored.Weight == proposed.Weight
+            && stored.IsEnabled == proposed.IsEnabled;
     }
 }
 
