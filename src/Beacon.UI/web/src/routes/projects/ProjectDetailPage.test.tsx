@@ -359,6 +359,30 @@ describe('ProjectDetailPage access', () => {
     expect(await screen.findByRole('button', { name: /set token for ledger-api/i })).toBeInTheDocument();
   });
 
+  it('marks a repository whose last scan hit a limit as partial, with the reasons', async () => {
+    const repositories = [
+      {
+        id: 21, name: 'ledger-api', url: 'https://example.test/ledger-api', scanStatus: 'Completed', lastScanAt: null,
+        referenceCount: 4, hasAccessToken: false, partialScan: true, partialScanReasons: ['only the first 3 of 7 files were scanned'],
+      },
+      {
+        id: 22, name: 'billing-api', url: 'https://example.test/billing-api', scanStatus: 'Completed', lastScanAt: null,
+        referenceCount: 9, hasAccessToken: false, partialScan: false, partialScanReasons: [],
+      },
+    ];
+    mswServer.use(
+      signedIn([]),
+      http.get('*/beacon/api/projects/5', () => HttpResponse.json(project({ repositories }))),
+    );
+
+    renderPage();
+    fireEvent.click(await screen.findByRole('tab', { name: /repositories/i }));
+
+    expect(await screen.findByText('A repository was only partly scanned')).toBeInTheDocument();
+    expect(screen.getByText(/only the first 3 of 7 files were scanned/)).toBeInTheDocument();
+    expect(screen.getAllByText('Partial')).toHaveLength(1);
+  });
+
   it('never shows the access card or the projects sharing its sources to a non-Admin, even a project admin', async () => {
     mswServer.use(
       signedIn([]),

@@ -13,6 +13,7 @@ import {
   KPI,
   KPIGrid,
   PageHeader,
+  Pill,
   Seg,
 } from '@/components/beacon';
 import { DataTable, type Column } from '@/components/data/DataTable';
@@ -532,7 +533,18 @@ function RepositoriesTab({ repositories, canSetToken }: { repositories: ProjectR
         </div>
       ),
     },
-    { key: 'status', header: 'Status', render: r => <span className="text-text-muted">{r.scanStatus ?? '—'}</span> },
+    {
+      key: 'status',
+      header: 'Status',
+      render: r => (
+        <span className="inline-flex flex-wrap items-center gap-1.5">
+          <span className="text-text-muted">{r.scanStatus ?? '—'}</span>
+          {r.partialScan && (
+            <Pill tone="warn" title={(r.partialScanReasons ?? []).join('; ')}>Partial</Pill>
+          )}
+        </span>
+      ),
+    },
     { key: 'refs', header: 'References', render: r => formatNumber(r.referenceCount) },
     {
       key: 'lastScan',
@@ -559,8 +571,29 @@ function RepositoriesTab({ repositories, canSetToken }: { repositories: ProjectR
     },
   ];
 
+  // A scan that hit a limit (files, file size, time) completes with only part of the references: say so, and why.
+  const partial = repositories.filter(r => r.partialScan);
+
   return (
     <>
+      {partial.length > 0 && (
+        <CardBody>
+          <Banner
+            tone="warn"
+            icon={<AlertTriangle />}
+            title={partial.length === 1 ? 'A repository was only partly scanned' : 'Some repositories were only partly scanned'}
+            sub={
+              <ul className="space-y-0.5">
+                {partial.map(r => (
+                  <li key={r.id}>
+                    <span className="font-medium text-text">{r.name}</span>: {(r.partialScanReasons ?? []).join('; ')}.
+                  </li>
+                ))}
+              </ul>
+            }
+          />
+        </CardBody>
+      )}
       <CardBody flush>
         <DataTable
           columns={columns}

@@ -42,6 +42,10 @@ export interface ProjectRepositoryEntry {
   lastScanAt: string | null;
   referenceCount: number;
   hasAccessToken: boolean;
+  /** The last scan completed but hit a limit (files, file size or time): the references are incomplete. */
+  partialScan?: boolean;
+  /** Why the last scan was partial; empty for a full scan. */
+  partialScanReasons?: string[];
 }
 
 export interface ProjectDetailEntry {

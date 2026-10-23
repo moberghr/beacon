@@ -19588,6 +19588,8 @@ export interface ProjectRepositoryEntry {
   lastScanAt: Date | null;
   referenceCount: number;
   hasAccessToken: boolean;
+  partialScan?: boolean;
+  partialScanReasons?: string[];
 
   [key: string]: any;
 }
@@ -20018,6 +20020,13 @@ export interface RejectAiActorPlanResult {
   [key: string]: any;
 }
 
+export interface RepositoryPartialScan {
+  repositoryId: number;
+  reasons: string[];
+
+  [key: string]: any;
+}
+
 export interface RequestPlanRevisionResult {
   success?: boolean;
   originalPlanId?: number;
@@ -20105,6 +20114,7 @@ export interface RunMigrationJobResult {
 export interface ScanAllRepositoriesResult {
   scannedCount: number;
   errors: string[];
+  partialScans?: RepositoryPartialScan[];
 
   [key: string]: any;
 }
