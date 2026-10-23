@@ -58,13 +58,6 @@ internal sealed class DocChunkIndexingService(
             return;
         }
 
-        var settings = await settingsProvider.GetSettingsAsync(ct);
-        if (!settings.EnableSemanticRetrieval)
-        {
-            logger.LogInformation("Semantic retrieval disabled; skipping MCP doc-chunk re-index.");
-            return;
-        }
-
         List<int> projectIds;
         {
             await using var context = await contextFactory.CreateDbContextAsync(ct);
@@ -96,10 +89,19 @@ internal sealed class DocChunkIndexingService(
         }
 
         var failed = 0;
+        var skipped = 0;
         foreach (var projectId in projectIds)
         {
             try
             {
+                // Each project under its own effective settings: its opt-out of semantic or contextual retrieval holds.
+                var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId, ct);
+                if (!settings.EnableSemanticRetrieval)
+                {
+                    skipped++;
+                    continue;
+                }
+
                 await IndexProjectAsync(projectId, settings, ct);
             }
             catch (OperationCanceledException)
@@ -114,12 +116,17 @@ internal sealed class DocChunkIndexingService(
             }
         }
 
+        if (skipped > 0)
+        {
+            logger.LogInformation("Semantic retrieval disabled for {Skipped} of {Total} project(s); their doc chunks were not re-indexed.", skipped, projectIds.Count);
+        }
+
         // A per-project failure must not leave the chunk store silently half-populated behind a green job.
         // If EVERY project failed, throw so the job is marked Failed and investigated (§6.4 — retries off).
-        if (failed > 0 && failed == projectIds.Count)
+        if (failed > 0 && failed == projectIds.Count - skipped)
         {
             throw new InvalidOperationException(
-                $"MCP doc-chunk re-index failed for all {projectIds.Count} project(s) — chunk store not populated.");
+                $"MCP doc-chunk re-index failed for all {failed} indexed project(s) — chunk store not populated.");
         }
 
         if (failed > 0)
@@ -135,7 +142,7 @@ internal sealed class DocChunkIndexingService(
             return;
         }
 
-        var settings = await settingsProvider.GetSettingsAsync(ct);
+        var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId, ct);
         if (!settings.EnableSemanticRetrieval)
         {
             return;

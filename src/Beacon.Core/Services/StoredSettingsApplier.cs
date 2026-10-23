@@ -10,7 +10,8 @@ namespace Beacon.Core.Services;
 /// and stored LLM limits (concurrency, requests and tokens per minute, whether those are enforced) replace the configured
 /// ones only when an Admin stored them (<see cref="AppSettingsData.LlmLimitsStored"/>), also without a stored provider (<see cref="ILlmConfigurationUpdater.UpdateLimits"/>). Without Beacon.AI there is no <see cref="ILlmConfigurationUpdater"/> and only the base URL applies. Settings
 /// that cannot be read leave the host's configuration in force and are logged as a Warning naming the exception type
-/// only, never a value (§1.11).
+/// only, never a value (§1.11). A change another process stored is applied again the same way
+/// (<see cref="StoredSettingsConvergence"/>).
 /// </summary>
 public sealed class StoredSettingsApplier(
     IAppSettingsService settingsService,
@@ -18,8 +19,23 @@ public sealed class StoredSettingsApplier(
     ILogger<StoredSettingsApplier> logger,
     ILlmConfigurationUpdater? llmUpdater = null)
 {
-    public async Task ApplyAsync(CancellationToken cancellationToken)
+    public Task ApplyAsync(CancellationToken cancellationToken)
     {
+        return ApplyAsync(afterChange: false, cancellationToken);
+    }
+
+    /// <summary>
+    /// Applies the stored settings again after another process changed them (<see cref="StoredSettingsConvergence"/>),
+    /// the same way as at startup.
+    /// </summary>
+    internal Task ApplyChangedAsync(CancellationToken cancellationToken)
+    {
+        return ApplyAsync(afterChange: true, cancellationToken);
+    }
+
+    private async Task ApplyAsync(bool afterChange, CancellationToken cancellationToken)
+    {
+        var when = afterChange ? "after a change stored by another process" : "at startup";
         try
         {
             var settings = await settingsService.GetSettingsAsync(cancellationToken);
@@ -42,7 +58,8 @@ public sealed class StoredSettingsApplier(
             }
 
             logger.LogInformation(
-                "Stored Admin settings applied at startup: base URL {BaseUrlApplied}, LLM configuration {LlmApplied}, LLM limits {LlmLimitsApplied}",
+                "Stored Admin settings applied {When}: base URL {BaseUrlApplied}, LLM configuration {LlmApplied}, LLM limits {LlmLimitsApplied}",
+                when,
                 baseUrlApplied,
                 llmApplied,
                 limitsApplied);
@@ -50,7 +67,8 @@ public sealed class StoredSettingsApplier(
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogWarning(
-                "The stored Admin settings could not be read at startup ({ExceptionType}); the host configuration (Beacon:BaseUrl, Beacon:LLM) stays in effect until they are saved again",
+                "The stored Admin settings could not be read {When} ({ExceptionType}); the settings in effect stay until they are saved again",
+                when,
                 ex.GetType().Name);
         }
     }

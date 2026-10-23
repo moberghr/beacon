@@ -57,12 +57,14 @@ app.UseForwardedHeaders(forwarded);
 - [ ] To make the trail append-only at the database as well, Beacon's connection uses a role that cannot update or delete `security_audit_events` rows other than through the purge, or triggers do the same. → [What the trail does and does not prove](/security/audit-trail/#what-the-trail-does-and-does-not-prove)
 - [ ] Where MCP audit content is retained, the SQL of every statement a call ran is stored with it: reviewed against your privacy policy; `Beacon:Mcp:Audit:RequireContent` pins retention on if the evidence must be kept. → [MCP observability & audit](/mcp/observability-and-audit/#keeping-audit-content-the-requirecontent-lock)
 - [ ] Structured JSON console logs (`Logging:Console:FormatterName=json`, `IncludeScopes=true`) if your platform correlates by trace id.
-- [ ] OpenTelemetry: add `AddBeaconInstrumentation()` to your tracer and meter providers; you choose the exporter. Keep notification HTTP calls out of traces (their URLs carry secrets). `NotificationRequests.IsNotificationRequest` identifies them.
+- [ ] OpenTelemetry: add `AddBeaconInstrumentation()` to your tracer and meter providers, and `AddBeaconMcpSdkTracing()` to the tracer provider for the MCP SDK's `tools/call` spans (their status descriptions cleared); you choose the exporter. Keep notification HTTP calls out of traces (their URLs carry secrets). `NotificationRequests.IsNotificationRequest` identifies them.
 - [ ] Health check `GET /beacon/api/health` (anonymous, checks the database within 5 s) wired to your load balancer. It answers before the first administrator exists too, so a brand-new deployment passes the probe while setup is still pending.
 
 ## Scaling
 
 - [ ] Several instances: shared Data Protection key ring (Beacon's database does this), a SignalR backplane (`ConfigureSignalR`), **session affinity for `/beacon/mcp`** (legacy MCP clients hold an `Mcp-Session-Id` in memory), and a job runner that fires each recurring job once.
+- [ ] Settings saved on one instance (admin settings, MCP settings) reach the others within about a minute: each instance checks the settings history for a newer change at most once every 60 seconds, on its next settings read, then drops its cached copies and applies the stored base URL and LLM configuration again. The instance that saved applies the change at once.
+- [ ] Beacon shares the host's `IMemoryCache`: its keys start with `beacon:` and every entry has a size of 1, so a host `MemoryCacheOptions.SizeLimit` counts each Beacon entry as one.
 - [ ] Migrations run once per deployment, not from every replica at the same time. → [Metadata database](/integrate/database/#creating-and-migrating-the-schema)
 - [ ] Database pool sized for job workers plus web traffic.
 

@@ -76,6 +76,8 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOIN
             // Notification calls are left out: their URLs carry the recipients' secrets (e.g. a Slack webhook path).
             .AddHttpClientInstrumentation(y => y.FilterHttpRequestMessage = z => !NotificationRequests.IsNotificationRequest(z))
             .AddBeaconInstrumentation()
+            // The MCP SDK's tools/call spans, which Beacon tags; their status descriptions are cleared.
+            .AddBeaconMcpSdkTracing()
             .AddOtlpExporter())
         .WithMetrics(x => x
             .AddAspNetCoreInstrumentation()

@@ -40,7 +40,7 @@ internal sealed class SchemaGraphService(
             .ToListAsync(cancellationToken);
 
         var graph = SchemaGraph.Build(tables, relationships);
-        cache.Set(CacheKey(dataSourceId), graph, CacheExpiration);
+        cache.Set(CacheKey(dataSourceId), graph, BeaconCacheEntries.For(CacheExpiration));
 
         return graph;
     }
@@ -75,7 +75,7 @@ internal sealed class SchemaGraphService(
 
     public void Invalidate(int dataSourceId) => cache.Remove(CacheKey(dataSourceId));
 
-    private static string CacheKey(int dataSourceId) => $"schema-graph:{dataSourceId}";
+    private static string CacheKey(int dataSourceId) => BeaconCacheEntries.Key($"schema-graph:{dataSourceId}");
 
     private static async Task<List<TableMetadataDto>> LoadTablesAsync(
         BeaconContext context,

@@ -257,7 +257,7 @@ public sealed class ConfiguredMcpCallerMapper(
             return (true, null);
         }
 
-        var cacheKey = $"mcp-caller-user:{subjectHash}";
+        var cacheKey = BeaconCacheEntries.Key($"mcp-caller-user:{subjectHash}");
         if (cache.TryGetValue(cacheKey, out int cachedUserId))
         {
             return (true, cachedUserId);
@@ -277,7 +277,7 @@ public sealed class ConfiguredMcpCallerMapper(
                 userId = await GetOrCreateUserIdAsync(userManagementService, principal, tenantId, objectId, users, cancellationToken);
             }
 
-            cache.Set(cacheKey, userId, ProvisionedUserCacheDuration);
+            cache.Set(cacheKey, userId, BeaconCacheEntries.For(ProvisionedUserCacheDuration));
 
             return (true, userId);
         }

@@ -254,7 +254,7 @@ Indexing and aggregation run as recurring [Warp](https://moberghr.github.io/warp
 | `mcp-learning-aggregate` | Every 6 hours | Mines signals into learned patterns, runs decay and replay verification |
 | `mcp-learning-cleanup` | Daily at 03:00 | Removes signals past the retention window |
 | `mcp-embedding-reindex` | Every 12 hours | Re-embeds schema metadata and exemplars |
-| `mcp-docchunk-reindex` | Every 12 hours | Re-chunks and re-embeds project documentation |
+| `mcp-docchunk-reindex` | Every 12 hours | Re-chunks and re-embeds project documentation, each project under its own effective settings (a project that turned semantic or contextual retrieval off is skipped or gets no blurbs) |
 | `mcp-audit-retention` | Daily at 03:30 | Purges MCP audit rows older than `Beacon:Mcp:Audit:RetentionDays` (a no-op while it is unset); see [MCP observability](/mcp/observability-and-audit/#retention) |
 
 These are the sample host's registrations (`Beacon.SampleProject/Program.cs`); a host that embeds Beacon schedules them itself.
