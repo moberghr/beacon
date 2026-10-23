@@ -169,7 +169,7 @@ Remove Beacon:Schema (or set it to 'beacon') and move any existing Beacon tables
 
 ### Forwarded headers
 
-The forwarded-headers keys are read by the **sample host** only. A host embedding the packages calls `UseForwardedHeaders` itself. Behind a proxy this matters: the login and setup throttles key on the client address, and `SameAsRequest` cookie security keys on the scheme.
+The forwarded-headers keys are read by the **sample host** only. A host embedding the packages calls `UseForwardedHeaders` itself. Behind a proxy this matters: the login and setup throttles key on the client address, and `SameAsRequest` cookie security keys on the scheme. Without forwarded headers the cookie is issued without the `Secure` flag behind a TLS-terminating proxy: honour the forwarded scheme, or set `Beacon:Authentication:Cookie:SecureAlways` to `true` (default `false`; the cookie is then never sent over plain HTTP, so sign-in needs HTTPS end to end or a proxy that terminates it). Outside Development, Beacon logs a Warning at startup when the server listens on a plain HTTP address and the option is off. Add HTTPS redirection and HSTS in the host.
 
 ```json
 {
@@ -260,7 +260,7 @@ UPDATE beacon.Users SET SecurityStamp = LOWER(REPLACE(CONVERT(nvarchar(36), NEWI
 
 ## Authentication
 
-Beacon's sessions use the `Beacon.Auth` cookie (`HttpOnly`, `SameSite=Lax`, `SecurePolicy=SameAsRequest`, sliding). There is no default account: [first-run setup](/security/user-management/#first-run-setup) creates the super admin. Register cookie authentication with the UI's base path:
+Beacon's sessions use the `Beacon.Auth` cookie (`HttpOnly`, `SameSite=Lax`, `SecurePolicy=SameAsRequest`, sliding; `Beacon:Authentication:Cookie:SecureAlways` set to `true` always issues it with the `Secure` flag). There is no default account: [first-run setup](/security/user-management/#first-run-setup) creates the super admin. Register cookie authentication with the UI's base path:
 
 ```csharp
 builder.Services.AddBeaconCookieAuthentication("/beacon");   // login page /beacon/login

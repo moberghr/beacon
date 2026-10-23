@@ -7,6 +7,7 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Beacon.Api.SignalR;
 using Beacon.Core;
@@ -98,6 +99,11 @@ public static class AuthServiceExtensions
                     return Task.CompletedTask;
                 };
             });
+
+        // Opt-in stricter cookie: Beacon:Authentication:Cookie:SecureAlways issues the session cookie with the Secure flag
+        // whatever the request's scheme (the default stays SameAsRequest). Plain-HTTP listeners outside Development are warned about.
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IConfigureOptions<CookieAuthenticationOptions>, BeaconCookieSecurePolicyConfigurator>());
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, CookieTransportStartupWarning>());
 
         // Data Protection, which protects the session cookie, is the host's: Beacon sets no application name and no key
         // storage here (AddBeaconDataProtection is Beacon's default, for a host that asks for it). Outside Development the

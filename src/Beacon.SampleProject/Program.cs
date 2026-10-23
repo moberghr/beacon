@@ -24,6 +24,7 @@ using Beacon.Connector.BigQuery;
 using Beacon.MCP;
 using Beacon.MCP.Discovery;
 using Beacon.Api;
+using Beacon.Api.Authentication;
 using Beacon.Api.Endpoints;
 using Beacon.Api.OpenApi;
 using Beacon.Api.Telemetry;
@@ -345,7 +346,7 @@ app.MapMcpDiscovery();
 app.UseWarpUI(warpUiOptions =>
 {
     warpUiOptions.RoutePrefix = "/warp";
-    warpUiOptions.Authorization = new WarpDashboardAuthFilter();
+    warpUiOptions.Authorization = WarpDashboardGuard.Require(new WarpDashboardAuthFilter(), warpUiOptions.RoutePrefix);
 });
 
 // React SPA shell at /beacon. Beacon.UI ships the built React app as Razor Class

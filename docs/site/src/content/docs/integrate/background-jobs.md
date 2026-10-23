@@ -348,9 +348,11 @@ public sealed class BeaconScheduler(
 app.UseWarpUI(x =>
 {
     x.RoutePrefix = "/warp";
-    x.Authorization = new AdminOnlyWarpFilter();   // IWarpAuthorizationFilter: authenticated + IsInRole("Admin")
+    x.Authorization = WarpDashboardGuard.Require(new AdminOnlyWarpFilter(), x.RoutePrefix);   // IWarpAuthorizationFilter: authenticated + IsInRole("Admin")
 });
 ```
+
+Warp's default, with no filter, admits every request that reaches the route, and Beacon's login gate does not cover `/warp`. `WarpDashboardGuard.Require` (`Beacon.Api.Authentication`) throws at startup when the filter is missing, so the dashboard never opens by accident.
 
 The filter reads the Beacon session, which applies to `/beacon` and the prefixes in `Beacon:Authentication:AdditionalPaths` only: list `/warp` there (`"Beacon": { "Authentication": { "AdditionalPaths": [ "/warp" ] } }`), or the dashboard refuses every request.
 
