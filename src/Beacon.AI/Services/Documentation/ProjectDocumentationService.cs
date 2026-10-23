@@ -369,12 +369,14 @@ internal sealed class ProjectDocumentationService(
 
     // --- LLM Calling ---
 
+    // The user prompt is the project's metadata — names, descriptions, values, code snippets, earlier sections — so it is sent
+    // as one data block under the data rule.
     private static async Task<LlmResponse> CallLlmAsync(ILlmProvider provider, string systemPrompt, string userPrompt, CancellationToken ct)
     {
         var request = new LlmRequest
         {
-            SystemPrompt = systemPrompt,
-            Messages = [new ChatMessage(ConversationRole.User, userPrompt)],
+            SystemPrompt = $"{systemPrompt.TrimEnd()}\n\n{PromptData.Rule}",
+            Messages = [new ChatMessage(ConversationRole.User, PromptData.Fence("project metadata", userPrompt))],
             Temperature = 0.3m,
             MaxTokens = 8192,
             Priority = LlmRequestPriority.Background,

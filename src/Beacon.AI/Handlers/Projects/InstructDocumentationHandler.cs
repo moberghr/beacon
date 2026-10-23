@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Beacon.AI.Services;
 using Beacon.AI.Services.LlmProviders;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
@@ -79,7 +80,7 @@ internal sealed class InstructDocumentationHandler(
     private static string BuildSystemPrompt(string sectionTitle, ProjectDocSectionType sectionType)
     {
         return $"""
-            You are a technical documentation editor for a data platform. You are editing the "{sectionTitle}" section of project documentation.
+            You are a technical documentation editor for a data platform. You are editing the "{PromptData.OneLine(sectionTitle)}" section of project documentation.
 
             Rules:
             - Apply the user's instruction to the current documentation content
@@ -89,19 +90,22 @@ internal sealed class InstructDocumentationHandler(
             - If the instruction asks to remove or archive something, remove it from the content or clearly mark it as deprecated/archived
             - If the instruction asks to add something, integrate it naturally into the existing content
             - Maintain the same level of technical detail and writing style as the original
+            - {PromptData.Rule}
             """;
     }
 
+    // The current content is stored documentation, a data block; the instruction is the editor's request and cannot write the
+    // block's markers.
     private static string BuildUserPrompt(string currentContent, string instruction)
     {
         return $"""
             ## Current Content
 
-            {currentContent}
+            {PromptData.Fence("current content", currentContent)}
 
             ## Instruction
 
-            {instruction}
+            {PromptData.Neutralise(instruction)}
             """;
     }
 }
