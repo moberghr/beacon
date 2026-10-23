@@ -111,7 +111,7 @@ app.UseMiddleware<FirstRunSetupMiddleware>(beaconConfiguration, beaconBasePath);
 app.UseAntiforgery();
 
 // ── Endpoints ────────────────────────────────────────────────────────────
-app.MapOpenApi();                                      // /openapi/v1.json
+app.MapBeaconOpenApi();                                // /openapi/v1.json (signed-in callers only outside Development)
 app.MapBeaconApi();                                    // /beacon/api/* and the /beacon/api/hub SignalR hub
 app.MapLoginEndpoints(beaconBasePath, beaconConfiguration);  // /beacon/api/auth/login, logout, sso/challenge
 app.MapSetupEndpoints(beaconBasePath);                 // /beacon/api/setup/* (first-run admin)
@@ -244,7 +244,7 @@ Steps 6, 7, 9, 11 and 12 act on `/beacon` and the prefixes in `Beacon:Authentica
 | `MapBeaconMcp()` | `/beacon/mcp` with the Execute-scope policy. Never map MCP yourself with `MapMcp(...)` and a bare `RequireAuthorization()`. |
 | `MapMcpDiscovery()` | Anonymous `/.well-known/oauth-protected-resource`, `/.well-known/oauth-protected-resource/beacon/mcp`, `/.well-known/mcp/server-card.json`. |
 | `MapBeaconUi()` | The React app at `/beacon` and its client routes. Your app keeps `/`. |
-| `MapOpenApi()` | Your OpenAPI document, which includes Beacon's endpoints. Optional. |
+| `MapBeaconOpenApi()` | Your OpenAPI document, which includes Beacon's endpoints. Optional. Same as `MapOpenApi()`, but outside Development it needs a signed-in Beacon caller (list `/openapi` in `Beacon:Authentication:AdditionalPaths`) unless `Beacon:OpenApi:Anonymous` is `true`. A host that calls `MapOpenApi()` itself keeps it as it is. |
 
 The full route list is on [Routes & endpoints](/reference/routes/).
 

@@ -308,8 +308,10 @@ if (beaconConfiguration.UserManagement.Enabled)
 // Antiforgery middleware must run after auth so it can issue tokens for the current user.
 app.UseAntiforgery();
 
-// OpenAPI document at /openapi/v1.json - consumed by NSwag for React TS codegen.
-app.MapOpenApi();
+// OpenAPI document at /openapi/v1.json - consumed by NSwag for React TS codegen. Open in Development; elsewhere it needs
+// a signed-in Beacon caller (this sample lists /openapi in Beacon:Authentication:AdditionalPaths) unless
+// Beacon:OpenApi:Anonymous is true.
+app.MapBeaconOpenApi();
 
 // REST API surface for the React shell. Adds /beacon/api/{health, auth/me, auth/permissions, csrf}.
 app.MapBeaconApi();
