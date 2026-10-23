@@ -1,3 +1,4 @@
+using System.Reflection;
 using System.Security.Claims;
 using Beacon.Api.Authentication;
 using Beacon.Api.Hubs;
@@ -28,7 +29,7 @@ internal static class AuthEndpoints
 
         // Authenticated but not permission-gated: a user without a role gets { canRead: false } (the shell shows a
         // "no access yet" message) rather than a 403. Also names the functional permissions the caller holds now, for the
-        // shell to show the pages they open.
+        // shell to show the pages they open, and the running build, which the signed-in shell shows (never before sign-in).
         group.MapGet("/auth/permissions", GetCurrentPermissions)
             .SkipBeaconPermissionCheck()
             .WithName("GetCurrentPermissions")
@@ -115,7 +116,8 @@ internal static class AuthEndpoints
                 .Where(permissions.Holds)
                 .ToArray(),
             migrationsEnabled,
-            httpContext.RequestServices.GetService<BeaconApiOptions>()?.GatewayMode == true);
+            httpContext.RequestServices.GetService<BeaconApiOptions>()?.GatewayMode == true,
+            BuildInfoResponse.Current);
     }
 }
 
@@ -150,7 +152,8 @@ internal sealed record ExternalLoginResponse(string LoginUrl, string ReturnUrlPa
 /// <summary>
 /// What the caller may do now: read and write (its global role), whether it is an Admin, the functional permissions it
 /// holds (<see cref="BeaconPermissions"/>; an Admin holds every one), and whether this deployment runs data migrations
-/// (<c>Beacon:Migrations:Enabled</c>; the shell hides the feature when it does not).
+/// (<c>Beacon:Migrations:Enabled</c>; the shell hides the feature when it does not), and the running build
+/// (<see cref="BuildInfoResponse"/>), which is served to signed-in callers only.
 /// </summary>
 internal sealed record CurrentPermissionsResponse(
     bool CanRead,
@@ -158,7 +161,30 @@ internal sealed record CurrentPermissionsResponse(
     bool IsAdmin,
     IReadOnlyList<string> Permissions,
     bool MigrationsEnabled,
-    bool GatewayMode = false);
+    bool GatewayMode = false,
+    BuildInfoResponse? Build = null);
+
+/// <summary>
+/// The running build: the Beacon.Api assembly's informational version split into the release version and the source
+/// commit the SDK appends after <c>+</c> (<see langword="null"/> when the build recorded none).
+/// </summary>
+internal sealed record BuildInfoResponse(string Version, string? Commit)
+{
+    public static readonly BuildInfoResponse Current = From(
+        typeof(BuildInfoResponse).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion,
+        typeof(BuildInfoResponse).Assembly.GetName().Version);
+
+    internal static BuildInfoResponse From(string? informationalVersion, Version? assemblyVersion)
+    {
+        var parts = (informationalVersion ?? string.Empty).Split('+', 2);
+        var version = parts[0].Trim();
+        var commit = parts.Length == 2 ? parts[1].Trim() : string.Empty;
+
+        return new BuildInfoResponse(
+            version.Length > 0 ? version : assemblyVersion?.ToString(3) ?? "0.0.0",
+            commit.Length > 0 ? commit : null);
+    }
+}
 
 /// <summary>Whether single sign-on is offered (<c>Enabled</c>), and whether password sign-in is open to everyone.</summary>
 internal sealed record SsoConfigResponse(bool Enabled, bool LocalLoginEnabled);

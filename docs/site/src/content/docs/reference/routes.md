@@ -80,7 +80,7 @@ Functional permissions named below are held by Admins too. A by-id request on a 
 
 | Prefix | Covers | Notable rules |
 |---|---|---|
-| `/auth/me`, `/auth/sso`, `/auth/permissions` | Current user, SSO config, current permissions | `permissions` returns `canRead`, `canWrite`, `isAdmin`, `permissions`, `migrationsEnabled`. |
+| `/auth/me`, `/auth/sso`, `/auth/permissions` | Current user, SSO config, current permissions | `permissions` returns `canRead`, `canWrite`, `isAdmin`, `permissions`, `migrationsEnabled`, `build` (`version`, `commit`). |
 | `/home` | Home page: trends, activity, task summary, uptime, migration summary | `migration-summary` admits MigrationOperator. |
 | `/projects` | Projects, linked data sources, members, access mode, repositories, documentation, imported documents, MCP context | Members: project admins, UserAdmin. Access mode: UserAdmin (opening a restricted project: Admin). Unlinking a data source: Admin. Repository token: SecurityAdmin. |
 | `/data-sources` | Data sources, connection test, metadata, metadata refresh | Create, test and delete: DataSourceAdmin. `GET /{id}/metadata` needs Execute scope. `PUT /{id}/migration-writes`: Admin. Forced refresh is rate limited per data source (`429`). |

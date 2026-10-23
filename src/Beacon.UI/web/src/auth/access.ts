@@ -23,6 +23,14 @@ export interface CurrentPermissions {
   migrationsEnabled?: boolean;
   /** Whether Beacon is embedded as an MCP gateway (`AddBeaconMcpGateway`): only part of the REST API is served. */
   gatewayMode?: boolean;
+  /** The running build, served to signed-in callers only (it is never written into the public bundle). */
+  build?: BuildInfo | null;
+}
+
+/** The server's release version and, when the build recorded it, the source commit. */
+export interface BuildInfo {
+  version: string;
+  commit?: string | null;
 }
 
 /** What the signed-in user may do now, with the checks the pages ask. */

@@ -37,6 +37,25 @@ function signedInAs(roles: string[], signOutEverywhereEnabled = true) {
 }
 
 describe('Sidebar', () => {
+  it('shows the running build the server reports to the signed-in session', async () => {
+    sessionOf(true, ['Viewer'], 'Tester');
+    mswServer.use(permissionsHandler({ build: { version: '5.0.1', commit: '0ecf936b094ad56483d71341b37b0e7878113a3e' } }));
+
+    renderWithProviders(<Sidebar />);
+
+    const badge = await screen.findByText('5.0.1 · 0ecf936');
+    expect(badge).toHaveAttribute('title', 'Build 5.0.1+0ecf936b094ad56483d71341b37b0e7878113a3e');
+  });
+
+  it('shows no build when the server reports none', async () => {
+    signedInAs(['Viewer']);
+
+    const { container } = renderWithProviders(<Sidebar />);
+
+    expect(await screen.findByText('Projects')).toBeInTheDocument();
+    expect(container.querySelector('[title^="Build "]')).toBeNull();
+  });
+
   it('shows only the pages the MCP gateway serves in gateway mode', async () => {
     sessionOf(true, ['Admin'], 'Tester');
     mswServer.use(permissionsHandler({ isAdmin: true, gatewayMode: true }));

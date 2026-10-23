@@ -1,5 +1,5 @@
 import { http, HttpResponse } from 'msw';
-import { BEACON_PERMISSIONS, type BeaconPermission } from '@/auth/access';
+import { BEACON_PERMISSIONS, type BeaconPermission, type BuildInfo } from '@/auth/access';
 
 export interface PermissionsFixture {
   canRead?: boolean;
@@ -10,6 +10,8 @@ export interface PermissionsFixture {
   migrationsEnabled?: boolean;
   /** Whether Beacon runs as an MCP gateway; off unless a test turns it on. */
   gatewayMode?: boolean;
+  /** The running build the server reports; none unless a test sets one. */
+  build?: BuildInfo;
 }
 
 /**
@@ -26,6 +28,7 @@ export function permissionsHandler(fixture: PermissionsFixture = {}) {
       permissions: isAdmin ? [...BEACON_PERMISSIONS] : fixture.permissions ?? [],
       migrationsEnabled: fixture.migrationsEnabled ?? true,
       gatewayMode: fixture.gatewayMode ?? false,
+      build: fixture.build ?? null,
     }),
   );
 }

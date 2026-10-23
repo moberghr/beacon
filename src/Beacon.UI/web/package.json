@@ -48,6 +48,7 @@
     "vite": "^5.4.10",
     "vitest": "^4.1.5"
   },
+  "//overrides": "The monaco-editor override covers its npm dependency on dompurify only. monaco-editor also ships its own copy of DOMPurify inside esm/vs/base/browser/dompurify/ (3.2.7 in 0.55.1), which Monaco's editor imports directly and no override can replace: that copy is patched only by a monaco-editor release that vendors a newer one.",
   "overrides": {
     "monaco-editor": {
       "dompurify": "$dompurify"
