@@ -89,7 +89,8 @@ public class BeaconUser : ArchivableBaseEntity
 
     /// <summary>
     /// Wrong passwords sent for this user since their last successful password sign-in or lockout
-    /// (<c>Beacon:RateLimits:Lockout</c>). Not counted while the user is locked out.
+    /// (<c>Beacon:RateLimits:Lockout</c>), starting again at one when the previous one is a lockout duration old. Not
+    /// counted while the user is locked out.
     /// </summary>
     public int FailedSignInCount { get; set; }
 
@@ -98,6 +99,12 @@ public class BeaconUser : ArchivableBaseEntity
     /// null or past when the user is not locked out. Cleared by a successful sign-in after it and by a password reset.
     /// </summary>
     public DateTime? LockoutEndTime { get; set; }
+
+    /// <summary>
+    /// When (UTC) the last wrong password counted in <see cref="FailedSignInCount"/> was sent; null when none is counted. A
+    /// wrong password sent a lockout duration or more after it starts the count again.
+    /// </summary>
+    public DateTime? LastFailedSignInTime { get; set; }
 
     /// <summary>
     /// Roles assigned to this user.

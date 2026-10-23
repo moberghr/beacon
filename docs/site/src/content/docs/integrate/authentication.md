@@ -72,7 +72,7 @@ The full request shapes are in the OpenAPI document (`/openapi/v1.json`), once s
 
 Passwords are hashed with PBKDF2-SHA256 (100,000 iterations, 32-byte salt). Policy is code-configured: `MinimumPasswordLength` (default 8) and `RequirePasswordComplexity` (default `true`). A password an administrator sets must be changed at first sign-in. Users change their own password under **Settings**; there is no REST route that sets another user's password.
 
-Password sign-in is throttled to **10 attempts per 60 seconds per client IP** (429 with `Retry-After`), and an internal user is locked out for 15 minutes after 5 wrong passwords in a row (the same generic answer, whatever password is sent). Behind a proxy the per-IP limit only works if your host runs `UseForwardedHeaders` with the proxy listed. See [Production checklist](/integrate/production/#reverse-proxy) and [Request limits](/getting-started/configuration/#request-limits).
+Password sign-in is throttled to **10 attempts per 60 seconds per client IP** (429 with `Retry-After`), and an internal user is locked out for 15 minutes after 5 wrong passwords (the same generic answer, whatever password is sent; break-glass accounts are never locked, and `Beacon:RateLimits:Lockout:Enabled` `false` turns the lockout off). IPv6 clients are limited per `/64` block. Behind a proxy the per-IP limit only works if your host runs `UseForwardedHeaders` with the proxy listed. See [Production checklist](/integrate/production/#reverse-proxy) and [Request limits](/getting-started/configuration/#request-limits).
 
 ### Turning password sign-in off (break-glass)
 

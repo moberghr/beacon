@@ -155,6 +155,136 @@ public class RequestRateLimitTests
             "every call, the refused one included, writes its audit row");
     }
 
+    [TestCase("2001:db8:1:2::1", "2001:db8:1:2:ffff:ee:dd:9")]
+    [TestCase("2001:db8:1:2::1%3", "2001:db8:1:2::77")]
+    [TestCase("::ffff:10.0.0.1", "10.0.0.1")]
+    public void AddressPartition_IsShared(string first, string second)
+    {
+        RateLimitPartitions.OfAddress(IPAddress.Parse(first))
+            .Should().Be(RateLimitPartitions.OfAddress(IPAddress.Parse(second)));
+    }
+
+    [TestCase("2001:db8:1:2::1", "2001:db8:1:3::1")]
+    [TestCase("10.0.0.1", "10.0.0.2")]
+    [TestCase("10.0.0.1", "::ffff:10.0.0.2")]
+    public void AddressPartition_IsSeparate(string first, string second)
+    {
+        RateLimitPartitions.OfAddress(IPAddress.Parse(first))
+            .Should().NotBe(RateLimitPartitions.OfAddress(IPAddress.Parse(second)));
+    }
+
+    [Test]
+    public async Task LoginLimit_CountsAnIpv6BlockOfSixtyFourAsOneClient()
+    {
+        var limiter = new LoginRateLimiter(Options.Create(new RateLimitOptions { Login = new RateLimitWindow { PermitLimit = 2 } }));
+        var services = new ServiceCollection().AddLogging().AddProblemDetails().AddSingleton(limiter).BuildServiceProvider();
+
+        var first = await LoginAttemptAsync(services, "2001:db8:5:6::1");
+        var second = await LoginAttemptAsync(services, "2001:db8:5:6::2");
+        var third = await LoginAttemptAsync(services, "2001:db8:5:6:abcd::3");
+        var otherBlock = await LoginAttemptAsync(services, "2001:db8:5:7::1");
+
+        first.Should().BeTrue();
+        second.Should().BeTrue();
+        third.Should().BeFalse("every address of one /64 draws on the same budget");
+        otherBlock.Should().BeTrue();
+    }
+
+    [Test]
+    public void Partitions_AreBounded_AndTheLeastRecentlyUsedIsReplaced()
+    {
+        var limiter = new BeaconApiRateLimiter(Options.Create(new RateLimitOptions { Api = new RateLimitWindow { PermitLimit = 1 }, MaxPartitions = 3 }));
+        var partitions = limiter.Api;
+
+        partitions.TryAcquire("a", out _).Should().BeTrue();
+        partitions.TryAcquire("b", out _).Should().BeTrue();
+        partitions.TryAcquire("c", out _).Should().BeTrue();
+        partitions.TryAcquire("a", out var retryAfter).Should().BeFalse("a has spent its permit");
+        retryAfter.Should().BeGreaterThanOrEqualTo(TimeSpan.FromSeconds(1));
+
+        for (var caller = 0; caller < 1000; caller++)
+        {
+            partitions.TryAcquire("new-" + caller, out _);
+            partitions.PartitionCount.Should().BeLessThanOrEqualTo(3);
+        }
+
+        partitions.TryAcquire("d", out _).Should().BeTrue();
+        partitions.TryAcquire("d", out _).Should().BeFalse("a kept partition keeps its count");
+        partitions.PartitionCount.Should().Be(3);
+    }
+
+    [Test]
+    public void Partitions_KeepTheRecentlyUsedOnes_WhenTheBoundIsReached()
+    {
+        var limiter = new BeaconApiRateLimiter(Options.Create(new RateLimitOptions { Api = new RateLimitWindow { PermitLimit = 1 }, MaxPartitions = 3 }));
+        var partitions = limiter.Api;
+
+        partitions.TryAcquire("a", out _);
+        partitions.TryAcquire("b", out _);
+        partitions.TryAcquire("c", out _);
+        partitions.TryAcquire("a", out _).Should().BeFalse();
+        partitions.TryAcquire("d", out _).Should().BeTrue();
+
+        partitions.TryAcquire("a", out _).Should().BeFalse("a was used more recently than b, so b was replaced");
+        partitions.TryAcquire("b", out _).Should().BeTrue("b was replaced and starts over");
+    }
+
+    [Test]
+    public void Limiters_WithoutARegistration_StillLimit_OncePerApplication()
+    {
+        using var services = new ServiceCollection().BuildServiceProvider();
+        using var scope = services.CreateScope();
+
+        var login = LoginRateLimiter.For(services);
+        var mcp = McpRateLimiter.For(services);
+        var api = BeaconApiRateLimiter.For(new DefaultHttpContext { RequestServices = services });
+
+        LoginRateLimiter.For(scope.ServiceProvider).Should().BeSameAs(login, "every scope of one application shares its stand-in");
+        McpRateLimiter.For(scope.ServiceProvider).Should().BeSameAs(mcp);
+        BeaconApiRateLimiter.For(new DefaultHttpContext { RequestServices = scope.ServiceProvider }).Should().BeSameAs(api);
+        Enumerable.Range(0, 10).Select(x => login.TryAcquire("ip:10.0.0.1", out _)).ToList().Should().AllSatisfy(x => x.Should().BeTrue());
+        login.TryAcquire("ip:10.0.0.1", out _).Should().BeFalse("the default login limit is 10 a minute");
+        Enumerable.Range(0, 10).Select(x => mcp.Ask.TryAcquire("caller", out _)).ToList().Should().AllSatisfy(x => x.Should().BeTrue());
+        mcp.Ask.TryAcquire("caller", out _).Should().BeFalse("the default ask limit is 10 a minute");
+        Enumerable.Range(0, 30).Select(x => api.Anonymous.TryAcquire("ip:10.0.0.1", out _)).ToList().Should().AllSatisfy(x => x.Should().BeTrue());
+        api.Anonymous.TryAcquire("ip:10.0.0.1", out _).Should().BeFalse("the default anonymous limit is 30 a minute");
+    }
+
+    [Test]
+    public void Limiters_WithoutARegistration_AreNotSharedBetweenApplications_AndReadTheirOptions()
+    {
+        using var first = new ServiceCollection().BuildServiceProvider();
+        using var second = new ServiceCollection()
+            .AddSingleton(Options.Create(new RateLimitOptions { Login = new RateLimitWindow { PermitLimit = 1 } }))
+            .BuildServiceProvider();
+
+        LoginRateLimiter.For(first).TryAcquire("ip:10.0.0.1", out _).Should().BeTrue();
+        LoginRateLimiter.For(second).Should().NotBeSameAs(LoginRateLimiter.For(first));
+        McpRateLimiter.For(second).Should().NotBeSameAs(McpRateLimiter.For(first));
+        BeaconApiRateLimiter.For(new DefaultHttpContext { RequestServices = second })
+            .Should().NotBeSameAs(BeaconApiRateLimiter.For(new DefaultHttpContext { RequestServices = first }));
+        LoginRateLimiter.For(second).TryAcquire("ip:10.0.0.1", out _).Should().BeTrue("another application keeps its own counts");
+        LoginRateLimiter.For(second).TryAcquire("ip:10.0.0.1", out _).Should().BeFalse("its own Beacon:RateLimits:Login applies");
+    }
+
+    private static async Task<bool> LoginAttemptAsync(IServiceProvider services, string ip)
+    {
+        var context = new DefaultHttpContext { RequestServices = services };
+        context.Connection.RemoteIpAddress = IPAddress.Parse(ip);
+        var invocation = new Mock<EndpointFilterInvocationContext>();
+        invocation.Setup(x => x.HttpContext).Returns(context);
+        var admitted = false;
+
+        await new LoginRateLimitFilter().InvokeAsync(invocation.Object, _ =>
+        {
+            admitted = true;
+
+            return ValueTask.FromResult<object?>(null);
+        });
+
+        return admitted;
+    }
+
     private static async Task ShouldBeTooManyRequestsAsync(HttpResponseMessage response)
     {
         response.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);

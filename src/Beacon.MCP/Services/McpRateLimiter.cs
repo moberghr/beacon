@@ -11,7 +11,9 @@ namespace Beacon.MCP.Services;
 /// The MCP request limits of <c>Beacon:RateLimits</c>: <see cref="RateLimitOptions.Mcp"/> per API key or mapped MCP caller
 /// on every request to the MCP route (<see cref="McpRateLimitFilter"/>), and <see cref="RateLimitOptions.Ask"/> per caller
 /// on the <c>ask</c> tool, through MCP and the playground alike. Kept in process memory, so each limit holds per Beacon
-/// instance. A singleton, so every request on the instance shares the counts; registered by <c>AddBeaconMcp</c>.
+/// instance. A singleton, so every request on the instance shares the counts; registered by <c>AddBeaconMcp</c>. Where it
+/// is not registered, one stand-in per application built from the options the host registered (or the defaults)
+/// limits instead.
 /// </summary>
 internal sealed class McpRateLimiter : IDisposable
 {
@@ -25,13 +27,20 @@ internal sealed class McpRateLimiter : IDisposable
 
     public McpRateLimiter(IOptions<RateLimitOptions> options)
     {
-        Requests = new FixedWindowPartitions(options.Value.Mcp);
-        Ask = new FixedWindowPartitions(options.Value.Ask);
+        Requests = new FixedWindowPartitions(options.Value.Mcp, options.Value.MaxPartitions);
+        Ask = new FixedWindowPartitions(options.Value.Ask, options.Value.MaxPartitions);
     }
 
     public FixedWindowPartitions Requests { get; }
 
     public FixedWindowPartitions Ask { get; }
+
+    /// <summary>The registered limiter, or the application's stand-in when none is registered: the limits never fail open.</summary>
+    internal static McpRateLimiter For(IServiceProvider? services)
+    {
+        return services?.GetService<McpRateLimiter>()
+            ?? UnregisteredLimiter<McpRateLimiter>.For(services, x => new McpRateLimiter(x));
+    }
 
     public void Dispose()
     {
@@ -50,9 +59,9 @@ internal sealed class McpRateLimitFilter : IEndpointFilter
     public async ValueTask<object?> InvokeAsync(EndpointFilterInvocationContext context, EndpointFilterDelegate next)
     {
         var httpContext = context.HttpContext;
-        var limiter = httpContext.RequestServices.GetService<McpRateLimiter>();
+        var limiter = McpRateLimiter.For(httpContext.RequestServices);
         var partition = RateLimitPartitions.Of(httpContext.User, httpContext.Connection.RemoteIpAddress);
-        if (limiter == null || limiter.Requests.TryAcquire(partition, out var retryAfter))
+        if (limiter.Requests.TryAcquire(partition, out var retryAfter))
         {
             return await next(context);
         }

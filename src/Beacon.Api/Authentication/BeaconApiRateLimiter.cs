@@ -12,7 +12,8 @@ namespace Beacon.Api.Authentication;
 /// <c>/beacon/api</c> request (<see cref="BeaconApiRateLimitFilter"/>), and <see cref="RateLimitOptions.Anonymous"/> per
 /// client address on the anonymous requests Beacon answers 401 (<see cref="AnonymousRefusalThrottle"/>). Kept in process
 /// memory, so each limit holds per Beacon instance. A singleton, so every request on the instance shares the counts;
-/// registered by <c>AddBeaconApiServices</c> and <c>AddBeaconApiAuthorization</c>.
+/// registered by <c>AddBeaconApiServices</c> and <c>AddBeaconApiAuthorization</c>. A host that registered neither is still
+/// limited, by one stand-in per application built from the options it registered (or the defaults).
 /// </summary>
 internal sealed class BeaconApiRateLimiter : IDisposable
 {
@@ -23,17 +24,21 @@ internal sealed class BeaconApiRateLimiter : IDisposable
 
     public BeaconApiRateLimiter(IOptions<RateLimitOptions> options)
     {
-        Api = new FixedWindowPartitions(options.Value.Api);
-        Anonymous = new FixedWindowPartitions(options.Value.Anonymous);
+        Api = new FixedWindowPartitions(options.Value.Api, options.Value.MaxPartitions);
+        Anonymous = new FixedWindowPartitions(options.Value.Anonymous, options.Value.MaxPartitions);
     }
 
     public FixedWindowPartitions Api { get; }
 
     public FixedWindowPartitions Anonymous { get; }
 
-    internal static BeaconApiRateLimiter? For(HttpContext context)
+    /// <summary>The registered limiter, or the application's stand-in when none is registered: the limits never fail open.</summary>
+    internal static BeaconApiRateLimiter For(HttpContext context)
     {
-        return context.RequestServices?.GetService<BeaconApiRateLimiter>();
+        var services = context.RequestServices;
+
+        return services?.GetService<BeaconApiRateLimiter>()
+            ?? UnregisteredLimiter<BeaconApiRateLimiter>.For(services, x => new BeaconApiRateLimiter(x));
     }
 
     public void Dispose()
@@ -55,7 +60,7 @@ internal sealed class BeaconApiRateLimitFilter : IEndpointFilter
         var httpContext = context.HttpContext;
         var partition = RateLimitPartitions.Of(httpContext.User, httpContext.Connection.RemoteIpAddress);
         var limiter = BeaconApiRateLimiter.For(httpContext);
-        if (limiter == null || limiter.Api.TryAcquire(partition, out var retryAfter))
+        if (limiter.Api.TryAcquire(partition, out var retryAfter))
         {
             return await next(context);
         }
@@ -76,12 +81,11 @@ internal static class AnonymousRefusalThrottle
     public static bool TryAdmit(HttpContext context, out TimeSpan retryAfter)
     {
         retryAfter = TimeSpan.Zero;
-        var limiter = BeaconApiRateLimiter.For(context);
-        if (limiter == null || !BeaconRequestPaths.IsBeaconRequest(context))
+        if (!BeaconRequestPaths.IsBeaconRequest(context))
         {
             return true;
         }
 
-        return limiter.Anonymous.TryAcquire(RateLimitPartitions.OfAddress(context.Connection.RemoteIpAddress), out retryAfter);
+        return BeaconApiRateLimiter.For(context).Anonymous.TryAcquire(RateLimitPartitions.OfAddress(context.Connection.RemoteIpAddress), out retryAfter);
     }
 }

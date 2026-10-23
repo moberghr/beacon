@@ -864,6 +864,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("is_super_admin");
 
+                    b.Property<DateTime?>("LastFailedSignInTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_failed_sign_in_time");
+
                     b.Property<DateTime?>("LastLoginAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("last_login_at");

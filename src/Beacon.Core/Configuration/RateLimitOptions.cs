@@ -25,6 +25,15 @@ public sealed class RateLimitOptions
     /// <summary>The longest lockout accepted, one day.</summary>
     public const int MaxLockoutMinutes = 1440;
 
+    /// <summary>The partitions each limit keeps by default.</summary>
+    public const int DefaultMaxPartitions = 10_000;
+
+    /// <summary>The fewest partitions accepted per limit.</summary>
+    public const int MinPartitions = 100;
+
+    /// <summary>The most partitions accepted per limit.</summary>
+    public const int MaxPartitionsLimit = 1_000_000;
+
     /// <summary>Password sign-in and first-run setup, per client address (each in its own partition). Default 10 a minute.</summary>
     public RateLimitWindow Login { get; set; } = new() { PermitLimit = 10 };
 
@@ -46,6 +55,12 @@ public sealed class RateLimitOptions
     /// <summary>The <c>ask</c> tool (MCP and the playground), per caller. Default 10 a minute.</summary>
     public RateLimitWindow Ask { get; set; } = new() { PermitLimit = 10 };
 
+    /// <summary>
+    /// The most partitions (callers or client addresses) each limit keeps in memory. A new partition beyond it replaces the
+    /// one used least recently, which then starts over with a full budget, so memory stays bounded. Default 10,000.
+    /// </summary>
+    public int MaxPartitions { get; set; } = DefaultMaxPartitions;
+
     /// <summary>The password lockout of internal users.</summary>
     public LockoutOptions Lockout { get; set; } = new();
 }
@@ -63,18 +78,29 @@ public sealed class RateLimitWindow
 }
 
 /// <summary>
-/// After <see cref="MaxFailedAttempts"/> wrong passwords in a row an internal user's password sign-in is refused for
-/// <see cref="DurationMinutes"/>, whatever password is sent; the answer stays the generic failure and the password is still
-/// checked. A successful sign-in, a lockout and an administrator's password reset start the count again. 0 attempts turns
-/// the lockout off.
+/// After <see cref="MaxFailedAttempts"/> wrong passwords an internal user's password sign-in (and password change) is
+/// refused for <see cref="DurationMinutes"/>, whatever password is sent; the answer stays the generic failure and the
+/// password is still checked. A successful sign-in, a lockout and an administrator's password reset start the count again,
+/// and so does a wrong password sent <see cref="DurationMinutes"/> or more after the previous one. The break-glass accounts
+/// (<c>Beacon:UserManagement:LocalLogin:BreakGlassUserNames</c>) are never locked: they stay limited per client address by
+/// <see cref="RateLimitOptions.Login"/>.
+/// <para>
+/// The count is kept per user, not per client: anyone who knows a user name can lock that user's password sign-in by
+/// sending wrong passwords, again every time the lockout ends. That trades a denial of service against the account for
+/// a hard cap on password guessing. A host that prefers no lockout (relying on the per-address login limit, single
+/// sign-on or the break-glass exemption) turns it off with <see cref="Enabled"/> false or <see cref="MaxFailedAttempts"/> 0.
+/// </para>
 /// </summary>
 public sealed class LockoutOptions
 {
+    /// <summary>The lockout is applied. Default: true.</summary>
+    public bool Enabled { get; set; } = true;
+
     public int MaxFailedAttempts { get; set; } = 5;
 
     public int DurationMinutes { get; set; } = 15;
 
-    public bool IsEnabled => MaxFailedAttempts > 0;
+    public bool IsEnabled => Enabled && MaxFailedAttempts > 0;
 
     public TimeSpan Duration => TimeSpan.FromMinutes(DurationMinutes);
 }
@@ -89,6 +115,11 @@ internal sealed class RateLimitOptionsValidator : IValidateOptions<RateLimitOpti
         AddWindowFailures(failures, nameof(RateLimitOptions.Anonymous), options.Anonymous);
         AddWindowFailures(failures, nameof(RateLimitOptions.Mcp), options.Mcp);
         AddWindowFailures(failures, nameof(RateLimitOptions.Ask), options.Ask);
+
+        if (options.MaxPartitions is < RateLimitOptions.MinPartitions or > RateLimitOptions.MaxPartitionsLimit)
+        {
+            failures.Add($"{RateLimitOptions.SectionName}:{nameof(RateLimitOptions.MaxPartitions)} must be between {RateLimitOptions.MinPartitions} and {RateLimitOptions.MaxPartitionsLimit}.");
+        }
 
         var lockout = $"{RateLimitOptions.SectionName}:{nameof(RateLimitOptions.Lockout)}";
         if (options.Lockout.MaxFailedAttempts is < 0 or > RateLimitOptions.MaxFailedAttemptsLimit)

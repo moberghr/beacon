@@ -16,8 +16,6 @@ namespace Beacon.Api.Authentication;
 /// </summary>
 internal sealed class LoginRateLimiter : IDisposable
 {
-    private static readonly Lazy<LoginRateLimiter> DefaultInstance = new(() => new LoginRateLimiter());
-
     private readonly FixedWindowPartitions _limiter;
 
     public LoginRateLimiter()
@@ -27,14 +25,19 @@ internal sealed class LoginRateLimiter : IDisposable
 
     public LoginRateLimiter(IOptions<RateLimitOptions> options)
     {
-        _limiter = new FixedWindowPartitions(options.Value.Login);
+        _limiter = new FixedWindowPartitions(options.Value.Login, options.Value.MaxPartitions);
     }
 
     /// <summary>
-    /// Process-wide fallback for hosts that call <c>MapBeaconApi()</c> without <c>AddBeaconApiServices()</c>, where no
-    /// <see cref="LoginRateLimiter"/> is registered.
+    /// The registered limiter, or for hosts that call <c>MapBeaconApi()</c> without <c>AddBeaconApiServices()</c> (where
+    /// none is registered) one stand-in per application built from the <c>Beacon:RateLimits</c> options the host registered,
+    /// or the defaults.
     /// </summary>
-    internal static LoginRateLimiter Default => DefaultInstance.Value;
+    internal static LoginRateLimiter For(IServiceProvider? services)
+    {
+        return services?.GetService<LoginRateLimiter>()
+            ?? UnregisteredLimiter<LoginRateLimiter>.For(services, x => new LoginRateLimiter(x));
+    }
 
     public bool TryAcquire(string partitionKey, out TimeSpan retryAfter)
     {
@@ -73,10 +76,10 @@ internal static class PerIpThrottle
         string partitionPrefix)
     {
         var httpContext = context.HttpContext;
-        var limiter = httpContext.RequestServices.GetService<LoginRateLimiter>() ?? LoginRateLimiter.Default;
-        var remoteIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var limiter = LoginRateLimiter.For(httpContext.RequestServices);
+        var partition = partitionPrefix + RateLimitPartitions.OfAddress(httpContext.Connection.RemoteIpAddress);
 
-        if (limiter.TryAcquire(partitionPrefix + remoteIp, out var retryAfter))
+        if (limiter.TryAcquire(partition, out var retryAfter))
         {
             return await next(context);
         }

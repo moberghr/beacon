@@ -17,20 +17,22 @@ using Beacon.Tests.Common;
 namespace Beacon.Tests.Unit;
 
 /// <summary>
-/// The sign-in lockout migration, checked offline on both providers (nothing connects, nothing is migrated): it adds the
-/// users' failed sign-in count (not null, default 0) and lockout end (nullable), so every existing user starts unlocked
-/// with no failed attempts. It runs no SQL. Up is exactly the difference between the model before it and its target
-/// model, and Down is exactly the way back. Its target model is the snapshot, the model has no pending changes, and it
-/// sorts last.
+/// The sign-in lockout migrations, checked offline on both providers (nothing connects, nothing is migrated): the first
+/// adds the users' failed sign-in count (not null, default 0) and lockout end (nullable), so every existing user starts
+/// unlocked with no failed attempts; the next adds the time of the last counted failure (nullable), so no existing count
+/// is older than it looks. Neither runs SQL. Up is exactly the difference between the model before each and its target
+/// model, and Down is exactly the way back. The last one's target model is the snapshot, the model has no pending changes,
+/// and it sorts last.
 /// </summary>
 [TestFixture]
 public class SignInLockoutMigrationTests
 {
     private const string Suffix = "_AddUserSignInLockout";
+    private const string FailureTimeSuffix = "_AddUserSignInFailureTime";
 
     [TestCase(false, "integer", "timestamp with time zone")]
     [TestCase(true, "int", "datetime2")]
-    public void TheMigration_AddsTheTwoUserColumns_AndIsTheSnapshot(bool sqlServer, string countType, string endType)
+    public void TheMigration_AddsTheTwoUserColumns_AndIsFollowedOnlyByTheFailureTime(bool sqlServer, string countType, string endType)
     {
         using var provider = BuildProvider(sqlServer);
         using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
@@ -59,13 +61,51 @@ public class SignInLockoutMigrationTests
             .Should().BeEquivalentTo(Signatures(differ.GetDifferences(before, target)), "Up is exactly the difference from the model before");
         Signatures(migration.DownOperations)
             .Should().BeEquivalentTo(Signatures(differ.GetDifferences(target, before)), "Down removes exactly what Up adds");
+        var next = MigrationNamed(context, migrations, FailureTimeSuffix);
+        Signatures(differ.GetDifferences(target, Initialized(next.TargetModel!, initializer).GetRelationalModel()))
+            .Should().BeEquivalentTo(
+                Signatures(next.UpOperations),
+                "this migration's target model differs from the next one's only by the next migration");
+        migrations.Migrations.Keys
+            .Order(StringComparer.Ordinal)
+            .SkipWhile(x => !x.EndsWith("_AddConnectionChangeApproval", StringComparison.Ordinal))
+            .Skip(1)
+            .First()
+            .Should().EndWith(Suffix, "it sorts after every earlier migration");
+    }
+
+    [TestCase(false, "timestamp with time zone")]
+    [TestCase(true, "datetime2")]
+    public void TheFailureTimeMigration_AddsOneNullableUserColumn_AndIsTheSnapshot(bool sqlServer, string timeType)
+    {
+        using var provider = BuildProvider(sqlServer);
+        using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
+        var migrations = context.GetService<IMigrationsAssembly>();
+        var initializer = context.GetService<IModelRuntimeInitializer>();
+        var differ = context.GetService<IMigrationsModelDiffer>();
+
+        var migration = MigrationNamed(context, migrations, FailureTimeSuffix);
+        var previous = MigrationNamed(context, migrations, Suffix);
+        var before = Initialized(previous.TargetModel!, initializer).GetRelationalModel();
+        var target = Initialized(migration.TargetModel!, initializer).GetRelationalModel();
+
+        migration.UpOperations.Should().NotContain(x => x is SqlOperation, "nothing rewrites or backfills a stored row");
+        var column = migration.UpOperations.Should().ContainSingle().Which.Should().BeOfType<AddColumnOperation>().Subject;
+        $"{column.Schema}.{column.Table}.{column.Name}"
+            .Should().Be($"beacon.{Named(sqlServer, "users")}.{Named(sqlServer, "last_failed_sign_in_time")}");
+        column.ColumnType.Should().Be(timeType);
+        column.IsNullable.Should().BeTrue("no existing user has a counted failure time");
+        Signatures(migration.UpOperations)
+            .Should().BeEquivalentTo(Signatures(differ.GetDifferences(before, target)), "Up is exactly the difference from the model before");
+        Signatures(migration.DownOperations)
+            .Should().BeEquivalentTo(Signatures(differ.GetDifferences(target, before)), "Down removes exactly what Up adds");
         differ.GetDifferences(target, Initialized(migrations.ModelSnapshot!.Model, initializer).GetRelationalModel())
             .Should().BeEmpty("the migration's target model is the snapshot");
         context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
         migrations.Migrations.Keys
             .Order(StringComparer.Ordinal)
             .Last()
-            .Should().EndWith(Suffix, "it sorts after every earlier migration");
+            .Should().EndWith(FailureTimeSuffix, "it sorts after every earlier migration");
     }
 
     // PostgreSQL names tables and columns in snake_case; SQL Server keeps the model's PascalCase.

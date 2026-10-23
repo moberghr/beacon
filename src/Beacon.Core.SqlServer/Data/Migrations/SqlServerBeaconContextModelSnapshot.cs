@@ -679,6 +679,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<bool>("IsSuperAdmin")
                         .HasColumnType("bit");
 
+                    b.Property<DateTime?>("LastFailedSignInTime")
+                        .HasColumnType("datetime2");
+
                     b.Property<DateTime?>("LastLoginAt")
                         .HasColumnType("datetime2");
 
