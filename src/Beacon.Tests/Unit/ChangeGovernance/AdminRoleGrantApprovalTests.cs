@@ -65,7 +65,7 @@ public class AdminRoleGrantApprovalTests
                 ResourceName = "User 3",
                 Status = ApprovalStatus.Pending,
                 RequestedByUserId = Ada,
-                DefinitionHash = AdminRoleGrantApproval.Hash(CidId, AdminRole),
+                DefinitionHash = AdminRoleGrantApproval.Hash(CidId, AdminRole, cid.SecurityStamp),
                 ChangeSummary = AdminRoleGrantApproval.ChangeSummary,
                 PreviousJson = (string?)null
             },
@@ -97,7 +97,7 @@ public class AdminRoleGrantApprovalTests
     public async Task TheSameGrantSavedAgain_AddsNoSecondRequest()
     {
         var harness = new Harness();
-        var pending = harness.Store.AddRequest(ChangeApprovalKind.AdminRoleGrant, CidId, AdminRoleGrantApproval.Hash(CidId, AdminRole), Ben);
+        var pending = harness.Store.AddRequest(ChangeApprovalKind.AdminRoleGrant, CidId, AdminRoleGrantApproval.Hash(CidId, AdminRole, "before"), Ben);
 
         await harness.SetRoles(Ada, AdaId).Handle(new SetUserRolesCommand(CidId, [AdminRole]), CancellationToken.None);
         harness.Store.Commit();
@@ -321,6 +321,106 @@ public class AdminRoleGrantApprovalTests
         harness.Audit.Events.Select(x => x.Action).Should().Equal(SecurityAuditActions.ChangeRejected);
     }
 
+    // What the user signs in with, or whether they may, changed after the grant was submitted: the grant is superseded in
+    // the same save, its requester is told, and it can no longer be approved.
+    [TestCase("userName")]
+    [TestCase("email")]
+    [TestCase("disabled")]
+    [TestCase("toggled")]
+    [TestCase("password")]
+    public async Task AChangeOfHowTheUserSignsIn_SupersedesThePendingGrant(string change)
+    {
+        var harness = new Harness();
+        harness.Store.Users.Single(x => x.Id == CidId).IsInternalUser = true;
+        var grant = harness.PendingGrant(Ada);
+        var users = harness.Users(Ben);
+
+        var response = change switch
+        {
+            "userName" => await users.UpdateUserAsync(Update(userName: "cid-renamed")),
+            "email" => await users.UpdateUserAsync(Update(email: "cid@example.com")),
+            "disabled" => await users.UpdateUserAsync(Update(isEnabled: false)),
+            "toggled" => await users.ToggleUserEnabledAsync(CidId),
+            _ => await users.ResetPasswordAsync(CidId, "Bb2!bbbbbbbb")
+        };
+        harness.Store.Commit();
+
+        response.Success.Should().BeTrue();
+        grant.Status.Should().Be(ApprovalStatus.Superseded);
+        harness.Store.Offline.Commits.Should().Be(1, "the change and the superseded grant commit together");
+        harness.Notifier.Verify(
+            x => x.ApprovalUpdatedAsync(grant.Id, QueryVersionService.SupersededStatus, null, Ada, It.IsAny<CancellationToken>()),
+            Times.Once);
+        var approve = () => harness.Decisions(Ben, TestPermissions.Admin).ApproveAsync(grant.Id, null, grant.PayloadHash, CancellationToken.None);
+        await approve.Should().ThrowAsync<BeaconConflictException>();
+        harness.Store.UserRoles.Should().NotContain(x => x.UserId == CidId);
+        harness.Store.Saved.OfType<BeaconUserRole>().Should().BeEmpty();
+    }
+
+    // Any other new security stamp after the submission (a role change, signing out everywhere, the user's own new password)
+    // leaves the grant pending, but it no longer applies: 409, nothing granted.
+    [Test]
+    public async Task ANewSecurityStamp_AfterTheSubmission_MakesTheGrantStale()
+    {
+        var harness = new Harness();
+        var grant = harness.PendingGrant(Ada);
+        harness.Store.Users.Single(x => x.Id == CidId).SecurityStamp = "renewed";
+
+        var detail = await harness.Decisions(Ben, TestPermissions.Admin).GetDetailAsync(grant.Id, LiveAdmin, CancellationToken.None);
+        var approve = () => harness.Decisions(Ben, TestPermissions.Admin).ApproveAsync(grant.Id, null, grant.PayloadHash, CancellationToken.None);
+
+        detail!.IsStale.Should().BeTrue();
+        await approve.Should().ThrowAsync<BeaconConflictException>().WithMessage(ChangeApprovalService.ChangedSinceSubmittedMessage);
+        grant.Status.Should().Be(ApprovalStatus.Pending);
+        harness.Store.Saved.OfType<BeaconUserRole>().Should().BeEmpty();
+    }
+
+    // The display name is how other users see the account, not how it signs in: the grant stays approvable.
+    [Test]
+    public async Task ADisplayNameChange_KeepsTheGrantApprovable()
+    {
+        var harness = new Harness();
+        var grant = harness.PendingGrant(Ada);
+
+        var response = await harness.Users(Ben).UpdateUserAsync(Update(displayName: "Cid Reyes"));
+        harness.Store.Commit();
+        var decision = await harness.Decisions(Ben, TestPermissions.Admin).ApproveAsync(grant.Id, null, grant.PayloadHash, CancellationToken.None);
+
+        response.Success.Should().BeTrue();
+        decision.Status.Should().Be(ApprovalStatus.Approved);
+        harness.Store.Saved.OfType<BeaconUserRole>().Should().ContainSingle().Which.RoleId.Should().Be(AdminRole);
+        harness.Notifier.Verify(
+            x => x.ApprovalUpdatedAsync(grant.Id, QueryVersionService.SupersededStatus, It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            Times.Never);
+    }
+
+    // The grant saved again after the user's stamp changed: the outdated request is superseded (its requester told) and a
+    // new one, bound to the user's current stamp, waits.
+    [Test]
+    public async Task TheGrantSavedAgain_AfterTheUsersStampChanged_SupersedesTheOutdatedRequest()
+    {
+        var harness = new Harness();
+        var outdated = harness.Store.AddRequest(ChangeApprovalKind.AdminRoleGrant, CidId, AdminRoleGrantApproval.Hash(CidId, AdminRole, "before"), Ben);
+        harness.Store.Users.Single(x => x.Id == CidId).SecurityStamp = "renewed";
+
+        await harness.SetRoles(Ada, AdaId).Handle(new SetUserRolesCommand(CidId, [AdminRole]), CancellationToken.None);
+        harness.Store.Commit();
+
+        outdated.Status.Should().Be(ApprovalStatus.Superseded);
+        harness.Store.Requests.Where(x => x.Status == ApprovalStatus.Pending).Should().ContainSingle()
+            .Which.DefinitionHash.Should().Be(AdminRoleGrantApproval.Hash(CidId, AdminRole, "renewed"));
+        harness.Notifier.Verify(
+            x => x.ApprovalUpdatedAsync(outdated.Id, QueryVersionService.SupersededStatus, null, Ben, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Test]
+    public void TheDefinition_IsBoundToTheUsersSecurityStamp()
+    {
+        AdminRoleGrantApproval.Hash(CidId, AdminRole, "before").Should().NotBe(AdminRoleGrantApproval.Hash(CidId, AdminRole, "renewed"));
+        AdminRoleGrantApproval.Hash(CidId, AdminRole, null).Should().NotBe(AdminRoleGrantApproval.Hash(CidId, AdminRole, "before"));
+    }
+
     [Test]
     public void TheSwitch_IsOffByDefault_AndMapsToItsKind()
     {
@@ -334,6 +434,11 @@ public class AdminRoleGrantApprovalTests
     }
 
     private static ChangeApprovalScope LiveAdmin => ChangeApprovalScope.Approver with { IsLiveAdmin = true };
+
+    private static UpdateUserRequest Update(string userName = "ext-cid", string? email = null, string? displayName = null, bool isEnabled = true)
+    {
+        return new UpdateUserRequest { UserId = CidId, UserName = userName, Email = email, DisplayName = displayName, IsEnabled = isEnabled };
+    }
 
     private sealed class Harness
     {
@@ -363,6 +468,8 @@ public class AdminRoleGrantApprovalTests
 
         public RecordingSecurityAudit Audit { get; } = new();
 
+        public Mock<IApprovalNotifier> Notifier { get; } = new();
+
         public void Holds(int userId, params int[] roleIds)
         {
             var user = Store.Users.Single(x => x.Id == userId);
@@ -378,7 +485,7 @@ public class AdminRoleGrantApprovalTests
         {
             var proposed = $$"""{"userId":{{CidId}},"roleId":{{AdminRole}},"roleName":"Admin"}""";
 
-            return Store.AddRequest(ChangeApprovalKind.AdminRoleGrant, CidId, AdminRoleGrantApproval.Hash(CidId, AdminRole), requester, proposedJson: proposed);
+            return Store.AddRequest(ChangeApprovalKind.AdminRoleGrant, CidId, AdminRoleGrantApproval.Hash(CidId, AdminRole, "before"), requester, proposedJson: proposed);
         }
 
         public SetUserRolesHandler SetRoles(string? caller, int callerId)
@@ -432,7 +539,7 @@ public class AdminRoleGrantApprovalTests
 
         private AdminRoleGrantApproval Grants(IBeaconActorAccessor actors)
         {
-            return new AdminRoleGrantApproval(actors, Configuration, NullLogger<AdminRoleGrantApproval>.Instance);
+            return new AdminRoleGrantApproval(actors, Configuration, NullLogger<AdminRoleGrantApproval>.Instance, TestChangeApprovals.Submitter(Configuration, actors, Notifier.Object));
         }
     }
 }

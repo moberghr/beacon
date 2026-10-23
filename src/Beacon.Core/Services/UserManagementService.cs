@@ -762,9 +762,12 @@ internal class UserManagementService(
                 ? await RevokeApiKeysAsync(context, user, ct)
                 : 0;
 
+            // A pending grant of the Admin role was reviewed against how the user signed in: it can no longer be approved.
+            ChangeApprovals.ChangeSubmission? superseded = null;
             if (signsOut)
             {
                 user.SecurityStamp = SecurityStamps.New();
+                superseded = await SupersedeAdminGrantsAsync(context, user.Id, ct);
             }
 
             // Which fields changed, never their values.
@@ -787,7 +790,7 @@ internal class UserManagementService(
 
             await context.SaveChangesAsync(ct);
 
-            return new GuardedChange(new BaseResponse { Success = true, Message = "User updated successfully." });
+            return new GuardedChange(new BaseResponse { Success = true, Message = "User updated successfully." }, Superseded: superseded);
         }, ct);
     }
 
@@ -846,6 +849,7 @@ internal class UserManagementService(
             // Either transition revokes: disabling, and re-enabling too (see RevokeApiKeysAsync), and signs out every session.
             user.IsEnabled = !user.IsEnabled;
             user.SecurityStamp = SecurityStamps.New();
+            var superseded = await SupersedeAdminGrantsAsync(context, user.Id, ct);
             var revokedKeys = await RevokeApiKeysAsync(context, user, ct);
             await securityAudit.StageAsync(
                 context,
@@ -856,11 +860,13 @@ internal class UserManagementService(
 
             await context.SaveChangesAsync(ct);
 
-            return new GuardedChange(new BaseResponse
-            {
-                Success = true,
-                Message = user.IsEnabled ? "User enabled successfully." : "User disabled successfully."
-            });
+            return new GuardedChange(
+                new BaseResponse
+                {
+                    Success = true,
+                    Message = user.IsEnabled ? "User enabled successfully." : "User disabled successfully."
+                },
+                Superseded: superseded);
         }, ct);
     }
 
@@ -1022,7 +1028,28 @@ internal class UserManagementService(
                 .On(SecurityAuditResources.User, user.Id)
                 .With(new SecurityAuditDetails().Add("mustChangePassword", true)),
             ct);
-        await context.SaveChangesAsync(ct);
+
+        if (adminRoleGrants == null)
+        {
+            await context.SaveChangesAsync(ct);
+
+            return new BaseResponse { Success = true, Message = "Password reset successfully." };
+        }
+
+        // A pending grant of the Admin role was reviewed against the user's old credentials: it is superseded in the same
+        // transaction as the new password.
+        var strategy = context.Database.CreateExecutionStrategy();
+        var superseded = await strategy.ExecuteAsync(async () =>
+        {
+            await using var transaction = await context.Database.BeginTransactionAsync(ct);
+            var outdated = await adminRoleGrants.SupersedePendingAsync(context, user.Id, ct);
+            await context.SaveChangesAsync(false, ct);
+            await transaction.CommitAsync(ct);
+            context.ChangeTracker.AcceptAllChanges();
+
+            return outdated;
+        });
+        await adminRoleGrants.NotifySupersededAsync(superseded, ct);
 
         return new BaseResponse { Success = true, Message = "Password reset successfully." };
     }
@@ -1274,6 +1301,8 @@ internal class UserManagementService(
             await securityAudit.RecordAsync(result.Refusal, ct);
         }
 
+        await NotifySupersededAdminGrantsAsync(result.Superseded, ct);
+
         return result.Response;
     }
 
@@ -1297,7 +1326,19 @@ internal class UserManagementService(
                 .With(new SecurityAuditDetails().AddCode("attempt", attempt)));
     }
 
-    private sealed record GuardedChange(BaseResponse Response, SecurityAuditEntry? Refusal = null);
+    private sealed record GuardedChange(BaseResponse Response, SecurityAuditEntry? Refusal = null, ChangeApprovals.ChangeSubmission? Superseded = null);
+
+    // The user's security stamp changes in this unit of work: their pending grants of the Admin role are superseded with it.
+    private async Task<ChangeApprovals.ChangeSubmission?> SupersedeAdminGrantsAsync(BeaconContext context, int userId, CancellationToken ct)
+    {
+        return adminRoleGrants == null ? null : await adminRoleGrants.SupersedePendingAsync(context, userId, ct);
+    }
+
+    // After the commit: the requesters of the superseded grants are told.
+    private Task NotifySupersededAdminGrantsAsync(ChangeApprovals.ChangeSubmission? superseded, CancellationToken ct)
+    {
+        return adminRoleGrants?.NotifySupersededAsync(superseded, ct) ?? Task.CompletedTask;
+    }
 
     private async Task<int> RevokeApiKeysAsync(BeaconContext context, BeaconUser user, CancellationToken ct)
     {
@@ -1364,7 +1405,7 @@ internal class UserManagementService(
             context.Users.Add(user);
             await context.SaveChangesAsync(ct);
 
-            var submitted = await adminRoleGrants!.SubmitAsync(context, requester, user.Id, adminRoleId, ct);
+            var submitted = await adminRoleGrants!.SubmitAsync(context, requester, user, adminRoleId, ct);
             await securityAudit.SaveWithEventsAsync(
                 context,
                 () => [UserCreated(user.Id, isInternalUser, grantedRoleIds), .. ChangeApprovals.ChangeApprovalAuditEntries.Submitted(submitted)],

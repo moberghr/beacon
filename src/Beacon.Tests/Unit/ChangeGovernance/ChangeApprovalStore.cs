@@ -105,6 +105,7 @@ internal sealed class ChangeApprovalStore
             [typeof(BeaconUser)] = RecordingBeaconContext.MemorySet(Users, Saved),
             [typeof(BeaconRole)] = RecordingBeaconContext.MemorySet(Roles, Saved),
             [typeof(BeaconUserRole)] = RecordingBeaconContext.MemorySet(UserRoles, Saved),
+            [typeof(ApiKeyCredential)] = RecordingBeaconContext.MemorySet(new List<ApiKeyCredential>(), Saved),
             [typeof(ProjectDataSource)] = RecordingBeaconContext.MemorySet(ProjectLinks, Saved),
             [typeof(DatabaseMetadata)] = RecordingBeaconContext.MemorySet(Metadata, Saved),
             [typeof(AppSetting)] = RecordingBeaconContext.MemorySet(Settings, Saved),

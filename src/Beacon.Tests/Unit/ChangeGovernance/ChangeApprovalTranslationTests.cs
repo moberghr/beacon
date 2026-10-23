@@ -2,6 +2,7 @@ using System.Text.Json;
 using Beacon.Core.Authorization;
 using Beacon.Core.ChangeApprovals;
 using Beacon.Core.Data;
+using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.Approvals;
 using Beacon.Core.Models;
@@ -558,15 +559,15 @@ public class ChangeApprovalTranslationTests
     // A decision read up to its transaction: pending request 90 of resource 5 of the kind, requested by ext-ben, with the
     // definition hash given, and the reviewer's label.
     // A grant of the Admin role: the user's row taken by a no-op update of its security stamp, then, under that lock, whether
-    // the user (not archived) holds the Admin role (or is a super admin) and the Admin role's id; a user who holds it is not
+    // the user (not archived) holds the Admin role (or is a super admin), its security stamp and the Admin role's id; a user who holds it is not
     // decided (409) and nothing is committed.
     [TestCase(false)]
     [TestCase(true)]
     public async Task Approve_AnAdminRoleGrant_TakesTheUsersRowFirst_ThenReadsWhetherItHoldsTheRole_Translates(bool sqlServer)
     {
-        var capture = Decision(sqlServer, ChangeApprovalKind.AdminRoleGrant, AdminRoleGrantApproval.Hash(5, 1))
+        var capture = Decision(sqlServer, ChangeApprovalKind.AdminRoleGrant, AdminRoleGrantApproval.Hash(5, 1, "stamp"))
             .ThenRowsAffected(1)
-            .ThenRow(5, "Cid", true)
+            .ThenRow(5, "Cid", "stamp", true)
             .ThenRow(1);
 
         var act = () => Service(capture).ApproveAsync(90, null, Payload, CancellationToken.None);
@@ -596,10 +597,30 @@ public class ChangeApprovalTranslationTests
         await using var context = await capture.Factory().CreateDbContextAsync(CancellationToken.None);
         var grants = new AdminRoleGrantApproval(TestChangeApprovals.Caller("ext-ada"), TestChangeApprovals.On(), NullLogger<AdminRoleGrantApproval>.Instance);
 
-        var submission = await grants.SubmitAsync(context, new ChangeRequester("ext-ada", null), 5, 1, CancellationToken.None);
+        var submission = await grants.SubmitAsync(context, new ChangeRequester("ext-ada", null), new BeaconUser { Id = 5, SecurityStamp = "stamp" }, 1, CancellationToken.None);
 
         submission.Request.Should().BeNull("a pending request already proposes the grant");
         capture.Commands.Should().ContainSingle().Which.Should().Contain(kind).And.Contain(user).And.Contain(pending).And.Contain(hash);
+    }
+
+    // A new security stamp supersedes the user's pending grants: read by kind, user and status, then marked by a conditional
+    // update that touches pending requests only.
+    [TestCase(false, "c.kind = 6", "c.resource_id = @userId", "c.status = 1", "SET status = @p")]
+    [TestCase(true, "[c].[Kind] = 6", "[c].[ResourceId] = @userId", "[c].[Status] = 1", "SET [c].[Status] = @p")]
+    public async Task SupersedingTheAdminRoleGrantsOfAUser_Translates(bool sqlServer, string kind, string user, string pending, string superseded)
+    {
+        var capture = Capture(sqlServer)
+            .ThenRow(7, "ext-ben")
+            .ThenRowsAffected(1);
+        await using var context = await capture.Factory().CreateDbContextAsync(CancellationToken.None);
+        var grants = new AdminRoleGrantApproval(TestChangeApprovals.Caller("ext-ada"), TestChangeApprovals.On(), NullLogger<AdminRoleGrantApproval>.Instance);
+
+        var submission = await grants.SupersedePendingAsync(context, 5, CancellationToken.None);
+
+        submission.Superseded.Should().ContainSingle().Which.Should().Be(new SupersededChange(7, "ext-ben"));
+        capture.Commands.Should().HaveCount(2);
+        capture.Commands[0].Should().Contain(kind).And.Contain(user).And.Contain(pending);
+        capture.Commands[1].Should().StartWith("UPDATE").And.Contain(superseded).And.EndWith(pending);
     }
 
     private static SqlCapture Decision(bool sqlServer, ChangeApprovalKind kind, string definitionHash)

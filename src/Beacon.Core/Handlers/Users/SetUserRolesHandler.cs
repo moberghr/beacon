@@ -92,6 +92,7 @@ internal sealed class SetUserRolesHandler(
         {
             var submission = await SaveWithGrantAsync(context, request.UserId, applied, removed, requester, adminGrant!.Id, actor.UserId, now, cancellationToken);
             adminRoleGrants.LogSubmitted(submission, request.UserId);
+            await adminRoleGrants.NotifySupersededAsync(submission, cancellationToken);
         }
 
         await rules.LogRolesChangedAsync(request.UserId, applied, removed, cancellationToken);
@@ -130,7 +131,7 @@ internal sealed class SetUserRolesHandler(
                 .ToListAsync(cancellationToken);
             await StageRoleChangesAsync(context, user, currentRoles, applied, removed, assignedByUserId, now, cancellationToken);
 
-            var submission = await adminRoleGrants.SubmitAsync(context, requester, userId, adminRoleId, cancellationToken);
+            var submission = await adminRoleGrants.SubmitAsync(context, requester, user, adminRoleId, cancellationToken);
             await securityAudit.SaveWithEventsAsync(context, () => ChangeApprovalAuditEntries.Submitted(submission), cancellationToken);
             await transaction.CommitAsync(cancellationToken);
 

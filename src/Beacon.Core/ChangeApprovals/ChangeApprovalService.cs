@@ -767,7 +767,8 @@ internal sealed class ChangeApprovalService(
 
             case ChangeApprovalKind.AdminRoleGrant:
                 {
-                    // The grant applies while the user exists, is not archived and does not hold the Admin role yet.
+                    // The grant applies while the user exists, is not archived, does not hold the Admin role yet and holds the
+                    // security stamp the grant was submitted with.
                     var user = await AdminRoleGrantApproval.StateAsync(context, resourceId, cancellationToken);
                     if (user == null)
                     {
@@ -779,7 +780,7 @@ internal sealed class ChangeApprovalService(
                         return new GovernedState(true, user.Label, AdminRoleGrantApproval.AlreadyAdminState, null, []);
                     }
 
-                    var grant = user.AdminRoleId is { } roleId ? AdminRoleGrantApproval.Hash(resourceId, roleId) : null;
+                    var grant = user.GrantHash(resourceId);
 
                     return new GovernedState(true, user.Label, grant, grant, []);
                 }
@@ -832,14 +833,14 @@ internal sealed class ChangeApprovalService(
                 return await llmConnections.ApplyAsync(context, requestId, llmProposal, request.RequestedByUserId, cancellationToken);
             case ChangeApprovalKind.AdminRoleGrant
                 when Read<AdminRoleGrantView>(request.Kind, request.ProposedJson, ChangeApprovalKind.AdminRoleGrant) is { } grant
-                    && grant.UserId == request.ResourceId
-                    && string.Equals(AdminRoleGrantApproval.Hash(grant.UserId, grant.RoleId), request.DefinitionHash, StringComparison.Ordinal):
+                    && grant.UserId == request.ResourceId:
                 {
                     // The role recorded as assigned by the requester; the event (by the reviewer) commits with the decision.
                     var rolesChanged = await AdminRoleGrantApproval.ApplyAsync(
                         context,
                         grant.UserId,
                         grant.RoleId,
+                        request.DefinitionHash,
                         request.RequestedByUserId,
                         DateTime.UtcNow,
                         cancellationToken);
