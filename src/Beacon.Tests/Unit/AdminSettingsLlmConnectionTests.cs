@@ -300,6 +300,27 @@ public class AdminSettingsLlmConnectionTests
         _tester.Verify(x => x.TestAsync(It.IsAny<LlmConnectionTestParameters>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    [TestCase(BedrockAuthMode.AccessKey, null)]
+    [TestCase(BedrockAuthMode.IamRole, "us-east-1")]
+    public void ForBedrock_ChangingTheAuthModeOrRegionWithoutTheSecret_IsRefused(BedrockAuthMode mode, string? region)
+    {
+        var current = new AppSettingsData
+        {
+            LlmProvider = AiProvider.Bedrock,
+            LlmRegion = "eu-west-1",
+            LlmBedrockAuthMode = BedrockAuthMode.IamRole,
+            LlmAwsSecretAccessKey = "stored-secret"
+        };
+
+        var refused = () => LlmConnectionSettings.DemandCredentialsForNewDestination(current, new LlmConnectionRequest(null, region, mode, null, null, null, null, null));
+        var reentered = () => LlmConnectionSettings.DemandCredentialsForNewDestination(current, new LlmConnectionRequest(null, region, mode, null, null, null, null, "new-secret"));
+        var unchanged = () => LlmConnectionSettings.DemandCredentialsForNewDestination(current, new LlmConnectionRequest(null, "eu-west-1", BedrockAuthMode.IamRole, null, null, null, null, null));
+
+        refused.Should().Throw<InvalidOperationException>().WithMessage(LlmConnectionSettings.NewDestinationNeedsCredentialMessage);
+        reentered.Should().NotThrow();
+        unchanged.Should().NotThrow();
+    }
+
     [Test]
     public async Task AnAdmin_ChangingTheProviderWithoutTheKey_IsRefused()
     {

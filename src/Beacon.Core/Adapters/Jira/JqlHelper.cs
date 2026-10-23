@@ -5,6 +5,9 @@ namespace Beacon.Core.Adapters.Jira;
 /// </summary>
 internal static class JqlHelper
 {
+    /// <summary>The prefix of the labels that tie an issue to one subscription's deliveries to one recipient.</summary>
+    public const string CorrelationLabelPrefix = "beacon-sub-";
+
     /// <summary>
     /// Escapes a string value for safe use in JQL queries.
     /// This prevents JQL injection by escaping special characters.
@@ -65,6 +68,6 @@ internal static class JqlHelper
         var escapedProject = EscapeJqlString(project);
         var escapedEmail = EscapeJqlString(reporterEmail);
 
-        return $"text ~ \"{escapedSessionId}\" AND project = \"{escapedProject}\" AND reporter = \"{escapedEmail}\" order by created DESC";
+        return $"text ~ \"{escapedSessionId}\" AND project = \"{escapedProject}\" AND reporter = \"{escapedEmail}\" AND statusCategory != Done order by created DESC";
     }
 }

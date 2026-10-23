@@ -46,4 +46,56 @@ public class BaseUrlPolicyTests
     {
         BaseUrlPolicy.Link(baseUrl, path).Should().Be(expected);
     }
+
+    [TestCase("http://beacon.example", false)]
+    [TestCase("http://beacon.example", true)]
+    [TestCase("http://localhost:5000", false)]
+    [TestCase("javascript:alert(1)", true)]
+    public void Link_IsLeftOutForAValueThatIsNoLongerSaveable(string baseUrl, bool development)
+    {
+        BaseUrlPolicy.Link(baseUrl, "notifications/4", development).Should().BeNull();
+    }
+
+    [Test]
+    public void Link_AllowsPlainHttpOnlyForLoopbackInDevelopment()
+    {
+        BaseUrlPolicy.Link("http://localhost:5000", "notifications/4", true).Should().Be("http://localhost:5000/notifications/4");
+    }
+
+    [TestCase("https://beacon.example/b?x=1", "notifications/4", "https://beacon.example/b/notifications/4?x=1")]
+    [TestCase("https://beacon.example/b/?x=1&y=2", "notifications/4", "https://beacon.example/b/notifications/4?x=1&y=2")]
+    [TestCase("https://beacon.example?x=1", "notifications/4?z=3", "https://beacon.example/notifications/4?x=1&z=3")]
+    [TestCase("https://beacon.example/b", "notifications/4?z=3", "https://beacon.example/b/notifications/4?z=3")]
+    public void Link_KeepsOrMergesAQueryStringAtTheEnd(string baseUrl, string path, string expected)
+    {
+        BaseUrlPolicy.Link(baseUrl, path).Should().Be(expected);
+    }
+
+    [TestCase("https://beacon.example.", "https://beacon.example./notifications/4")]
+    [TestCase("https://bücher.example/app", "https://bücher.example/app/notifications/4")]
+    [TestCase("https://192.0.2.10:8443/app", "https://192.0.2.10:8443/app/notifications/4")]
+    [TestCase("https://[2001:db8::1]/app", "https://[2001:db8::1]/app/notifications/4")]
+    public void Link_HandlesTrailingDotIdnAndIpHosts(string baseUrl, string expected)
+    {
+        BaseUrlPolicy.Link(baseUrl, "notifications/4").Should().Be(expected);
+    }
+
+    [TestCase("http://127.0.0.2:5000")]
+    [TestCase("http://LOCALHOST:5000")]
+    [TestCase("http://localhost.:5000")]
+    [TestCase("http://[::ffff:127.0.0.1]:5000")]
+    [TestCase("http://2130706433:5000")]
+    [TestCase("http://0x7f.0.0.1:5000")]
+    public void LoopbackForms_AreAcceptedOnlyInDevelopment(string value)
+    {
+        BaseUrlPolicy.Validate(value, true).Should().BeNull();
+        BaseUrlPolicy.Validate(value, false).Should().Be(BaseUrlPolicy.InvalidMessage);
+    }
+
+    [TestCase("http://10.0.0.1:5000")]
+    [TestCase("http://beacon.example.:5000")]
+    public void NonLoopbackHosts_NeverGetPlainHttp(string value)
+    {
+        BaseUrlPolicy.Validate(value, true).Should().NotBeNull().And.Be(BaseUrlPolicy.InvalidMessage);
+    }
 }

@@ -57,7 +57,7 @@ internal class JiraAdapter(
 
         return subscriptionId == null || recipientId == null
             ? null
-            : $"beacon-sub-{subscriptionId}-rcpt-{recipientId}";
+            : $"{JqlHelper.CorrelationLabelPrefix}{subscriptionId}-rcpt-{recipientId}";
     }
 
     // Issues are found by their correlation label inside the recipient's project. Issues created before the label existed
@@ -88,6 +88,7 @@ internal class JiraAdapter(
 
         return legacy
             .Where(x => x.Summary == IssueSummary(recipientQueryResult.QueryResult.SubscriptionName))
+            .Where(x => (x.Labels ?? []).All(y => !y.StartsWith(JqlHelper.CorrelationLabelPrefix, StringComparison.Ordinal)))
             .FirstOrDefault();
     }
 

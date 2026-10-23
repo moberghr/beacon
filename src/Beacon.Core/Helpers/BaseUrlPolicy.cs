@@ -35,17 +35,25 @@ internal static class BaseUrlPolicy
     }
 
     /// <summary>
-    /// The link to <paramref name="path"/> under <paramref name="baseUrl"/>, or null when the base URL is empty or not a
-    /// usable absolute http(s) address.
+    /// The link to <paramref name="path"/> under <paramref name="baseUrl"/>, or null when the base URL is empty or no
+    /// longer passes <see cref="Validate"/>. A query string on the base URL stays at the end; one on the path is merged
+    /// into it.
     /// </summary>
-    public static string? Link(string? baseUrl, string path)
+    public static string? Link(string? baseUrl, string path, bool development = false)
     {
-        if (string.IsNullOrWhiteSpace(baseUrl) || !TryParse(baseUrl.Trim(), out _))
+        if (string.IsNullOrWhiteSpace(baseUrl) || Validate(baseUrl, development) != null || !TryParse(baseUrl.Trim(), out var uri))
         {
             return null;
         }
 
-        return $"{baseUrl.Trim().TrimEnd('/')}/{path.TrimStart('/')}";
+        var pathAndQuery = path.TrimStart('/').Split('?', 2);
+        var query = string.Join('&', new[] { uri.Query.TrimStart('?'), pathAndQuery.Length > 1 ? pathAndQuery[1] : string.Empty }
+            .Where(x => x.Length > 0));
+
+        var trimmed = baseUrl.Trim();
+        var withoutQuery = trimmed.Contains('?') ? trimmed[..trimmed.IndexOf('?')] : trimmed;
+
+        return $"{withoutQuery.TrimEnd('/')}/{pathAndQuery[0]}{(query.Length > 0 ? "?" + query : string.Empty)}";
     }
 
     private static bool TryParse(string value, out Uri uri)
@@ -64,7 +72,7 @@ internal static class BaseUrlPolicy
     private static bool IsLoopback(Uri uri)
     {
         return uri.IsLoopback
-            || uri.Host.Equals("localhost", StringComparison.OrdinalIgnoreCase)
+            || uri.Host.TrimEnd('.').Equals("localhost", StringComparison.OrdinalIgnoreCase)
             || (IPAddress.TryParse(uri.Host.Trim('[', ']'), out var address) && IPAddress.IsLoopback(address));
     }
 }
