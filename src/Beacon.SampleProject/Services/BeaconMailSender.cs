@@ -8,7 +8,14 @@ namespace Beacon.SampleProject.Services;
 
 public class BeaconMailSender(IConfiguration configuration) : IEmailAdapter
 {
-    public async Task SendEmailAsync(string to, string subject, string body, QueryResultFile? file)
+    private static readonly TimeSpan SendTimeout = TimeSpan.FromSeconds(60);
+
+    public Task SendEmailAsync(string to, string subject, string body, QueryResultFile? file)
+    {
+        return SendEmailAsync(to, subject, body, file, CancellationToken.None);
+    }
+
+    public async Task SendEmailAsync(string to, string subject, string body, QueryResultFile? file, CancellationToken cancellationToken)
     {
         var section = configuration.GetSection("Beacon:Smtp");
 
@@ -43,7 +50,8 @@ public class BeaconMailSender(IConfiguration configuration) : IEmailAdapter
         {
             Port = port,
             EnableSsl = enableSsl,
-            Credentials = new NetworkCredential(username, password)
+            Credentials = new NetworkCredential(username, password),
+            Timeout = (int)SendTimeout.TotalMilliseconds
         };
 
         var mailMessage = new MailMessage
@@ -61,6 +69,6 @@ public class BeaconMailSender(IConfiguration configuration) : IEmailAdapter
             mailMessage.Attachments.Add(attachment);
         }
 
-        await smtpClient.SendMailAsync(mailMessage);
+        await smtpClient.SendMailAsync(mailMessage, cancellationToken);
     }
 }

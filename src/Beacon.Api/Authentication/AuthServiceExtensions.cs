@@ -7,6 +7,8 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Beacon.Api.SignalR;
 using Beacon.Core;
@@ -14,6 +16,7 @@ using Beacon.Core.Authentication;
 using Beacon.Core.Authentication.Providers;
 using Beacon.Core.Authorization;
 using Beacon.Core.Configuration;
+using Beacon.Core.Http;
 
 namespace Beacon.Api.Authentication;
 
@@ -197,7 +200,9 @@ public static class AuthServiceExtensions
         services.AddSingleton(options);
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, JwtEndpointStartupCheck>());
 
-        services.TryAddScoped<JwtExternalApiAuthenticationProvider>();
+        // The JWKS fetch goes through its own bounded client (10 s, 256 KB, no redirects), not the factory's default one.
+        services.AddBeaconOutboundHttpClients();
+        services.TryAddScoped(CreateJwtProvider);
 
         if (!string.IsNullOrEmpty(options.ExternalLoginEndpoint))
         {
@@ -296,6 +301,20 @@ public static class AuthServiceExtensions
             },
             ProblemJson);
         await context.Response.WriteAsync(payload, context.HttpContext.RequestAborted);
+    }
+
+    private static JwtExternalApiAuthenticationProvider CreateJwtProvider(IServiceProvider services)
+    {
+        var httpClient = services.GetRequiredService<IHttpClientFactory>().CreateClient(BeaconHttpClients.Jwks);
+        var options = services.GetRequiredService<JwtAuthenticationOptions>();
+        var logger = services.GetRequiredService<ILogger<JwtExternalApiAuthenticationProvider>>();
+        var users = services.GetService<Beacon.Core.Services.IUserManagementService>();
+        var oidc = services.GetService<IOptions<OidcAuthenticationOptions>>();
+        var configuration = services.GetService<BeaconConfiguration>();
+
+        return configuration == null
+            ? new JwtExternalApiAuthenticationProvider(httpClient, options, logger, users, oidc)
+            : new JwtExternalApiAuthenticationProvider(httpClient, options, logger, configuration, users, oidc);
     }
 
     // Internal users first, the external login as the fallback (HybridAuthenticationProvider), whenever Beacon holds
