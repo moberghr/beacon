@@ -12,8 +12,9 @@ namespace Beacon.Connector.Api;
 /// https URLs (the HTTP client then checks the server's certificate). Read the way the provider reads its configuration
 /// (property names in any case). The connection's definition is every property of the configuration under the
 /// provider's own names (<c>BaseUrl</c> in full, path included; nested ones as <c>Auth.Type</c>), properties left at their
-/// default left out, without the bearer token, the API key's value and the password; a property the provider does not
-/// know is kept as written. The login is the user name, or the authentication type when there is none.
+/// default left out, each endpoint pattern list as one setting holding its patterns (an empty pattern kept), without the
+/// bearer token, the API key's value and the password; a property the provider does not know is kept as written. The
+/// login is the user name, or the authentication type when there is none.
 /// </summary>
 public sealed class ApiTransportInspector : IDataSourceTransportInspector
 {
@@ -125,10 +126,8 @@ public sealed class ApiTransportInspector : IDataSourceTransportInspector
         var filter = config.EndpointFilter;
         if (filter != null)
         {
-            settings.AddRange(filter.IncludePathPatterns
-                .Select(x => new KeyValuePair<string, string?>(EndpointFilterPrefix + nameof(ApiEndpointFilter.IncludePathPatterns), x)));
-            settings.AddRange(filter.ExcludePathPatterns
-                .Select(x => new KeyValuePair<string, string?>(EndpointFilterPrefix + nameof(ApiEndpointFilter.ExcludePathPatterns), x)));
+            settings.Add(Patterns(nameof(ApiEndpointFilter.IncludePathPatterns), filter.IncludePathPatterns));
+            settings.Add(Patterns(nameof(ApiEndpointFilter.ExcludePathPatterns), filter.ExcludePathPatterns));
         }
 
         using var document = JsonDocument.Parse(connectionData);
@@ -139,6 +138,19 @@ public sealed class ApiTransportInspector : IDataSourceTransportInspector
         var login = string.IsNullOrEmpty(auth?.Username) ? (auth?.Type ?? ApiAuthType.None).ToString() : auth.Username;
 
         return DataSourceConnectionDefinition.Create(settings, SecretKeys, login);
+    }
+
+    // A list of endpoint patterns as one setting: its distinct patterns, ordinally sorted, as JSON text, so an empty pattern
+    // (it matches the root path only) is kept, while a list without patterns (it filters nothing) is left out like an
+    // absent filter. The provider matches a path against any of the patterns, so their order and repeats change nothing.
+    private static KeyValuePair<string, string?> Patterns(string name, List<string> patterns)
+    {
+        var distinct = patterns
+            .Distinct(StringComparer.Ordinal)
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+        return new(EndpointFilterPrefix + name, distinct.Count == 0 ? null : JsonSerializer.Serialize(distinct));
     }
 
     // The object a known property holds (named in any case), when it holds one.

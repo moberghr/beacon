@@ -22,7 +22,9 @@ namespace Beacon.Core.ChangeApprovals;
 /// (the endpoint as scheme and host, every credential as a fingerprint), the other settings are saved in the same unit of
 /// work, and the stored connection stays in use until a live Admin approves. A change of credentials or models alone
 /// applies at once. The request names the stored connection it was made from by its keyed hash; an approval applies only
-/// while the stored connection is still that one. A request expires after
+/// while the stored connection is still that one. Every save of the connection and every decision on a change of it take
+/// the LLM connection lock (<see cref="ILlmConnectionLock"/>) before they read the stored connection, so they run one after
+/// the other. A request expires after
 /// <see cref="ApprovalWorkflowOptions.LlmConnectionRequestDays"/>, and its staged connection is wiped whenever it can no
 /// longer be applied (decided, superseded, stale or expired). Logs carry request ids and counts only.
 /// </summary>
@@ -36,6 +38,7 @@ internal sealed class LlmConnectionApproval(
     ILlmProviderCatalog providerCatalog,
     ISecurityAuditRecorder securityAudit,
     BeaconConfiguration configuration,
+    ILlmConnectionLock connectionLock,
     ILogger<LlmConnectionApproval> logger)
 {
     /// <summary>The one stored LLM connection's resource id.</summary>
@@ -78,18 +81,19 @@ internal sealed class LlmConnectionApproval(
 
     /// <summary>
     /// Saves the admin settings <paramref name="next"/> (read from <paramref name="current"/>). Without the workflow covering
-    /// the LLM connection they are saved at once; a save that changes the stored connection then supersedes the pending
-    /// requests it makes moot. Under the workflow the change is judged against the stored connection inside the unit of work
-    /// that writes it: a change of credentials or models alone is saved at once, any other change of the connection is
-    /// staged for approval (403 for a requester Beacon cannot name, 409 while someone else's change waits or when another
-    /// change is submitted at the same time) and the rest is saved with the request.
+    /// the LLM connection they are saved at once (under the LLM connection lock too); a save that changes the stored
+    /// connection then supersedes the pending requests it makes moot. Under the workflow the change is judged against the
+    /// stored connection inside the unit of work that writes it, under the LLM connection lock: a change of credentials or
+    /// models alone is saved at once, any other change of the connection is staged for approval (403 for a requester Beacon
+    /// cannot name, 409 while someone else's change waits or when another change is submitted at the same time) and the rest
+    /// is saved with the request.
     /// </summary>
     public async Task SaveAsync(AppSettingsData current, AppSettingsData next, string? changedByUserId, bool saveLimits, CancellationToken cancellationToken)
     {
         var proposed = LlmConnectionDefinition.Of(next);
         if (!configuration.ApprovalWorkflow.Covers(Kind))
         {
-            await settingsService.SaveSettingsAsync(next, changedByUserId, saveLimits, cancellationToken);
+            await SaveLockedAsync(next, changedByUserId, saveLimits, cancellationToken);
             if (!string.Equals(LlmConnectionDefinition.Of(current).Canonical(), proposed.Canonical(), StringComparison.Ordinal))
             {
                 await SupersedeOrphanedAsync(cancellationToken);
@@ -117,6 +121,9 @@ internal sealed class LlmConnectionApproval(
                 submission = null;
                 await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
+                // The lock first, as an approval takes it: no approval checks or writes the stored connection between this
+                // read and this commit.
+                await connectionLock.AcquireAsync(context, cancellationToken);
                 var stored = await stager.ReadStoredAsync(context, cancellationToken);
                 var fromHost = stored.LlmProvider == null && proposed.Provider != null;
                 var storedConnection = LlmConnectionDefinition.Of(stored);
@@ -158,6 +165,15 @@ internal sealed class LlmConnectionApproval(
 
         await staged!.AfterCommitAsync(cancellationToken);
         await submitter.NotifySupersededAsync(submission, cancellationToken);
+    }
+
+    /// <summary>
+    /// Takes the LLM connection lock (<see cref="ILlmConnectionLock"/>) in <paramref name="context"/>'s open transaction: a
+    /// decision on a change of the LLM connection takes it before it checks the stored connection, as every save does.
+    /// </summary>
+    public Task LockAsync(BeaconContext context, CancellationToken cancellationToken)
+    {
+        return connectionLock.AcquireAsync(context, cancellationToken);
     }
 
     /// <summary>True when a request created at <paramref name="createdTime"/> waited past its expiry.</summary>
@@ -374,6 +390,24 @@ internal sealed class LlmConnectionApproval(
             ChangeSummary: string.Join(", ", governed) + " changed",
             MatchesDefinition: _ => false,
             EncryptedPayload: payload);
+    }
+
+    // A save while the workflow does not cover the LLM connection, through the settings service, under the LLM connection
+    // lock held by a transaction of its own until the save is done: an approval of a request made while it did (decisions
+    // stay possible) never checks the stored connection before the save and writes after it.
+    private async Task SaveLockedAsync(AppSettingsData next, string? changedByUserId, bool saveLimits, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var strategy = context.Database.CreateExecutionStrategy();
+        await strategy.ExecuteAsync(async () =>
+        {
+            await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
+
+            await connectionLock.AcquireAsync(context, cancellationToken);
+            await settingsService.SaveSettingsAsync(next, changedByUserId, saveLimits, cancellationToken);
+            await transaction.CommitAsync(cancellationToken);
+        });
     }
 
     // A save made while the workflow does not cover the LLM connection changed the stored connection: every pending request

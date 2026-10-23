@@ -309,8 +309,9 @@ internal enum AppSettingsParts
 
 /// <summary>
 /// Writes admin settings inside a unit of work its caller owns: a change of the LLM connection staged for approval saves the
-/// other settings with its request, and its approval writes the connection with the decision. Implemented by
-/// <see cref="AppSettingsService"/>.
+/// other settings with its request, and its approval writes the connection with the decision. A caller that reads or writes
+/// the LLM connection holds the LLM connection lock (<see cref="ChangeApprovals.ILlmConnectionLock"/>) in that unit of work
+/// before it reads. Implemented by <see cref="AppSettingsService"/>.
 /// </summary>
 internal interface IAppSettingsStager
 {

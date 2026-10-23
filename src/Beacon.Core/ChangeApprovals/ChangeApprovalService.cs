@@ -529,8 +529,8 @@ internal sealed class ChangeApprovalService(
 
     // The resource's row, by a no-op update that holds its lock on both providers until the transaction ends: submissions
     // and decisions on one resource run one after the other, in the same order. An archived or deleted resource matches
-    // no row.
-    private static Task<int> LockResourceAsync(BeaconContext context, ChangeApprovalKind kind, int resourceId, CancellationToken cancellationToken)
+    // no row. The LLM connection has no row: its lock is an application lock in the database every save of it takes too.
+    private Task<int> LockResourceAsync(BeaconContext context, ChangeApprovalKind kind, int resourceId, CancellationToken cancellationToken)
     {
         return kind switch
         {
@@ -544,11 +544,18 @@ internal sealed class ChangeApprovalService(
                 .Where(x => x.Id == resourceId)
                 .ExecuteUpdateAsync(x => x.SetProperty(y => y.ApprovedDestinationHash, y => y.ApprovedDestinationHash), cancellationToken),
             ChangeApprovalKind.DataSourceConnection => DataSourceService.LockAsync(context, resourceId, cancellationToken),
-            // One stored LLM connection, no row to take: a second pending request is refused by the database's unique index,
-            // and a change made since the request by the check of the connection it was based on.
-            ChangeApprovalKind.LlmConnection => Task.FromResult(1),
+            ChangeApprovalKind.LlmConnection => LockLlmConnectionAsync(context, cancellationToken),
             _ => Task.FromResult(0)
         };
+    }
+
+    // The one stored LLM connection always exists: its lock taken, a change saved since the request is found by the check of
+    // the connection the request was made from, and none is saved until the decision commits.
+    private async Task<int> LockLlmConnectionAsync(BeaconContext context, CancellationToken cancellationToken)
+    {
+        await llmConnections.LockAsync(context, cancellationToken);
+
+        return 1;
     }
 
     // The resource as it is now: whether it exists, its name, and the hash of the definition a request of it proposes (null

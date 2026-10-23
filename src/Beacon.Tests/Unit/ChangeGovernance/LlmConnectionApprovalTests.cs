@@ -506,6 +506,76 @@ public class LlmConnectionApprovalTests
         (await harness.Settings().GetSettingsAsync(CancellationToken.None)).LlmEndpoint.Should().Be("https://api.openai.example/v2");
     }
 
+    // A change of credentials alone, saved while an approval writes a staged connection, waits for the approval's unit of
+    // work and is then judged against the connection approved: here it names the earlier provider, so it is staged, and the
+    // approved connection stays as approved.
+    [Test]
+    public async Task ACredentialChangeSavedWhileAnApprovalWrites_WaitsForIt_AndIsJudgedAgainstTheApprovedConnection()
+    {
+        var harness = new Harness();
+        harness.StoreConnection();
+        var request = await harness.SubmittedAsync(Ben);
+        Task? rotation = null;
+        harness.Stager.BeforeStage(AppSettingsParts.ConnectionOnly, async () =>
+        {
+            rotation = harness.Handler(Ada).Handle(Save(apiKey: "rotated-key-value"), CancellationToken.None);
+            await Task.WhenAny(rotation, harness.Lock.Waiting);
+        });
+
+        await harness.Decisions(Ada).ApproveAsync(request.Id, null, request.PayloadHash, CancellationToken.None);
+        harness.Lock.Resume();
+        await rotation!.WaitAsync(TimeSpan.FromSeconds(10));
+        harness.Store.Commit();
+
+        request.Status.Should().Be(ApprovalStatus.Approved);
+        var stored = await harness.Settings().GetSettingsAsync(CancellationToken.None);
+        stored.Should().BeEquivalentTo(new { LlmProvider = AiProvider.AzureOpenAI, LlmEndpoint = ProposedEndpoint, LlmApiKey = ProposedKey }, x => x.ExcludingMissingMembers());
+        harness.Store.Requests.Should().ContainSingle(x => x.Status == ApprovalStatus.Pending)
+            .Which.Should().BeEquivalentTo(new { RequestedByUserId = Ada, ChangeSummary = "Provider, Endpoint changed" }, x => x.ExcludingMissingMembers());
+        harness.History().Should().NotContain(x => x.ChangedByUserId == Ada && x.SettingKey.StartsWith("LLM.", StringComparison.Ordinal), "the save wrote no part of the connection");
+    }
+
+    // An approval decided while a change of credentials alone is being saved waits for the save's unit of work, then finds
+    // the stored connection changed since the request: refused, superseded and wiped, and the saved credentials stay.
+    [Test]
+    public async Task AnApprovalDecidedWhileACredentialChangeIsSaved_WaitsForIt_AndIsRefusedAsStale()
+    {
+        var harness = new Harness();
+        harness.StoreConnection();
+        var request = await harness.SubmittedAsync(Ben);
+        Task? approval = null;
+        harness.Stager.BeforeStage(AppSettingsParts.Everything, async () =>
+        {
+            approval = harness.Decisions(Ada).ApproveAsync(request.Id, null, request.PayloadHash, CancellationToken.None);
+            await Task.WhenAny(approval, harness.Lock.Waiting);
+        });
+
+        await harness.Handler(Ben).Handle(Save(apiKey: "rotated-key-value"), CancellationToken.None);
+        harness.Lock.Resume();
+        var decided = () => approval!.WaitAsync(TimeSpan.FromSeconds(10));
+
+        await decided.Should().ThrowAsync<BeaconConflictException>().WithMessage(ChangeApprovalService.ChangedSinceSubmittedMessage);
+        request.Status.Should().Be(ApprovalStatus.Superseded);
+        request.EncryptedPayload.Should().BeNull();
+        var stored = await harness.Settings().GetSettingsAsync(CancellationToken.None);
+        stored.Should().BeEquivalentTo(new { LlmProvider = AiProvider.OpenAI, LlmEndpoint = StoredEndpoint, LlmApiKey = "rotated-key-value" }, x => x.ExcludingMissingMembers());
+    }
+
+    // A save while the workflow does not cover the LLM connection takes the lock too: an approval of a request made while it
+    // did never overwrites it.
+    [Test]
+    public async Task ASaveWithoutCoverage_TakesTheLlmConnectionLock()
+    {
+        var harness = new Harness();
+        harness.StoreConnection();
+        harness.Configuration.ApprovalWorkflow.CoversLlmConnection = false;
+
+        await harness.Handler(Ben).Handle(Save(apiKey: "rotated-key-value"), CancellationToken.None);
+
+        harness.Lock.Acquired.Should().Be(1);
+        (await harness.Settings().GetSettingsAsync(CancellationToken.None)).LlmApiKey.Should().Be("rotated-key-value");
+    }
+
     private static ChangeApprovalScope LiveAdmin => ChangeApprovalScope.Approver with { IsLiveAdmin = true };
 
     // An Admin's save changing the provider and endpoint, with a new key and model.
@@ -578,6 +648,14 @@ public class LlmConnectionApprovalTests
         public ILlmProviderCatalog ApprovalCatalog { get; set; } = Catalog(AiProvider.OpenAI, AiProvider.AzureOpenAI, AiProvider.Claude);
 
         public Exception? SaveFailure { get; init; }
+
+        /// <summary>The LLM connection lock every unit of work over this store takes, held as the database holds it.</summary>
+        public SerializingLlmConnectionLock Lock { get; } = new();
+
+        /// <summary>The stager every unit of work over this store writes the settings with.</summary>
+        public HookedStager Stager => _stager ??= new HookedStager(Settings());
+
+        private HookedStager? _stager;
 
         public int Days
         {
@@ -662,12 +740,48 @@ public class LlmConnectionApprovalTests
                 catalog,
                 Updater,
                 Settings(),
-                cache: Cache);
+                cache: Cache,
+                stager: Stager,
+                connectionLock: Lock);
         }
 
         private static IBeaconUserContext UserContext(string caller)
         {
             return Mock.Of<IBeaconUserContext>(x => x.UserId == caller && x.DisplayName == caller);
+        }
+    }
+
+    // Beacon's own stager, running a hook once, at the first staged save of the parts it names: the point where a unit of
+    // work has judged the stored connection and is about to write.
+    private sealed class HookedStager(IAppSettingsStager inner) : IAppSettingsStager
+    {
+        private (AppSettingsParts Parts, Func<Task> Hook)? _beforeStage;
+
+        public void BeforeStage(AppSettingsParts parts, Func<Task> hook)
+        {
+            _beforeStage = (parts, hook);
+        }
+
+        public Task<AppSettingsData> ReadStoredAsync(BeaconContext context, CancellationToken cancellationToken)
+        {
+            return inner.ReadStoredAsync(context, cancellationToken);
+        }
+
+        public async Task<StagedAppSettings> StageAsync(
+            BeaconContext context,
+            AppSettingsData settings,
+            string? changedByUserId,
+            AppSettingsParts parts,
+            bool saveLimits,
+            CancellationToken cancellationToken)
+        {
+            if (_beforeStage is { } before && before.Parts == parts)
+            {
+                _beforeStage = null;
+                await before.Hook();
+            }
+
+            return await inner.StageAsync(context, settings, changedByUserId, parts, saveLimits, cancellationToken);
         }
     }
 

@@ -445,6 +445,12 @@ public class DataSourceTransportInspectorTests
         yield return ApiPair("endpoint filter order",
             $"{{{ApiBase},\"endpointFilter\":{{\"includePathPatterns\":[\"/a\",\"/b\"]}}}}",
             $"{{{ApiBase},\"endpointFilter\":{{\"includePathPatterns\":[\"/b\",\"/a\"]}}}}");
+        yield return ApiPair("endpoint filter repeated pattern",
+            $"{{{ApiBase},\"endpointFilter\":{{\"includePathPatterns\":[\"/a\",\"/a\"]}}}}",
+            $"{{{ApiBase},\"endpointFilter\":{{\"includePathPatterns\":[\"/a\"]}}}}");
+        yield return ApiPair("empty endpoint filter",
+            $"{{{ApiBase}}}",
+            $"{{{ApiBase},\"endpointFilter\":{{\"includePathPatterns\":[],\"excludePathPatterns\":[]}}}}");
     }
 
     public static IEnumerable<TestCaseData> OtherApiDefinitions()
@@ -459,6 +465,10 @@ public class DataSourceTransportInspectorTests
         yield return ApiPair("key location", $"{{{ApiBase},\"auth\":{{\"type\":\"ApiKey\"}}}}", $"{{{ApiBase},\"auth\":{{\"type\":\"ApiKey\",\"apiKeyLocation\":\"Query\"}}}}");
         yield return ApiPair("user name", $"{{{ApiBase},\"auth\":{{\"type\":\"Basic\",\"username\":\"{User}\"}}}}", $"{{{ApiBase},\"auth\":{{\"type\":\"Basic\",\"username\":\"admin_9e1b\"}}}}");
         yield return ApiPair("endpoint filter", plain, $"{{{ApiBase},\"endpointFilter\":{{\"excludePathPatterns\":[\"/admin\"]}}}}");
+        yield return ApiPair("empty include pattern", $"{{{ApiBase},\"endpointFilter\":{{\"includePathPatterns\":[]}}}}", $"{{{ApiBase},\"endpointFilter\":{{\"includePathPatterns\":[\"\"]}}}}");
+        yield return ApiPair("empty exclude pattern", $"{{{ApiBase},\"endpointFilter\":{{\"excludePathPatterns\":[]}}}}", $"{{{ApiBase},\"endpointFilter\":{{\"excludePathPatterns\":[\"\"]}}}}");
+        yield return ApiPair("empty pattern beside another", $"{{{ApiBase},\"endpointFilter\":{{\"includePathPatterns\":[\"/a\"]}}}}", $"{{{ApiBase},\"endpointFilter\":{{\"includePathPatterns\":[\"\",\"/a\"]}}}}");
+        yield return ApiPair("pattern moved between lists", $"{{{ApiBase},\"endpointFilter\":{{\"includePathPatterns\":[\"/a\"]}}}}", $"{{{ApiBase},\"endpointFilter\":{{\"excludePathPatterns\":[\"/a\"]}}}}");
         yield return ApiPair("unknown property", plain, $"{{{ApiBase},\"proxyUrl\":\"https://proxy-2c1d.internal\"}}");
         yield return ApiPair("unknown auth property", plain, $"{{{ApiBase},\"auth\":{{\"audience\":\"other\"}}}}");
     }
@@ -488,6 +498,18 @@ public class DataSourceTransportInspectorTests
         other.Should().NotBe(one);
     }
 
+    // An empty pattern matches the root path only, while no pattern matches every path: the two never share a hash.
+    [TestCase("includePathPatterns")]
+    [TestCase("excludePathPatterns")]
+    public void AnEmptyEndpointPattern_AndNoPattern_HaveDifferentDefinitionHashes(string list)
+    {
+        var none = $"{{{ApiBase},\"endpointFilter\":{{\"{list}\":[]}}}}";
+        var empty = $"{{{ApiBase},\"endpointFilter\":{{\"{list}\":[\"\"]}}}}";
+
+        ApiHash(empty).Should().NotBe(ApiHash(none));
+        ApiHash(none).Should().Be(ApiHash($"{{{ApiBase}}}"), "an empty list filters nothing, as no filter does");
+    }
+
     [Test]
     public void TheApiDefinition_KeepsTheWholeBaseUrl_NamesTheLogin_AndHoldsNoSecret_WhateverTheVerdict()
     {
@@ -513,6 +535,13 @@ public class DataSourceTransportInspectorTests
 
         policy.Inspect(DataSourceType.Api, null, $"{{{ApiBase},\"auth\":{{\"type\":\"Bearer\",\"token\":\"t\"}}}}").Definition!.Login.Should().Be("Bearer");
         policy.Inspect(DataSourceType.Api, null, $"{{{ApiBase}}}").Definition!.Login.Should().Be("None");
+    }
+
+    private static string ApiHash(string connectionData)
+    {
+        var definition = TestTransport.Policy().Inspect(DataSourceType.Api, null, connectionData).Definition;
+
+        return DataSourceApprovalDefinition.Hash(TestTransport.Hasher(), DataSourceType.Api, null, definition, connectionData);
     }
 
     private static TestCaseData ApiPair(string what, string first, string second)

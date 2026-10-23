@@ -107,8 +107,10 @@ internal static class TestChangeApprovals
     /// <summary>
     /// The LLM connection's change approvals over <paramref name="factory"/> (by default one that must not be asked: the
     /// approval service hands its own context to everything but a save), with the settings stored and staged by Beacon's
-    /// own <see cref="AppSettingsService"/> under the test encryption key, and the tests' connection definition hasher. With
-    /// the default catalog AI is off, so no provider is refused as not installed.
+    /// own <see cref="AppSettingsService"/> under the test encryption key (or staged by <paramref name="stager"/>), the tests'
+    /// connection definition hasher, and the LLM connection lock recorded (<see cref="RecordingLlmConnectionLock"/>) unless
+    /// <paramref name="connectionLock"/> is given. With the default catalog AI is off, so no provider is refused as not
+    /// installed.
     /// </summary>
     public static LlmConnectionApproval Llm(
         IDbContextFactory<BeaconContext>? factory = null,
@@ -121,7 +123,9 @@ internal static class TestChangeApprovals
         IApprovalNotifier? notifier = null,
         IMemoryCache? cache = null,
         ConnectionDefinitionHasher? hasher = null,
-        IEncryptionService? encryption = null)
+        IEncryptionService? encryption = null,
+        IAppSettingsStager? stager = null,
+        ILlmConnectionLock? connectionLock = null)
     {
         factory ??= Mock.Of<IDbContextFactory<BeaconContext>>(MockBehavior.Strict);
         configuration ??= new BeaconConfiguration();
@@ -132,13 +136,14 @@ internal static class TestChangeApprovals
         return new LlmConnectionApproval(
             factory,
             settingsService ?? settings,
-            settings,
+            stager ?? settings,
             Submitter(configuration, caller, notifier),
             encryption,
             hasher ?? TestTransport.Hasher(),
             catalog ?? Mock.Of<ILlmProviderCatalog>(x => x.AiEnabled == false),
             audit,
             configuration,
+            connectionLock ?? new RecordingLlmConnectionLock(),
             NullLogger<LlmConnectionApproval>.Instance);
     }
 
