@@ -391,9 +391,9 @@ internal sealed partial class McpAuditService(
             ? value
             : null;
 
-    [GeneratedRegex(@"^[A-Za-z0-9._:\-]+\z")]
+    [GeneratedRegex(@"^[A-Za-z0-9._:\-]+\z", RegexOptions.None, matchTimeoutMilliseconds: 250)]
     private static partial Regex HeaderIdPattern();
 
-    [GeneratedRegex(@"^[A-Za-z0-9_.:\-]{1,200}\z")]
+    [GeneratedRegex(@"^[A-Za-z0-9_.:\-]{1,200}\z", RegexOptions.None, matchTimeoutMilliseconds: 250)]
     private static partial Regex ToolNamePattern();
 }

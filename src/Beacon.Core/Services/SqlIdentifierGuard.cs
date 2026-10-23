@@ -13,7 +13,7 @@ public static partial class SqlIdentifierGuard
     public const int MaxLoggedLength = 128;
 
     // \z, not $: `$` also matches before a trailing newline, which would let "orders\n" through.
-    [GeneratedRegex(@"^[A-Za-z_][A-Za-z0-9_]*\z")]
+    [GeneratedRegex(@"^[A-Za-z_][A-Za-z0-9_]*\z", RegexOptions.None, matchTimeoutMilliseconds: 250)]
     private static partial Regex IdentifierRegex();
 
     /// <summary>

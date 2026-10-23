@@ -23,16 +23,19 @@ internal sealed class McpLearningAggregationService(
     // LLM lesson extractions per project and run; further clusters take the deterministic content.
     internal const int MaxLessonExtractionsPerRun = 20;
 
+    private static readonly TimeSpan RegexMatchTimeout = TimeSpan.FromSeconds(1);
+
     // The sentences the detectors write a pattern's statistics into — a count, or an error rate and a count, the numbers
     // SignalCount and Confidence also hold — matched against the whole content, each with what replaces the statistics
     // when content is compared. Content of any other shape (a lesson, numbers in it included) is compared as written.
     private static readonly (Regex Sentence, string WithoutCounts)[] CountedSentences =
     [
-        (new Regex(@"\A(Common query pattern for .+ \()[0-9]+( similar queries\))\z", CountedSentenceOptions), "$1#$2"),
-        (new Regex(@"\A(Tables .+ are frequently joined together \()[0-9]+( queries\))\z", CountedSentenceOptions), "$1#$2"),
+        (new Regex(@"\A(Common query pattern for .+ \()[0-9]+( similar queries\))\z", CountedSentenceOptions, RegexMatchTimeout), "$1#$2"),
+        (new Regex(@"\A(Tables .+ are frequently joined together \()[0-9]+( queries\))\z", CountedSentenceOptions, RegexMatchTimeout), "$1#$2"),
         (new Regex(
             @"\A(Table '.+' has a )(?:[0-9]+[\u00A0\u202F ]?%|%[\u00A0\u202F ]?[0-9]+)( error rate across )[0-9]+( queries\. Schema descriptions may be missing or misleading\.)\z",
-            CountedSentenceOptions), "$1#$2#$3")
+            CountedSentenceOptions,
+            RegexMatchTimeout), "$1#$2#$3")
     ];
 
     private const RegexOptions CountedSentenceOptions = RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.Singleline;
@@ -413,12 +416,14 @@ internal sealed class McpLearningAggregationService(
         // Schema validation format: "Column 'created_at' does not exist on 'l'. Available: col1, col2, ..."
         var schemaErrorPattern = new Regex(
             @"Column '(\w+)' does not exist on '[\w.]+'\.\s*Available:\s*([^;]+)",
-            RegexOptions.IgnoreCase);
+            RegexOptions.IgnoreCase,
+            RegexMatchTimeout);
 
         // PostgreSQL execution error format: '42703: column "created_at" does not exist'
         var pgErrorPattern = new Regex(
             @"column ""(\w+)"" does not exist",
-            RegexOptions.IgnoreCase);
+            RegexOptions.IgnoreCase,
+            RegexMatchTimeout);
 
         var mappings = new List<(string WrongColumn, string? CorrectColumn, string Schema, string Table, McpQuerySignal Signal)>();
 
@@ -1208,7 +1213,7 @@ internal sealed class McpLearningAggregationService(
         if (!string.IsNullOrEmpty(correctedSql))
         {
             var inSql = available
-                .Where(col => Regex.IsMatch(correctedSql, @$"\b{Regex.Escape(col)}\b", RegexOptions.IgnoreCase))
+                .Where(col => ContainsWord(correctedSql, col))
                 .ToList();
             if (inSql.Count > 0)
             {
@@ -1276,10 +1281,22 @@ internal sealed class McpLearningAggregationService(
         return 0;
     }
 
+    private static bool ContainsWord(string text, string word)
+    {
+        try
+        {
+            return Regex.IsMatch(text, @$"\b{Regex.Escape(word)}\b", RegexOptions.IgnoreCase, RegexMatchTimeout);
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            return false;
+        }
+    }
+
     private static HashSet<string> ExtractSqlIdentifiers(string sql)
     {
         var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (Match m in Regex.Matches(sql, @"\b\w+\b"))
+        foreach (Match m in Regex.Matches(sql, @"\b\w+\b", RegexOptions.None, RegexMatchTimeout))
         {
             if (m.Value.Length > 1 && !SqlKeywords.Contains(m.Value))
             {

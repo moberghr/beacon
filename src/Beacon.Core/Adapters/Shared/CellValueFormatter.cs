@@ -44,6 +44,6 @@ internal static class CellValueFormatter
         }
 
         // Remove characters that would break table formatting
-        return System.Text.RegularExpressions.Regex.Replace(formatted, @"\t|\n|\r", " ").Trim();
+        return System.Text.RegularExpressions.Regex.Replace(formatted, @"\t|\n|\r", " ", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromMilliseconds(250)).Trim();
     }
 }
