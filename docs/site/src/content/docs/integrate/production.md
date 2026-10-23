@@ -28,6 +28,8 @@ app.UseForwardedHeaders(forwarded);
 - [ ] `Beacon:PublicBaseUrl` is the public origin (e.g. `https://beacon.example.com`), so MCP discovery documents do not echo the client's `Host` header. → [Connect AI clients](/mcp/connect/#public-url-and-discovery)
 - [ ] `options.BaseUrl` (or **Admin settings → Base URL**) is the public UI URL **including `/beacon`**, so notification links work.
 - [ ] HTTPS redirection applies to `/beacon/mcp` too, because API keys travel in headers.
+- [ ] HSTS is sent by the host (`app.UseHsts()`) or the proxy, and `AllowedHosts` lists your real host names.
+- [ ] The origin check knows your public origin (`Beacon:PublicBaseUrl` or `Beacon:Security:AllowedOrigins`); after a release without its `LogOnly` warnings, `Beacon:Security:OriginGuard` is `Enforce`. → [Security headers and the origin check](/integrate/host-setup/#security-headers-and-the-origin-check)
 - [ ] Proxy and Kestrel timeouts allow long requests (AI documentation, `ask`): the reference host uses 5 minutes.
 
 ## Sign-in and access
