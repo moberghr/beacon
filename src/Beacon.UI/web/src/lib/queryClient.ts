@@ -1,5 +1,5 @@
 import { QueryClient, QueryCache, MutationCache } from '@tanstack/react-query';
-import { ApiError } from './api';
+import { httpErrorInfo } from './api';
 import { disconnectBeaconHub } from './useHubEvent';
 import type { CurrentUser } from '@/auth/useAuth';
 
@@ -20,7 +20,7 @@ export const UNAUTHENTICATED_USER: CurrentUser = {
 /**
  * Builds the app QueryClient with a global 401 handler.
  *
- * `beaconFetch` lets 401s bubble up as `ApiError`. Without a central handler, a session that
+ * `beaconFetch` lets 401s bubble up as `ApiError` (the generated client's `ApiException` is covered the same way). Without a central handler, a session that
  * expires mid-app (cookie timeout, server restart, revoked session) surfaces as a per-page
  * "failed to load" error and strands the user — there is no path back to login. Here we reset
  * the cached auth state to unauthenticated on any 401, so <RequireAuth> re-evaluates and
@@ -33,7 +33,7 @@ export const UNAUTHENTICATED_USER: CurrentUser = {
  */
 export function createQueryClient(): QueryClient {
   const onError = (error: unknown) => {
-    if (error instanceof ApiError && error.status === 401) {
+    if (httpErrorInfo(error)?.status === 401) {
       client.removeQueries({ predicate: (query) => !isAuthQuery(query.queryKey) });
       client.setQueryData<CurrentUser>(AUTH_QUERY_KEY, (previous) => ({
         ...UNAUTHENTICATED_USER,
