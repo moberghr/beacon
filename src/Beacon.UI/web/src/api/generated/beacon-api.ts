@@ -17013,6 +17013,14 @@ export interface AdminApiKeyEntry {
   [key: string]: any;
 }
 
+export interface AdminRoleGrantView {
+  userId?: number;
+  roleId?: number;
+  roleName?: string;
+
+  [key: string]: any;
+}
+
 export interface AdminSettingHistoryEntry {
   settingKey: string;
   oldValue: string | null;
@@ -17336,6 +17344,7 @@ export interface ChangeApprovalDetail {
   proposedDataSourceConnection?: DataSourceConnectionView | null;
   previousLlmConnection?: LlmConnectionView | null;
   proposedLlmConnection?: LlmConnectionView | null;
+  proposedAdminRoleGrant?: AdminRoleGrantView | null;
   currentProjects?: ChangeApprovalProject[];
   payloadHash?: string;
   isOwnRequest?: boolean;
@@ -17354,6 +17363,7 @@ export enum ChangeApprovalKind {
   RecipientDestination = 3,
   DataSourceConnection = 4,
   LlmConnection = 5,
+  AdminRoleGrant = 6,
 }
 
 export interface ChangeApprovalOutcome {

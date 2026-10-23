@@ -37,7 +37,7 @@ internal sealed class CreateInternalUserHandler(
             throw new InvalidOperationException(response.Message ?? "Failed to create user.");
         }
 
-        await rules.LogCreatedAsync(request.UserName, true, roles, cancellationToken);
+        await rules.LogCreatedAsync(request.UserName, true, cancellationToken);
     }
 }
 
@@ -45,7 +45,8 @@ internal sealed class CreateInternalUserHandler(
 /// Creates an internal (password) user with <c>RoleIds</c>. For an Admin only (403 for a UserAdmin who is not one): whoever
 /// sets the password can sign in as the user, so the user must choose a new password at their first sign-in. Separation of
 /// duties, when on, refuses a conflicting pair (400). Each role assignment records who made it; the new user and the roles
-/// assigned are logged.
+/// assigned are logged. While the approval workflow reviews grants of the Admin role, the user is created with the other
+/// roles and the Admin role waits for another live Admin's approval.
 /// </summary>
 [ProjectScopeExempt("user management, gated by the UserAdmin permission and, by the handler, Admin-only; no project data", Policy = BeaconPermissions.UserAdminPolicy)]
 public record CreateInternalUserCommand(

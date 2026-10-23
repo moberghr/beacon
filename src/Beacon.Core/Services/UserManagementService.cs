@@ -22,10 +22,14 @@ internal class UserManagementService(
     TimeProvider timeProvider,
     ISecurityAuditRecorder securityAudit,
     ILogger<UserManagementService>? logger = null,
-    SessionStampExpectation? stampExpectation = null) : IUserManagementService
+    SessionStampExpectation? stampExpectation = null,
+    ChangeApprovals.AdminRoleGrantApproval? adminRoleGrants = null) : IUserManagementService
 {
     private const string InvalidCredentials = "Invalid username or password.";
     private const string NewPasswordRequired = "Your password was set by an administrator. Choose a new password to finish signing in.";
+
+    private const string AdminGrantNotReviewable =
+        "The Admin role cannot be granted here while the approval workflow reviews its grants: set the user's roles, which submits the grant for approval.";
 
     // A well-formed credential no password matches: verifying against it costs what a real verification costs.
     private static readonly string DummyPasswordHash = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
@@ -407,14 +411,23 @@ internal class UserManagementService(
 
         // Filter the requested roles to those that actually exist before staging,
         // so the user + UserRoles commit together in a single SaveChanges (§5.7).
-        var validRoleIds = await context.Roles
-            .Where(r => request.RoleIds.Contains(r.Id))
-            .Select(r => r.Id)
-            .ToListAsync(ct);
-
-        var user = new BeaconUser
+        var validRoles = await NewUserRolesAsync(context, request.RoleIds, ct);
+        var adminGrant = GovernedAdminGrant(validRoles);
+        if (adminGrant != null && adminRoleGrants == null)
         {
-            ExternalId = Guid.NewGuid().ToString(),
+            return new BaseResponse { Success = false, Message = AdminGrantNotReviewable };
+        }
+
+        var requester = adminGrant == null ? null : await adminRoleGrants!.RequesterAsync(null, ct);
+        var validRoleIds = validRoles
+            .Where(x => x.Id != adminGrant)
+            .Select(x => x.Id)
+            .ToList();
+
+        var externalId = Guid.NewGuid().ToString();
+        BeaconUser NewUser() => new()
+        {
+            ExternalId = externalId,
             UserName = request.UserName,
             Email = request.Email,
             DisplayName = request.DisplayName ?? request.UserName,
@@ -436,6 +449,14 @@ internal class UserManagementService(
                 .ToList(),
         };
 
+        if (requester != null)
+        {
+            await CreateWithAdminGrantAsync(context, NewUser, true, validRoleIds, requester, adminGrant!.Value, ct);
+
+            return new BaseResponse { Success = true, Message = "User created successfully. " + ChangeApprovals.AdminRoleGrantApproval.GrantWaitsMessage };
+        }
+
+        var user = NewUser();
         context.Users.Add(user);
         await securityAudit.SaveWithEventsAsync(context, () => [UserCreated(user.Id, true, validRoleIds)], ct);
 
@@ -554,6 +575,18 @@ internal class UserManagementService(
                 ?? throw new BeaconException($"Default role '{defaultRoleName}' does not exist.");
         }
 
+        // While the workflow reviews grants of the Admin role, nobody gets it by signing in: the user is provisioned with no
+        // role, never with one nobody approved.
+        if (defaultRole != null
+            && ChangeApprovals.AdminRoleGrantApproval.IsAdminRole(defaultRole.Name)
+            && configuration.ApprovalWorkflow.Covers(Data.Enums.ChangeApprovalKind.AdminRoleGrant))
+        {
+            logger?.LogWarning(
+                "A user provisioned at a first sign-in is given no role: the default role is the Admin role, whose grants the approval workflow reviews ({Option}). Configure a default role that is not Admin",
+                nameof(BeaconConfiguration.ApprovalWorkflow) + "." + nameof(ApprovalWorkflowOptions.CoversAdminRoleGrants));
+            defaultRole = null;
+        }
+
         // Stage the default role on the navigation collection so the user and
         // the UserRole commit together in a single SaveChanges (§5.7). No assigner is recorded: Beacon grants the configured
         // default role itself, at the user's first sign-in, not a person.
@@ -641,12 +674,20 @@ internal class UserManagementService(
 
         // Filter the requested roles to those that actually exist before staging,
         // so the user + UserRoles commit together in a single SaveChanges (§5.7).
-        var validRoleIds = await context.Roles
-            .Where(r => request.RoleIds.Contains(r.Id))
-            .Select(r => r.Id)
-            .ToListAsync(ct);
+        var validRoles = await NewUserRolesAsync(context, request.RoleIds, ct);
+        var adminGrant = GovernedAdminGrant(validRoles);
+        if (adminGrant != null && adminRoleGrants == null)
+        {
+            return new BaseResponse { Success = false, Message = AdminGrantNotReviewable };
+        }
 
-        var user = new BeaconUser
+        var requester = adminGrant == null ? null : await adminRoleGrants!.RequesterAsync(null, ct);
+        var validRoleIds = validRoles
+            .Where(x => x.Id != adminGrant)
+            .Select(x => x.Id)
+            .ToList();
+
+        BeaconUser NewUser() => new()
         {
             ExternalId = request.ExternalId,
             UserName = request.UserName,
@@ -665,6 +706,14 @@ internal class UserManagementService(
                 .ToList(),
         };
 
+        if (requester != null)
+        {
+            await CreateWithAdminGrantAsync(context, NewUser, false, validRoleIds, requester, adminGrant!.Value, ct);
+
+            return new BaseResponse { Success = true, Message = "External user pre-registered successfully. " + ChangeApprovals.AdminRoleGrantApproval.GrantWaitsMessage };
+        }
+
+        var user = NewUser();
         context.Users.Add(user);
         await securityAudit.SaveWithEventsAsync(context, () => [UserCreated(user.Id, false, validRoleIds)], ct);
 
@@ -829,6 +878,13 @@ internal class UserManagementService(
         if (role == null)
         {
             return new BaseResponse { Success = false, Message = "Role not found." };
+        }
+
+        // Never granted unreviewed: while the workflow reviews grants of the Admin role, this path grants it to nobody.
+        if (ChangeApprovals.AdminRoleGrantApproval.IsAdminRole(role.Name)
+            && configuration.ApprovalWorkflow.Covers(Data.Enums.ChangeApprovalKind.AdminRoleGrant))
+        {
+            return new BaseResponse { Success = false, Message = AdminGrantNotReviewable };
         }
 
         // Check if already assigned
@@ -1262,6 +1318,65 @@ internal class UserManagementService(
         return keys.Count;
     }
 
+    private static Task<List<NewUserRole>> NewUserRolesAsync(BeaconContext context, IEnumerable<int> roleIds, CancellationToken ct)
+    {
+        var ids = roleIds.ToList();
+
+        return context.Roles
+            .Where(x => ids.Contains(x.Id))
+            .Select(x => new NewUserRole(x.Id, x.Name))
+            .ToListAsync(ct);
+    }
+
+    // The Admin role among the roles a new user is created with, while the workflow reviews its grants: its id, else null.
+    private int? GovernedAdminGrant(IEnumerable<NewUserRole> roles)
+    {
+        if (!configuration.ApprovalWorkflow.Covers(Data.Enums.ChangeApprovalKind.AdminRoleGrant))
+        {
+            return null;
+        }
+
+        return roles
+            .Where(x => ChangeApprovals.AdminRoleGrantApproval.IsAdminRole(x.Name))
+            .Select(x => (int?)x.Id)
+            .FirstOrDefault();
+    }
+
+    // The new user with its other roles and the request of its Admin role's grant, in one transaction: the user saved first
+    // (the request names its id), then the request with the events. Through the execution strategy; a retry starts from a
+    // clean tracker with a new user object.
+    private async Task CreateWithAdminGrantAsync(
+        BeaconContext context,
+        Func<BeaconUser> newUser,
+        bool isInternalUser,
+        List<int> grantedRoleIds,
+        ChangeApprovals.ChangeRequester requester,
+        int adminRoleId,
+        CancellationToken ct)
+    {
+        var strategy = context.Database.CreateExecutionStrategy();
+        var (userId, submission) = await strategy.ExecuteAsync(async () =>
+        {
+            context.ChangeTracker.Clear();
+            await using var transaction = await context.Database.BeginTransactionAsync(ct);
+
+            var user = newUser();
+            context.Users.Add(user);
+            await context.SaveChangesAsync(ct);
+
+            var submitted = await adminRoleGrants!.SubmitAsync(context, requester, user.Id, adminRoleId, ct);
+            await securityAudit.SaveWithEventsAsync(
+                context,
+                () => [UserCreated(user.Id, isInternalUser, grantedRoleIds), .. ChangeApprovals.ChangeApprovalAuditEntries.Submitted(submitted)],
+                ct);
+            await transaction.CommitAsync(ct);
+
+            return (user.Id, submitted);
+        });
+
+        adminRoleGrants!.LogSubmitted(submission, userId);
+    }
+
     private static SecurityAuditEntry UserCreated(int userId, bool isInternalUser, IReadOnlyCollection<int> roleIds)
     {
         return new SecurityAuditEntry(SecurityAuditActions.UserCreated)
@@ -1279,4 +1394,6 @@ internal class UserManagementService(
                 .Add("addedRoleIds", addedRoleIds)
                 .Add("removedRoleIds", removedRoleIds));
     }
+
+    private sealed record NewUserRole(int Id, string Name);
 }

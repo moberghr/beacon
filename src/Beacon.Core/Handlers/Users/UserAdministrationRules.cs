@@ -153,20 +153,27 @@ internal sealed class UserAdministrationRules(
 
     /// <summary>
     /// Logs a new user (named <paramref name="userName"/>, unique), internal or external, and the roles it was created
-    /// with, by the new user's id.
+    /// with, by the new user's id: the roles it holds, so a grant of the Admin role that waits for approval is not logged as
+    /// assigned.
     /// </summary>
     public async Task LogCreatedAsync(
         string userName,
         bool isInternalUser,
-        IReadOnlyCollection<AssignableRole> roles,
         CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await context.Users
+        var created = await context.Users
             .Where(x => x.UserName == userName)
-            .Select(x => (int?)x.Id)
+            .Select(x =>
+                new
+                {
+                    x.Id,
+                    RoleIds = x.UserRoles
+                        .Select(y => y.RoleId)
+                        .ToList()
+                })
             .FirstOrDefaultAsync(cancellationToken);
-        if (userId == null)
+        if (created == null)
         {
             return;
         }
@@ -175,17 +182,11 @@ internal sealed class UserAdministrationRules(
         logger.LogInformation(
             ProjectAccessEvents.UserCreated,
             "User created: user {UserId}, internal {IsInternalUser}, by user {ActorId}",
-            userId.Value,
+            created.Id,
             isInternalUser,
             actor.LogId);
 
-        await LogRolesChangedAsync(
-            userId.Value,
-            roles
-                .Select(x => x.Id)
-                .ToList(),
-            [],
-            cancellationToken);
+        await LogRolesChangedAsync(created.Id, created.RoleIds, [], cancellationToken);
     }
 
     /// <summary>Logs a change to user <paramref name="userId"/>'s roles: role ids only.</summary>

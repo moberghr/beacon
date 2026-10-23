@@ -100,6 +100,17 @@ public class ProjectListScopeShapeTests
         capture.Commands.Should().NotContain(x => x.Contains("c.kind = 4", StringComparison.Ordinal) || x.Contains("c.kind = 3", StringComparison.Ordinal), "a connection's or a recipient's change is an Approver's to read");
     }
 
+    // The same reader asking for grants of the Admin role: scoped to its jobs and contracts, so no grant can match.
+    [Test]
+    public async Task TheAdminRoleGrants_AreUnreachable_ForARestrictedReaderWhoIsNoApprover()
+    {
+        var capture = await new ListHandlerHarness(Restricted).CaptureAsync(new GetChangeApprovalsQuery { Kind = Beacon.Core.Data.Enums.ChangeApprovalKind.AdminRoleGrant });
+
+        capture.Commands.Should().NotBeEmpty().And.OnlyContain(x => x.Contains("project_data_sources", StringComparison.Ordinal));
+        capture.Commands.Should().OnlyContain(x => x.Contains("c.kind = 1", StringComparison.Ordinal) && x.Contains("c.kind = 2", StringComparison.Ordinal));
+        capture.Commands.Should().NotContain(x => x.Contains("c.kind = 6", StringComparison.Ordinal), "only a live Admin reads them, never through a project");
+    }
+
     // The same reader asking for data-source connection requests reaches none of them either.
     [Test]
     public async Task TheDataSourceConnectionRequests_AreUnreachable_ForARestrictedReaderWhoIsNoApprover()

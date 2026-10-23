@@ -594,7 +594,7 @@ const dataSourceEntries = [
       ];
 
 // The pending connection changes the mock approvals list and detail serve: a data source's (41, the one the data-source
-// list badges) and the LLM connection's (51).
+// list badges) the LLM connection's (51) and an Admin role grant's (61).
 const mockConnectionChanges = [
   {
     id: 41,
@@ -703,6 +703,36 @@ const mockConnectionChanges = [
     },
     currentProjects: [],
     payloadHash: 'mock-llm-payload-hash',
+    isOwnRequest: false,
+    mayApprove: true,
+    approveBlockedReason: null,
+    isStale: false,
+    changeHiddenByMask: false,
+    commentRequiredToApprove: false,
+  },
+  // The grant of the Admin role to a mock user (61): the user is named by the server's label, never by name or e-mail.
+  {
+    id: 61,
+    kind: ChangeApprovalKind.AdminRoleGrant,
+    resourceId: 9,
+    resourceName: 'User 9',
+    resourceExists: true,
+    status: ApprovalStatus.Pending,
+    requestedByUserName: 'Mock Operator',
+    reviewedByUserName: null,
+    reviewedAt: null,
+    reviewComment: null,
+    changeSummary: 'Admin role granted',
+    createdTime: iso(0, 1),
+    previousMigrationJob: null,
+    proposedMigrationJob: null,
+    previousCustomSqlRules: null,
+    proposedCustomSqlRules: null,
+    previousRecipientDestination: null,
+    proposedRecipientDestination: null,
+    proposedAdminRoleGrant: { userId: 9, roleId: 1, roleName: 'Admin' },
+    currentProjects: [],
+    payloadHash: 'mock-admin-grant-payload-hash',
     isOwnRequest: false,
     mayApprove: true,
     approveBlockedReason: null,

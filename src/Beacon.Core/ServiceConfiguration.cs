@@ -245,6 +245,7 @@ public static class ServiceConfiguration
         services.TryAddScoped<ChangeApprovals.ChangeApprovalSubmitter>();
         services.TryAddScoped<ChangeApprovals.RecipientChangeApproval>();
         services.TryAddScoped<ChangeApprovals.LlmConnectionApproval>();
+        services.TryAddScoped<ChangeApprovals.AdminRoleGrantApproval>();
         services.TryAddSingleton<ChangeApprovals.ILlmConnectionLock, ChangeApprovals.DatabaseLlmConnectionLock>();
         services.TryAddScoped<ChangeApprovals.CustomSqlChangeApproval>();
         services.TryAddTransient<ChangeApprovals.RecipientDeliveryApproval>();

@@ -2,6 +2,7 @@ using System.Reflection;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Moq;
@@ -9,6 +10,7 @@ using NUnit.Framework;
 using Beacon.Core;
 using Beacon.Core.Authentication;
 using Beacon.Core.Authorization;
+using Beacon.Core.ChangeApprovals;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
@@ -219,7 +221,7 @@ public class UserAdministrationRulesTests
     public async Task EachAddedRole_RecordsWhoAssignedItAndWhen()
     {
         var at = new DateTimeOffset(2026, 10, 12, 9, 30, 0, TimeSpan.Zero);
-        var handler = new SetUserRolesHandler(Factory(), Rules(Admin(), false), TestProjectAccess.Actors(CallerId, "ext-ana"), new FakeTimeProvider(at), _audit);
+        var handler = new SetUserRolesHandler(Factory(), Rules(Admin(), false), TestProjectAccess.Actors(CallerId, "ext-ana"), new FakeTimeProvider(at), _audit, NotReviewed());
 
         await handler.Handle(new SetUserRolesCommand(BenId, [ViewerRole, EditorRole, ApproverRole]), CancellationToken.None);
 
@@ -330,7 +332,8 @@ public class UserAdministrationRulesTests
             Rules(Admin(), false, withoutUserId),
             withoutUserId,
             new FakeTimeProvider(DateTimeOffset.UtcNow),
-            _audit);
+            _audit,
+            NotReviewed());
 
         await handler.Handle(new SetUserRolesCommand(BenId, [ViewerRole, EditorRole]), CancellationToken.None);
 
@@ -437,7 +440,13 @@ public class UserAdministrationRulesTests
         var users = new Mock<IUserManagementService>();
         users
             .Setup(x => x.CreateExternalUserAsync(It.IsAny<CreateExternalUserRequest>(), It.IsAny<CancellationToken>()))
-            .Callback(() => _users.Add(new BeaconUser { Id = 42, ExternalId = "ext-new", UserName = "newbie", IsEnabled = true }))
+            .Callback(() =>
+            {
+                // Created as the service stores it: the user with its role; the log names the roles it holds.
+                var created = new BeaconUser { Id = 42, ExternalId = "ext-new", UserName = "newbie", IsEnabled = true };
+                created.UserRoles.Add(Assigned(42, EditorRole));
+                _users.Add(created);
+            })
             .ReturnsAsync(new BaseResponse { Success = true });
 
         await CreateExternal(UserAdmin(), users, false, EditorRole);
@@ -569,7 +578,7 @@ public class UserAdministrationRulesTests
 
     private Task SetRoles(IBeaconPermissionAccessor permissions, int userId, int[] roleIds, bool separationOfDuties)
     {
-        var handler = new SetUserRolesHandler(Factory(), Rules(permissions, separationOfDuties), TestProjectAccess.Actors(CallerId, "ext-ana"), new FakeTimeProvider(DateTimeOffset.UtcNow), _audit);
+        var handler = new SetUserRolesHandler(Factory(), Rules(permissions, separationOfDuties), TestProjectAccess.Actors(CallerId, "ext-ana"), new FakeTimeProvider(DateTimeOffset.UtcNow), _audit, NotReviewed());
 
         return handler.Handle(new SetUserRolesCommand(userId, roleIds), CancellationToken.None);
     }
@@ -686,6 +695,12 @@ public class UserAdministrationRulesTests
             permissions,
             Options.Create(mapping),
             _logs.For<UserAdministrationRules>());
+    }
+
+    // The approval workflow off: a grant of the Admin role applies at once.
+    private static AdminRoleGrantApproval NotReviewed()
+    {
+        return new AdminRoleGrantApproval(TestProjectAccess.Actors(CallerId, "ext-ana"), new BeaconConfiguration(), NullLogger<AdminRoleGrantApproval>.Instance);
     }
 
     private static IBeaconPermissionAccessor UserAdmin() => TestPermissions.Holding(BeaconPermissions.UserAdmin);
