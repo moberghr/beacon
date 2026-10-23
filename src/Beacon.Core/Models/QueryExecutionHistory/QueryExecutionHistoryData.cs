@@ -18,6 +18,9 @@ public class QueryExecutionHistoryData
 
     public int SubscriptionId { get; set; }
 
+    /// <summary>True when the run's subscription or its query has been archived since; the run stays listed as a record.</summary>
+    public bool SubscriptionArchived { get; set; }
+
     public double ExecutionTimeMs { get; set; }
 
     public string? Comment { get; set; }
