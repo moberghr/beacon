@@ -31,6 +31,10 @@ internal sealed class UpdateDataContractHandler(
     internal const string RulesChangedMessage =
         "The contract's rules changed while it was being saved, and a change of its Custom SQL rules waits for approval: reload it and save again.";
 
+    /// <summary>Why a save is refused when another save replaced the contract's rules while it was being saved.</summary>
+    internal const string RulesReplacedMessage =
+        "The contract's rules were changed by another save while this one was being saved: reload it and save again.";
+
     public async Task Handle(UpdateDataContractCommand request, CancellationToken cancellationToken)
     {
         var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
@@ -86,9 +90,8 @@ internal sealed class UpdateDataContractHandler(
             cancellationToken);
         var confined = DataQualityRuleGuard.EnsureConfined(catalog, request.SchemaName, request.TableName, request.Rules);
 
-        // The rule-result purge below runs as raw SQL (ExecuteDeleteAsync) outside the change
-        // tracker, so it would commit immediately and wipe history even if the subsequent save
-        // failed. Wrap the purge + rewrite + save in one explicit transaction so they're atomic.
+        // Retiring the replaced rules runs as a bulk update outside the change tracker, so it would commit on its own:
+        // the retirement, the new rules and the save share one explicit transaction.
         await using var tx = await context.Database.BeginTransactionAsync(cancellationToken);
 
         // Under the workflow the contract's row first, as a decision on its Custom SQL rules takes it.
@@ -98,15 +101,24 @@ internal sealed class UpdateDataContractHandler(
         }
 
         var contract = await context.DataContracts
-            .Include(c => c.Rules)
             .Include(c => c.Recipients)
             .Where(c => c.Id == request.DataContractId)
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"Data contract {request.DataContractId} not found");
 
+        // The rules this save replaces, on the data source they ran on: an unchanged Custom SQL rule keeps its approval.
+        // Read untracked: they are retired below, never removed, so the results of past evaluations keep pointing at the
+        // definition that produced them.
+        var replaced = await context.DataContractRules
+            .AsNoTracking()
+            .Where(x => x.DataContractId == request.DataContractId)
+            .OrderBy(x => x.Id)
+            .ToListAsync(cancellationToken);
+        var replacedDataSourceId = contract.DataSourceId;
+
         // Re-checked on the rows this transaction rewrites: a CustomSql rule added after the check above is an Admin's, and
         // under the workflow its change needs the requester the check above did not resolve: refused, nothing written.
-        if (contract.Rules.Any(x => x.RuleType == DataContractRuleType.CustomSql))
+        if (replaced.Any(x => x.RuleType == DataContractRuleType.CustomSql))
         {
             DataQualityRuleGuard.EnsureAdmin(userContext);
 
@@ -115,10 +127,6 @@ internal sealed class UpdateDataContractHandler(
                 throw new BeaconConflictException(RulesChangedMessage);
             }
         }
-
-        // The rules this save replaces, on the data source they ran on: an unchanged Custom SQL rule keeps its approval.
-        var replaced = contract.Rules.ToList();
-        var replacedDataSourceId = contract.DataSourceId;
 
         contract.DataSourceId = request.DataSourceId;
         contract.Name = request.Name;
@@ -133,17 +141,23 @@ internal sealed class UpdateDataContractHandler(
         contract.AlertOnFailure = request.AlertOnFailure;
         contract.FailureThresholdScore = request.FailureThresholdScore;
 
-        // Delete rule results that reference the old rules before removing them
-        var oldRuleIds = contract.Rules.Select(r => r.Id).ToList();
-        if (oldRuleIds.Count > 0)
+        // Replace rules: the existing ones are retired (they and their results stay), the new ones added. Each rule read
+        // above is retired once: one another save retired meanwhile means its rules replaced these, refused.
+        if (replaced.Count > 0)
         {
-            await context.DataQualityRuleResults
-                .Where(rr => oldRuleIds.Contains(rr.DataContractRuleId))
-                .ExecuteDeleteAsync(cancellationToken);
+            var replacedIds = replaced
+                .Select(x => x.Id)
+                .ToList();
+            var retiredTime = timeProvider.GetUtcNow().UtcDateTime;
+            var retired = await context.DataContractRules
+                .Where(x => x.DataContractId == request.DataContractId)
+                .Where(x => replacedIds.Contains(x.Id))
+                .ExecuteUpdateAsync(x => x.SetProperty(y => y.ArchivedTime, retiredTime), cancellationToken);
+            if (retired != replaced.Count)
+            {
+                throw new BeaconConflictException(RulesReplacedMessage);
+            }
         }
-
-        // Replace rules: remove existing, add new
-        context.DataContractRules.RemoveRange(contract.Rules);
 
         contract.Rules = request.Rules
             .Select((x, i) =>

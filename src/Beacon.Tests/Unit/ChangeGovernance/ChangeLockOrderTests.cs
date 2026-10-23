@@ -79,7 +79,8 @@ public class ChangeLockOrderTests
         var capture = ContractChecks(Capture(sqlServer))
             .ThenRowsAffected(1)
             .ThenRow(StoredContract())
-            .ThenRowsAffected(0)
+            .ThenRow(StoredRule())
+            .ThenRowsAffected(1)
             .ThenRow(77, Ada, "older-hash")
             .ThenRowsAffected(1);
 
@@ -91,8 +92,9 @@ public class ChangeLockOrderTests
         begun.Should().Be(3, "the owner, the Custom SQL check and the catalog are read before the transaction");
         ShouldBeTheLock(timeline[begun + 1], sqlServer, Table.DataContracts);
         timeline[begun + 2].Should().Contain(sqlServer ? "FROM [beacon].[DataContracts]" : "FROM beacon.data_contracts").And.NotStartWith("UPDATE");
-        timeline[begun + 3].Should().StartWith("DELETE").And.Contain(sqlServer ? "[DataQualityRuleResults]" : "data_quality_rule_results");
-        ShouldReadThenSupersedeRequests(timeline[begun + 4], timeline[begun + 5], sqlServer);
+        timeline[begun + 3].Should().StartWith("SELECT").And.Contain(sqlServer ? "FROM [beacon].[DataContractRules]" : "FROM beacon.data_contract_rules");
+        timeline[begun + 4].Should().StartWith("UPDATE").And.Contain(sqlServer ? "[ArchivedTime] = @" : "archived_time = @");
+        ShouldReadThenSupersedeRequests(timeline[begun + 5], timeline[begun + 6], sqlServer);
         capture.Commits.Should().Be(0);
     }
 
@@ -124,7 +126,7 @@ public class ChangeLockOrderTests
         capture.TransactionIsolationLevels.Should().BeEmpty();
     }
 
-    // The contract's rule-result purge keeps its own transaction with the workflow off, but no row is taken in it.
+    // The contract's rule retirement keeps its own transaction with the workflow off, but no row is taken in it.
     [TestCase(false)]
     [TestCase(true)]
     public async Task UpdateDataContract_WithTheWorkflowOff_TakesNoRow(bool sqlServer)
@@ -173,13 +175,18 @@ public class ChangeLockOrderTests
         (int)NotificationType.Webhook
     ];
 
-    // The contract as stored (no recorded creator or modifier), with one Custom SQL rule waiting for approval and no
-    // recipients: the contract's columns, the rule's, then the (empty) recipient join's.
+    // The contract as stored (no recorded creator or modifier) with no recipients: the contract's columns, then the (empty)
+    // recipient join's.
     private static object[] StoredContract() =>
     [
         ContractId, false, DBNull.Value, DBNull.Value, DateTime.UtcNow, "0 * * * *", ChangeApprovalStore.Warehouse, DBNull.Value, 80, false, DBNull.Value, DBNull.Value, "orders contract", DBNull.Value, DBNull.Value, "public", "orders",
-        11, ChangeApprovalHashes.NothingApproved, DBNull.Value, JsonSerializer.Serialize(new { sql = "SELECT 1 AS passed" }), DateTime.UtcNow, ContractId, DBNull.Value, true, "custom", (int)DataContractRuleType.CustomSql, (int)DataContractSeverity.Medium, 1.0,
         DBNull.Value, DBNull.Value, DBNull.Value, DBNull.Value, DBNull.Value, DBNull.Value, DBNull.Value, DBNull.Value, DBNull.Value, DBNull.Value, DBNull.Value, DBNull.Value
+    ];
+
+    // The contract's one live rule: a Custom SQL rule waiting for approval.
+    private static object[] StoredRule() =>
+    [
+        11, ChangeApprovalHashes.NothingApproved, DBNull.Value, DBNull.Value, JsonSerializer.Serialize(new { sql = "SELECT 1 AS passed" }), DateTime.UtcNow, ContractId, DBNull.Value, true, "custom", (int)DataContractRuleType.CustomSql, (int)DataContractSeverity.Medium, 1.0
     ];
 
     // The script ends after the request is superseded: the next statement is captured, not run, and nothing commits.

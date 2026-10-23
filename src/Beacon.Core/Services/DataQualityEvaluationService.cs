@@ -184,7 +184,10 @@ internal class DataQualityEvaluationService(
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
+        // The history keeps the results of rules a later save retired, with the name of the rule that produced them: the
+        // soft-delete filter would leave them out.
         var evaluations = await context.DataQualityEvaluations
+            .IgnoreQueryFilters()
             .Where(e => e.DataContractId == dataContractId)
             .OrderByDescending(e => e.CreatedTime)
             .Take(take)

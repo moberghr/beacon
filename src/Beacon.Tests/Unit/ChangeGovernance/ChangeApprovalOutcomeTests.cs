@@ -99,7 +99,13 @@ public class ChangeApprovalOutcomeTests
     {
         var store = new ChangeApprovalStore();
         var contract = store.AddContract(ChangeApprovalStore.Volume());
-        contract.Rules.Add(ChangeApprovalStore.CustomSql(CountSql, approvedSqlHash: ChangeApprovalHashes.NothingApproved));
+        var added = ChangeApprovalStore.CustomSql(CountSql, approvedSqlHash: ChangeApprovalHashes.NothingApproved);
+        added.DataContractId = contract.Id;
+        var gained = contract.Rules
+            .Append(added)
+            .ToList();
+        store.RuleReads = new ReadsInTheTransactionSee(store.Rules.ToList(), gained, () => store.Offline.Timeline.Contains(SqlCapture.TransactionBegun));
+        contract.Rules = gained;
 
         var act = () => ContractUpdateHandler(store, TestChangeApprovals.On()).Handle(UpdateCommand(contract, Volume()), CancellationToken.None);
 
@@ -273,4 +279,14 @@ public class ChangeApprovalOutcomeTests
             NullLogger<ChangeApprovalService>.Instance);
 
     private static SqlCapture Capture(bool sqlServer) => sqlServer ? SqlCapture.OnSqlServer() : new SqlCapture();
+
+    // Reads before the save's transaction see the rules as its check found them; reads inside it see the ones stored meanwhile.
+    private sealed class ReadsInTheTransactionSee(List<DataContractRule> before, List<DataContractRule> meanwhile, Func<bool> inTransaction)
+        : IEnumerable<DataContractRule>
+    {
+        public IEnumerator<DataContractRule> GetEnumerator() =>
+            (inTransaction() ? meanwhile : before).GetEnumerator();
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+    }
 }
