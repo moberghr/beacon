@@ -54,6 +54,10 @@ function resourceLink(detail: ChangeApprovalDetail): string | null {
       return `/data-quality/${detail.resourceId}`;
     case ChangeApprovalKind.RecipientDestination:
       return '/recipients';
+    case ChangeApprovalKind.DataSourceConnection:
+      return `/data-sources/${detail.resourceId}`;
+    case ChangeApprovalKind.LlmConnection:
+      return '/admin-settings';
     default:
       return null;
   }

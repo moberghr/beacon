@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
-import { AlertTriangle, Ban, Database, GitFork, Key, KeyRound, Layers, RefreshCw, X } from 'lucide-react';
+import { AlertTriangle, Ban, Database, GitFork, Hourglass, Key, KeyRound, Layers, RefreshCw, X } from 'lucide-react';
 import {
   PageHeader,
   Banner,
@@ -24,6 +24,8 @@ import { MigrationWritesControl } from './MigrationWritesControl';
 import { DataSourceEnabledControl } from './DataSourceEnabledControl';
 import { DataSourceStateBadges, DISABLED_HINT } from './DataSourceStateBadges';
 import { ReplaceConnectionDialog } from './ReplaceConnectionDialog';
+import { AwaitingApprovalBanner, DATA_SOURCE_HELD_HINT, DATA_SOURCE_HELD_NO_REQUEST_HINT, DATA_SOURCE_HELD_NO_REQUEST_TITLE, DATA_SOURCE_HELD_TITLE } from '@/routes/approvals/AwaitingApproval';
+import { ChangeApprovalKind } from '@/lib/enums';
 import { formatNumber } from '@/lib/format';
 import {
   useDataSourceQuery,
@@ -247,6 +249,25 @@ function OverviewTab({ entry, canEdit, metadataLoading }: OverviewProps) {
   const isWriteTarget = entry.allowMigrationWrites === true;
   return (
     <CardBody>
+      {entry.approval != null && (
+        <div className="mb-4">
+          <AwaitingApprovalBanner
+            kind={ChangeApprovalKind.DataSourceConnection}
+            title={DATA_SOURCE_HELD_TITLE}
+            sub={DATA_SOURCE_HELD_HINT}
+            requestId={entry.approval.requestId}
+          />
+        </div>
+      )}
+      {entry.approval == null && entry.awaitsFirstApproval === true && (
+        <Banner
+          tone="warn"
+          icon={<Hourglass />}
+          title={DATA_SOURCE_HELD_NO_REQUEST_TITLE}
+          sub={DATA_SOURCE_HELD_NO_REQUEST_HINT}
+          className="mb-4"
+        />
+      )}
       {entry.disabled === true && (
         <Banner
           tone="crit"
@@ -297,7 +318,7 @@ function OverviewTab({ entry, canEdit, metadataLoading }: OverviewProps) {
           )}
           {!isWriteTarget && entry.databaseReadOnlyEnforced === false && <ReadOnlyEnforcementBadge enforced={false} />}
           {!isWriteTarget && entry.databaseReadOnlyEnforced == null && <span className="text-text-muted">—</span>}
-          <DataSourceStateBadges transportVerified={entry.transportVerified} />
+          <DataSourceStateBadges transportVerified={entry.transportVerified} approval={entry.approval} awaitsFirstApproval={entry.awaitsFirstApproval} />
         </dd>
         <dt className="text-text-muted">Migration writes</dt>
         <dd><MigrationWritesControl entry={entry} /></dd>

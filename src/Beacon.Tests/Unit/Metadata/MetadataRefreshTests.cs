@@ -7,7 +7,9 @@ using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
 using Moq;
 using NUnit.Framework;
+using Beacon.Core;
 using Beacon.Core.Authorization;
+using Beacon.Core.ChangeApprovals;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
@@ -450,6 +452,24 @@ public class MetadataRefreshTests
         world.Cache.TryGetValue(key, out _).Should().BeFalse();
     }
 
+    // While the workflow covers data-source connections, a created source waiting for its first approval is scanned through
+    // the resolver, which refuses it: it has no catalog until it is approved.
+    [Test]
+    public async Task TheScanOfAHeldSource_IsRefused_AndPublishesNoCatalog()
+    {
+        var world = new MetadataWorld();
+        world.DataSources.Single().ApprovedTargetHash = DataSourceApprovalDefinition.Held;
+        var configuration = new BeaconConfiguration();
+        configuration.ApprovalWorkflow.Enabled = true;
+        configuration.ApprovalWorkflow.CoversDataSourceConnections = true;
+
+        var refresh = () => world.Service(configuration: configuration).RefreshMetadataAsync(DataSourceId, forceRefresh: true);
+
+        await refresh.Should().ThrowAsync<DataSourceAwaitingApprovalException>();
+        world.Cache.TryGetValue(DatabaseMetadataService.GetCacheKey(DataSourceId), out _).Should().BeFalse();
+        world.Stored.Should().BeEmpty();
+    }
+
     [Test]
     public async Task ACachedCatalog_OfAnEnabledSource_IsServed()
     {
@@ -696,7 +716,8 @@ public class MetadataRefreshTests
         public DatabaseMetadataService Service(
             ILogger<DatabaseMetadataService>? logger = null,
             IColumnValueSampler? sampler = null,
-            McpSettingsData? settings = null)
+            McpSettingsData? settings = null,
+            BeaconConfiguration? configuration = null)
         {
             var extractor = new Mock<IDatabaseMetadataExtractor>();
             extractor.SetupGet(x => x.SupportedEngineType).Returns(DatabaseEngineType.PostgreSQL);
@@ -714,7 +735,7 @@ public class MetadataRefreshTests
 
             return new DatabaseMetadataService(
                 Factory(),
-                TestTransport.Resolver(Encryption()),
+                TestTransport.Resolver(Encryption(), configuration: configuration),
                 [extractor.Object],
                 sampler ?? Mock.Of<IColumnValueSampler>(),
                 SettingsProviderMock.Unshared(SettingsProviderMock.Create(settings ?? new McpSettingsData { EnableSampleValueCollection = false }).Object),
@@ -734,6 +755,8 @@ public class MetadataRefreshTests
                 new RecordingSecurityAudit(),
                 TestTransport.Policy(),
                 TestEngineVerifier.Passing,
+                TestChangeApprovals.Submitter(),
+                TestTransport.Hasher(),
                 NullLogger<DataSourceService>.Instance);
         }
 

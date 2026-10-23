@@ -100,6 +100,18 @@ public class GatedSqlRunnerTests
         await act.Should().ThrowAsync<QueryExecutionFailedException>().WithMessage(error);
     }
 
+    // A provider catches the connection resolver's refusal of a source whose connection waits for approval and reports its
+    // fixed message: the run is refused as that, so what records it says why.
+    [Test]
+    public async Task AConnectionWaitingForApproval_IsRefusedAsSuch()
+    {
+        var runner = Runner(Answering(new ProviderQueryResult { Success = false, ErrorMessage = DataSourceAwaitingApprovalException.RefusalMessage }).Object, TestConfiguredDatabases.None);
+
+        var act = () => runner.RunAsync(new GatedSqlRequest(Source, "SELECT id FROM accounts", new Dictionary<string, object?>(), 10, TestRowSecurity.NotApplicable), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<DataSourceAwaitingApprovalException>()).Which.DataSourceId.Should().Be(Source.Id);
+    }
+
     // The database's error quotes a row value: while the source's effective PII detection is on (the request's settings,
     // else the source's tightened global settings) the failure carries it redacted; with detection off it is as it was.
     [TestCase(true, null, true)]

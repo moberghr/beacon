@@ -159,6 +159,10 @@ public static class ServiceConfiguration
         // hashes written under a previous key keep matching until the re-encryption run rewrites them.
         services.TryAddSingleton(new ChangeApprovals.RecipientDestinationHasher(encryptionKey, previousEncryptionKeys));
 
+        // Keyed hashes of governed data-source connection definitions and of the LLM connection, under keys derived from the
+        // encryption key for each purpose; hashes written under a previous key keep verifying.
+        services.TryAddSingleton(new ChangeApprovals.ConnectionDefinitionHasher(encryptionKey, previousEncryptionKeys));
+
         // Notification channels (Beacon:Notifications): where recipients may point, the one outbound HTTP policy the
         // adapters use, and encryption of recipient secrets at rest. ValidateOnStart so a malformed allow-list entry
         // fails the host at boot.
@@ -206,6 +210,7 @@ public static class ServiceConfiguration
         services.TryAddTransient<IJobService, JobService>();
         services.TryAddTransient<INotificationService, NotificationService>();
         services.TryAddTransient<IDataSourceService, DataSourceService>();
+        services.TryAddTransient<IHeldDataSourceProbe, DataSourceService>();
         services.TryAddTransient<IQueryService, QueryService>();
         services.TryAddTransient<IStoredQueryPreview, QueryService>();
         services.TryAddTransient<IQueryProposalCheck, QueryService>();
@@ -225,6 +230,7 @@ public static class ServiceConfiguration
         services.TryAddTransient<IDataQualityEvaluationService, DataQualityEvaluationService>();
         services.TryAddTransient<IManualQueryExecutionLogger, ManualQueryExecutionLogger>();
         services.TryAddTransient<IAppSettingsService, AppSettingsService>();
+        services.TryAddTransient<IAppSettingsStager, AppSettingsService>();
         // Applies the stored base URL and LLM configuration once the host has started (Beacon.Api's StoredSettingsStartupApplier).
         services.TryAddTransient<StoredSettingsApplier>();
         services.TryAddTransient<IQueryVersionService, QueryVersionService>();
@@ -234,10 +240,12 @@ public static class ServiceConfiguration
         services.TryAddTransient<ISavedQueryToolExecutor, SavedQueryToolExecutor>();
         services.TryAddTransient<IQueryApprovalService, QueryApprovalService>();
 
-        // Change approvals of migration jobs, Custom SQL rules and recipient destinations: submission (as the request's
-        // caller), decisions, and the delivery gate.
+        // Change approvals of migration jobs, Custom SQL rules, recipient destinations and the LLM connection: submission
+        // (as the request's caller), decisions, and the delivery gate.
         services.TryAddScoped<ChangeApprovals.ChangeApprovalSubmitter>();
         services.TryAddScoped<ChangeApprovals.RecipientChangeApproval>();
+        services.TryAddScoped<ChangeApprovals.LlmConnectionApproval>();
+        services.TryAddSingleton<ChangeApprovals.ILlmConnectionLock, ChangeApprovals.DatabaseLlmConnectionLock>();
         services.TryAddScoped<ChangeApprovals.CustomSqlChangeApproval>();
         services.TryAddTransient<ChangeApprovals.RecipientDeliveryApproval>();
         services.TryAddTransient<ChangeApprovals.MigrationJobApprovalState>();
@@ -282,11 +290,8 @@ public static class ServiceConfiguration
         services.TryAddSingleton<HostData.IXmlDocumentationProvider, HostData.AssemblyXmlDocumentationProvider>();
         services.TryAddSingleton<HostData.IHostDataSourceRegistry, HostData.HostDataSourceRegistry>();
         services.TryAddTransient<HostData.IHostDataSourceGuard, HostData.HostDataSourceGuard>();
-        services.TryAddTransient<HostData.IDataSourceConnectionResolver>(x =>
-            new HostData.DataSourceConnectionResolver(
-                x.GetRequiredService<IEncryptionService>(),
-                configuration,
-                x.GetRequiredService<Services.Providers.IDataSourceTransportPolicy>()));
+        services.TryAddTransient<HostData.IDataSourceConnectionResolver>(x => ConnectionResolver(x, configuration));
+        services.TryAddTransient<HostData.IDataSourceDefinitionReader>(x => ConnectionResolver(x, configuration));
         services.TryAddTransient<Services.Providers.DataSourceTransportStatus>();
         services.TryAddTransient<IConfiguredDatabaseResolver, ConfiguredDatabaseResolver>();
         services.TryAddTransient<HostData.IHostProjectResolver, HostData.HostProjectResolver>();
@@ -533,6 +538,7 @@ public static class ServiceConfiguration
             .ValidateOnStart();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.RoleMappingOptions>, Configuration.RoleMappingOptionsValidator>());
         services.TryAddScoped<IBeaconPermissionAccessor, BeaconPermissionAccessor>();
+        services.TryAddScoped<IReviewerAuthority, ReviewerAuthority>();
         services.TryAddSingleton<BeaconPermissionLog>();
         services.TryAddScoped<Handlers.Users.UserAdministrationRules>();
         services.TryAddScoped<Handlers.DataMigration.MigrationJobAccess>();
@@ -570,5 +576,17 @@ public static class ServiceConfiguration
         // resolve IAppSettingsService on demand. Hydrating at startup would
         // either require an async entrypoint or block-on-async, both of which
         // we avoid.
+    }
+
+    // The connection resolver, which also reads stored connection definitions: one decrypt site for both.
+    private static HostData.DataSourceConnectionResolver ConnectionResolver(IServiceProvider services, IConfiguration configuration)
+    {
+        return new HostData.DataSourceConnectionResolver(
+            services.GetRequiredService<IEncryptionService>(),
+            configuration,
+            services.GetRequiredService<Services.Providers.IDataSourceTransportPolicy>(),
+            services.GetRequiredService<BeaconConfiguration>(),
+            services.GetRequiredService<ChangeApprovals.ConnectionDefinitionHasher>(),
+            services.GetService<Microsoft.Extensions.Logging.ILogger<HostData.DataSourceConnectionResolver>>());
     }
 }

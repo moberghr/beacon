@@ -42,6 +42,36 @@ internal sealed class BeaconPermissionAccessor(
         return _current;
     }
 
+    /// <summary>
+    /// What a stored, active user holds from its live state: every permission as an Admin; else what its functional roles
+    /// (<paramref name="functionalRoleNames"/>, system roles at level 0) grant and, while identity-provider mapping is on,
+    /// what its sign-in mapped, under separation of duties. Shared with <see cref="ReviewerAuthority"/>, which reads that
+    /// state again inside a decision's transaction.
+    /// </summary>
+    internal static BeaconPermissionSet OfStoredUser(
+        bool isLiveAdmin,
+        IEnumerable<string> functionalRoleNames,
+        ClaimsPrincipal? principal,
+        int userId,
+        string? callerId,
+        RoleMappingOptions mapping,
+        TimeProvider timeProvider,
+        BeaconPermissionLog log)
+    {
+        if (isLiveAdmin)
+        {
+            return BeaconPermissionSet.Admin;
+        }
+
+        var permissions = mapping.PermissionsOfRoles(functionalRoleNames).ToHashSet();
+        if (mapping.IdpRoles.Enabled && principal != null)
+        {
+            permissions.UnionWith(IdpPermissions(principal, mapping, userId, timeProvider, log));
+        }
+
+        return Separated(permissions, mapping, callerId, log);
+    }
+
     private async Task<BeaconPermissionSet> ResolveAsync(BeaconActor actor, ClaimsPrincipal? principal, CancellationToken cancellationToken)
     {
         var mapping = roleMapping.Value;
@@ -53,13 +83,9 @@ internal sealed class BeaconPermissionAccessor(
                     return BeaconPermissionSet.Admin;
                 }
 
-                var permissions = (await StoredPermissionsAsync(actor.BeaconUserId.Value, mapping, cancellationToken)).ToHashSet();
-                if (mapping.IdpRoles.Enabled && principal != null)
-                {
-                    permissions.UnionWith(IdpPermissions(principal, mapping, actor.BeaconUserId.Value));
-                }
+                var roleNames = await StoredFunctionalRolesAsync(actor.BeaconUserId.Value, cancellationToken);
 
-                return Separated(permissions, mapping, actor.LogId);
+                return OfStoredUser(false, roleNames, principal, actor.BeaconUserId.Value, actor.LogId, mapping, timeProvider, log);
 
             case BeaconPrincipalKind.Session when !configuration.UserManagement.Enabled && principal != null:
                 // No stored user to read: on a host without Beacon user management the Admin claim counts, as it does for
@@ -76,7 +102,7 @@ internal sealed class BeaconPermissionAccessor(
 
                 var claimed = mapping.PermissionsOfRoles(principal.FindAll(ClaimTypes.Role).Select(x => x.Value));
 
-                return Separated(claimed.ToHashSet(), mapping, actor.LogId);
+                return Separated(claimed.ToHashSet(), mapping, actor.LogId, log);
 
             default:
                 return BeaconPermissionSet.None;
@@ -84,7 +110,7 @@ internal sealed class BeaconPermissionAccessor(
     }
 
     // Under separation of duties a conflicting pair grants neither of its permissions, whichever way they were gained.
-    private BeaconPermissionSet Separated(HashSet<string> permissions, RoleMappingOptions mapping, string? callerId)
+    private static BeaconPermissionSet Separated(HashSet<string> permissions, RoleMappingOptions mapping, string? callerId, BeaconPermissionLog log)
     {
         if (mapping.SeparationOfDuties.Enabled)
         {
@@ -100,7 +126,7 @@ internal sealed class BeaconPermissionAccessor(
     }
 
     // The permissions the sign-in mapped, when Beacon's sign-in issued them and they are still within their lifetime.
-    private List<string> IdpPermissions(ClaimsPrincipal principal, RoleMappingOptions mapping, int userId)
+    private static List<string> IdpPermissions(ClaimsPrincipal principal, RoleMappingOptions mapping, int userId, TimeProvider timeProvider, BeaconPermissionLog log)
     {
         var mapped = principal
             .FindAll(BeaconClaims.IdpPermission)
@@ -129,17 +155,15 @@ internal sealed class BeaconPermissionAccessor(
         return mapped;
     }
 
-    private async Task<IReadOnlySet<string>> StoredPermissionsAsync(int userId, RoleMappingOptions mapping, CancellationToken cancellationToken)
+    private async Task<List<string>> StoredFunctionalRolesAsync(int userId, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var roleNames = await context.UserRoles
+        return await context.UserRoles
             .Where(x => x.UserId == userId)
             .Where(x => x.Role.IsSystemRole)
             .Where(x => x.Role.Level == RoleService.RoleLevels.Functional)
             .Select(x => x.Role.Name)
             .ToListAsync(cancellationToken);
-
-        return mapping.PermissionsOfRoles(roleNames);
     }
 }

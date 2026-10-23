@@ -51,4 +51,11 @@ public class ChangeApprovalRequest : BaseEntity
     public string? ReviewComment { get; set; }
 
     public string? ChangeSummary { get; set; }
+
+    /// <summary>
+    /// An LLM connection change's proposed connection, credentials included, encrypted with the encryption key; null for
+    /// every other kind, and wiped once the request is decided, superseded or expired. Read only when the change is
+    /// applied: never selected into a DTO or a reviewer's view.
+    /// </summary>
+    public string? EncryptedPayload { get; set; }
 }

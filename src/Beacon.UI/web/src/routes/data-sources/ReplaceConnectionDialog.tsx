@@ -1,11 +1,14 @@
 import { useRef, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import { Banner, Button, Field, Input, Pill, Select, Textarea } from '@/components/beacon';
 import { Dialog } from '@/components/ui/Dialog';
 import { describeError, httpErrorInfo } from '@/lib/api';
 import { DatabaseEngineType, DataSourceType } from '@/lib/enums';
+import { DATA_SOURCE_HELD_HINT } from '@/routes/approvals/AwaitingApproval';
 import {
   DATABASE_ENGINE_LABEL,
+  fetchDataSourceNow,
   useTestDataSourceConnection,
   useUpdateDataSource,
   type DataSourceEntry,
@@ -20,6 +23,13 @@ type TestState =
 /** The server's answer (409) to a connection that points at another target (DataSourceService.TargetChangeUnconfirmedMessage). */
 export const TARGET_CHANGE_UNCONFIRMED_MESSAGE =
   'The new connection points at another server, port, database or engine. Confirm the target change to save it: the column values sampled from the old target are removed.';
+
+/**
+ * The web is not told whether the workflow covers data-source connections, so the note says what holds while it does; a
+ * save that was held is reported after it (the source's pending request).
+ */
+export const REPLACE_APPROVAL_NOTE =
+  'While approval covers data-source connections, any change other than the password or another secret waits for a second person to approve it, and the source keeps its approved connection until then. A password-only change applies at once for engines that show a connection definition; for BigQuery, Databricks and CloudWatch connections every change waits, a rotation included.';
 
 const ENGINES = Object.entries(DATABASE_ENGINE_LABEL)
   .map(([value, label]) => ({ value: Number(value) as DatabaseEngineType, label }))
@@ -56,6 +66,7 @@ export function ReplaceConnectionDialog({
   const [error, setError] = useState<string | null>(null);
   const testMutation = useTestDataSourceConnection();
   const updateMutation = useUpdateDataSource();
+  const qc = useQueryClient();
 
   // Every change to what would be saved, and closing the dialog, starts a new input revision; a test's answer is kept
   // only while the revision it tested is still the current one.
@@ -104,6 +115,18 @@ export function ReplaceConnectionDialog({
     }
   };
 
+  // The save answers 204 whether it applied or was held. A pending request still visible after it means held (a re-save of
+  // the very proposal that already waits creates no new request, so ids are not compared); a source that awaits its
+  // first approval is held with or without a request. When the re-fetch fails nothing is known.
+  const heldAfterSave = async (before: DataSourceEntry): Promise<'held' | 'applied' | 'unknown'> => {
+    try {
+      const now = await fetchDataSourceNow(qc, before.id);
+      return now.approval != null || now.awaitsFirstApproval === true ? 'held' : 'applied';
+    } catch {
+      return 'unknown';
+    }
+  };
+
   const onSave = async () => {
     setError(null);
     try {
@@ -114,7 +137,15 @@ export function ReplaceConnectionDialog({
         connectionString: connection,
         confirmTargetChange: confirmTarget,
       });
-      toast.success(`Replaced the connection of '${entry.name}'.`);
+      // The save answers 204 whether it applied or was held: the source's pending request says which.
+      const held = await heldAfterSave(entry);
+      if (held === 'held') {
+        toast.info(`Submitted for approval: the new connection of '${entry.name}' takes effect once a second person approves it. ${DATA_SOURCE_HELD_HINT}`);
+      } else if (held === 'unknown') {
+        toast.info(`Saved the connection of '${entry.name}'. Could not check whether it applied or waits for approval: open the data source to see its state.`);
+      } else {
+        toast.success(`Replaced the connection of '${entry.name}'.`);
+      }
       close();
     } catch (err) {
       // 409: the new connection points somewhere else; the admin confirms the change and saves again.
@@ -211,6 +242,12 @@ export function ReplaceConnectionDialog({
         {test.status === 'error' && (
           <div className="text-xs text-crit whitespace-pre-wrap break-words">{test.message}</div>
         )}
+
+        <Banner
+          tone="info"
+          title="Approval"
+          sub={REPLACE_APPROVAL_NOTE}
+        />
 
         {targetChange !== null && (
           <Banner

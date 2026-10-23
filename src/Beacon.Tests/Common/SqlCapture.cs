@@ -194,6 +194,20 @@ internal sealed class SqlCapture
     }
 
     /// <summary>
+    /// Runs <paramref name="ended"/> once the stand-in <paramref name="transaction"/> ends (when it is disposed, committed or
+    /// not), as the database releases a lock the transaction owns.
+    /// </summary>
+    internal static void WhenEnded(DbTransaction transaction, Action ended)
+    {
+        if (transaction is not StandInTransaction standIn)
+        {
+            throw new ArgumentException("Not a stand-in transaction of a capture.", nameof(transaction));
+        }
+
+        standIn.WhenEnded(ended);
+    }
+
+    /// <summary>
     /// For a context that must never reach a database server (§4.7) — the translation contexts, the recording context's
     /// unserved sets: opening its connection is suppressed, so a command it runs by mistake fails at once with "connection
     /// is not open" instead of connecting to whatever listens on localhost (and a test never waits on a port that accepts
@@ -337,7 +351,23 @@ internal sealed class SqlCapture
 
     private sealed class StandInTransaction(SqlCapture capture, DbConnection connection, IsolationLevel isolationLevel) : DbTransaction
     {
+        private Action? _ended;
+
         public override IsolationLevel IsolationLevel => isolationLevel;
+
+        public void WhenEnded(Action ended)
+        {
+            _ended += ended;
+        }
+
+        // Disposed once its unit of work is over, committed or not: what waited for its end runs, once.
+        protected override void Dispose(bool disposing)
+        {
+            var ended = _ended;
+            _ended = null;
+            ended?.Invoke();
+            base.Dispose(disposing);
+        }
 
         protected override DbConnection DbConnection => connection;
 

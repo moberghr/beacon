@@ -142,7 +142,8 @@ query exposed to MCP callers as a tool, renamed, or withdrawn).
 **Approvals** (`approvals`): a change submitted for a second person's review, and the decision on it.
 `approvals.query_change_submitted`, `approvals.query_change_approved`, `approvals.query_change_rejected` (query
 versions); `approvals.change_submitted`, `approvals.change_approved`, `approvals.change_rejected` (change requests of
-migration jobs, Custom SQL rules and recipients, with the requests a submission supersedes);
+migration jobs, Custom SQL rules, recipients, data-source connections and the LLM connection, with the requests a
+submission supersedes);
 `approvals.ai_plan_submitted`, `approvals.ai_plan_approved`, `approvals.ai_plan_rejected` and
 `approvals.ai_plan_revision_requested` (AI actor plans); `approvals.ai_actor_created` (an AI actor created, with its
 data source and whether its changes wait for approval).

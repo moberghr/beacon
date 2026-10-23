@@ -218,7 +218,7 @@ The Admin role's duties are split into six functional permissions. An Admin hold
 
 | Permission | The duty |
 |---|---|
-| **Approver** | Approves and rejects query changes and governed changes (migration jobs, Custom SQL rules, recipient destinations), never their own; reads every project's approval requests. See [Approvals](/security/approvals/) |
+| **Approver** | Approves and rejects query changes and governed changes (migration jobs, Custom SQL rules, recipient destinations and, when covered, data-source connections), never their own; reads every project's approval requests except the LLM connection's, which only an Admin reads and decides. See [Approvals](/security/approvals/) |
 | **Auditor** | Reads and verifies the [security audit trail](/security/audit-trail/); reads the MCP audit, the MCP and project settings, the admin settings (secrets masked), every user's API keys and what a user owns, created or changed last |
 | **SecurityAdmin** | Changes the MCP settings and the admin settings except the LLM connection and base URL; manages recipients; publishes saved queries as MCP tools; sets repository access tokens |
 | **UserAdmin** | Manages users (external users only) and their roles and sessions, sees what a user owns, created or changed last, revokes any user's API keys, changes the owner of scheduled work, manages the members of any project, restricts projects |

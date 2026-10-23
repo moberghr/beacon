@@ -32,7 +32,8 @@
  *   PUT data-sources/:id/enabled (no state kept)
  * - notifications (filters by ?subscriptionId), notifications/:id
  * - tasks, tasks/:id (+ executions / related / result-history / comments)
- * - approvals/pending, approvals/:id, approvals/changes, approvals/changes/:id
+ * - approvals/pending, approvals/:id, approvals/changes, approvals/changes/:id (31 by kind, 41 a data source's
+ *   connection, 51 the LLM connection)
  * - subscriptions, subscriptions/:id, subscriptions/:id/anomaly-chart
  * - recipients
  * - ai-actors, ai-actors/:id
@@ -572,6 +573,8 @@ const dataSourceEntries = [
           // Its connection does not make the driver verify the server: badged "Transport not verified".
           transportVerified: false,
           editSettings: { hostManaged: false, metadataMaxTables: 0, metadataMaxColumnsPerTable: 0, metadataLoadTableNamesOnly: false },
+          // A change of its connection waits for approval (change request 41): badged "Awaiting approval".
+          approval: { requestId: 41, kind: ChangeApprovalKind.DataSourceConnection, requestedTime: iso(0, 2), awaitsFirstApproval: false },
         },
         {
           id: 3,
@@ -589,6 +592,125 @@ const dataSourceEntries = [
           allowMigrationWrites: true,
         },
       ];
+
+// The pending connection changes the mock approvals list and detail serve: a data source's (41, the one the data-source
+// list badges) and the LLM connection's (51).
+const mockConnectionChanges = [
+  {
+    id: 41,
+    kind: ChangeApprovalKind.DataSourceConnection,
+    resourceId: 2,
+    resourceName: 'Sample CRM (SQL Server)',
+    resourceExists: true,
+    status: ApprovalStatus.Pending,
+    requestedByUserName: 'Mock Operator',
+    reviewedByUserName: null,
+    reviewedAt: null,
+    reviewComment: null,
+    changeSummary: 'Host, Database changed',
+    createdTime: iso(0, 2),
+    previousMigrationJob: null,
+    proposedMigrationJob: null,
+    previousCustomSqlRules: null,
+    proposedCustomSqlRules: null,
+    previousRecipientDestination: null,
+    proposedRecipientDestination: null,
+    previousDataSourceConnection: {
+      name: 'Sample CRM (SQL Server)',
+      dataSourceType: DataSourceType.Database,
+      databaseEngineType: DatabaseEngineType.MSSQL,
+      host: 'crm-db.mock.internal',
+      port: 1433,
+      database: 'crm',
+      login: 'beacon_reader',
+      changedSettings: [],
+      secretOnlyDefinition: false,
+      fingerprint: '3f1a9c0b72de',
+      authenticatesServer: false,
+      databaseReadOnlyEnforced: false,
+      isTargetChange: false,
+    },
+    proposedDataSourceConnection: {
+      name: 'Sample CRM (SQL Server)',
+      dataSourceType: DataSourceType.Database,
+      databaseEngineType: DatabaseEngineType.MSSQL,
+      host: 'crm-replica.mock.internal',
+      port: 1433,
+      database: 'crm_reporting',
+      login: 'beacon_reader',
+      changedSettings: ['Data Source', 'Encrypt', 'Initial Catalog'],
+      secretOnlyDefinition: false,
+      fingerprint: '8be04d1c5a97',
+      authenticatesServer: true,
+      databaseReadOnlyEnforced: false,
+      isTargetChange: true,
+    },
+    previousLlmConnection: null,
+    proposedLlmConnection: null,
+    currentProjects: [{ id: 1, name: 'Demo Analytics' }, { id: 2, name: 'Sample Warehouse' }],
+    payloadHash: 'mock-connection-payload-hash',
+    isOwnRequest: false,
+    mayApprove: true,
+    approveBlockedReason: null,
+    isStale: false,
+    changeHiddenByMask: false,
+    commentRequiredToApprove: false,
+  },
+  {
+    id: 51,
+    kind: ChangeApprovalKind.LlmConnection,
+    resourceId: 0,
+    resourceName: 'LLM connection',
+    resourceExists: true,
+    status: ApprovalStatus.Pending,
+    requestedByUserName: 'Mock Operator',
+    reviewedByUserName: null,
+    reviewedAt: null,
+    reviewComment: null,
+    changeSummary: 'Provider, Endpoint changed',
+    createdTime: iso(0, 1),
+    previousMigrationJob: null,
+    proposedMigrationJob: null,
+    previousCustomSqlRules: null,
+    proposedCustomSqlRules: null,
+    previousRecipientDestination: null,
+    proposedRecipientDestination: null,
+    previousDataSourceConnection: null,
+    proposedDataSourceConnection: null,
+    previousLlmConnection: {
+      fromHostConfiguration: false,
+      provider: AiProvider.OpenAI,
+      endpoint: null,
+      endpointFingerprint: null,
+      region: null,
+      bedrockAuthMode: BedrockAuthMode.IamRole,
+      model: 'gpt-4o',
+      fastModel: 'gpt-4o-mini',
+      basedOn: null,
+      credentials: [{ name: 'API key', fingerprint: '5d0c2e9a41b7' }],
+    },
+    proposedLlmConnection: {
+      fromHostConfiguration: false,
+      provider: AiProvider.AzureOpenAI,
+      endpoint: 'https://mock-openai.openai.azure.com',
+      endpointFingerprint: 'c41e7f20d98a',
+      region: null,
+      bedrockAuthMode: BedrockAuthMode.IamRole,
+      model: 'gpt-4o',
+      fastModel: 'gpt-4o-mini',
+      basedOn: '9a7b3c1d0e2f',
+      credentials: [{ name: 'API key', fingerprint: '5d0c2e9a41b7' }],
+    },
+    currentProjects: [],
+    payloadHash: 'mock-llm-payload-hash',
+    isOwnRequest: false,
+    mayApprove: true,
+    approveBlockedReason: null,
+    isStale: false,
+    changeHiddenByMask: false,
+    commentRequiredToApprove: false,
+  },
+];
 
 const dataSourcesHandlers = [
   http.get('/beacon/api/data-sources/:id', ({ params }) => {
@@ -847,25 +969,38 @@ const listHandlers = [
         changeSummary: `Mock change (source: ${ChangeSource.User}) — widened revenue window`,
       },
     ]))),
-  // Changes of migration jobs, Custom SQL rules and recipients. Keep BEFORE /approvals/:id, which would match
-  // /approvals/changes too.
+  // Changes of migration jobs, Custom SQL rules, recipients, data-source connections and the LLM connection. Keep BEFORE
+  // /approvals/:id, which would match /approvals/changes too.
   http.get('/beacon/api/approvals/changes', ({ request }) => {
     const kind = Number(new URL(request.url).searchParams.get('kind') ?? ChangeApprovalKind.MigrationJob);
+    const connection = mockConnectionChanges.find(x => x.kind === kind);
     return HttpResponse.json(paged([
-      {
-        id: 31,
-        kind,
-        resourceId: 4,
-        resourceName: kind === ChangeApprovalKind.RecipientDestination ? 'Mock ops webhook' : 'Mock nightly copy',
-        status: ApprovalStatus.Pending,
-        requestedByUserName: 'Mock Operator',
-        createdTime: iso(0, 3),
-        changeSummary: kind === ChangeApprovalKind.MigrationJob ? 'Migration job created' : 'Mock change',
-      },
+      connection
+        ? {
+            id: connection.id,
+            kind,
+            resourceId: connection.resourceId,
+            resourceName: connection.resourceName,
+            status: ApprovalStatus.Pending,
+            requestedByUserName: connection.requestedByUserName,
+            createdTime: connection.createdTime,
+            changeSummary: connection.changeSummary,
+          }
+        : {
+            id: 31,
+            kind,
+            resourceId: 4,
+            resourceName: kind === ChangeApprovalKind.RecipientDestination ? 'Mock ops webhook' : 'Mock nightly copy',
+            status: ApprovalStatus.Pending,
+            requestedByUserName: 'Mock Operator',
+            createdTime: iso(0, 3),
+            changeSummary: kind === ChangeApprovalKind.MigrationJob ? 'Migration job created' : 'Mock change',
+          },
     ]));
   }),
-  http.get('/beacon/api/approvals/changes/:id', ({ params }) =>
-    HttpResponse.json({
+  http.get('/beacon/api/approvals/changes/:id', ({ params }) => {
+    const connection = mockConnectionChanges.find(x => x.id === Number(params.id));
+    return connection ? HttpResponse.json(connection) : HttpResponse.json({
       id: Number(params.id),
       kind: ChangeApprovalKind.MigrationJob,
       resourceId: 4,
@@ -898,7 +1033,8 @@ const listHandlers = [
       mayApprove: true,
       approveBlockedReason: null,
       isStale: false,
-    })),
+    });
+  }),
   // ApprovalDetailPage (ApprovalRequestDetail, unwrapped). Keep AFTER the
   // /approvals/pending handler — both match two path segments.
   http.get('/beacon/api/approvals/:id', ({ params }) => {

@@ -17332,6 +17332,11 @@ export interface ChangeApprovalDetail {
   proposedCustomSqlRules?: CustomSqlRulesView | null;
   previousRecipientDestination?: RecipientDestinationView | null;
   proposedRecipientDestination?: RecipientDestinationView | null;
+  previousDataSourceConnection?: DataSourceConnectionView | null;
+  proposedDataSourceConnection?: DataSourceConnectionView | null;
+  previousLlmConnection?: LlmConnectionView | null;
+  proposedLlmConnection?: LlmConnectionView | null;
+  currentProjects?: ChangeApprovalProject[];
   payloadHash?: string;
   isOwnRequest?: boolean;
   mayApprove?: boolean;
@@ -17347,6 +17352,8 @@ export enum ChangeApprovalKind {
   MigrationJob = 1,
   CustomSqlRules = 2,
   RecipientDestination = 3,
+  DataSourceConnection = 4,
+  LlmConnection = 5,
 }
 
 export interface ChangeApprovalOutcome {
@@ -17354,6 +17361,13 @@ export interface ChangeApprovalOutcome {
   status?: ApprovalStatus;
   comment?: string | null;
   decidedAt?: Date | null;
+
+  [key: string]: any;
+}
+
+export interface ChangeApprovalProject {
+  id?: number;
+  name?: string;
 
   [key: string]: any;
 }
@@ -17605,6 +17619,7 @@ export interface CreateDataSourceCommand {
 export interface CreateDataSourceResult {
   success: boolean;
   message: string;
+  awaitingApproval?: boolean;
 
   [key: string]: any;
 }
@@ -18042,6 +18057,33 @@ export enum DataQualityTrendDirection {
   Degrading = 3,
 }
 
+export interface DataSourceApproval {
+  requestId?: number;
+  kind?: ChangeApprovalKind;
+  requestedTime?: Date;
+  awaitsFirstApproval?: boolean;
+
+  [key: string]: any;
+}
+
+export interface DataSourceConnectionView {
+  name?: string;
+  dataSourceType?: DataSourceType;
+  databaseEngineType?: DatabaseEngineType | null;
+  host?: string | null;
+  port?: number | null;
+  database?: string | null;
+  login?: string | null;
+  changedSettings?: string[];
+  secretOnlyDefinition?: boolean;
+  fingerprint?: string | null;
+  authenticatesServer?: boolean;
+  databaseReadOnlyEnforced?: boolean;
+  isTargetChange?: boolean;
+
+  [key: string]: any;
+}
+
 export interface DataSourceEditSettings {
   hostManaged?: boolean;
   metadataMaxTables?: number;
@@ -18070,6 +18112,8 @@ export interface DataSourceEntry {
   databaseReadOnlyEnforced?: boolean | null;
   transportVerified?: boolean | null;
   editSettings?: DataSourceEditSettings | null;
+  approval?: DataSourceApproval | null;
+  awaitsFirstApproval?: boolean;
 
   [key: string]: any;
 }
@@ -18734,6 +18778,28 @@ export interface LinkProjectDataSourcesRequest {
 export interface LinkProjectDataSourcesResult {
   projectId: number;
   linkedDataSourceIds: number[];
+
+  [key: string]: any;
+}
+
+export interface LlmConnectionView {
+  fromHostConfiguration?: boolean;
+  provider?: AiProvider | null;
+  endpoint?: string | null;
+  endpointFingerprint?: string | null;
+  region?: string | null;
+  bedrockAuthMode?: BedrockAuthMode;
+  model?: string | null;
+  fastModel?: string | null;
+  basedOn?: string | null;
+  credentials?: LlmCredentialView[];
+
+  [key: string]: any;
+}
+
+export interface LlmCredentialView {
+  name?: string;
+  fingerprint?: string;
 
   [key: string]: any;
 }

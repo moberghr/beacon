@@ -7,6 +7,7 @@ import { StepperDialog, type StepperDialogStep } from '@/components/ui/StepperDi
 import { SearchMultiSelect } from '@/components/data/SearchMultiSelect';
 import { describeError, httpErrorInfo } from '@/lib/api';
 import { useAccess } from '@/auth/useAuth';
+import { noteSubmittedForApproval } from '@/routes/approvals/AwaitingApproval';
 import {
   Button,
   Field as BField,
@@ -413,7 +414,14 @@ export function AddDataSourceDialog({ open, onClose }: AddDataSourceDialogProps)
         toast.error(result.message ?? 'Failed to create data source.');
         return;
       }
-      toast.success(result.message ?? 'Data source created.');
+      if (result.awaitingApproval) {
+        noteSubmittedForApproval({
+          awaitingApproval: true,
+          message: result.message ?? `Submitted for approval: ${payload.name} connects to nothing until a second person approves its connection.`,
+        });
+      } else {
+        toast.success(result.message ?? 'Data source created.');
+      }
       onClose();
     } catch {
       // Error toast already raised by the create mutation hook.

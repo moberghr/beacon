@@ -161,7 +161,7 @@ builder.Services.AddBeaconServices(builder.Configuration, options => { /* … */
 | `Authentication.CookieExpirationHours` / `RememberMeExpirationDays` | `24` / `30` | Requested cookie lifetime; always capped by the session's absolute lifetime (12 h by default). |
 | `Authentication.LoginRedirectPath` | `/beacon/home` | Where the login page sends a user after sign-in. |
 | `EnableUserManagement(x => …)` | off | Beacon's user store: users, roles, first-run setup, password policy (`MinimumPasswordLength` 8, `RequirePasswordComplexity` true, `AllowInternalUsers` true). |
-| `EnableApprovalWorkflow(x => …)` | off | Four-eyes review of query changes and, by default, migration jobs, Custom SQL rules and recipient destinations. See [Approvals](/security/approvals/). |
+| `EnableApprovalWorkflow(x => …)` | off | Four-eyes review of query changes and, by default, migration jobs, Custom SQL rules and recipient destinations; data-source connections and the LLM connection when switched on. See [Approvals](/security/approvals/). |
 | `AddEmailAdapter<T>()` | none | Your `IEmailAdapter`. Without one there is no email channel. |
 | `SavedQueryTools.NamedToolLimit` | `25` | Above this many published saved queries, MCP lists two generic tools instead of one tool per query. |
 

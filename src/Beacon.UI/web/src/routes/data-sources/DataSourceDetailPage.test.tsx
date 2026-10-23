@@ -309,3 +309,39 @@ describe('DataSourceDetailPage migration write target', () => {
     expect(sent).toBeNull();
   });
 });
+
+describe('DataSourceDetailPage held connection', () => {
+  const approval = { requestId: 41, kind: 4, requestedTime: '2026-10-23T08:00:00Z', awaitsFirstApproval: true };
+
+  it('says a held source connects to nothing until approved and how to withdraw it, badging it', async () => {
+    renderWith(
+      entry({ approval }),
+      http.get('*/beacon/api/auth/me', () =>
+        HttpResponse.json({ userId: 'u1', userName: 'tester', displayName: 'Tester', email: null, isAuthenticated: true, roles: [] })),
+      permissionsHandler({ permissions: ['Approver'] }),
+    );
+
+    expect(await screen.findByText('Held for approval')).toBeInTheDocument();
+    expect(screen.getByText(/connects to nothing until a second person approves its connection/)).toBeInTheDocument();
+    expect(screen.getByText(/delete the data source, or save the connection that was approved before back/)).toBeInTheDocument();
+    expect(screen.getByText('Awaiting approval')).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Review the pending change' })).toHaveAttribute('href', '/approvals/changes/41');
+  });
+
+  it('shows neither banner nor badge when nothing waits', async () => {
+    renderWith(entry({}));
+
+    expect(await screen.findByText('Identifier')).toBeInTheDocument();
+    expect(screen.queryByText('Held for approval')).not.toBeInTheDocument();
+    expect(screen.queryByText('Awaiting approval')).not.toBeInTheDocument();
+  });
+
+  it('tells every reader a held source with no pending request must be saved again', async () => {
+    renderWith(entry({ approval: null, awaitsFirstApproval: true }));
+
+    expect(await screen.findByText('Held: no change request waits')).toBeInTheDocument();
+    expect(screen.getByText(/Save the connection to submit it for approval again/)).toBeInTheDocument();
+    expect(screen.getByText('Held')).toBeInTheDocument();
+    expect(screen.queryByText('Held for approval')).not.toBeInTheDocument();
+  });
+});

@@ -141,6 +141,12 @@ Snowflake, BigQuery, Databricks, CloudWatch and API sources are not checked.
 - **A disabled data source** is not checked (it makes no connection, also when its credentials are rotated): the check
   runs the next time its connection or engine changes while it is enabled.
 - A refused connection's pooled connections are emptied, so none opened with the refused credentials is reused.
+- **Under the approval workflow** (`CoversDataSourceConnections`), a source created or changed in anything but its
+  secrets connects to nothing until approved, so neither the create nor the change runs the check: it runs when an
+  Approver approves the connection. Then a clear mismatch, and a server that cannot be reached or whose engine cannot be
+  read, refuse the approval (`409`) and the request stays pending; a disabled source is enabled first (`409`). A change
+  of the secrets alone is checked when it is saved, as without the workflow. See
+  [Approvals](/security/approvals/).
 
 ## Manage data sources
 
@@ -213,11 +219,14 @@ that is left out or `null` keeps the stored value, and an empty schema list clea
 
 A data source the host registered (a [host DbContext](/mcp/host-dbcontext/) source) cannot be edited here
 (`400`): the host rotates its credentials in its own configuration. A rotation takes effect at once; it needs no second
-person's approval.
+person's approval. Under the approval workflow (`CoversDataSourceConnections`) that holds for a change of the secrets
+alone (the password, a key); a change of any other setting of the connection (host, port, database, login, options) is
+saved and the source connects to nothing until a second person approves it.
 
 - **Who may point a source elsewhere.** A DataSourceAdmin may point a data source at another server or database, as one
   may create a data source there. The change must be confirmed and is recorded with `targetChanged: true`, so the audit
-  trail shows every such change; a second person's approval of a target change is not required.
+  trail shows every such change; a second person's approval of a target change is not required unless the approval
+  workflow covers data-source connections.
 - **Concurrent edits.** Two edits of the same data source saved at the same time are not merged: the one saved last is
   kept. Queries already running when the connection changes finish on the connection they opened.
 

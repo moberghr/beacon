@@ -22,6 +22,8 @@ The page is open to Admins and to two [functional permissions](/security/authori
 
 The provider, endpoint, region and authentication mode decide where Beacon sends its LLM requests with the stored credentials, the base URL is the address of every link Beacon sends out, and the concurrency and per-minute limits decide how much LLM traffic runs at all, so only an Admin changes them. For anyone else the page shows those fields disabled with a note, and a request that changes any of them answers `403` and saves nothing. An Auditor sees the page read-only. API keys never reach these routes.
 
+While the [approval workflow](/security/approvals/#migration-jobs-custom-sql-rules-and-recipients) covers the LLM connection (`CoversLlmConnection`), an Admin's change of the provider, endpoint, region or authentication mode, or a first stored provider, is not applied on save: it waits for a second live Admin's approval, and the stored connection and models stay in use until then. The other values of the same save apply at once; a change of credentials or models alone, and testing the connection, are not reviewed.
+
 ## The page
 
 ### General
