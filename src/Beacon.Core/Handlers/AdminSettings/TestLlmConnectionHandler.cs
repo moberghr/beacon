@@ -78,7 +78,16 @@ public record TestLlmConnectionCommand(
     string? LlmEndpoint,
     string? LlmSessionToken,
     string? LlmAwsAccessKeyId,
-    string? LlmAwsSecretAccessKey) : IRequest<TestLlmConnectionResult>;
+    string? LlmAwsSecretAccessKey) : IRequest<TestLlmConnectionResult>
+{
+    // The compiler-generated ToString prints every member; the secrets are printed redacted.
+    protected virtual bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"LlmProvider = {LlmProvider}, LlmModel = {LlmModel}, LlmRegion = {LlmRegion}, LlmBedrockAuthMode = {LlmBedrockAuthMode}, LlmApiKey = {RedactedPrint.Of(LlmApiKey)}, LlmEndpoint = {LlmEndpoint}, LlmSessionToken = {RedactedPrint.Of(LlmSessionToken)}, LlmAwsAccessKeyId = {LlmAwsAccessKeyId}, LlmAwsSecretAccessKey = {RedactedPrint.Of(LlmAwsSecretAccessKey)}");
+
+        return true;
+    }
+}
 
 public record TestLlmConnectionResult(
     bool Ok,

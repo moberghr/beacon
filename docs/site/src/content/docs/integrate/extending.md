@@ -29,7 +29,7 @@ builder.Services.AddBeaconServices(builder.Configuration, options => { /* … */
 ```
 
 - Tables are **default-deny**; unknown names fail startup.
-- Columns whose names look like secrets (`password`, `token`, `apikey`, `hash`, `otp`, …) are always excluded unless you lift one explicitly with `IncludeSecretLikeColumn("Table.Column")`.
+- Columns whose names look like secrets (`password`, `token`, `apikey`, `hash`, `otp`, `credential`, `securitystamp`, …) and every column of credential tables (`AspNetUserTokens`, `DataProtectionKeys`, `*Keys`, `*Tokens`) are always excluded unless you lift one explicitly with `IncludeSecretLikeColumn("Table.Column")`.
 - The connection string is **never stored**. Beacon keeps only its name and reads it from configuration when it connects.
 - SQL Server and PostgreSQL models are supported.
 - Every statement is checked against the exposed slice in the execution gate and again in the provider; masked columns are masked by output position.

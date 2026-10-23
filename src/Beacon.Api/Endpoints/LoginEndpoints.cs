@@ -245,7 +245,16 @@ public static partial class LoginEndpoints
 /// A password sign-in. <see cref="NewPassword"/> is sent by a user who must choose a new password (an administrator set the
 /// current one; the answer to the first attempt says so): it becomes their password and they are signed in.
 /// </summary>
-public record LoginRequest(string? Username, string? Password, bool RememberMe = false, string? NewPassword = null);
+public record LoginRequest(string? Username, string? Password, bool RememberMe = false, string? NewPassword = null)
+{
+    // The compiler-generated ToString prints every member; the secrets are printed redacted.
+    protected virtual bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"Username = {Username}, Password = {Core.RedactedPrint.Of(Password)}, RememberMe = {RememberMe}, NewPassword = {Core.RedactedPrint.Of(NewPassword)}");
+
+        return true;
+    }
+}
 
 public record LoginResponse
 {

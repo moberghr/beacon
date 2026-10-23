@@ -578,5 +578,13 @@ public class DatabaseMetadataService(
     private sealed record SourceState(DateTime? DisabledTime, bool AllowMigrationWrites, DatabaseEngineType? DatabaseEngineType, string EncryptedConnectionData)
     {
         public bool Readable => DisabledTime == null && !AllowMigrationWrites;
+
+        // The compiler-generated ToString prints every member; the secrets are printed redacted.
+        private bool PrintMembers(System.Text.StringBuilder builder)
+        {
+            builder.Append($"DisabledTime = {DisabledTime}, AllowMigrationWrites = {AllowMigrationWrites}, DatabaseEngineType = {DatabaseEngineType}, EncryptedConnectionData = {RedactedPrint.Of(EncryptedConnectionData)}, Readable = {Readable}");
+
+            return true;
+        }
     }
 }

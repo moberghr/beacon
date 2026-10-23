@@ -53,4 +53,13 @@ public record CreateInternalUserCommand(
     string? Email,
     string? DisplayName,
     string Password,
-    int[] RoleIds) : IRequest;
+    int[] RoleIds) : IRequest
+{
+    // The compiler-generated ToString prints every member; the secrets are printed redacted.
+    protected virtual bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"UserName = {UserName}, Email = {Email}, DisplayName = {DisplayName}, Password = {RedactedPrint.Of(Password)}, RoleIds = {RoleIds}");
+
+        return true;
+    }
+}

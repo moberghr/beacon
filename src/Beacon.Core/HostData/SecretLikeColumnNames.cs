@@ -7,10 +7,22 @@ namespace Beacon.Core.HostData;
 /// (invisible in metadata, rejected at execution) no matter what the host's predicates say; the only way back is
 /// the explicit <see cref="HostDbContextOptions.IncludeSecretLikeColumn"/> override.
 /// <list type="bullet">
-/// <item>Substring match (case-insensitive): password, passwd, secret, token, apikey, api_key, privatekey, private_key.</item>
-/// <item>Whole-word match on the camelCase / snake_case words of the name: pin, salt, hash, otp, refresh — so
-/// <c>PasswordHash</c>, <c>pin_code</c>, <c>OtpSeed</c>, <c>RefreshToken</c> match, but <c>Shipping</c> does not.</item>
+/// <item>Substring match (case-insensitive): password, passwd, passphrase, passcode, secret, token, apikey, api_key,
+/// privatekey, private_key, credential, connectionstring, connection_string, securitystamp, security_stamp, recoverycode,
+/// recovery_code.</item>
+/// <item>Whole-word match on the camelCase / snake_case words of the name: pin, pwd, salt, hash, otp, totp, hotp, mfa,
+/// refresh, pfx, nonce, seed, cvv, cvc — so <c>PasswordHash</c>, <c>pin_code</c>, <c>OtpSeed</c>, <c>RefreshToken</c>,
+/// <c>TotpKey</c> match, but <c>Shipping</c> does not.</item>
+/// <item>A <c>key</c> word beside a word naming key material (api, access, secret, private, signing, encryption,
+/// authenticator, certificate, cert, master, license, hmac, aes, rsa, pgp, gpg, ssh): <c>EncryptionKey</c>,
+/// <c>SigningKey</c>, <c>AuthenticatorKey</c>, but not <c>ProductKey</c>. Business words that only sometimes name a
+/// secret (a signing date, a certificate number, a recovered amount, a time stamp) do not match on their own.</item>
+/// <item>Every column of a table that holds credentials or key material (<see cref="IsSecretLikeTable"/>):
+/// <c>AspNetUserTokens</c>, <c>DataProtectionKeys</c>, any table whose name ends in the word Keys or Tokens; and every
+/// column of the well-known ASP.NET Core Identity user-token and Data Protection key entities, whatever their table is
+/// called.</item>
 /// </list>
+/// The match is a best-effort name heuristic: the read-only login should also be denied the secret columns.
 /// <para>
 /// <see cref="IsSecretLikeForValues"/> is the wider net for the values Beacon reads to describe a column (sample values,
 /// value grounding, documentation enum discovery), where a false positive only costs the column its examples.
@@ -27,7 +39,16 @@ public static class SecretLikeColumnNames
         "apikey",
         "api_key",
         "privatekey",
-        "private_key"
+        "private_key",
+        "passphrase",
+        "passcode",
+        "credential",
+        "connectionstring",
+        "connection_string",
+        "securitystamp",
+        "security_stamp",
+        "recoverycode",
+        "recovery_code"
     ];
 
     private static readonly HashSet<string> WordMarkers = new(StringComparer.OrdinalIgnoreCase)
@@ -36,7 +57,30 @@ public static class SecretLikeColumnNames
         "salt",
         "hash",
         "otp",
-        "refresh"
+        "totp",
+        "hotp",
+        "mfa",
+        "pwd",
+        "refresh",
+        "pfx",
+        "nonce",
+        "seed",
+        "cvv",
+        "cvc"
+    };
+
+    // A table whose name ends in one of these words holds credentials or key material in every column.
+    private static readonly HashSet<string> SecretTableWords = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "keys",
+        "tokens"
+    };
+
+    // Entity types (by generic definition or full name) whose every column is a credential or key material.
+    private static readonly HashSet<string> SecretEntityTypeNames = new(StringComparer.Ordinal)
+    {
+        "Microsoft.AspNetCore.Identity.IdentityUserToken`1",
+        "Microsoft.AspNetCore.DataProtection.EntityFrameworkCore.DataProtectionKey"
     };
 
     // Value-side additions: names that hold credentials or key material, matched anywhere in the name.
@@ -85,6 +129,9 @@ public static class SecretLikeColumnNames
         "private",
         "signing",
         "encryption",
+        "authenticator",
+        "certificate",
+        "cert",
         "master",
         "license",
         "hmac",
@@ -115,18 +162,54 @@ public static class SecretLikeColumnNames
             }
         }
 
-        return WordSplitter.Matches(name)
+        var segments = WordSplitter.Matches(name)
             .Select(x => x.Value)
-            .Any(x => WordMarkers.Contains(x));
+            .ToList();
+
+        return segments.Any(x => WordMarkers.Contains(x)) || IsKeyMaterial(segments);
+    }
+
+    /// <summary>
+    /// True when every column of the table <paramref name="tableName"/> is treated as a secret: <c>AspNetUserTokens</c>,
+    /// <c>DataProtectionKeys</c>, and any table whose name ends in the word Keys or Tokens (<c>ApiKeys</c>,
+    /// <c>signing_keys</c>, <c>RefreshTokens</c>).
+    /// </summary>
+    public static bool IsSecretLikeTable(string? tableName)
+    {
+        if (string.IsNullOrWhiteSpace(tableName))
+        {
+            return false;
+        }
+
+        var segments = WordSplitter.Matches(tableName)
+            .Select(x => x.Value)
+            .ToList();
+
+        return segments.Count > 0 && SecretTableWords.Contains(segments[^1]);
+    }
+
+    /// <summary>
+    /// True when <paramref name="column"/> is hard-excluded from a host data source: its column or property name is
+    /// secret-like (<see cref="IsSecretLike(string?)"/>), its table holds secrets (<see cref="IsSecretLikeTable"/>), or its
+    /// entity is (or derives from) the ASP.NET Core Identity user-token or Data Protection key entity.
+    /// </summary>
+    public static bool IsSecretLikeColumn(HostColumn column)
+    {
+        ArgumentNullException.ThrowIfNull(column);
+
+        return IsSecretLike(column.Name)
+            || IsSecretLike(column.PropertyName)
+            || IsSecretLikeTable(column.Table)
+            || IsSecretEntity(column.EntityType);
     }
 
     /// <summary>
     /// True when the values of <paramref name="name"/> must not be read to describe the column: everything
-    /// <see cref="IsSecretLike"/> matches, plus the names of credentials, sessions, cookies, signatures, connection strings
-    /// and key material (<c>client_credential</c>, <c>session_id</c>, <c>request_signature</c>, <c>dsn</c>,
-    /// <c>encryption_key</c>, <c>hmac_key</c>). Words such as session, pwd, signature, dsn or hmac match as name segments
-    /// (camelCase or snake_case), never inside a longer word; a <c>key</c> segment only beside api, access, secret, private,
-    /// signing, encryption, master, license, hmac, aes, rsa, pgp, gpg or ssh, or as the whole name (<c>key</c>,
+    /// <see cref="IsSecretLike(string?)"/> matches, plus the names of sessions, cookies and signatures
+    /// (<c>session_id</c>, <c>request_signature</c>, <c>dsn</c>, <c>hmac</c>). Words such as session, signature, dsn or hmac
+    /// match as name segments (camelCase or snake_case), never inside a longer word; a <c>key</c> segment only beside api,
+    /// access, secret, private, signing, encryption, authenticator, certificate, cert, master, license, hmac, aes, rsa, pgp,
+    /// gpg or ssh, or as the whole name (<c>key</c>,
     /// <c>apikey</c>) — a surrogate key such as <c>ProductKey</c> or <c>ClientKey</c> keeps its samples, and so does a name
     /// that is only <c>private</c>. Anything holding <c>secret</c> (<c>client_secret</c>, <c>hmac_secret</c>) is excluded.
     /// </summary>
@@ -159,7 +242,27 @@ public static class SecretLikeColumnNames
             .Select(x => x.Value)
             .ToList();
 
-        return segments.Any(x => ValueWordMarkers.Contains(x))
-            || (segments.Any(x => x.Equals("key", StringComparison.OrdinalIgnoreCase)) && segments.Any(x => KeyQualifiers.Contains(x)));
+        return segments.Any(x => ValueWordMarkers.Contains(x)) || IsKeyMaterial(segments);
+    }
+
+    // A "key" word beside a word naming key material.
+    private static bool IsKeyMaterial(List<string> segments)
+    {
+        return segments.Any(x => x.Equals("key", StringComparison.OrdinalIgnoreCase))
+            && segments.Any(x => KeyQualifiers.Contains(x));
+    }
+
+    private static bool IsSecretEntity(Type? entityType)
+    {
+        for (var type = entityType; type != null; type = type.BaseType)
+        {
+            var name = type.IsGenericType ? type.GetGenericTypeDefinition().FullName : type.FullName;
+            if (name != null && SecretEntityTypeNames.Contains(name))
+            {
+                return true;
+            }
+        }
+
+        return false;
     }
 }

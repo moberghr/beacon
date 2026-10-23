@@ -386,6 +386,15 @@ internal sealed record RecipientDeliveryChange(bool DestinationChanged, bool Sec
 }
 
 /// <summary>A recipient's stored (encrypted, or legacy plaintext) secrets and type.</summary>
-internal sealed record StoredRecipientSecrets(NotificationType Type, string Destination, string? HeadersJson);
+internal sealed record StoredRecipientSecrets(NotificationType Type, string Destination, string? HeadersJson)
+{
+    // The compiler-generated ToString prints every member; the secrets are printed redacted.
+    private bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"Type = {Type}, Destination = {RedactedPrint.Of(Destination)}, HeadersJson = {RedactedPrint.Of(HeadersJson)}");
+
+        return true;
+    }
+}
 
 internal sealed record MaskedRecipientSecrets(string Destination, string? HeadersJson, bool Unreadable);

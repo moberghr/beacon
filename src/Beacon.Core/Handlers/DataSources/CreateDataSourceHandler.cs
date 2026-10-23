@@ -93,6 +93,15 @@ public record CreateDataSourceCommand(
     bool MetadataLoadTableNamesOnly,
     List<string>? MetadataExcludeSchemas,
     List<string>? MetadataIncludeSchemas,
-    List<int>? ProjectIds = null) : IRequest<CreateDataSourceResult>;
+    List<int>? ProjectIds = null) : IRequest<CreateDataSourceResult>
+{
+    // The compiler-generated ToString prints every member; the secrets are printed redacted.
+    protected virtual bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"Name = {Name}, DataSourceType = {DataSourceType}, DatabaseEngineType = {DatabaseEngineType}, ConnectionString = {RedactedPrint.Of(ConnectionString)}, MetadataLoadingEnabled = {MetadataLoadingEnabled}, MetadataMaxTables = {MetadataMaxTables}, MetadataMaxColumnsPerTable = {MetadataMaxColumnsPerTable}, MetadataLoadTableNamesOnly = {MetadataLoadTableNamesOnly}, MetadataExcludeSchemas = {MetadataExcludeSchemas}, MetadataIncludeSchemas = {MetadataIncludeSchemas}, ProjectIds = {ProjectIds}");
+
+        return true;
+    }
+}
 
 public record CreateDataSourceResult(bool Success, string Message);

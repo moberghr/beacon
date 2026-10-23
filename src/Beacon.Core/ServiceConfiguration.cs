@@ -40,6 +40,13 @@ public static class ServiceConfiguration
     public const string PreviousEncryptionKeysKey = "Beacon:PreviousEncryptionKeys";
 
     /// <summary>
+    /// The configuration key that keeps stored values in the legacy v1 format (unauthenticated AES-CBC) readable. On by
+    /// default; turn it off once <see cref="IStoredValueReEncryptionService"/> reports no legacy value left
+    /// (<see cref="StoredValueReEncryptionResult.LegacyFormatReadRemovable"/>).
+    /// </summary>
+    public const string AllowLegacyCbcKey = "Beacon:Encryption:AllowLegacyCbc";
+
+    /// <summary>
     /// <c>Beacon:PreviousEncryptionKeys</c> lists at least one key: stored values may still be encrypted with it, and
     /// <see cref="IStoredValueReEncryptionService"/> moves them to the current key.
     /// </summary>
@@ -110,7 +117,8 @@ public static class ServiceConfiguration
 
         // Encryption service for sensitive data (e.g., connection strings). The key must be strong in every environment
         // (base64 of at least 32 bytes, never a published or placeholder value); the message never contains it. Values
-        // written with a key that was replaced stay readable through Beacon:PreviousEncryptionKeys (decrypt only).
+        // written with a key that was replaced stay readable through Beacon:PreviousEncryptionKeys (decrypt only), and values in
+        // the legacy v1 format while Beacon:Encryption:AllowLegacyCbc is on (the default).
         var encryptionKey = configuration["Beacon:EncryptionKey"] ?? string.Empty;
         var encryptionKeyProblem = EncryptionKeyRequirements.Problem(encryptionKey);
         if (encryptionKeyProblem != null)
@@ -124,7 +132,8 @@ public static class ServiceConfiguration
         services.AddSingleton<IEncryptionService>(x => new EncryptionService(
             encryptionKey,
             previousEncryptionKeys,
-            x.GetService<Microsoft.Extensions.Logging.ILogger<EncryptionService>>()));
+            x.GetService<Microsoft.Extensions.Logging.ILogger<EncryptionService>>(),
+            configuration.GetValue(AllowLegacyCbcKey, true)));
         services.TryAddTransient<IStoredValueReEncryptionService, StoredValueReEncryptionService>();
 
         // Keyed hash for MCP caller audit identities: from Beacon:Mcp:CallerHashKey when set (so the hashes outlive a

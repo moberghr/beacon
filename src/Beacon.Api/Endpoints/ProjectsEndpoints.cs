@@ -133,7 +133,16 @@ internal static class ProjectsEndpoints
     }
 }
 
-internal sealed record UpdateRepositoryTokenRequest(string? AccessToken);
+internal sealed record UpdateRepositoryTokenRequest(string? AccessToken)
+{
+    // The compiler-generated ToString prints every member; the secrets are printed redacted.
+    private bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"AccessToken = {Core.RedactedPrint.Of(AccessToken)}");
+
+        return true;
+    }
+}
 internal sealed record UpdateDocumentationSectionRequest(string Content);
 internal sealed record InstructDocumentationRequest(string Instruction);
 internal sealed record LinkProjectDataSourcesRequest(List<int> DataSourceIds);
