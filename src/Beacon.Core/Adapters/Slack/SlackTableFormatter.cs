@@ -30,6 +30,13 @@ internal class SlackTableFormatter
     /// </summary>
     public object GenerateTableBlock(List<IDictionary<string, object?>> records)
     {
+        return GenerateTableBlock(records, out _);
+    }
+
+    /// <summary>The table block, and how many data rows it shows after the row and size limits.</summary>
+    public object GenerateTableBlock(List<IDictionary<string, object?>> records, out int shownRows)
+    {
+        shownRows = 0;
         if (!records.HasRecords())
         {
             return new { type = "section", text = new { type = "plain_text", text = "No records to display" } };
@@ -45,7 +52,7 @@ internal class SlackTableFormatter
         var columnWidths = CalculateColumnWidths(formattedData, columnNames);
 
         // Build table from cached formatted values
-        var tableText = BuildTableText(formattedData, columnNames, columnWidths);
+        var tableText = BuildTableText(formattedData, columnNames, columnWidths, out shownRows);
 
         // Wrap in code block for fixed-width display
         return new
@@ -131,8 +138,10 @@ internal class SlackTableFormatter
     private string BuildTableText(
         List<Dictionary<string, string>> formattedData,
         List<string> columnNames,
-        Dictionary<string, int> columnWidths)
+        Dictionary<string, int> columnWidths,
+        out int shownRows)
     {
+        shownRows = 0;
         var tableBuilder = new StringBuilder();
 
         // Header row (centered)
@@ -160,6 +169,7 @@ internal class SlackTableFormatter
             }
 
             tableBuilder.AppendLine(line);
+            shownRows++;
         }
 
         return tableBuilder.ToString().TrimEnd();

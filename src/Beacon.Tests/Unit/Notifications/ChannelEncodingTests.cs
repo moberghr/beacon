@@ -39,7 +39,89 @@ public class ChannelEncodingTests
     [Test]
     public void SlackFencedText_CannotCloseTheFence()
     {
-        ChannelText.SlackFenced("x```\n<!here>").Should().NotContain("`").And.NotContain("<");
+        ChannelText.SlackFenced("x```\n<!here>").Should().NotContain("```").And.NotContain("<");
+        ChannelText.SlackFenced("x`````y").Should().NotContain("```");
+    }
+
+    [Test]
+    public void SlackFencedText_KeepsSingleBackticksOfQuotedIdentifiers()
+    {
+        ChannelText.SlackFenced("SELECT `col`, ``x`` FROM `t`").Should().Be("SELECT `col`, ``x`` FROM `t`");
+    }
+
+    [Test]
+    public void StripUnsafe_RemovesTagCharactersOutsideTheBasicPlane()
+    {
+        ChannelText.StripUnsafe("ok" + char.ConvertFromUtf32(0xE0041) + char.ConvertFromUtf32(0xE007F) + "!").Should().Be("ok!");
+        ChannelText.StripUnsafe("a\u061Cb\u202Ac\u2066d\u2069e\u200Bf\u2060g").Should().Be("abcdefg");
+    }
+
+    [Test]
+    public void StripUnsafe_KeepsJoinersMarksAndSoftHyphen()
+    {
+        var family = "\U0001F468\u200D\U0001F469\u200D\U0001F467";
+        var persian = "می\u200Cخواهم";
+        var mixed = "abc\u200Fdef\u200E\u00ADg";
+
+        ChannelText.StripUnsafe(family).Should().Be(family);
+        ChannelText.StripUnsafe(persian).Should().Be(persian);
+        ChannelText.StripUnsafe(mixed).Should().Be(mixed);
+    }
+
+    [Test]
+    public void Template_ByteArraysStayBase64_AndOtherMapsAreEscapedWithoutChangingShape()
+    {
+        var data = new Dictionary<string, object?>
+        {
+            ["Records"] = new List<IDictionary<string, object?>> { Row(("b", new byte[] { 1, 2, 3 }), ("l", new List<object?> { "<a>", new List<object?> { "<b>" } })) },
+            ["Map"] = new Dictionary<string, string> { ["<k>"] = "<v>" }
+        };
+
+        var result = AdapterTemplateProcessor.ProcessTemplate("{\"r\":{{Records}},\"m\":{{Map}}}", data, escapeJsonStrings: true, escapeText: ChannelText.Slack);
+
+        using var document = JsonDocument.Parse(result);
+        var record = document.RootElement.GetProperty("r")[0];
+        record.GetProperty("b").GetString().Should().Be("AQID");
+        record.GetProperty("l")[0].GetString().Should().Be("&lt;a&gt;");
+        record.GetProperty("l")[1][0].GetString().Should().Be("&lt;b&gt;");
+        document.RootElement.GetProperty("m").GetProperty("&lt;k&gt;").GetString().Should().Be("&lt;v&gt;");
+    }
+
+    [Test]
+    public void Template_NotificationUrlIsNotTextEscaped()
+    {
+        var data = new Dictionary<string, object?> { ["NotificationUrl"] = "https://x.example/a_b?x=1&y=2", ["SubscriptionName"] = "a_b" };
+
+        var teams = AdapterTemplateProcessor.ProcessTemplate("{{NotificationUrl}} {{SubscriptionName}}", data, escapeText: ChannelText.Teams);
+        var slack = AdapterTemplateProcessor.ProcessTemplate("{{NotificationUrl}}", data, escapeText: ChannelText.Slack);
+
+        teams.Should().Be("https://x.example/a_b?x=1&y=2 a\\_b");
+        slack.Should().Be("https://x.example/a_b?x=1&y=2");
+    }
+
+    [Test]
+    public async Task Csv_NumericLookingText_GetsNoQuotePrefix()
+    {
+        var text = Encoding.UTF8.GetString(await CsvBuilder.GetReport([Row(("c", "-12.5"), ("p", "+385911234567"))])).TrimStart('﻿');
+
+        text.Should().Contain("-12.5").And.Contain("+385911234567").And.NotContain("'");
+    }
+
+    [Test]
+    public void SlackMessage_SummaryCountsTheRowsTheTableShows()
+    {
+        var rows = Enumerable.Range(0, 25).Select(x => Row(("c" + x % 5, new string('<', 30)), ("d", new string('&', 30)))).ToList();
+        var result = Result(rows, sql: "select 1");
+
+        var message = new SlackMessageBuilder(new SlackTableFormatter(), new BeaconConfiguration()).BuildNotificationMessage(result, 4);
+        var sections = JsonDocument.Parse(JsonSerializer.Serialize(message)).RootElement.GetProperty("blocks").EnumerateArray()
+            .Select(x => x.TryGetProperty("text", out var t) && t.TryGetProperty("text", out var inner) ? inner.GetString()! : null)
+            .Where(x => x != null)
+            .ToList();
+
+        var table = sections.Single(x => x!.StartsWith("```\n"))!;
+        var shown = table.Split('\n').Count(x => x.Contains('&') && !x.Contains("truncated"));
+        sections.Single(x => x!.StartsWith("*Results:*")).Should().Contain($"Showing {shown} of");
     }
 
     [Test]
@@ -190,8 +272,10 @@ public class ChannelEncodingTests
     }
 
     [TestCase("=1+1")]
-    [TestCase("+1")]
-    [TestCase("-1")]
+    [TestCase("+1+2")]
+    [TestCase("-1\n")]
+    [TestCase("-1;2")]
+    [TestCase("-cmd")]
     [TestCase("@SUM(A1)")]
     [TestCase("\tx")]
     [TestCase("\rx")]

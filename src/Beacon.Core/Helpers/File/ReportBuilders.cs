@@ -332,12 +332,22 @@ public static class XlsxBuilder
     }
 }
 
-internal static class FormulaGuard
+internal static partial class FormulaGuard
 {
     public static bool StartsLikeFormula(string? text)
     {
-        return !string.IsNullOrEmpty(text) && text[0] is '=' or '+' or '-' or '@' or '\t' or '\r';
+        return !string.IsNullOrEmpty(text) && text[0] is '=' or '+' or '-' or '@' or '\t' or '\r' && !IsPlainNumber(text);
     }
+
+    // A signed number such as -12.5 or +385911234567 cannot start a formula, so it is left as it is (no visible quote in a CSV).
+    // Anything else after the sign, including a trailing operator or text, is still guarded.
+    private static bool IsPlainNumber(string text)
+    {
+        return text[0] is '+' or '-' && PlainNumber().IsMatch(text);
+    }
+
+    [System.Text.RegularExpressions.GeneratedRegex(@"^[+-]([0-9]+\.?[0-9]*|\.[0-9]+)([eE][+-]?[0-9]+)?\z")]
+    private static partial System.Text.RegularExpressions.Regex PlainNumber();
 
     /// <summary>The text with a leading <c>'</c> when a spreadsheet would read it as a formula (<paramref name="enabled"/>).</summary>
     public static string? Apply(string? text, bool enabled)

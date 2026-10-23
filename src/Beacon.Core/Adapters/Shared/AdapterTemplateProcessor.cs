@@ -19,7 +19,8 @@ internal static partial class AdapterTemplateProcessor
     /// a substituted value is never searched for placeholders. With <paramref name="escapeJsonStrings"/> a value is escaped
     /// to sit inside a JSON string; the serialized <c>_Pretty</c> and collection placeholders stay raw JSON. With
     /// <paramref name="escapeText"/> every text value (also each string inside a collection) first goes through the
-    /// channel's own markup escaping, so a value cannot form a mention, link or tag in the message.
+    /// channel's own markup escaping, so a value cannot form a mention, link or tag in the message. URL placeholders
+    /// (<c>NotificationUrl</c>) are built by Beacon from the configured base URL and are left as they are.
     /// </summary>
     public static string ProcessTemplate(string template, Dictionary<string, object?> templateData, bool escapeJsonStrings = false, Func<string, string>? escapeText = null)
     {
@@ -91,7 +92,7 @@ internal static partial class AdapterTemplateProcessor
         }
 
         var formatted = FormatValue(placeholder, value);
-        if (escapeText != null && !serialized)
+        if (escapeText != null && !serialized && !dataKey.Equals("NotificationUrl", StringComparison.OrdinalIgnoreCase))
         {
             formatted = escapeText(formatted);
         }
@@ -114,6 +115,8 @@ internal static partial class AdapterTemplateProcessor
         {
             case string text:
                 return escapeText(text);
+            case byte[]:
+                return value;
             case IDictionary<string, object?> map:
                 var copy = new Dictionary<string, object?>();
                 foreach (var x in map)
@@ -122,6 +125,14 @@ internal static partial class AdapterTemplateProcessor
                 }
 
                 return copy;
+            case System.Collections.IDictionary other:
+                var otherCopy = new Dictionary<string, object?>();
+                foreach (System.Collections.DictionaryEntry x in other)
+                {
+                    otherCopy[escapeText(x.Key.ToString() ?? string.Empty)] = EscapeTexts(x.Value, escapeText);
+                }
+
+                return otherCopy;
             case System.Collections.IEnumerable items:
                 return items.Cast<object?>().Select(x => EscapeTexts(x, escapeText)).ToList();
             default:

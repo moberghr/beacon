@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using System.Text.RegularExpressions;
 
 namespace Beacon.Core.Adapters.Shared;
 
@@ -7,13 +8,16 @@ namespace Beacon.Core.Adapters.Shared;
 /// Makes text that comes from query results, names and SQL safe to show in a channel's own markup, and keeps it within
 /// the channel's size limits.
 /// </summary>
-internal static class ChannelText
+internal static partial class ChannelText
 {
     public const string TruncationMarker = "... (truncated)";
 
     /// <summary>
-    /// Removes characters that change how the surrounding text reads or is laid out: bidirectional and other format
-    /// (Cf) characters such as zero-width and direction overrides, and control characters other than tab and line breaks.
+    /// Removes characters that change how the surrounding text reads or is laid out: control characters other than tab
+    /// and line breaks, and format (Cf) characters such as bidirectional overrides, embeddings and isolates, the Arabic
+    /// letter mark, zero-width space, word joiner, byte order mark and the tag characters (also outside the BMP).
+    /// Format characters that are part of ordinary text stay: zero-width joiner and non-joiner (emoji sequences, Persian
+    /// and Indic words), soft hyphen, left-to-right and right-to-left marks and the Arabic number signs (U+0600 to U+0605).
     /// </summary>
     public static string StripUnsafe(string? text)
     {
@@ -22,12 +26,21 @@ internal static class ChannelText
             return string.Empty;
         }
 
-        if (!text.Any(IsUnsafe))
+        if (!text.EnumerateRunes().Any(IsUnsafe))
         {
             return text;
         }
 
-        return string.Concat(text.Where(x => !IsUnsafe(x)));
+        var builder = new StringBuilder(text.Length);
+        foreach (var x in text.EnumerateRunes())
+        {
+            if (!IsUnsafe(x))
+            {
+                builder.Append(x);
+            }
+        }
+
+        return builder.ToString();
     }
 
     /// <summary>Slack's own escaping of text: <c>&amp; &lt; &gt;</c>, so no mention, link or command is formed.</summary>
@@ -40,13 +53,22 @@ internal static class ChannelText
     }
 
     /// <summary>
-    /// <see cref="Slack"/> for text that is shown inside a code fence: a backtick is replaced by a look-alike, so the
-    /// text cannot close the fence.
+    /// <see cref="Slack"/> for text that is shown inside a code fence: a run of three or more backticks is broken up
+    /// with zero-width spaces, so the text cannot close the fence; a single or double backtick (a quoted identifier) stays.
     /// </summary>
     public static string SlackFenced(string? text)
     {
-        return Slack(text).Replace('`', 'ˋ');
+        var escaped = Slack(text);
+        if (!escaped.Contains("```", StringComparison.Ordinal))
+        {
+            return escaped;
+        }
+
+        return FenceRun().Replace(escaped, x => string.Join('\u200B', x.Value.AsEnumerable()));
     }
+
+    [GeneratedRegex("`{3,}")]
+    private static partial Regex FenceRun();
 
     /// <summary>Text for a Teams card's markdown: markup characters are backslash-escaped, so no link, emphasis or tag is formed.</summary>
     public static string Teams(string? text)
@@ -125,14 +147,19 @@ internal static class ChannelText
         return text[..keep];
     }
 
-    private static bool IsUnsafe(char x)
+    private static bool IsUnsafe(Rune x)
     {
-        if (x is '\t' or '\n' or '\r')
+        if (x.Value is '\t' or '\n' or '\r')
         {
             return false;
         }
 
-        var category = char.GetUnicodeCategory(x);
+        if (x.Value is 0xAD or 0x200C or 0x200D or 0x200E or 0x200F or (>= 0x0600 and <= 0x0605))
+        {
+            return false;
+        }
+
+        var category = Rune.GetUnicodeCategory(x);
 
         return category is UnicodeCategory.Control or UnicodeCategory.Format;
     }

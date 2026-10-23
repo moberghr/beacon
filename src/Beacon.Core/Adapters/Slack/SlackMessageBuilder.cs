@@ -46,8 +46,16 @@ internal class SlackMessageBuilder
         // Divider
         blocks.Add(new { type = "divider" });
 
+        // The table is built first: the summary states how many of its rows it really shows
+        object? tableBlock = null;
+        var shownRows = 0;
+        if (queryResult.TopRecords.HasRecords())
+        {
+            tableBlock = _tableFormatter.GenerateTableBlock(queryResult.TopRecords, out shownRows);
+        }
+
         // Summary section
-        blocks.Add(BuildSummaryBlock(queryResult));
+        blocks.Add(BuildSummaryBlock(queryResult, shownRows));
 
         // View full results button (if BaseUrl configured)
         if (!string.IsNullOrEmpty(_configuration.BaseUrl) && notificationId.HasValue)
@@ -56,9 +64,8 @@ internal class SlackMessageBuilder
         }
 
         // Data table (if records exist)
-        if (queryResult.TopRecords.HasRecords())
+        if (tableBlock != null)
         {
-            var tableBlock = _tableFormatter.GenerateTableBlock(queryResult.TopRecords);
             blocks.Add(tableBlock);
         }
 
@@ -98,7 +105,7 @@ internal class SlackMessageBuilder
 
         var details = new StringBuilder();
         details.AppendLine($"*{severityEmoji} Anomaly Severity:* {ChannelText.Slack(anomalyEvaluation.Severity)}");
-        details.AppendLine($"*Explanation:* {ChannelText.TruncateEscaped(ChannelText.SlackFenced(anomalyEvaluation.Explanation), AdapterConstants.Slack.MaxAnomalyExplanationLength)}");
+        details.AppendLine($"*Explanation:* {ChannelText.TruncateEscaped(ChannelText.Slack(anomalyEvaluation.Explanation), AdapterConstants.Slack.MaxAnomalyExplanationLength)}");
 
         if (anomalyEvaluation.BaselineMean.HasValue)
         {
@@ -134,10 +141,10 @@ internal class SlackMessageBuilder
         };
     }
 
-    private object BuildSummaryBlock(QueryResult queryResult)
+    private object BuildSummaryBlock(QueryResult queryResult, int shownRows)
     {
         var summaryText = queryResult.TopRecords.HasRecords()
-            ? $"*Results:* Showing {queryResult.TopRecords.Count} of {queryResult.TotalRecords} total records"
+            ? $"*Results:* Showing {shownRows} of {queryResult.TotalRecords} total records"
             : $"*Results:* Query executed successfully. Total records: {queryResult.TotalRecords}";
 
         return new
