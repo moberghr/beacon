@@ -34,19 +34,22 @@ internal sealed class DataSourceRouter(ILogger<DataSourceRouter> logger) : IData
             };
         }
 
+        // Names, schema names and the question are stored or caller-written text: each name stays on its line and the lot
+        // sits in data blocks, so none of it can pose as the prompt's own instructions or answer.
         var summaries = string.Join("\n\n", dataSources.Select(x =>
         {
-            var schemas = string.Join(", ", x.Schemas.Select(y => $"{y.SchemaName} ({y.TableCount} tables)"));
-            return $"Data Source ID: {x.DataSourceId}\nName: {x.Name}\nType: {x.DatabaseEngine ?? x.DataSourceType.ToString()}\nTables: {x.TableCount}\nSchemas: {schemas}";
+            var schemas = string.Join(", ", x.Schemas.Select(y => $"{PromptData.OneLine(y.SchemaName)} ({y.TableCount} tables)"));
+            return $"Data Source ID: {x.DataSourceId}\nName: {PromptData.OneLine(x.Name)}\nType: {PromptData.OneLine(x.DatabaseEngine ?? x.DataSourceType.ToString())}\nTables: {x.TableCount}\nSchemas: {schemas}";
         }));
 
         var routingPrompt = $$"""
             You are a data routing expert. Given the following data sources and a user question, determine which data source(s) should be queried.
 
             DATA SOURCES:
-            {{summaries}}
+            {{PromptData.Fence("data sources", summaries)}}
 
-            USER QUESTION: {{question}}
+            USER QUESTION:
+            {{PromptData.Fence("user question", question)}}
 
             Respond with JSON only, no markdown:
             {
@@ -63,7 +66,7 @@ internal sealed class DataSourceRouter(ILogger<DataSourceRouter> logger) : IData
 
         var request = new LlmRequest
         {
-            SystemPrompt = "You are a data routing assistant. Respond with JSON only.",
+            SystemPrompt = $"You are a data routing assistant. Respond with JSON only.\n\n{PromptData.Rule}",
             Messages = [new ChatMessage(ConversationRole.User, routingPrompt)],
             Temperature = 0.0m,
             MaxTokens = 512,
