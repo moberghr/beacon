@@ -7,7 +7,7 @@ Beacon has a built-in user store: internal users who sign in with a password sto
 
 ## Overview
 
-- **Internal users** sign in with a user name (or e-mail address) and a password Beacon stores as a PBKDF2-SHA256 hash (100,000 iterations, 32-byte salt).
+- **Internal users** sign in with a user name (or e-mail address) and a password Beacon stores as a PBKDF2-SHA256 hash (600,000 iterations, 32-byte salt; see [Password hashes](#password-hashes)).
 - **External users** sign in through single sign-on (OIDC), a REST bearer token, or a login API that returns a JWT. Their roles always come from Beacon, never from the token.
 - **Global roles** Admin, Editor and Viewer; **functional roles** Approver, Auditor, SecurityAdmin, UserAdmin, DataSourceAdmin and MigrationOperator, one administrative duty each, without project data.
 - **First-run setup** creates the super admin with a setup token.
@@ -87,6 +87,7 @@ An Admin or a UserAdmin manages users on **Users** (`/beacon/users`):
 - **Add user** creates an internal or an external user with roles. Internal users are an Admin's to create; a UserAdmin creates external users only. A password an Admin sets must be replaced at first sign-in (see [Passwords set by an administrator](#passwords-set-by-an-administrator)).
 - **Edit user** changes the display name, enabled state and roles. The user name and e-mail address are an Admin's to change.
 - **Sign out everywhere** ends every session of the user.
+- **User names and e-mail addresses** are trimmed. A user name needs 3 to 100 characters and no control characters; an e-mail address is optional, but when given it must be one plain address (no display name, no list) of at most 255 characters. Otherwise creating the user answers `400`. Editing a user checks only the fields that change, so an account stored before these rules can still be saved. First-run setup applies the same rules and refuses a password confirmation that differs. Users provisioned at an identity-provider sign-in keep the provider's values.
 - Disabling or archiving a user revokes their [API keys](/security/api-keys/#when-the-owner-leaves); re-enabling revokes any key still active instead of restoring one.
 
 Set a **display name** for everyone who should be added to projects: project member search matches display names only, and other users see people by display name (or "User {id}"), never by user name or e-mail address.
@@ -277,6 +278,15 @@ Whoever sets a password can sign in with it, so a password an Admin sets (a new 
 - The login page asks for a new password and sends the same sign-in again with `newPassword`. When the rules accept it (and it differs from the one set), it becomes the user's password, the requirement clears, the security stamp changes and the user is signed in. A refused password answers `400` with the reason.
 - Changing your own password (`POST /beacon/api/user-settings/change-password`) also clears the requirement.
 
+## Password hashes
+
+Passwords are hashed with PBKDF2-HMAC-SHA256, a 32-byte random salt per password and 600,000 iterations. The iteration count is stored in the hash itself (`v2$600000$<Base64 hash>` in `PasswordHash`; the salt stays in `PasswordSalt`), so no schema change is needed to raise it.
+
+- A hash written by an earlier version (bare Base64 at 100,000 iterations) or with fewer iterations still verifies. The user's next successful password sign-in replaces it with a hash at the current count. That is the same password, so the user's sessions stay. The replacement is written only while the stored hash is still the one verified, so it never undoes a password change made at the same moment.
+- A malformed stored hash, or one claiming fewer than 100,000 or more than 10,000,000 iterations, verifies as a wrong password and logs a warning.
+- **Rollback:** a version before this one cannot read a `v2$` hash, so users whose hash was upgraded cannot sign in with a password after a rollback until an Admin resets their password.
+- A host's own `IPasswordHasher` keeps working: `NeedsRehash` defaults to `false`, so Beacon never replaces its hashes.
+
 ## Sign-in sessions
 
 A `Beacon.Auth` session is checked on the server, not only by its cookie:
@@ -351,7 +361,7 @@ must choose a new one is recorded as a refused sign-in (`password_change_require
 | `UserName` | unique user name |
 | `Email`, `DisplayName` | optional |
 | `IsInternalUser` | the password is stored in Beacon |
-| `PasswordHash` | PBKDF2-SHA256 hash; null for external users |
+| `PasswordHash` | PBKDF2-SHA256 hash, written as `v2$<iterations>$<hash>`; null for external users |
 | `IsSuperAdmin` | passes every check |
 | `IsEnabled` | enabled or disabled |
 | `LastLoginAt` | last sign-in with the user's own identity (password, SSO, an identity-provider token; never an API key) |

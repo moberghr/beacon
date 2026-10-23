@@ -218,6 +218,22 @@ When you upgrade:
 - [ ] **Hosts or scripts that create queries through the API:** send `{name}` placeholders. A bare word, a quoted or
       spaced placeholder is refused with the parameter's name.
 
+### Stronger password hashes, checked user names
+
+Internal users' passwords are hashed at 600,000 PBKDF2 iterations, and the count is stored in the hash. Existing
+hashes keep working and are upgraded at each user's next successful password sign-in
+([Password hashes](/security/user-management/#password-hashes)). Creating a user, and first-run setup, now trim the user
+name and e-mail address and refuse a user name outside 3 to 100 characters or with control characters, an e-mail address
+that is not one plain address, and (setup) a password confirmation that differs. Editing a user checks only the fields
+that change.
+
+When you upgrade:
+
+- [ ] **Rollback:** an earlier version cannot read an upgraded hash. After a rollback, reset the passwords of internal
+      users who signed in on this version.
+- [ ] **Scripts that create users through the API:** send a user name of at least 3 characters and a plain e-mail
+      address (or none).
+
 ## Release notes
 
 The full list of changes is on the [5.0.0.0 release](https://github.com/moberghr/beacon/releases/tag/5.0.0.0).
