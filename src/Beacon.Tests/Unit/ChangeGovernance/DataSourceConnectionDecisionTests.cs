@@ -275,6 +275,82 @@ public class DataSourceConnectionDecisionTests
         store.Offline.TransactionIsolationLevels.Should().BeEmpty();
     }
 
+    // Who decides is read again inside the decision's transaction, after the source's lock, from the user store as it is
+    // now: a reviewer disabled, archived or stripped of the Approver role while the decision waited for that lock does not
+    // decide, and nothing is committed.
+    [TestCase("approve", "disabled")]
+    [TestCase("approve", "archived")]
+    [TestCase("approve", "approver role removed")]
+    [TestCase("reject", "disabled")]
+    [TestCase("reject", "approver role removed")]
+    public async Task ADecision_ByAReviewerRevokedWhileItWaitedForTheLock_IsRefused_AndCommitsNothing(string decision, string revocation)
+    {
+        var store = new ChangeApprovalStore();
+        var ada = store.UserHolding(7, Ada, BeaconPermissions.Approver);
+        var source = Stored(store, Connection, DataSourceApprovalDefinition.Held);
+        var request = Pending(store, source, Connection);
+        var probe = TestChangeApprovals.Probe();
+        var reviewers = new RevokingReviewerAuthority(TestChangeApprovals.Reviewers(), () => Revoke(ada, revocation));
+        var approvals = Approvals(store, probe, reviewers: reviewers, configuration: ManagingUsers());
+
+        Func<Task> act = decision == "approve"
+            ? () => approvals.ApproveAsync(request.Id, null, request.PayloadHash, CancellationToken.None)
+            : () => approvals.RejectAsync(request.Id, null, CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(
+            revocation == "approver role removed" ? ChangeApprovalService.ApproverRequiredMessage : ChangeApprovalService.ReviewerInactiveMessage);
+        reviewers.ReadInsideTheTransaction.Should().BeTrue();
+        request.Status.Should().Be(ApprovalStatus.Pending);
+        request.ReviewedByUserId.Should().BeNull();
+        source.ApprovedTargetHash.Should().Be(DataSourceApprovalDefinition.Held);
+        store.Offline.Commits.Should().Be(0);
+        probe.Approved.Should().BeEmpty();
+    }
+
+    // The same re-read lets a reviewer who still holds what the decision needs decide: an Approver, or an Admin who holds
+    // no Approver role.
+    [TestCase(BeaconPermissions.Approver)]
+    [TestCase(RoleService.RoleNames.Admin)]
+    public async Task Approve_ByAReviewerWhoStillHoldsTheRole_IsDecided(string role)
+    {
+        var store = new ChangeApprovalStore();
+        store.UserHolding(7, Ada, role);
+        var source = Stored(store, Connection, DataSourceApprovalDefinition.Held);
+        var request = Pending(store, source, Connection);
+        var reviewers = new RevokingReviewerAuthority(TestChangeApprovals.Reviewers(), () => { });
+
+        await Approvals(store, TestChangeApprovals.Probe(), reviewers: reviewers, configuration: ManagingUsers())
+            .ApproveAsync(request.Id, null, request.PayloadHash, CancellationToken.None);
+
+        reviewers.Reads.Should().Be(1);
+        request.Status.Should().Be(ApprovalStatus.Approved);
+        store.Offline.Commits.Should().Be(1);
+    }
+
+    private static BeaconConfiguration ManagingUsers()
+    {
+        var configuration = TestChangeApprovals.CoveringConnections();
+        configuration.UserManagement.Enabled = true;
+
+        return configuration;
+    }
+
+    private static void Revoke(BeaconUser user, string revocation)
+    {
+        switch (revocation)
+        {
+            case "disabled":
+                user.IsEnabled = false;
+                break;
+            case "archived":
+                user.ArchivedTime = DateTime.UtcNow;
+                break;
+            default:
+                user.UserRoles.Clear();
+                break;
+        }
+    }
+
     private static string HashOf(string connection, DataSourceType type = DataSourceType.Database)
     {
         var engine = type == DataSourceType.Database ? DatabaseEngineType.PostgreSQL : (DatabaseEngineType?)null;
@@ -329,16 +405,22 @@ public class DataSourceConnectionDecisionTests
     private static IDataSourceConnectionResolver Resolver() =>
         TestTransport.Resolver(Encryption, configuration: TestChangeApprovals.CoveringConnections());
 
-    private static ChangeApprovalService Approvals(ChangeApprovalStore store, IHeldDataSourceProbe probe, IBeaconPermissionAccessor? permissions = null) =>
+    private static ChangeApprovalService Approvals(
+        ChangeApprovalStore store,
+        IHeldDataSourceProbe probe,
+        IBeaconPermissionAccessor? permissions = null,
+        IReviewerAuthority? reviewers = null,
+        BeaconConfiguration? configuration = null) =>
         new(
             store.Factory(),
             TestChangeApprovals.Caller(Ada, beaconUserId: 7),
             Mock.Of<IBeaconUserContext>(),
             store.Protector,
             TestChangeApprovals.Hasher,
-            TestChangeApprovals.CoveringConnections(),
+            configuration ?? TestChangeApprovals.CoveringConnections(),
             new RecordingSecurityAudit(),
             permissions ?? TestPermissions.Holding(BeaconPermissions.Approver),
+            reviewers ?? TestChangeApprovals.ReviewerUnchanged,
             (IDataSourceDefinitionReader)Resolver(),
             probe,
             TestChangeApprovals.Llm(),

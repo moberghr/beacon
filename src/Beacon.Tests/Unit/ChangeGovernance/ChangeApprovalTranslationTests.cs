@@ -585,6 +585,7 @@ public class ChangeApprovalTranslationTests
             TestChangeApprovals.On(),
             new RecordingSecurityAudit(),
             TestPermissions.Admin,
+            TestChangeApprovals.ReviewerUnchanged,
             TestChangeApprovals.NoDefinitions,
             probe,
             TestChangeApprovals.Llm(),

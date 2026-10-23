@@ -336,6 +336,63 @@ public class LlmConnectionApprovalTests
         harness.Store.Settings.Single(x => x.Key == "LLM.Provider").Value.Should().Be(nameof(AiProvider.OpenAI));
     }
 
+    // Who decides is read again inside the decision's transaction, after the LLM connection's lock, from the user store as
+    // it is now: an Admin disabled or stripped of the Admin role while the decision waited for that lock does not decide;
+    // the request stays pending with what it staged, and the stored connection stays in use.
+    [TestCase("approve", "disabled")]
+    [TestCase("approve", "admin role removed")]
+    [TestCase("reject", "disabled")]
+    [TestCase("reject", "admin role removed")]
+    public async Task ADecision_ByAnAdminRevokedWhileItWaitedForTheLock_IsRefused_AndChangesNothing(string decision, string revocation)
+    {
+        var harness = new Harness();
+        harness.StoreConnection();
+        var request = await harness.SubmittedAsync(Ben);
+        var ada = harness.Store.UserHolding(9, Ada, RoleService.RoleNames.Admin);
+        var locksBefore = harness.Lock.Acquired;
+        var reviewers = new RevokingReviewerAuthority(TestChangeApprovals.Reviewers(), () =>
+        {
+            harness.Lock.Acquired.Should().Be(locksBefore + 1, "the reviewer is read again once the LLM connection's lock is held");
+            if (revocation == "disabled")
+            {
+                ada.IsEnabled = false;
+                return;
+            }
+
+            ada.UserRoles.Clear();
+        });
+        var decisions = harness.Decisions(Ada, reviewers);
+
+        Func<Task> act = decision == "approve"
+            ? () => decisions.ApproveAsync(request.Id, null, request.PayloadHash, CancellationToken.None)
+            : () => decisions.RejectAsync(request.Id, null, CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(
+            revocation == "disabled" ? ChangeApprovalService.ReviewerInactiveMessage : ChangeApprovalService.LiveAdminRequiredMessage);
+        reviewers.ReadInsideTheTransaction.Should().BeTrue();
+        request.Status.Should().Be(ApprovalStatus.Pending);
+        request.EncryptedPayload.Should().NotBeNull("a refused decision wipes nothing it staged");
+        harness.Store.Settings.Single(x => x.Key == "LLM.Provider").Value.Should().Be(nameof(AiProvider.OpenAI));
+        harness.Audit.Of(SecurityAuditActions.ChangeApproved).Should().BeEmpty();
+        harness.Audit.Of(SecurityAuditActions.ChangeRejected).Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task Approve_ByAnAdminWhoStillIsOne_IsDecided()
+    {
+        var harness = new Harness();
+        harness.StoreConnection();
+        var request = await harness.SubmittedAsync(Ben);
+        harness.Store.UserHolding(9, Ada, RoleService.RoleNames.Admin);
+        var reviewers = new RevokingReviewerAuthority(TestChangeApprovals.Reviewers(), () => { });
+
+        await harness.Decisions(Ada, reviewers).ApproveAsync(request.Id, null, request.PayloadHash, CancellationToken.None);
+
+        reviewers.Reads.Should().Be(1);
+        request.Status.Should().Be(ApprovalStatus.Approved);
+        harness.Store.Settings.Single(x => x.Key == "LLM.Provider").Value.Should().Be(nameof(AiProvider.AzureOpenAI));
+    }
+
     // The approval is committed, but this process could not apply it: the approver is told so, not shown a plain success.
     [Test]
     public async Task Approve_ThatCannotBeAppliedInThisProcess_StandsAndTellsTheApprover()
@@ -717,7 +774,7 @@ public class LlmConnectionApprovalTests
                 NullLogger<UpdateAdminSettingsHandler>.Instance);
         }
 
-        public ChangeApprovalService Decisions(string caller)
+        public ChangeApprovalService Decisions(string caller, IReviewerAuthority? reviewers = null)
         {
             return new ChangeApprovalService(
                 Store.Factory(),
@@ -728,6 +785,7 @@ public class LlmConnectionApprovalTests
                 Configuration,
                 Audit,
                 TestPermissions.Admin,
+                reviewers ?? TestChangeApprovals.ReviewerUnchanged,
                 TestChangeApprovals.NoDefinitions,
                 TestChangeApprovals.NoProbe,
                 Approval(caller, ApprovalCatalog),

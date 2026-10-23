@@ -37,6 +37,7 @@ Decisions need the **Approver** [functional permission](/security/authorization/
 - Four eyes binds per Beacon user. Do not give one person two accounts that can approve.
 - API keys hold no functional permission and MCP has no approval tool, so neither can approve anything.
 - Approvers see every request on **Approvals** (`/beacon/approvals`), including requests for queries they otherwise cannot read; other users see the requests of resources they can read. A change of the LLM connection is the exception: only a live Admin reads and decides it, its requester included.
+- A decision on a change request (approving or rejecting) checks the reviewer again in the user store when it is made, after the lock on what it decides: a reviewer disabled, archived, signed out everywhere or stripped of the Admin role or the Approver permission while the decision waited is refused (`403`) and nothing is decided. A role change, a disable or an archive of the reviewer that starts meanwhile waits until the decision commits.
 
 ## Query changes
 

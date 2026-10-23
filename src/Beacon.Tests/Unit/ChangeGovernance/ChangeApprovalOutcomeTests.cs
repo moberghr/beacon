@@ -310,6 +310,7 @@ public class ChangeApprovalOutcomeTests
             TestChangeApprovals.On(),
             new RecordingSecurityAudit(),
             TestPermissions.Admin,
+            TestChangeApprovals.ReviewerUnchanged,
             TestChangeApprovals.NoDefinitions,
             TestChangeApprovals.NoProbe,
             TestChangeApprovals.Llm(),

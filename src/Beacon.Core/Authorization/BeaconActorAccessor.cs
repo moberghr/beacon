@@ -202,7 +202,7 @@ internal sealed class BeaconActorAccessor(
 
     // The session carries the stamp Beacon's sign-in recorded (BeaconClaims.SessionStamp) and the stored user has another.
     // A session without that claim (signed in before it existed, or by a host) is left to its revalidation.
-    private static bool HasStaleStamp(ClaimsPrincipal principal, string? storedStamp)
+    internal static bool HasStaleStamp(ClaimsPrincipal principal, string? storedStamp)
     {
         var stamp = principal
             .FindAll(BeaconClaims.SessionStamp)

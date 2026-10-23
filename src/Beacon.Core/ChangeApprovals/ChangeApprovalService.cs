@@ -26,6 +26,9 @@ namespace Beacon.Core.ChangeApprovals;
 /// definition the request records. An Approver reads and decides every request but the LLM connection's, which only a
 /// live Admin reads and decides (the requester included); anyone else reads, like query approvals, the requests of the
 /// migration jobs and data contracts it reads (<see cref="ChangeApprovalScope"/>), never a recipient's or a connection's.
+/// Who decides is checked again inside the decision's transaction, after the resource's lock, from the user store as it is
+/// then (<see cref="IReviewerAuthority"/>): a reviewer disabled, archived, signed out everywhere or stripped of the Admin
+/// role or the Approver permission while the decision waited does not decide.
 /// </summary>
 public interface IChangeApprovalService
 {
@@ -44,7 +47,8 @@ public interface IChangeApprovalService
     /// <summary>
     /// Approves a pending request as the caller: 403 for a caller who is no live Admin on an LLM connection change, for its
     /// requester (by any id the caller presents) or a caller without a user id, and for a request without a recorded
-    /// requester; 409 when it is no longer pending, when a data source's server is not the engine it declares (the request
+    /// requester, and for a reviewer who, read again under the resource's lock, is no longer an active user or no longer
+    /// holds what the kind needs; 409 when it is no longer pending, when a data source's server is not the engine it declares (the request
     /// stays pending), when
     /// <paramref name="expectedPayloadHash"/> is not the payload the detail shows, when what it proposes cannot be read,
     /// when the resource no longer exists or no longer holds exactly the definition the request records; 400 without a
@@ -58,7 +62,8 @@ public interface IChangeApprovalService
 
     /// <summary>
     /// Rejects a pending request as the caller (its requester may withdraw it); 403 for a caller who is no live Admin on an
-    /// LLM connection change, the requester included; 409 when it is no longer pending, or is an LLM connection change past
+    /// LLM connection change, the requester included, and for a reviewer who, read again under the resource's lock, is no
+    /// longer an active user or no longer holds what the kind needs; 409 when it is no longer pending, or is an LLM connection change past
     /// its expiry. The resource keeps the definition it holds, which stays inactive until it is changed back or changed and
     /// approved; a rejected LLM connection change's staged connection is wiped.
     /// </summary>
@@ -74,6 +79,7 @@ internal sealed class ChangeApprovalService(
     BeaconConfiguration configuration,
     ISecurityAuditRecorder securityAudit,
     IBeaconPermissionAccessor permissionAccessor,
+    IReviewerAuthority reviewerAuthority,
     IDataSourceDefinitionReader definitionReader,
     IHeldDataSourceProbe heldDataSourceProbe,
     LlmConnectionApproval llmConnections,
@@ -108,6 +114,12 @@ internal sealed class ChangeApprovalService(
 
     /// <summary>Why a caller who is no live Admin cannot decide a change of the LLM connection.</summary>
     internal const string LiveAdminRequiredMessage = "Only an Admin decides a change of the LLM connection.";
+
+    /// <summary>Why a reviewer who no longer holds the Approver permission (nor is an Admin) does not decide a change request.</summary>
+    internal const string ApproverRequiredMessage = "Only an Approver decides this change request.";
+
+    /// <summary>Why a reviewer whose account was disabled, archived or signed out everywhere does not decide a change request.</summary>
+    internal const string ReviewerInactiveMessage = "This account can no longer decide change requests.";
 
     /// <summary>Why an approval of the LLM connection that was committed but not applied in this process is not a plain success.</summary>
     internal const string ApprovedNotAppliedMessage =
@@ -343,6 +355,7 @@ internal sealed class ChangeApprovalService(
                 await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
                 var locked = await LockResourceAsync(context, request.Kind, request.ResourceId, cancellationToken);
+                await EnsureReviewerStillDecidesAsync(context, reviewer, request.Kind, requestId, cancellationToken);
                 if (locked == 0)
                 {
                     throw new BeaconConflictException(ResourceGoneMessage);
@@ -438,6 +451,7 @@ internal sealed class ChangeApprovalService(
 
             // The resource's row first, as submitting and approving take it; a resource that is gone takes nothing.
             await LockResourceAsync(context, request.Kind, request.ResourceId, cancellationToken);
+            await EnsureReviewerStillDecidesAsync(context, reviewer, request.Kind, requestId, cancellationToken);
 
             // Decided only from Pending: rejecting never overwrites an approval, a rejection or a superseded request. A
             // rejected request is never applied, so a staged LLM connection is wiped with the decision.
@@ -487,6 +501,42 @@ internal sealed class ChangeApprovalService(
         {
             throw AccessRefusal.Of(logger, reviewer, "change request", requestId, refusal);
         }
+    }
+
+    // Who decides, checked again inside the decision's transaction, after the resource's lock (a decision may wait for it),
+    // from the user store as it is now: the reviewer's own row taken, then still an active user and still holding what the
+    // kind needs (a live Admin for the LLM connection; the Approver permission, or Admin, for every other kind wherever the
+    // route's permission filter demands it). A refusal rolls the attempt back; every retried attempt checks again.
+    private async Task EnsureReviewerStillDecidesAsync(BeaconContext context, BeaconActor reviewer, ChangeApprovalKind kind, int requestId, CancellationToken cancellationToken)
+    {
+        var live = await reviewerAuthority.ReadLockedAsync(context, reviewer, cancellationToken);
+        if (live == null)
+        {
+            return;
+        }
+
+        var refusal = ReviewerRefusal(live, kind);
+        if (refusal != null)
+        {
+            throw AccessRefusal.Of(logger, reviewer, "change request", requestId, refusal);
+        }
+    }
+
+    private string? ReviewerRefusal(LiveReviewer live, ChangeApprovalKind kind)
+    {
+        if (!live.IsActive)
+        {
+            return ReviewerInactiveMessage;
+        }
+
+        if (kind == ChangeApprovalKind.LlmConnection)
+        {
+            return live.Permissions.IsAdmin ? null : LiveAdminRequiredMessage;
+        }
+
+        var approverRequired = configuration.Authorization.Enabled || configuration.UserManagement.Enabled;
+
+        return approverRequired && !live.Permissions.Holds(BeaconPermissions.Approver) ? ApproverRequiredMessage : null;
     }
 
     // A staged LLM connection that waited past its expiry is not decided: superseded, wiped, 409.

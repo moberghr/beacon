@@ -266,6 +266,7 @@ public class GovernanceEventTests
             TestChangeApprovals.On(),
             decisions,
             TestPermissions.Admin,
+            TestChangeApprovals.ReviewerUnchanged,
             TestChangeApprovals.NoDefinitions,
             TestChangeApprovals.NoProbe,
             TestChangeApprovals.Llm(),

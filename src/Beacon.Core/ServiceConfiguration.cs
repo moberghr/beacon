@@ -538,6 +538,7 @@ public static class ServiceConfiguration
             .ValidateOnStart();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.RoleMappingOptions>, Configuration.RoleMappingOptionsValidator>());
         services.TryAddScoped<IBeaconPermissionAccessor, BeaconPermissionAccessor>();
+        services.TryAddScoped<IReviewerAuthority, ReviewerAuthority>();
         services.TryAddSingleton<BeaconPermissionLog>();
         services.TryAddScoped<Handlers.Users.UserAdministrationRules>();
         services.TryAddScoped<Handlers.DataMigration.MigrationJobAccess>();

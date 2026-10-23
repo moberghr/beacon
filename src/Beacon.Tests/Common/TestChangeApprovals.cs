@@ -149,6 +149,22 @@ internal static class TestChangeApprovals
             logger ?? NullLogger<LlmConnectionApproval>.Instance);
     }
 
+    /// <summary>
+    /// The reviewer's authority as the decision's checks before its transaction found it: nothing stored is read again
+    /// (what a reviewer without a stored user gets), for tests about anything but a reviewer revoked mid-decision.
+    /// </summary>
+    public static IReviewerAuthority ReviewerUnchanged { get; } = new UnchangedReviewer();
+
+    /// <summary>Beacon's own re-read of the reviewer, with the default role names and no request principal.</summary>
+    public static IReviewerAuthority Reviewers(IBeaconRequestPrincipal? principal = null)
+    {
+        return new ReviewerAuthority(
+            Microsoft.Extensions.Options.Options.Create(new Beacon.Core.Configuration.RoleMappingOptions()),
+            TimeProvider.System,
+            new BeaconPermissionLog(TimeProvider.System, NullLogger<BeaconPermissionLog>.Instance),
+            principal ?? Mock.Of<IBeaconRequestPrincipal>());
+    }
+
     /// <summary>The data-source connection parts of the approval service for tests that decide no connection: asking them fails.</summary>
     public static IDataSourceDefinitionReader NoDefinitions { get; } = new NoConnections();
 
@@ -157,6 +173,12 @@ internal static class TestChangeApprovals
 
     /// <summary>A held-source probe that passes (or throws <paramref name="refusal"/>) and records what it was asked.</summary>
     public static RecordingHeldDataSourceProbe Probe(Exception? refusal = null) => new(refusal);
+
+    private sealed class UnchangedReviewer : IReviewerAuthority
+    {
+        public Task<LiveReviewer?> ReadLockedAsync(BeaconContext context, BeaconActor reviewer, CancellationToken cancellationToken) =>
+            Task.FromResult<LiveReviewer?>(null);
+    }
 
     private sealed class NoConnections : IDataSourceDefinitionReader, IHeldDataSourceProbe
     {
@@ -169,6 +191,33 @@ internal static class TestChangeApprovals
         public Task ConnectionApprovedAsync(int dataSourceId, CancellationToken cancellationToken) => throw Unexpected();
 
         private static InvalidOperationException Unexpected() => new("This test decides no data-source connection.");
+    }
+}
+
+/// <summary>
+/// Beacon's re-read of the reviewer with <c>revoke</c> run first, once: a change to the reviewer committed while the
+/// decision waited for its lock. Records whether the decision's transaction was open when the reviewer was read again.
+/// </summary>
+internal sealed class RevokingReviewerAuthority(IReviewerAuthority inner, Action revoke) : IReviewerAuthority
+{
+    private bool _revoked;
+
+    public int Reads { get; private set; }
+
+    public bool ReadInsideTheTransaction { get; private set; }
+
+    public Task<LiveReviewer?> ReadLockedAsync(BeaconContext context, BeaconActor reviewer, CancellationToken cancellationToken)
+    {
+        if (!_revoked)
+        {
+            _revoked = true;
+            revoke();
+        }
+
+        Reads++;
+        ReadInsideTheTransaction = context.Database.CurrentTransaction != null;
+
+        return inner.ReadLockedAsync(context, reviewer, cancellationToken);
     }
 }
 
