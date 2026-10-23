@@ -14,9 +14,12 @@ namespace Beacon.Core.Services.Providers;
 /// <see cref="IDataSourceTransportInspector"/> judges it (a type or engine without one is never verified). A new or changed
 /// connection (create, update, test connection) is refused; a stored one keeps working with one Warning per data source
 /// per process, or is refused under <c>Beacon:DataSources:Transport:EnforceOnExisting</c>.
-/// <c>Beacon:DataSources:Transport:AllowInsecure</c> lifts both. A refusal is a <see cref="DataSourceTransportException"/>
-/// naming the option to change; neither a refusal nor a Warning carries a value read from the connection data (§1.11).
-/// Registered with <c>TryAdd</c> as a singleton.
+/// <c>Beacon:DataSources:Transport:AllowInsecure</c> lifts both. The same applies to a driver option the connector's
+/// <see cref="IDataSourceConnectionOptionInspector"/> refuses (a host-credential option also lifted by
+/// <c>Beacon:DataSources:AllowHostCredentials</c>) and to a host <c>Beacon:DataSources:AllowedHosts</c> does not list (never
+/// lifted by <c>AllowInsecure</c>). A refusal is a <see cref="DataSourceTransportException"/> naming the option to change;
+/// neither a refusal nor a Warning carries a value read from the connection data (§1.11). Registered with <c>TryAdd</c> as
+/// a singleton.
 /// </summary>
 public interface IDataSourceTransportPolicy
 {
@@ -36,9 +39,20 @@ public interface IDataSourceTransportPolicy
 
 internal sealed class DataSourceTransportPolicy(
     IEnumerable<IDataSourceTransportInspector> inspectors,
+    IEnumerable<IDataSourceConnectionOptionInspector> optionInspectors,
+    IOptions<DataSourceConnectionOptions> connectionOptions,
     IOptions<DataSourceTransportOptions> options,
     ILogger<DataSourceTransportPolicy> logger) : IDataSourceTransportPolicy
 {
+    /// <summary>The transport check alone: no driver-option inspectors, no host list.</summary>
+    public DataSourceTransportPolicy(
+        IEnumerable<IDataSourceTransportInspector> inspectors,
+        IOptions<DataSourceTransportOptions> options,
+        ILogger<DataSourceTransportPolicy> logger)
+        : this(inspectors, [], Options.Create(new DataSourceConnectionOptions()), options, logger)
+    {
+    }
+
     private const string NoInspectorRemedy = "No transport check is registered for this data source type, so Beacon cannot verify that its connection authenticates the server";
 
     private readonly List<IDataSourceTransportInspector> _inspectors = inspectors.ToList();
@@ -46,6 +60,12 @@ internal sealed class DataSourceTransportPolicy(
     private readonly ConcurrentDictionary<int, byte> _warned = new();
 
     private readonly ConcurrentDictionary<int, byte> _refused = new();
+
+    private readonly DataSourceConnectionOptionCheck _optionCheck = new(optionInspectors, connectionOptions.Value, options.Value, logger);
+
+    private readonly ConcurrentDictionary<int, byte> _optionWarned = new();
+
+    private readonly ConcurrentDictionary<int, byte> _optionRefused = new();
 
     public DataSourceTransportVerdict Inspect(DataSourceType dataSourceType, DatabaseEngineType? databaseEngineType, string connectionData)
     {
@@ -94,15 +114,12 @@ internal sealed class DataSourceTransportPolicy(
 
     public void EnsureNewConnectionAllowed(DataSourceType dataSourceType, DatabaseEngineType? databaseEngineType, string connectionData)
     {
-        if (options.Value.AllowInsecure)
-        {
-            return;
-        }
+        EnsureNewTransportAllowed(dataSourceType, databaseEngineType, connectionData);
 
-        var verdict = Inspect(dataSourceType, databaseEngineType, connectionData);
-        if (!verdict.Verified)
+        var problem = _optionCheck.Check(dataSourceType, databaseEngineType, connectionData);
+        if (problem != null)
         {
-            throw Refusal(verdict);
+            throw new DataSourceTransportException(problem.Message);
         }
     }
 
@@ -115,6 +132,74 @@ internal sealed class DataSourceTransportPolicy(
             return;
         }
 
+        EnsureStoredTransportAllowed(dataSource, connectionData);
+        EnsureStoredOptionsAllowed(dataSource, connectionData);
+    }
+
+    // What a driver's connection-string builder or the JSON reader throws for data it cannot read.
+    internal static bool IsParserFailure(Exception exception)
+    {
+        return exception is ArgumentException
+            or FormatException
+            or InvalidCastException
+            or OverflowException
+            or JsonException
+            or NotSupportedException;
+    }
+
+    private void EnsureNewTransportAllowed(DataSourceType dataSourceType, DatabaseEngineType? databaseEngineType, string connectionData)
+    {
+        if (options.Value.AllowInsecure)
+        {
+            return;
+        }
+
+        var verdict = Inspect(dataSourceType, databaseEngineType, connectionData);
+        if (!verdict.Verified)
+        {
+            throw Refusal(verdict);
+        }
+    }
+
+    // A stored connection whose options or hosts the check does not accept: one Warning per data source per process, or a
+    // refusal under EnforceOnExisting (logged once).
+    private void EnsureStoredOptionsAllowed(DataSource dataSource, string connectionData)
+    {
+        // Connection data no parser can read is the transport check's Warning or refusal already.
+        var problem = _optionCheck.Check(dataSource.DataSourceType, dataSource.DatabaseEngineType, connectionData);
+        if (problem == null || problem.Unreadable)
+        {
+            return;
+        }
+
+        if (options.Value.EnforceOnExisting)
+        {
+            if (_optionRefused.TryAdd(dataSource.Id, 0))
+            {
+                logger.LogWarning(
+                    "Data source {DataSourceId} was refused: its connection {Reason} ({Section}:{Setting} is on)",
+                    dataSource.Id,
+                    problem.Reason,
+                    DataSourceTransportOptions.SectionName,
+                    nameof(DataSourceTransportOptions.EnforceOnExisting));
+            }
+
+            throw new DataSourceTransportException(problem.Message);
+        }
+
+        if (_optionWarned.TryAdd(dataSource.Id, 0))
+        {
+            logger.LogWarning(
+                "Data source {DataSourceId}: its connection {Reason}, so a new connection like it is refused. It keeps working until its connection is replaced; {Section}:{Setting} refuses it",
+                dataSource.Id,
+                problem.Reason,
+                DataSourceTransportOptions.SectionName,
+                nameof(DataSourceTransportOptions.EnforceOnExisting));
+        }
+    }
+
+    private void EnsureStoredTransportAllowed(DataSource dataSource, string connectionData)
+    {
         if (options.Value.AllowInsecure)
         {
             return;
@@ -185,17 +270,6 @@ internal sealed class DataSourceTransportPolicy(
             verdict.Option,
             DataSourceTransportOptions.SectionName,
             nameof(DataSourceTransportOptions.EnforceOnExisting));
-    }
-
-    // What a driver's connection-string builder or the JSON reader throws for data it cannot read.
-    private static bool IsParserFailure(Exception exception)
-    {
-        return exception is ArgumentException
-            or FormatException
-            or InvalidCastException
-            or OverflowException
-            or JsonException
-            or NotSupportedException;
     }
 
     private static DataSourceTransportException Refusal(DataSourceTransportVerdict verdict)

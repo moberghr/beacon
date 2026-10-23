@@ -44,9 +44,9 @@ does.
 | Type | Fields (required in bold) |
 |---|---|
 | Database | **Database engine**, **Connection string**, and the [metadata options](#metadata-loading-options) |
-| AWS CloudWatch | **AWS region**, **Log groups (comma-separated)**, Access key id, Secret access key, AWS profile |
+| AWS CloudWatch | **AWS region**, **Log groups (comma-separated)**, Access key id, Secret access key, AWS profile (an AWS profile, or no access key, needs `AllowHostCredentials`: see [Driver options and hosts](#driver-options-and-hosts)) |
 | Databricks | **Host**, **HTTP path**, **Personal access token**, Catalog, Schema |
-| BigQuery | **Project id**, Dataset id, Location, **Service account JSON** |
+| BigQuery | **Project id**, Dataset id, Location, **Service account JSON** (a service account key) |
 | API (OpenAPI) | **Base URL**, **OpenAPI spec URL**, Authentication (None, API key, Bearer token, Basic auth), Include path patterns, Exclude path patterns |
 
 Connection string examples for the database engines:
@@ -114,6 +114,34 @@ How Beacon applies the rule:
 - **`Beacon:DataSources:Transport:AllowInsecure`** lifts the rule for development hosts whose local databases have no
   TLS (the sample host sets it in its Development configuration). Outside Development the host logs a Warning at
   startup while it is set. See [Configuration](/getting-started/configuration/#data-source-transport-security).
+
+### Driver options and hosts
+
+A connection carries the data source's own credentials and nothing that acts on the Beacon host. Each connector reads
+the connection with its driver's own parser and refuses these options:
+
+| Engine | Refused | Signs in as the Beacon host (lifted by `AllowHostCredentials`) |
+|---|---|---|
+| PostgreSQL | `Options`, `Passfile`, `Include Error Detail=true`, `Log Parameters=true` | A Unix-socket `Host`, `GSS Encryption Mode=Require`, no `Password` and no `SSL Certificate` (the host's `PGPASSWORD` or pgpass file) |
+| SQL Server, Azure Synapse | `AttachDBFilename`, `User Instance=true`, `Authentication=Active Directory Interactive` or `Device Code Flow` | `Integrated Security` (`Trusted_Connection`), any `Authentication` other than `SqlPassword`, `Active Directory Password` or `Active Directory Service Principal`, `Column Encryption Setting=Enabled`, a named-pipe (`np:`), shared-memory (`lpc:`) or LocalDB `Data Source` |
+| MySQL | `AllowLoadLocalInfile=true`, `AllowLoadLocalInfileInPath`, `CommandInterceptors`, `ExceptionInterceptors` | `IntegratedSecurity`, a Kerberos, Windows or OCI `DefaultAuthenticationPlugin`, `OciConfigFile`, `CertificateStoreLocation`, a `ConnectionProtocol` other than TCP |
+| Snowflake | `client_config_file`, `disable_saml_url_check=true`, `authenticator=externalbrowser` or `oauth_authorization_code` | `authenticator=workload_identity`, `private_key_file` (give the key with `private_key`) |
+| BigQuery | **Service account JSON** that is not a service account key (`"type": "service_account"`) | No service account JSON (the host's application default credentials) |
+| AWS CloudWatch | An **AWS region** that is not a region name | An **AWS profile**, or no access key (the host's IAM role) |
+| Databricks | A **Host** that is not a bare host name (no `https://`, port or path) | |
+
+The rule applies where the transport rule does: creating, changing and testing a connection refuse an option above
+(the message names the option, never a value); a stored or host-managed source keeps working, with one Warning per
+data source per process, and is refused only under `Beacon:DataSources:Transport:EnforceOnExisting`. BigQuery also
+builds its client from a service account key only, so a stored source with any other credential JSON fails when it
+connects. `Beacon:DataSources:Transport:AllowInsecure` lifts the option rule on development hosts.
+
+`Beacon:DataSources:AllowedHosts` restricts the hosts a connection may reach: every host the connection names (each
+host of a PostgreSQL or MySQL host list, the SQL Server failover partner, the Snowflake proxy and Okta URL, the API
+base and spec URLs, the Databricks host) must be listed. BigQuery and CloudWatch reach only their vendor's endpoints
+and pass. A connection whose hosts its connector cannot tell (MySQL `DnsSrv`, a type with no option check) is refused
+while the list is set. `AllowInsecure` does not lift the list. See
+[Configuration](/getting-started/configuration/#data-source-driver-options-and-hosts).
 
 ### Engine check
 
@@ -518,7 +546,7 @@ project, not `dataEditor` or `admin`.
 warehouse.
 
 **CloudWatch:** Beacon's own CloudWatch features read only the log groups the data source configures, so restrict the
-IAM role to `logs:StartQuery`, `logs:GetQueryResults` and `logs:StopQuery` on those log groups, plus
+access key's IAM user or role to `logs:StartQuery`, `logs:GetQueryResults` and `logs:StopQuery` on those log groups, plus
 `logs:DescribeLogGroups` for **Test connection**.
 CloudWatch sources cannot be queried through MCP `query`.
 

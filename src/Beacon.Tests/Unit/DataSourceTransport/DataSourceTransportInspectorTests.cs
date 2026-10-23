@@ -100,10 +100,10 @@ public class DataSourceTransportInspectorTests
         yield return Document(DataSourceType.Api, "{", "connection string");
         yield return Document(DataSourceType.Api, " ", "connection string");
 
-        // TLS-only SDKs pass whatever their configuration says.
-        yield return Document(DataSourceType.Databricks, $"{{\"host\":\"{Host}\",\"token\":\"{Password}\"}}", null);
-        yield return Document(DataSourceType.BigQuery, $"{{\"projectId\":\"{Database}\",\"credentialsJson\":\"{Password}\"}}", null);
-        yield return Document(DataSourceType.CloudWatch, $"{{\"region\":\"eu-west-1\",\"secretAccessKey\":\"{Password}\"}}", null);
+        // TLS-only SDKs pass the transport check; these configurations also carry what the option check asks for.
+        yield return Document(DataSourceType.Databricks, $"{{\"Host\":\"{Host}\",\"HttpPath\":\"/sql/1.0/warehouses/{Database}\",\"Token\":\"{Password}\"}}", null);
+        yield return Document(DataSourceType.BigQuery, $"{{\"ProjectId\":\"{Database}\",\"ServiceAccountJson\":\"{{\\\"type\\\":\\\"service_account\\\",\\\"private_key\\\":\\\"{Password}\\\"}}\"}}", null);
+        yield return Document(DataSourceType.CloudWatch, $"{{\"Region\":\"eu-west-1\",\"AccessKeyId\":\"{User}\",\"SecretAccessKey\":\"{Password}\"}}", null);
         yield return Document(DataSourceType.Databricks, string.Empty, "connection string");
         yield return Document(DataSourceType.Databricks, "\t ", "connection string");
 

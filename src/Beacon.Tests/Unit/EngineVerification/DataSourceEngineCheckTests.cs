@@ -33,9 +33,9 @@ namespace Beacon.Tests.Unit.EngineVerification;
 [NonParallelizable] // DbConnectionFactory is a process-wide registry.
 public class DataSourceEngineCheckTests
 {
-    private const string Connection = "Host=warehouse.internal;Database=sales;SSL Mode=VerifyFull";
+    private const string Connection = "Host=warehouse.internal;Database=sales;Password=reader;SSL Mode=VerifyFull";
 
-    private const string OtherConnection = "Host=warehouse-2.internal;Database=sales;SSL Mode=VerifyFull";
+    private const string OtherConnection = "Host=warehouse-2.internal;Database=sales;Password=reader;SSL Mode=VerifyFull";
 
     private const string RotatedConnection = "Host=warehouse.internal;Database=sales;Password=rotated;SSL Mode=VerifyFull";
 

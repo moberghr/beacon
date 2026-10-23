@@ -18,6 +18,7 @@ public static class ServiceCollectionExtensions
         ConnectorRegistry.RegisterDatabaseEngine(DatabaseEngineType.PostgreSQL, "PostgreSQL");
         builder.Services.AddTransient<IDatabaseMetadataExtractor, PostgreSqlMetadataExtractor>();
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceTransportInspector, PostgreSqlTransportInspector>());
+        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceConnectionOptionInspector, PostgreSqlConnectionOptionInspector>());
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IMigrationBulkWriter, PostgreSqlMigrationBulkWriter>());
         return builder;
     }

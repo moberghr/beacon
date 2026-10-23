@@ -15,5 +15,6 @@
   </ItemGroup>
   <ItemGroup>
     <Compile Include="..\Shared\SqlClient\SqlClientConnectionStringReader.cs" Link="Shared\SqlClientConnectionStringReader.cs" />
+    <Compile Include="..\Shared\SqlClient\SqlClientConnectionOptionReader.cs" Link="Shared\SqlClientConnectionOptionReader.cs" />
   </ItemGroup>
 </Project>
