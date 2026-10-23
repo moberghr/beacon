@@ -117,9 +117,8 @@ public class GoldenExemplarInjectionTests
     [Test]
     public async Task BuildGoldenExemplarBlock_TwoProjectsSharingADataSource_ReturnsOnlyTheCallersProjectsCases()
     {
-        // The leak this guards against (codex PR-11 R4): golden-case embeddings are data-source-scoped,
-        // so a shared data source retrieves BOTH projects' cases as NN hits — the ProjectId filter on the
-        // loaded rows is the only thing keeping project B's gold SQL out of project A's ask.
+        // Each golden-case vector carries its case's project and the nearest-neighbour search filters on the caller's
+        // project; the ProjectId filter on the loaded rows also keeps another project's gold SQL out of the ask.
         var embedder = new FakeEmbeddingService();
         var queryVector = await embedder.EmbedAsync(EmbeddingMaskingHelper.Mask(Question), CancellationToken.None);
 
@@ -142,7 +141,7 @@ public class GoldenExemplarInjectionTests
         var embeddings = new List<McpEmbedding>
         {
             NewGoldenEmbedding(1, queryVector),
-            NewGoldenEmbedding(2, queryVector)
+            NewGoldenEmbedding(2, queryVector, otherProjectId)
         };
 
         var settings = new McpSettingsData
@@ -160,6 +159,60 @@ public class GoldenExemplarInjectionTests
             "the caller's own project's golden case must be injected");
         block.Should().NotContain("other_project_finances",
             "another project's gold SQL must NEVER leak through a shared data source");
+    }
+
+    [Test]
+    public async Task BuildGoldenExemplarBlock_AnotherProjectsNearerCasesOnASharedSource_DoNotCrowdOutTheCallersCase()
+    {
+        var embedder = new FakeEmbeddingService();
+        var queryVector = await embedder.EmbedAsync(EmbeddingMaskingHelper.Mask(Question), CancellationToken.None);
+        var callerVector = await embedder.EmbedAsync("refunded orders count", CancellationToken.None);
+
+        const int otherProjectId = 99;
+        var cases = new List<McpEvalCase>
+        {
+            NewCase(1, "refunded orders count", "SELECT count(*) FROM orders WHERE status = 4", isActive: true),
+            new()
+            {
+                Id = 2,
+                ProjectId = otherProjectId,
+                DataSourceId = DataSourceId,
+                Question = Question,
+                GoldSql = "SELECT 2 FROM other_project_orders",
+                IsActive = true
+            },
+            new()
+            {
+                Id = 3,
+                ProjectId = otherProjectId,
+                DataSourceId = DataSourceId,
+                Question = Question,
+                GoldSql = "SELECT 3 FROM other_project_orders",
+                IsActive = true
+            }
+        };
+
+        // The other project's cases are the nearest to the question; the caller's own case is further away.
+        var embeddings = new List<McpEmbedding>
+        {
+            NewGoldenEmbedding(1, callerVector),
+            NewGoldenEmbedding(2, queryVector, otherProjectId),
+            NewGoldenEmbedding(3, queryVector, otherProjectId)
+        };
+
+        var settings = new McpSettingsData
+        {
+            EnableGoldenExemplars = true,
+            EnableSemanticRetrieval = true,
+            GoldenExemplarTopK = 2,
+            GoldenExemplarBudgetChars = 4000
+        };
+        var service = BuildService(embedder, cases, embeddings, settings);
+
+        var block = await service.BuildGoldenExemplarBlockAsync(DataSourceId, ProjectId, Question, settings, Dialect, CancellationToken.None);
+
+        block.Should().Contain("SELECT count(*) FROM orders WHERE status = 4");
+        block.Should().NotContain("other_project_orders");
     }
 
     [Test]
@@ -623,15 +676,15 @@ public class GoldenExemplarInjectionTests
             IsActive = isActive
         };
 
-    private static McpEmbedding NewGoldenEmbedding(int ownerId, float[] vector) =>
-        NewEmbedding(500 + ownerId, McpEmbeddingOwnerType.GoldenCase, ownerId, vector);
+    private static McpEmbedding NewGoldenEmbedding(int ownerId, float[] vector, int projectId = ProjectId) =>
+        NewEmbedding(500 + ownerId, McpEmbeddingOwnerType.GoldenCase, ownerId, vector, projectId);
 
-    private static McpEmbedding NewEmbedding(int id, McpEmbeddingOwnerType ownerType, int ownerId, float[] vector) =>
+    private static McpEmbedding NewEmbedding(int id, McpEmbeddingOwnerType ownerType, int ownerId, float[] vector, int projectId = ProjectId) =>
         new()
         {
             Id = id,
             DataSourceId = DataSourceId,
-            ProjectId = ProjectId,
+            ProjectId = projectId,
             OwnerType = ownerType,
             OwnerId = ownerId,
             EmbeddingBytes = EmbeddingCodec.ToBytes(vector),

@@ -155,7 +155,8 @@ internal sealed class EmbeddingIndexingService(
 
         // Human-verified golden eval cases for this data source (§ Part A). Indexed as GoldenCase exemplars
         // so the ask path can retrieve the nearest verified question→SQL pairs and inject them as
-        // authoritative examples. Only ACTIVE cases are embedded; deactivated/deleted ones are pruned below.
+        // authoritative examples. Only ACTIVE cases are embedded; deactivated/deleted ones are pruned below. Each vector
+        // carries its case's project (§1.12), so retrieval filters on the caller's project before taking the top k.
         var goldenCases = await context.McpEvalCases
             .Where(x => x.DataSourceId == dataSourceId)
             .Where(x => x.IsActive)
@@ -163,6 +164,7 @@ internal sealed class EmbeddingIndexingService(
                 new GoldenCaseSource
                 {
                     Id = x.Id,
+                    ProjectId = x.ProjectId,
                     Question = x.Question
                 })
             .ToListAsync(ct);
@@ -230,7 +232,7 @@ internal sealed class EmbeddingIndexingService(
                     row.Dimensions = dimensions;
                     row.EmbeddingVersion = CurrentEmbeddingVersion;
                     // R5/C1: keeps the project stamp current on every re-index — also heals exemplar
-                    // rows indexed before ProjectId stamping existed (metadata/golden inputs carry null).
+                    // and golden-case rows indexed before ProjectId stamping existed (metadata inputs carry null).
                     row.ProjectId = input.ProjectId;
                     vectorWrites.Add((row, vectors[i]));
                 }
@@ -318,7 +320,8 @@ internal sealed class EmbeddingIndexingService(
             inputs.Add(new EmbeddingInput(
                 McpEmbeddingOwnerType.GoldenCase,
                 golden.Id,
-                EmbeddingMaskingHelper.Mask(golden.Question)));
+                EmbeddingMaskingHelper.Mask(golden.Question),
+                golden.ProjectId));
         }
 
         return inputs;
@@ -371,6 +374,7 @@ internal sealed class EmbeddingIndexingService(
     private sealed class GoldenCaseSource
     {
         public int Id { get; set; }
+        public int ProjectId { get; set; }
         public string Question { get; set; } = null!;
     }
 }

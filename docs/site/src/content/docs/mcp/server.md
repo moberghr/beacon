@@ -298,6 +298,8 @@ Retrieve AI-generated documentation at three levels of detail.
 
 Table documentation, code references and lineage come from the resolved project only: on a data source several projects share, another project's documentation and repositories never appear.
 
+The quality rules on table level are those of the table's enabled data contracts, each as its contract's latest evaluation found it: a disabled rule, a Custom SQL rule waiting for approval and a rule added since are not listed. Data contracts belong to the data source, so each result's text (a Custom SQL rule's `message` is whatever its query returned) is shown on one line and cut at 200 characters, and left out when it holds characters a reviewer cannot see.
+
 When the host ships documents with [`ExposeDocs`](/mcp/host-docs/), the project-level response ends with an *Imported documents* listing (title + path) and `document: "<path>"` returns one of them.
 
 ### `search`

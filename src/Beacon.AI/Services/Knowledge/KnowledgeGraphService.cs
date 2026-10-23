@@ -61,9 +61,12 @@ internal sealed class KnowledgeGraphService(
     private static readonly int[] DocChunkOwnerTypes = [(int)McpEmbeddingOwnerType.DocChunk];
     private static readonly int[] GlossaryOwnerTypes = [(int)McpEmbeddingOwnerType.GlossaryTerm];
 
-    // Golden eval cases are data-source-scoped (like Exemplar/metadata), so retrieval passes a dataSourceId
-    // (not a projectId) to the shared nearest-neighbour helpers.
+    // Golden eval cases belong to a project on one data source (like exemplars): each vector carries its case's project,
+    // so retrieval passes both the dataSourceId and the projectId to the shared nearest-neighbour helpers.
     private static readonly int[] GoldenCaseOwnerTypes = [(int)McpEmbeddingOwnerType.GoldenCase];
+
+    // How much of a data-quality rule result's text table knowledge shows.
+    private const int RuleResultDetailsMaxLength = 200;
 
     public Task<TableKnowledge> GetTableKnowledgeAsync(int dataSourceId, int projectId, string schemaName, string tableName, CancellationToken ct = default)
     {
@@ -110,36 +113,35 @@ internal sealed class KnowledgeGraphService(
             .Where(q => q.DataSourceId == dataSourceId && q.SchemaName == schemaName && q.TableName == tableName)
             .FirstOrDefaultAsync(ct);
 
-        var qualityRules = new List<QualityRuleInfo>();
-        var contract = await context.DataContracts
-            .Include(c => c.Rules)
-            .Where(c => c.DataSourceId == dataSourceId && c.SchemaName == schemaName && c.TableName == tableName)
-            .FirstOrDefaultAsync(ct);
-
-        if (contract != null)
-        {
-            // Get latest evaluation results - EvaluatedAt does not exist; use CreatedTime from BaseEntity
-            var latestEval = await context.DataQualityEvaluations
-                .Include(e => e.RuleResults)
-                .Where(e => e.DataContractId == contract.Id)
-                .OrderByDescending(e => e.CreatedTime)
-                .FirstOrDefaultAsync(ct);
-
-            if (latestEval != null)
-            {
-                foreach (var rule in contract.Rules)
+        // The table's enabled contracts, each rule as its contract's latest evaluation found it. A rule that evaluation did
+        // not run (disabled, waiting for approval, added since) is left out, never reported as failing. Contracts belong
+        // to the data source, so a result's text is shown on one line, cut, and left out when it holds hidden characters:
+        // a Custom SQL rule's message is whatever its query returned.
+        var ruleResults = await context.DataContracts
+            .Where(x => x.DataSourceId == dataSourceId)
+            .Where(x => x.SchemaName == schemaName)
+            .Where(x => x.TableName == tableName)
+            .Where(x => x.IsEnabled)
+            .SelectMany(x => x.Evaluations
+                .OrderByDescending(y => y.CreatedTime)
+                .ThenByDescending(y => y.Id)
+                .Take(1)
+                .SelectMany(y => y.RuleResults))
+            .Where(x => x.DataContractRule.IsEnabled)
+            .OrderBy(x => x.DataContractRule.DataContractId)
+            .ThenBy(x => x.DataContractRuleId)
+            .Select(x =>
+                new
                 {
-                    var result = latestEval.RuleResults.FirstOrDefault(r => r.DataContractRuleId == rule.Id);
-                    // RuleResult error detail is in Message property, not ErrorMessage
-                    qualityRules.Add(new QualityRuleInfo(
-                        rule.RuleType.ToString(),
-                        rule.ColumnName,
-                        result?.Passed ?? false,
-                        result?.Message
-                    ));
-                }
-            }
-        }
+                    x.DataContractRule.RuleType,
+                    x.DataContractRule.ColumnName,
+                    x.Passed,
+                    x.Message
+                })
+            .ToListAsync(ct);
+        var qualityRules = ruleResults
+            .Select(x => new QualityRuleInfo(x.RuleType.ToString(), x.ColumnName, x.Passed, RuleResultDetails(x.Message)))
+            .ToList();
 
         // Count query executions that touched this data source via query steps
         var queryCount = await context.QueryExecutionHistory
@@ -1975,10 +1977,11 @@ internal sealed class KnowledgeGraphService(
             // structure, not literals.
             var maskedVector = await embeddingService.EmbedAsync(EmbeddingMaskingHelper.Mask(question), ct);
 
-            // Data-source-scoped (projectId omitted) — same NN helpers, GoldenCase owner type.
+            // The data source AND the caller's project, so another project's cases on a shared data source never take
+            // the top-k slots. A vector indexed before it carried its project is not matched until the re-index stamps it.
             var hits = context.Database.ProviderName == NpgsqlProviderName
-                ? await GetNearestPostgresAsync(context, maskedVector, [dataSourceId], GoldenCaseOwnerTypes, limit, ct)
-                : await GetNearestInMemoryAsync(context, maskedVector, [dataSourceId], GoldenCaseOwnerTypes, limit, ct);
+                ? await GetNearestPostgresAsync(context, maskedVector, [dataSourceId], GoldenCaseOwnerTypes, limit, ct, projectId: projectId)
+                : await GetNearestInMemoryAsync(context, maskedVector, [dataSourceId], GoldenCaseOwnerTypes, limit, ct, projectId: projectId);
 
             if (hits.Count == 0)
             {
@@ -2848,6 +2851,27 @@ internal sealed class KnowledgeGraphService(
             .WhereReadable()
             .Where(x => x.ProjectId == projectId)
             .Select(x => x.DataSourceId);
+    }
+
+    // A rule result's text as grounding shows it: on one line, at most RuleResultDetailsMaxLength characters; null when
+    // it is empty or holds a character a reviewer cannot see.
+    private static string? RuleResultDetails(string? message)
+    {
+        var line = GroundingText.Question(message);
+        if (line == null)
+        {
+            return null;
+        }
+
+        if (line.Length <= RuleResultDetailsMaxLength)
+        {
+            return line;
+        }
+
+        // Never between the two halves of a surrogate pair.
+        var cut = char.IsHighSurrogate(line[RuleResultDetailsMaxLength - 1]) ? RuleResultDetailsMaxLength - 1 : RuleResultDetailsMaxLength;
+
+        return string.Concat(line.AsSpan(0, cut), "…");
     }
 
     private static async Task<DataSource> LinkedDataSourceAsync(
