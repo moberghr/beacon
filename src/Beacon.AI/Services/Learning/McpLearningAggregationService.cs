@@ -429,43 +429,50 @@ internal sealed class McpLearningAggregationService(
 
         foreach (var signal in corrections)
         {
-            var tables = TryDeserializeJsonArray(signal.TablesUsed ?? "[]");
-            if (tables.Count == 0) continue;
-
-            // Use the real table name from TablesUsed, not the alias from the error message
-            var primaryTable = tables.FirstOrDefault(t => t.Contains('.')) ?? tables[0];
-            var tableParts = primaryTable.Split('.');
-            var schema = tableParts.Length > 1 ? tableParts[0] : "public";
-            var table = tableParts.Length > 1 ? tableParts[1] : tableParts[0];
-            var captured = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            // Schema validation errors have the Available columns list — best source for mapping
-            if (!string.IsNullOrEmpty(signal.SchemaValidationError))
+            try
             {
-                foreach (Match match in schemaErrorPattern.Matches(signal.SchemaValidationError))
-                {
-                    var wrongCol = match.Groups[1].Value;
-                    var availableCsv = match.Groups[2].Value;
-                    var correctCol = FindBestColumnMatch(wrongCol, availableCsv, signal.CorrectedSql);
-                    mappings.Add((wrongCol, correctCol, schema, table, signal));
-                    captured.Add(wrongCol);
-                }
-            }
+                var tables = TryDeserializeJsonArray(signal.TablesUsed ?? "[]");
+                if (tables.Count == 0) continue;
 
-            // Execution errors (PostgreSQL column-not-found) — fallback when schema validation missed it
-            if (!string.IsNullOrEmpty(signal.ExecutionError))
-            {
-                var pgMatch = pgErrorPattern.Match(signal.ExecutionError);
-                if (pgMatch.Success)
+                // Use the real table name from TablesUsed, not the alias from the error message
+                var primaryTable = tables.FirstOrDefault(t => t.Contains('.')) ?? tables[0];
+                var tableParts = primaryTable.Split('.');
+                var schema = tableParts.Length > 1 ? tableParts[0] : "public";
+                var table = tableParts.Length > 1 ? tableParts[1] : tableParts[0];
+                var captured = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                // Schema validation errors have the Available columns list — best source for mapping
+                if (!string.IsNullOrEmpty(signal.SchemaValidationError))
                 {
-                    var wrongCol = pgMatch.Groups[1].Value;
-                    if (!captured.Contains(wrongCol))
+                    foreach (Match match in schemaErrorPattern.Matches(signal.SchemaValidationError))
                     {
-                        var correctCol = FindReplacementInCorrectedSql(
-                            wrongCol, signal.GeneratedSql, signal.CorrectedSql);
+                        var wrongCol = match.Groups[1].Value;
+                        var availableCsv = match.Groups[2].Value;
+                        var correctCol = FindBestColumnMatch(wrongCol, availableCsv, signal.CorrectedSql);
                         mappings.Add((wrongCol, correctCol, schema, table, signal));
+                        captured.Add(wrongCol);
                     }
                 }
+
+                // Execution errors (PostgreSQL column-not-found) — fallback when schema validation missed it
+                if (!string.IsNullOrEmpty(signal.ExecutionError))
+                {
+                    var pgMatch = pgErrorPattern.Match(signal.ExecutionError);
+                    if (pgMatch.Success)
+                    {
+                        var wrongCol = pgMatch.Groups[1].Value;
+                        if (!captured.Contains(wrongCol))
+                        {
+                            var correctCol = FindReplacementInCorrectedSql(
+                                wrongCol, signal.GeneratedSql, signal.CorrectedSql);
+                            mappings.Add((wrongCol, correctCol, schema, table, signal));
+                        }
+                    }
+                }
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                logger.LogWarning("Skipped schema correction signal {SignalId}: pattern match timed out", signal.Id);
             }
         }
 
@@ -1296,12 +1303,19 @@ internal sealed class McpLearningAggregationService(
     private static HashSet<string> ExtractSqlIdentifiers(string sql)
     {
         var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (Match m in Regex.Matches(sql, @"\b\w+\b", RegexOptions.None, RegexMatchTimeout))
+        try
         {
-            if (m.Value.Length > 1 && !SqlKeywords.Contains(m.Value))
+            foreach (Match m in Regex.Matches(sql, @"\b\w+\b", RegexOptions.None, RegexMatchTimeout))
             {
-                result.Add(m.Value);
+                if (m.Value.Length > 1 && !SqlKeywords.Contains(m.Value))
+                {
+                    result.Add(m.Value);
+                }
             }
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            // an oversized statement yields the identifiers read so far; the caller finds no replacement from them
         }
 
         return result;

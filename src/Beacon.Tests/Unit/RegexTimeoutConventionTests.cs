@@ -53,6 +53,11 @@ public class RegexTimeoutConventionTests
             var b = Regex.IsMatch(x, "b");
             [GeneratedRegex("c")]
             private static readonly Regex D = new(@"d", RegexOptions.Compiled);
+            var e = Regex
+                .Split(x, "e");
+            var f = new System.Text.RegularExpressions.Regex(@"f");
+            var g = Regex.IsMatch(x, "g", RegexOptions.None, Regex.InfiniteMatchTimeout);
+            var h = new Regex(@"h", RegexOptions.None, TimeSpan.Zero);
             """;
         var timed = """
             var a = new Regex(@"a+", RegexOptions.None, TimeSpan.FromSeconds(1));
@@ -61,7 +66,7 @@ public class RegexTimeoutConventionTests
             private static readonly Regex D = new(@"d", RegexOptions.NonBacktracking);
             """;
 
-        UntimedRegexLines(untimed).Should().Equal(1, 2, 3, 4);
+        UntimedRegexLines(untimed).Should().Equal(1, 2, 3, 4, 5, 7, 8, 9);
         UntimedRegexLines(timed).Should().BeEmpty();
     }
 
@@ -70,7 +75,7 @@ public class RegexTimeoutConventionTests
         var lines = new List<int>();
         var starts = Regex.Matches(
             text,
-            @"new Regex\(|(?<!\w)Regex\.(?:IsMatch|Match|Matches|Replace|Split|EnumerateMatches|Count)\(|\[GeneratedRegex\(|\bRegex\s+\w+\s*=\s*new\(",
+            @"new\s+(?:[\w.]+\.)?Regex\s*\(|(?<!\w)Regex\s*\.\s*(?:IsMatch|Match|Matches|Replace|Split|EnumerateMatches|Count)\s*\(|\[GeneratedRegex\(|\bRegex\s+\w+\s*=\s*new\(",
             RegexOptions.None,
             TimeSpan.FromSeconds(5));
 
@@ -78,7 +83,9 @@ public class RegexTimeoutConventionTests
         {
             var open = text.IndexOf('(', start.Index + start.Length - 1);
             var call = text[start.Index..(CloseOf(text, open) + 1)];
-            if (!Regex.IsMatch(call, @"Timeout|TimeSpan|NonBacktracking", RegexOptions.None, TimeSpan.FromSeconds(5)))
+            var timed = Regex.IsMatch(call, @"Timeout|TimeSpan|NonBacktracking", RegexOptions.None, TimeSpan.FromSeconds(5)) &&
+                        !Regex.IsMatch(call, @"InfiniteMatchTimeout|TimeSpan\s*\.\s*Zero|matchTimeoutMilliseconds\s*:\s*(?:-1|0)\b", RegexOptions.None, TimeSpan.FromSeconds(5));
+            if (!timed)
             {
                 lines.Add(text.Take(start.Index).Count(x => x == '\n') + 1);
             }

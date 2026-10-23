@@ -22,12 +22,24 @@ public static partial class SqlIdentifierGuard
     /// </summary>
     public static string Validate(string identifier, string kind = "identifier")
     {
-        if (string.IsNullOrEmpty(identifier) || !IdentifierRegex().IsMatch(identifier))
+        if (string.IsNullOrEmpty(identifier) || !IsPlainIdentifier(identifier))
         {
             throw new InvalidOperationException($"Invalid SQL {kind} '{identifier}'.");
         }
 
         return identifier;
+    }
+
+    private static bool IsPlainIdentifier(string identifier)
+    {
+        try
+        {
+            return IdentifierRegex().IsMatch(identifier);
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            return false;
+        }
     }
 
     /// <summary>
