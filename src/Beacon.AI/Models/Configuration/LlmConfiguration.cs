@@ -24,10 +24,23 @@ public sealed record LlmConfiguration
 
 public sealed record ProviderLimits
 {
+    /// <summary>How many LLM attempts run at once; a change applies to the running queue. Non-positive: the default.</summary>
     public int MaxConcurrentRequests { get; init; } = 50;
+
+    /// <summary>Tokens per minute, enforced only while <see cref="RateLimitsEnabled"/> is on. Non-positive: unlimited.</summary>
     public int TokensPerMinute { get; init; } = 80000;
+
+    /// <summary>Requests per minute, enforced only while <see cref="RateLimitsEnabled"/> is on. Non-positive: unlimited.</summary>
     public int RequestsPerMinute { get; init; } = 1000;
+
+    /// <summary>Recorded only: no usage is stored, so the budget is not enforced.</summary>
     public decimal MonthlyBudget { get; init; } = 100.00m;
+
+    /// <summary>
+    /// Whether <see cref="RequestsPerMinute"/> and <see cref="TokensPerMinute"/> are enforced. Off by default: the stored
+    /// rates were never applied before, and enforcing them unannounced could throttle prompts that carry a large schema.
+    /// </summary>
+    public bool RateLimitsEnabled { get; init; }
 
     /// <summary>How long an interactive request waits for a free slot before it fails as busy. Non-positive: the default.</summary>
     public int InteractiveQueueWaitSeconds { get; init; } = 60;

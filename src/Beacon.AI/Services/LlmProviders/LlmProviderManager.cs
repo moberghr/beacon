@@ -11,13 +11,17 @@ namespace Beacon.AI.Services.LlmProviders;
 /// Manages the current LLM provider and supports hot-swapping when configuration changes.
 /// The active <see cref="LlmConfiguration"/> is held in a single reference field that is
 /// replaced atomically via <see cref="Interlocked.Exchange{T}"/>; readers always observe a
-/// consistent snapshot.
+/// consistent snapshot. Built with the <see cref="LlmRequestQueue"/>, it hands every configuration's limits to the queue,
+/// so a saved concurrency limit and the rate limits apply without a restart.
 /// </summary>
 public class LlmProviderManager : ILlmConfigurationUpdater
 {
     private readonly LlmProviderFactory _factory;
     private readonly ILogger<LlmProviderManager> _logger;
+    private readonly LlmRequestQueue? _queue;
+    private readonly ProviderLimits _hostLimits;
     private readonly object _lock = new();
+    private bool _storedLimitsApplied;
     private LlmConfiguration _config;
     private ActiveProviders _active = ActiveProviders.None;
     private string? _inactiveReason;
@@ -26,10 +30,23 @@ public class LlmProviderManager : ILlmConfigurationUpdater
         LlmConfiguration llmConfig,
         LlmProviderFactory factory,
         ILogger<LlmProviderManager> logger)
+        : this(llmConfig, factory, null, logger)
+    {
+    }
+
+    /// <summary>A manager that applies each configuration's limits to <paramref name="queue"/>.</summary>
+    public LlmProviderManager(
+        LlmConfiguration llmConfig,
+        LlmProviderFactory factory,
+        LlmRequestQueue? queue,
+        ILogger<LlmProviderManager> logger)
     {
         _config = llmConfig ?? throw new ArgumentNullException(nameof(llmConfig));
         _factory = factory ?? throw new ArgumentNullException(nameof(factory));
         _logger = logger ?? throw new ArgumentNullException(nameof(logger));
+        _queue = queue;
+        _hostLimits = _config.Limits;
+        _queue?.UpdateLimits(_config.Limits);
 
         // Create initial provider if configuration is valid
         _inactiveReason = NotInstalledReason(_config);
@@ -103,6 +120,15 @@ public class LlmProviderManager : ILlmConfigurationUpdater
 
     public void UpdateConfiguration(AppSettingsData settings)
     {
+        UpdateConfiguration(settings, applyLimits: true);
+    }
+
+    /// <summary>
+    /// Applies the settings; with <paramref name="applyLimits"/> false the limits in force are kept (a save by anyone but
+    /// an Admin), only the recorded monthly budget follows the settings.
+    /// </summary>
+    public void UpdateConfiguration(AppSettingsData settings, bool applyLimits)
+    {
         lock (_lock)
         {
             var previous = _config;
@@ -118,18 +144,18 @@ public class LlmProviderManager : ILlmConfigurationUpdater
                 BedrockAuthMode = settings.LlmBedrockAuthMode,
                 Model = settings.LlmModel ?? string.Empty,
                 FastModel = settings.LlmFastModel,
-                Limits = new ProviderLimits
-                {
-                    MaxConcurrentRequests = settings.LlmMaxConcurrentRequests,
-                    TokensPerMinute = settings.LlmTokensPerMinute,
-                    RequestsPerMinute = settings.LlmRequestsPerMinute,
-                    MonthlyBudget = settings.LlmMonthlyBudget,
-                },
+                Limits = applyLimits
+                    ? StoredLimits(previous.Limits, settings)
+                    : previous.Limits with { MonthlyBudget = settings.LlmMonthlyBudget },
             };
 
             // Atomic publish of the new snapshot — readers via CurrentConfiguration / the
             // factory accessor will see either the old or the new instance, never a torn one.
             Interlocked.Exchange(ref _config, next);
+            if (applyLimits)
+            {
+                ApplyLimits(next.Limits);
+            }
 
             // The active provider always matches the published configuration: when the new one cannot build a provider,
             // there is no active provider, never the previous one (which could run under other credentials).
@@ -162,6 +188,65 @@ public class LlmProviderManager : ILlmConfigurationUpdater
             Interlocked.Exchange(ref _active, rebuilt);
             Interlocked.Exchange(ref _inactiveReason, inactiveReason);
         }
+    }
+
+    /// <summary>
+    /// Applies only the stored concurrency and rate limits (and the recorded budget), keeping the provider and its
+    /// credentials: for settings an Admin saved without choosing a provider.
+    /// </summary>
+    public void UpdateLimits(AppSettingsData settings)
+    {
+        ArgumentNullException.ThrowIfNull(settings);
+        lock (_lock)
+        {
+            var next = _config with { Limits = StoredLimits(_config.Limits, settings) };
+            Interlocked.Exchange(ref _config, next);
+            ApplyLimits(next.Limits);
+        }
+    }
+
+    // The queue waits and the waiter limit are the host's configuration; the settings carry the rest.
+    private static ProviderLimits StoredLimits(ProviderLimits previous, AppSettingsData settings)
+    {
+        return previous with
+        {
+            MaxConcurrentRequests = settings.LlmMaxConcurrentRequests,
+            TokensPerMinute = settings.LlmTokensPerMinute,
+            RequestsPerMinute = settings.LlmRequestsPerMinute,
+            MonthlyBudget = settings.LlmMonthlyBudget,
+            RateLimitsEnabled = settings.LlmRateLimitsEnabled,
+        };
+    }
+
+    // Hands stored limits to the queue; the first time they differ from the host's configured ones, says so (numbers only).
+    // Caller holds the lock.
+    private void ApplyLimits(ProviderLimits limits)
+    {
+        _queue?.UpdateLimits(limits);
+        if (_storedLimitsApplied)
+        {
+            return;
+        }
+
+        _storedLimitsApplied = true;
+        if (limits.MaxConcurrentRequests == _hostLimits.MaxConcurrentRequests
+            && limits.RequestsPerMinute == _hostLimits.RequestsPerMinute
+            && limits.TokensPerMinute == _hostLimits.TokensPerMinute
+            && limits.RateLimitsEnabled == _hostLimits.RateLimitsEnabled)
+        {
+            return;
+        }
+
+        _logger.LogInformation(
+            "Stored LLM limits replace the host-configured ones: {MaxConcurrent} concurrent requests (configured {ConfiguredMaxConcurrent}), {RequestsPerMinute} requests and {TokensPerMinute} tokens per minute (configured {ConfiguredRequestsPerMinute} and {ConfiguredTokensPerMinute}), rate limits enforced {RateLimitsEnabled} (configured {ConfiguredRateLimitsEnabled}).",
+            limits.MaxConcurrentRequests,
+            _hostLimits.MaxConcurrentRequests,
+            limits.RequestsPerMinute,
+            limits.TokensPerMinute,
+            _hostLimits.RequestsPerMinute,
+            _hostLimits.TokensPerMinute,
+            limits.RateLimitsEnabled,
+            _hostLimits.RateLimitsEnabled);
     }
 
     // A fast-tier request never fails because the fast model is unavailable: a build failure leaves no fast provider.

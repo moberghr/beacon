@@ -94,6 +94,9 @@ describe('AdminSettingsPage permissions', () => {
     expect(screen.getByRole('combobox', { name: /^model/i })).toBeEnabled();
 
     // The base URL is an Admin's too: a SecurityAdmin saves the stored one back.
+    // So are the concurrency and per-minute limits and their enforcement: the stored ones are sent back.
+    expect(screen.getByRole('spinbutton', { name: /max concurrent requests/i })).toBeDisabled();
+    expect(screen.getByRole('checkbox', { name: 'Enforce requests/tokens per minute' })).toBeDisabled();
     expect(screen.getByPlaceholderText('https://beacon.example.com')).toBeDisabled();
     await storedSettingsApplied();
     fireEvent.change(screen.getByRole('spinbutton', { name: /monthly budget/i }), { target: { value: '75' } });
@@ -103,6 +106,8 @@ describe('AdminSettingsPage permissions', () => {
     expect(sent.saves[0]).toMatchObject({
       baseUrl: 'https://beacon.example.test',
       llmMonthlyBudget: 75,
+      llmMaxConcurrentRequests: 4,
+      llmRateLimitsEnabled: false,
       llmProvider: AiProvider.OpenAI,
       llmRegion: null,
       llmBedrockAuthMode: BedrockAuthMode.IamRole,
@@ -320,5 +325,62 @@ describe('AdminSettingsPage installed providers', () => {
 
     expect(await screen.findByText('This provider needs an API key.')).toBeInTheDocument();
     expect(sent.saves).toHaveLength(0);
+  });
+});
+
+describe('AdminSettingsPage rate limits', () => {
+  beforeEach(() => {
+    mswServer.use(permissionsForRoles(['Admin']));
+  });
+
+  const enforce = () => screen.getByRole('checkbox', { name: 'Enforce requests/tokens per minute' });
+  const requestsPerMinute = () => screen.getByRole('spinbutton', { name: /requests per minute/i });
+  const tokensPerMinute = () => screen.getByRole('spinbutton', { name: /tokens per minute/i });
+
+  it('disables the per-minute limits while they are not enforced, and says the budget is not enforced', async () => {
+    serve(settings({ llmRequestsPerMinute: 60, llmTokensPerMinute: 1000 }));
+    renderWithProviders(<AdminSettingsPage />);
+
+    await storedSettingsApplied();
+    expect(enforce()).not.toBeChecked();
+    expect(requestsPerMinute()).toBeDisabled();
+    expect(tokensPerMinute()).toBeDisabled();
+    expect(screen.getAllByText('Recorded, not enforced: turn on enforcement to apply it.')).toHaveLength(2);
+    expect(screen.getByText(/Recorded, not enforced: Beacon does not track spend/)).toBeInTheDocument();
+  });
+
+  it('enables the per-minute limits once enforcement is turned on, and saves the flag with them', async () => {
+    const sent = serve(settings({ llmRequestsPerMinute: 60, llmTokensPerMinute: 1000 }));
+    renderWithProviders(<AdminSettingsPage />);
+
+    await storedSettingsApplied();
+    fireEvent.click(enforce());
+    await waitFor(() => expect(requestsPerMinute()).toBeEnabled());
+    expect(tokensPerMinute()).toBeEnabled();
+    fireEvent.change(requestsPerMinute(), { target: { value: '30' } });
+    await save();
+
+    await waitFor(() => expect(sent.saves).toHaveLength(1));
+    expect(sent.saves[0]).toMatchObject({ llmRateLimitsEnabled: true, llmRequestsPerMinute: 30, llmTokensPerMinute: 1000 });
+  });
+
+  it('keeps the stored per-minute limits when saving with enforcement off', async () => {
+    const sent = serve(settings({ llmRequestsPerMinute: 60, llmTokensPerMinute: 1000 }));
+    renderWithProviders(<AdminSettingsPage />);
+
+    await storedSettingsApplied();
+    fireEvent.change(screen.getByRole('spinbutton', { name: /monthly budget/i }), { target: { value: '75' } });
+    await save();
+
+    await waitFor(() => expect(sent.saves).toHaveLength(1));
+    expect(sent.saves[0]).toMatchObject({ llmRateLimitsEnabled: false, llmRequestsPerMinute: 60, llmTokensPerMinute: 1000 });
+  });
+
+  it('shows the stored enforcement', async () => {
+    serve(settings({ llmRateLimitsEnabled: true }));
+    renderWithProviders(<AdminSettingsPage />);
+
+    await waitFor(() => expect(enforce()).toBeChecked());
+    expect(requestsPerMinute()).toBeEnabled();
   });
 });

@@ -64,6 +64,11 @@ public class AppSettingsService : IAppSettingsService
             LlmTokensPerMinute = GetInt("LLM.TokensPerMinute", 80000),
             LlmRequestsPerMinute = GetInt("LLM.RequestsPerMinute", 1000),
             LlmMonthlyBudget = GetDecimal("LLM.MonthlyBudget", 100.00m),
+            LlmRateLimitsEnabled = GetBool("LLM.RateLimitsEnabled"),
+            LlmLimitsStored = dict.ContainsKey("LLM.MaxConcurrentRequests")
+                || dict.ContainsKey("LLM.TokensPerMinute")
+                || dict.ContainsKey("LLM.RequestsPerMinute")
+                || dict.ContainsKey("LLM.RateLimitsEnabled"),
         };
 
         _cache.Set(CacheKey, data, CacheDuration);
@@ -82,6 +87,12 @@ public class AppSettingsService : IAppSettingsService
             return v != null && int.TryParse(v, out var i) ? i : defaultValue;
         }
 
+        bool GetBool(string key)
+        {
+            var v = GetValue(key);
+            return v != null && bool.TryParse(v, out var b) && b;
+        }
+
         decimal GetDecimal(string key, decimal defaultValue)
         {
             var v = GetValue(key);
@@ -96,7 +107,12 @@ public class AppSettingsService : IAppSettingsService
 
     }
 
-    public async Task SaveSettingsAsync(AppSettingsData settings, string? userId = null, CancellationToken ct = default)
+    public Task SaveSettingsAsync(AppSettingsData settings, string? userId = null, CancellationToken ct = default)
+    {
+        return SaveSettingsAsync(settings, userId, saveLimits: true, ct);
+    }
+
+    public async Task SaveSettingsAsync(AppSettingsData settings, string? userId, bool saveLimits, CancellationToken ct = default)
     {
         await using var context = await _contextFactory.CreateDbContextAsync(ct);
         var rows = await context.AppSettings.ToListAsync(ct);
@@ -171,10 +187,16 @@ public class AppSettingsService : IAppSettingsService
         SetValue("LLM.BedrockAuthMode", settings.LlmBedrockAuthMode.ToString(), false, "LLM");
         SetValue("LLM.Model", settings.LlmModel, false, "LLM");
         SetValue("LLM.FastModel", settings.LlmFastModel, false, "LLM");
-        SetValue("LLM.MaxConcurrentRequests", settings.LlmMaxConcurrentRequests.ToString(), false, "LLM");
-        SetValue("LLM.TokensPerMinute", settings.LlmTokensPerMinute.ToString(), false, "LLM");
-        SetValue("LLM.RequestsPerMinute", settings.LlmRequestsPerMinute.ToString(), false, "LLM");
         SetValue("LLM.MonthlyBudget", settings.LlmMonthlyBudget.ToString(CultureInfo.InvariantCulture), false, "LLM");
+
+        // The limits are an Admin's: anyone else's save leaves the stored ones (or the host's, when none are stored) alone.
+        if (saveLimits)
+        {
+            SetValue("LLM.MaxConcurrentRequests", settings.LlmMaxConcurrentRequests.ToString(), false, "LLM");
+            SetValue("LLM.TokensPerMinute", settings.LlmTokensPerMinute.ToString(), false, "LLM");
+            SetValue("LLM.RequestsPerMinute", settings.LlmRequestsPerMinute.ToString(), false, "LLM");
+            SetValue("LLM.RateLimitsEnabled", settings.LlmRateLimitsEnabled.ToString(), false, "LLM");
+        }
 
         if (historyEntries.Count > 0)
         {
@@ -193,8 +215,15 @@ public class AppSettingsService : IAppSettingsService
         // Mutate BeaconConfiguration singleton
         _config.BaseUrl = settings.BaseUrl;
 
-        // Update LLM configuration if updater is available
-        _llmUpdater?.UpdateConfiguration(settings);
+        // Update LLM configuration if updater is available; the limits in force change only with an Admin's save.
+        if (saveLimits)
+        {
+            _llmUpdater?.UpdateConfiguration(settings);
+        }
+        else
+        {
+            _llmUpdater?.UpdateConfiguration(settings, applyLimits: false);
+        }
     }
 
     public async Task<List<AppSettingHistory>> GetHistoryAsync(string? key = null, CancellationToken ct = default)

@@ -16,6 +16,14 @@ namespace Beacon.AI.Services.LlmProviders;
 /// <see cref="LlmTransientException"/> and a provider timeout (a cancellation while the caller's own token is not
 /// cancelled). Nothing else is retried: a provider that retries itself (the OpenAI-compatible one) reports what is left
 /// after its own attempts as a failure the queue does not retry.
+/// The concurrency limit and the rate limits follow <see cref="UpdateLimits"/> (the provider manager calls it whenever an
+/// Admin saves the settings): a higher limit lets waiting requests run at once, a lower one takes effect as running attempts
+/// end and never cancels them. With <see cref="ProviderLimits.RateLimitsEnabled"/> on, each attempt also reserves one
+/// request and its token estimate (<see cref="EstimateTokens"/>) from per-minute buckets before it takes a slot, waiting
+/// for them within its lane's wait limit in arrival order (an interactive request may pass background ones), and holds
+/// that reservation while it waits for a slot; an attempt that is never sent gives it back. A background request leaves a
+/// quarter of each bucket for interactive requests. The tokens are settled with the usage the response reports when it
+/// reports the input tokens; otherwise the estimate stands.
 /// </summary>
 public class LlmRequestQueue
 {
@@ -32,8 +40,10 @@ public class LlmRequestQueue
     private const int DefaultMaxConcurrent = 50;
     private const int DefaultMaxAttempts = 3;
 
-    private readonly SemaphoreSlim _slots;
-    private readonly SemaphoreSlim _backgroundSlots;
+    private readonly LlmSlotPool _slots;
+    private readonly LlmSlotPool _backgroundSlots;
+    private readonly LlmRateLimiter _rateLimiter;
+    private readonly object _limitsLock = new();
     private readonly int _maxAttempts;
     private readonly TimeSpan _interactiveWait;
     private readonly TimeSpan _backgroundWait;
@@ -44,6 +54,7 @@ public class LlmRequestQueue
     private readonly ILogger<LlmRequestQueue> _logger;
     private int _waiters;
     private int _backgroundWaiters;
+    private ProviderLimits _appliedLimits;
 
     public LlmRequestQueue(int maxConcurrent = DefaultMaxConcurrent, int maxRetries = DefaultMaxAttempts)
         : this(new ProviderLimits { MaxConcurrentRequests = maxConcurrent }, TimeProvider.System, Random.Shared.NextDouble, null, maxRetries)
@@ -68,11 +79,10 @@ public class LlmRequestQueue
     {
         ArgumentNullException.ThrowIfNull(limits);
         var defaults = new ProviderLimits();
-        var maxConcurrent = limits.MaxConcurrentRequests > 0 ? limits.MaxConcurrentRequests : DefaultMaxConcurrent;
-        var maxBackground = Math.Max(1, maxConcurrent / 2);
+        var maxConcurrent = MaxConcurrent(limits);
 
-        _slots = new SemaphoreSlim(maxConcurrent, maxConcurrent);
-        _backgroundSlots = new SemaphoreSlim(maxBackground, maxBackground);
+        _slots = new LlmSlotPool(maxConcurrent);
+        _backgroundSlots = new LlmSlotPool(BackgroundShare(maxConcurrent));
         _maxAttempts = Math.Max(1, maxAttempts);
         _interactiveWait = QueueWait(limits.InteractiveQueueWaitSeconds, defaults.InteractiveQueueWaitSeconds);
         _backgroundWait = QueueWait(limits.BackgroundQueueWaitSeconds, defaults.BackgroundQueueWaitSeconds);
@@ -81,6 +91,9 @@ public class LlmRequestQueue
         _timeProvider = timeProvider ?? throw new ArgumentNullException(nameof(timeProvider));
         _jitter = jitter ?? throw new ArgumentNullException(nameof(jitter));
         _logger = logger ?? NullLogger<LlmRequestQueue>.Instance;
+        _rateLimiter = new LlmRateLimiter(_timeProvider);
+        _rateLimiter.Update(limits.RateLimitsEnabled, limits.RequestsPerMinute, limits.TokensPerMinute);
+        _appliedLimits = limits;
     }
 
     /// <summary>How long an interactive request waits for a slot.</summary>
@@ -89,21 +102,67 @@ public class LlmRequestQueue
     /// <summary>How long a background request waits for a slot.</summary>
     internal TimeSpan BackgroundWait => _backgroundWait;
 
+    /// <summary>The limits last applied: the concurrency and rate limits in force (the queue waits are the constructor's).</summary>
+    internal ProviderLimits AppliedLimits => Volatile.Read(ref _appliedLimits);
+
+    /// <summary>
+    /// Applies a new concurrency limit (non-positive: the default) and new rate limits to the running queue. The queue-wait
+    /// and waiter limits stay those it was built with.
+    /// </summary>
+    public void UpdateLimits(ProviderLimits limits)
+    {
+        ArgumentNullException.ThrowIfNull(limits);
+        var maxConcurrent = MaxConcurrent(limits);
+        lock (_limitsLock)
+        {
+            _slots.Resize(maxConcurrent);
+            _backgroundSlots.Resize(BackgroundShare(maxConcurrent));
+            _rateLimiter.Update(limits.RateLimitsEnabled, limits.RequestsPerMinute, limits.TokensPerMinute);
+            Volatile.Write(ref _appliedLimits, limits);
+        }
+
+        _logger.LogInformation(
+            "LLM request limits applied: {MaxConcurrent} concurrent attempts, rate limits {RateLimits}.",
+            maxConcurrent,
+            limits.RateLimitsEnabled ? "enforced" : "off");
+    }
+
+    /// <summary>
+    /// The tokens an attempt reserves while rate limits are on: the prompt's characters (system prompt and messages) over
+    /// four, rounded up, plus the most the answer may use.
+    /// </summary>
+    internal static int EstimateTokens(LlmRequest request)
+    {
+        long characters = request.SystemPrompt?.Length ?? 0;
+        foreach (var message in request.Messages ?? [])
+        {
+            characters += message?.Content?.Length ?? 0;
+        }
+
+        var estimate = ((characters + 3) / 4) + Math.Max(request.MaxTokens, 0);
+
+        return (int)Math.Min(estimate, int.MaxValue);
+    }
+
     public async Task<LlmResponse> EnqueueRequestAsync(
         ILlmProvider provider,
         LlmRequest request,
         CancellationToken cancellationToken = default)
     {
         var background = request.Priority == LlmRequestPriority.Background;
+        var estimatedTokens = EstimateTokens(request);
         Exception? retrying = null;
 
         for (var attempt = 0; ; attempt++)
         {
             TimeSpan delay;
-            await AcquireAsync(background, retrying, cancellationToken);
+            var reservation = await AcquireAsync(background, estimatedTokens, retrying, cancellationToken);
             try
             {
-                return await provider.CompleteAsync(request, cancellationToken);
+                var response = await provider.CompleteAsync(request, cancellationToken);
+                _rateLimiter.Settle(reservation, UsedTokens(response));
+
+                return response;
             }
             catch (Exception ex) when (IsRetryable(ex, cancellationToken))
             {
@@ -190,40 +249,76 @@ public class LlmRequestQueue
         return backoff;
     }
 
+    private static int MaxConcurrent(ProviderLimits limits)
+    {
+        return limits.MaxConcurrentRequests > 0 ? limits.MaxConcurrentRequests : DefaultMaxConcurrent;
+    }
+
+    private static int BackgroundShare(int maxConcurrent)
+    {
+        return Math.Max(1, maxConcurrent / 2);
+    }
+
+    // Every token the provider processed for the attempt; zero, which keeps the estimate, unless the response reports the
+    // input tokens: without them the reported total is short of what the attempt used.
+    private static int UsedTokens(LlmResponse response)
+    {
+        if (response.InputTokens <= 0)
+        {
+            return 0;
+        }
+
+        var used = (long)response.InputTokens + response.OutputTokens + response.CacheReadInputTokens + response.CacheWriteInputTokens;
+
+        return (int)Math.Clamp(used, 0, int.MaxValue);
+    }
+
     private static TimeSpan QueueWait(int seconds, int defaultSeconds)
     {
         return TimeSpan.FromSeconds(Math.Min(seconds > 0 ? seconds : defaultSeconds, MaxQueueWaitSeconds));
     }
 
     // retrying: the provider failure a retry attempt is acquiring a slot for; a saturated queue reports it as the cause.
-    private async Task AcquireAsync(bool background, Exception? retrying, CancellationToken cancellationToken)
+    // Returns the attempt's rate reservation, already taken; on any failure nothing stays reserved or held.
+    private async Task<LlmRateLimiter.Reservation> AcquireAsync(
+        bool background,
+        int estimatedTokens,
+        Exception? retrying,
+        CancellationToken cancellationToken)
     {
         cancellationToken.ThrowIfCancellationRequested();
-        if (TryAcquireNow(background))
+        var reservation = _rateLimiter.TryReserve(estimatedTokens, background);
+        if (reservation is not null && TryAcquireNow(background))
         {
-            return;
+            return reservation;
         }
 
         if (!TryEnterWaiting(background))
         {
+            Refund(reservation);
             throw Saturated(background, "too many requests are waiting", retrying);
         }
 
+        var laneWait = background ? _backgroundWait : _interactiveWait;
+        var waitStarted = _timeProvider.GetTimestamp();
         var backgroundHeld = false;
         var acquired = false;
         try
         {
-            using var timeout = new CancellationTokenSource(background ? _backgroundWait : _interactiveWait, _timeProvider);
+            using var timeout = new CancellationTokenSource(laneWait, _timeProvider);
             using var wait = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
             try
             {
+                // A reservation taken before the wait is held while the request waits for a slot.
+                reservation ??= await ReserveInLineAsync(background, estimatedTokens, laneWait, waitStarted, retrying, wait.Token);
+
                 if (background)
                 {
-                    await _backgroundSlots.WaitAsync(wait.Token);
+                    await _backgroundSlots.TakeAsync(wait.Token);
                     backgroundHeld = true;
                 }
 
-                await _slots.WaitAsync(wait.Token);
+                await _slots.TakeAsync(wait.Token);
                 acquired = true;
             }
             catch (OperationCanceledException) when (timeout.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
@@ -236,8 +331,58 @@ public class LlmRequestQueue
             LeaveWaiting(background);
             if (backgroundHeld && !acquired)
             {
-                _backgroundSlots.Release();
+                _backgroundSlots.Return();
             }
+
+            if (!acquired)
+            {
+                Refund(reservation);
+            }
+        }
+
+        return reservation;
+    }
+
+    // Waits in the rate limiter's line (arrival order) until the buckets cover the attempt; fails as busy as soon as they
+    // cannot before the lane's wait ends. The request always leaves the line, also when it fails or is cancelled.
+    private async Task<LlmRateLimiter.Reservation> ReserveInLineAsync(
+        bool background,
+        int estimatedTokens,
+        TimeSpan laneWait,
+        long waitStarted,
+        Exception? retrying,
+        CancellationToken cancellationToken)
+    {
+        var waiter = _rateLimiter.Join(background);
+        try
+        {
+            while (true)
+            {
+                var reservation = _rateLimiter.TryReserve(waiter, estimatedTokens, out var rateWait);
+                if (reservation is not null)
+                {
+                    return reservation;
+                }
+
+                if (rateWait != Timeout.InfiniteTimeSpan && rateWait >= laneWait - _timeProvider.GetElapsedTime(waitStarted))
+                {
+                    throw Saturated(background, "the rate limits allow no request within the wait limit", retrying);
+                }
+
+                await waiter.WaitAsync(rateWait, _timeProvider, cancellationToken);
+            }
+        }
+        finally
+        {
+            _rateLimiter.Leave(waiter);
+        }
+    }
+
+    private void Refund(LlmRateLimiter.Reservation? reservation)
+    {
+        if (reservation is not null)
+        {
+            _rateLimiter.Refund(reservation);
         }
     }
 
@@ -288,29 +433,29 @@ public class LlmRequestQueue
     {
         if (!background)
         {
-            return _slots.Wait(0);
+            return _slots.TryTake();
         }
 
-        if (!_backgroundSlots.Wait(0))
+        if (!_backgroundSlots.TryTake())
         {
             return false;
         }
 
-        if (_slots.Wait(0))
+        if (_slots.TryTake())
         {
             return true;
         }
 
-        _backgroundSlots.Release();
+        _backgroundSlots.Return();
         return false;
     }
 
     private void Release(bool background)
     {
-        _slots.Release();
+        _slots.Return();
         if (background)
         {
-            _backgroundSlots.Release();
+            _backgroundSlots.Return();
         }
     }
 }

@@ -39,7 +39,10 @@ internal sealed class GetAdminSettingsHandler(IAppSettingsService settingsServic
             settings.LlmMaxConcurrentRequests,
             settings.LlmTokensPerMinute,
             settings.LlmRequestsPerMinute,
-            settings.LlmMonthlyBudget);
+            settings.LlmMonthlyBudget)
+        {
+            LlmRateLimitsEnabled = settings.LlmRateLimitsEnabled,
+        };
 
         return new GetAdminSettingsResult(view, entries);
     }
@@ -66,7 +69,11 @@ public record AdminSettingsView(
     int LlmMaxConcurrentRequests,
     int LlmTokensPerMinute,
     int LlmRequestsPerMinute,
-    decimal LlmMonthlyBudget);
+    decimal LlmMonthlyBudget)
+{
+    /// <summary>Whether the requests and tokens per minute are enforced. The monthly budget is recorded, never enforced.</summary>
+    public bool LlmRateLimitsEnabled { get; init; }
+}
 
 public record AdminSettingHistoryEntry(
     string SettingKey,

@@ -117,6 +117,54 @@ public class GovernanceEventTests
     }
 
     [Test]
+    public async Task SavingTheAdminSettings_StoresAndRecordsWhetherTheRateLimitsAreEnforced()
+    {
+        var audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(3, Ada));
+        var settings = new SettingsStore();
+        var service = new AppSettingsService(settings.Factory(), new MemoryCache(new MemoryCacheOptions()), Mock.Of<IEncryptionService>(), new BeaconConfiguration(), audit);
+
+        await service.SaveSettingsAsync(new AppSettingsData { LlmRateLimitsEnabled = true }, Ada, CancellationToken.None);
+
+        settings.Saved.OfType<AppSetting>().Should().ContainSingle(x => x.Key == "LLM.RateLimitsEnabled")
+            .Which.Should().BeEquivalentTo(new { Value = "True", IsSensitive = false, Category = "LLM" });
+        audit.Of(SecurityAuditActions.AdminSettingsChanged).Should().ContainSingle()
+            .Which.DetailsJson.Should().Contain("\"LLM.RateLimitsEnabled\"");
+    }
+
+    [TestCase("True", true)]
+    [TestCase("False", false)]
+    [TestCase(null, false)]
+    public async Task ReadingTheAdminSettings_ReadsWhetherTheRateLimitsAreEnforced_OffWhenNeverSaved(string? stored, bool expected)
+    {
+        var settings = new SettingsStore();
+        if (stored != null)
+        {
+            settings.AppSettings.Add(new AppSetting { Key = "LLM.RateLimitsEnabled", Value = stored, Category = "LLM" });
+        }
+
+        var service = new AppSettingsService(settings.Factory(), new MemoryCache(new MemoryCacheOptions()), Mock.Of<IEncryptionService>(), new BeaconConfiguration(), new RecordingSecurityAudit());
+
+        (await service.GetSettingsAsync(CancellationToken.None)).LlmRateLimitsEnabled.Should().Be(expected);
+    }
+
+    [TestCase(null, false)]
+    [TestCase("LLM.MaxConcurrentRequests", true)]
+    [TestCase("LLM.RateLimitsEnabled", true)]
+    [TestCase("LLM.Model", false)]
+    public async Task ReadingTheAdminSettings_ReportsWhetherTheLlmLimitsWereStored(string? storedKey, bool expected)
+    {
+        var settings = new SettingsStore();
+        if (storedKey != null)
+        {
+            settings.AppSettings.Add(new AppSetting { Key = storedKey, Value = storedKey == "LLM.RateLimitsEnabled" ? "False" : "7", Category = "LLM" });
+        }
+
+        var service = new AppSettingsService(settings.Factory(), new MemoryCache(new MemoryCacheOptions()), Mock.Of<IEncryptionService>(), new BeaconConfiguration(), new RecordingSecurityAudit());
+
+        (await service.GetSettingsAsync(CancellationToken.None)).LlmLimitsStored.Should().Be(expected);
+    }
+
+    [Test]
     public async Task SubmittingAQueryChange_RecordsTheRequestItsBaseAndItsRequester_NeverTheSql()
     {
         var audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(3, Ada));

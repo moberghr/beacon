@@ -39,7 +39,10 @@ public class AdminSettingsLlmConnectionTests
                 LlmEndpoint = "https://llm.example",
                 LlmApiKey = "stored-key",
                 LlmRegion = "westeurope",
-                LlmBedrockAuthMode = BedrockAuthMode.IamRole
+                LlmBedrockAuthMode = BedrockAuthMode.IamRole,
+                LlmMaxConcurrentRequests = 4,
+                LlmTokensPerMinute = 1000,
+                LlmRequestsPerMinute = 60
             });
         _tester = new Mock<ILlmConnectionTester>();
         _tester
@@ -57,6 +60,7 @@ public class AdminSettingsLlmConnectionTests
             x => x.SaveSettingsAsync(
                 It.Is<AppSettingsData>(y => y.LlmModel == "gpt-next" && y.LlmMonthlyBudget == 50 && y.LlmEndpoint == "https://llm.example" && y.LlmApiKey == "stored-key"),
                 It.IsAny<string?>(),
+                false,
                 It.IsAny<CancellationToken>()),
             Times.Once);
     }
@@ -76,7 +80,82 @@ public class AdminSettingsLlmConnectionTests
         var act = () => Update(SecurityAdmin()).Handle(Changing(field), CancellationToken.None);
 
         await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(LlmConnectionSettings.AdminOnlyMessage);
-        _settings.Verify(x => x.SaveSettingsAsync(It.IsAny<AppSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
+        _settings.Verify(x => x.SaveSettingsAsync(It.IsAny<AppSettingsData>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [TestCase("maxConcurrent")]
+    [TestCase("requestsPerMinute")]
+    [TestCase("tokensPerMinute")]
+    [TestCase("enforced")]
+    public async Task ASecurityAdmin_ChangingTheLlmLimits_IsForbidden_AndNothingIsSaved(string field)
+    {
+        var command = field switch
+        {
+            "maxConcurrent" => Command() with { LlmMaxConcurrentRequests = 40 },
+            "requestsPerMinute" => Command() with { LlmRequestsPerMinute = 600 },
+            "tokensPerMinute" => Command() with { LlmTokensPerMinute = 0 },
+            _ => Command() with { LlmRateLimitsEnabled = true }
+        };
+
+        var act = () => Update(SecurityAdmin()).Handle(command, CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(UpdateAdminSettingsHandler.LimitsAdminOnlyMessage);
+        _settings.Verify(x => x.SaveSettingsAsync(It.IsAny<AppSettingsData>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public async Task ASecurityAdmin_SendingTheStoredLimitsBack_Saves()
+    {
+        await Update(SecurityAdmin()).Handle(Command(budget: 75) with { LlmRateLimitsEnabled = false }, CancellationToken.None);
+
+        _settings.Verify(
+            x => x.SaveSettingsAsync(
+                It.Is<AppSettingsData>(y => y.LlmMonthlyBudget == 75 && y.LlmMaxConcurrentRequests == 4 && !y.LlmRateLimitsEnabled),
+                It.IsAny<string?>(),
+                false,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task AnAdmin_SavesTheLlmLimits_AndWhetherTheyAreEnforced(bool enabled)
+    {
+        await Update(TestPermissions.Admin).Handle(
+            Command() with { LlmMaxConcurrentRequests = 12, LlmRequestsPerMinute = 30, LlmRateLimitsEnabled = enabled },
+            CancellationToken.None);
+
+        _settings.Verify(
+            x => x.SaveSettingsAsync(
+                It.Is<AppSettingsData>(y => y.LlmRateLimitsEnabled == enabled && y.LlmMaxConcurrentRequests == 12 && y.LlmRequestsPerMinute == 30 && y.LlmTokensPerMinute == 1000),
+                It.IsAny<string?>(),
+                true,
+                It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
+    [Test]
+    public async Task ASaveWithoutTheEnforcementFlag_KeepsTheStoredOne()
+    {
+        _settings
+            .Setup(x => x.GetSettingsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AppSettingsData
+            {
+                BaseUrl = "https://beacon.example",
+                LlmProvider = AiProvider.AzureOpenAI,
+                LlmRegion = "westeurope",
+                LlmMaxConcurrentRequests = 4,
+                LlmTokensPerMinute = 1000,
+                LlmRequestsPerMinute = 60,
+                LlmRateLimitsEnabled = true
+            });
+
+        await Update(SecurityAdmin()).Handle(Command(model: "gpt-next"), CancellationToken.None);
+        await Update(TestPermissions.Admin).Handle(Command(model: "gpt-latest"), CancellationToken.None);
+
+        _settings.Verify(
+            x => x.SaveSettingsAsync(It.Is<AppSettingsData>(y => y.LlmRateLimitsEnabled), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()),
+            Times.Exactly(2));
     }
 
     [Test]
@@ -84,7 +163,7 @@ public class AdminSettingsLlmConnectionTests
     {
         await Update(TestPermissions.Admin).Handle(Changing("endpoint"), CancellationToken.None);
 
-        _settings.Verify(x => x.SaveSettingsAsync(It.Is<AppSettingsData>(y => y.LlmEndpoint == "https://elsewhere.example"), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Once);
+        _settings.Verify(x => x.SaveSettingsAsync(It.Is<AppSettingsData>(y => y.LlmEndpoint == "https://elsewhere.example"), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [TestCase("https://phish.example")]
@@ -94,7 +173,7 @@ public class AdminSettingsLlmConnectionTests
         var act = () => Update(SecurityAdmin()).Handle(Command() with { BaseUrl = baseUrl }, CancellationToken.None);
 
         await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(UpdateAdminSettingsHandler.BaseUrlAdminOnlyMessage);
-        _settings.Verify(x => x.SaveSettingsAsync(It.IsAny<AppSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
+        _settings.Verify(x => x.SaveSettingsAsync(It.IsAny<AppSettingsData>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Test]
@@ -103,8 +182,8 @@ public class AdminSettingsLlmConnectionTests
         await Update(SecurityAdmin()).Handle(Command() with { BaseUrl = " https://beacon.example " }, CancellationToken.None);
         await Update(TestPermissions.Admin).Handle(Command() with { BaseUrl = "https://beacon.example.org" }, CancellationToken.None);
 
-        _settings.Verify(x => x.SaveSettingsAsync(It.Is<AppSettingsData>(y => y.BaseUrl == "https://beacon.example.org"), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Once);
-        _settings.Verify(x => x.SaveSettingsAsync(It.IsAny<AppSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+        _settings.Verify(x => x.SaveSettingsAsync(It.Is<AppSettingsData>(y => y.BaseUrl == "https://beacon.example.org"), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
+        _settings.Verify(x => x.SaveSettingsAsync(It.IsAny<AppSettingsData>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
     }
 
     [Test]
@@ -133,7 +212,7 @@ public class AdminSettingsLlmConnectionTests
 
         await update.Should().ThrowExactlyAsync<InvalidOperationException>().WithMessage(expected);
         await test.Should().ThrowExactlyAsync<InvalidOperationException>().WithMessage(expected);
-        _settings.Verify(x => x.SaveSettingsAsync(It.IsAny<AppSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
+        _settings.Verify(x => x.SaveSettingsAsync(It.IsAny<AppSettingsData>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
         _tester.Verify(x => x.TestAsync(It.IsAny<LlmConnectionTestParameters>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
@@ -148,7 +227,7 @@ public class AdminSettingsLlmConnectionTests
         await Test(TestPermissions.Admin).Handle(TestCommand(null), CancellationToken.None);
         await Test(TestPermissions.Admin).Handle(TestCommand(AiProvider.AzureOpenAI), CancellationToken.None);
 
-        _settings.Verify(x => x.SaveSettingsAsync(It.IsAny<AppSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
+        _settings.Verify(x => x.SaveSettingsAsync(It.IsAny<AppSettingsData>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
         _tester.Verify(x => x.TestAsync(It.IsAny<LlmConnectionTestParameters>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
     }
 
@@ -160,7 +239,7 @@ public class AdminSettingsLlmConnectionTests
         await Update(TestPermissions.Admin).Handle(Command() with { LlmProvider = AiProvider.Bedrock }, CancellationToken.None);
         await Test(TestPermissions.Admin).Handle(TestCommand(AiProvider.Bedrock), CancellationToken.None);
 
-        _settings.Verify(x => x.SaveSettingsAsync(It.Is<AppSettingsData>(y => y.LlmProvider == AiProvider.Bedrock), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Once);
+        _settings.Verify(x => x.SaveSettingsAsync(It.Is<AppSettingsData>(y => y.LlmProvider == AiProvider.Bedrock), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
         _tester.Verify(x => x.TestAsync(It.Is<LlmConnectionTestParameters>(y => y.Provider == AiProvider.Bedrock), It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -170,7 +249,7 @@ public class AdminSettingsLlmConnectionTests
         await Update(TestPermissions.Admin).Handle(Command() with { LlmProvider = AiProvider.Bedrock }, CancellationToken.None);
         await Test(TestPermissions.Admin).Handle(TestCommand(AiProvider.Claude), CancellationToken.None);
 
-        _settings.Verify(x => x.SaveSettingsAsync(It.Is<AppSettingsData>(y => y.LlmProvider == AiProvider.Bedrock), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Once);
+        _settings.Verify(x => x.SaveSettingsAsync(It.Is<AppSettingsData>(y => y.LlmProvider == AiProvider.Bedrock), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
         _tester.Verify(x => x.TestAsync(It.Is<LlmConnectionTestParameters>(y => y.Provider == AiProvider.Claude), It.IsAny<CancellationToken>()), Times.Once);
     }
 
@@ -201,11 +280,11 @@ public class AdminSettingsLlmConnectionTests
 
         await notInstalled.Should().ThrowExactlyAsync<InvalidOperationException>().WithMessage(LlmProviderInstallation.NotInstalledMessage(AiProvider.Bedrock));
         await notInstalledTest.Should().ThrowExactlyAsync<InvalidOperationException>().WithMessage(LlmProviderInstallation.NotInstalledMessage(AiProvider.Bedrock));
-        _settings.Verify(x => x.SaveSettingsAsync(It.IsAny<AppSettingsData>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Never);
+        _settings.Verify(x => x.SaveSettingsAsync(It.IsAny<AppSettingsData>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
 
         await Update(TestPermissions.Admin).Handle(Command() with { LlmProvider = AiProvider.OpenAI }, CancellationToken.None);
 
-        _settings.Verify(x => x.SaveSettingsAsync(It.Is<AppSettingsData>(y => y.LlmProvider == AiProvider.OpenAI), It.IsAny<string?>(), It.IsAny<CancellationToken>()), Times.Once);
+        _settings.Verify(x => x.SaveSettingsAsync(It.Is<AppSettingsData>(y => y.LlmProvider == AiProvider.OpenAI), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
         _tester.Verify(x => x.TestAsync(It.IsAny<LlmConnectionTestParameters>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 

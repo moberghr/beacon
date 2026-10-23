@@ -33,6 +33,8 @@ export interface AdminSettingsView {
   llmTokensPerMinute: number;
   llmRequestsPerMinute: number;
   llmMonthlyBudget: number;
+  /** Whether the requests and tokens per minute are enforced; absent from a server that predates the setting. */
+  llmRateLimitsEnabled?: boolean;
 }
 
 export interface AdminSettingHistoryEntry {
@@ -65,6 +67,7 @@ export interface UpdateAdminSettingsPayload {
   llmTokensPerMinute: number;
   llmRequestsPerMinute: number;
   llmMonthlyBudget: number;
+  llmRateLimitsEnabled: boolean;
 }
 
 export interface TestLlmConnectionPayload {
