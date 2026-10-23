@@ -54,7 +54,8 @@ internal sealed record GatedSqlRun(
 /// detection is on (the request's settings, else the global settings tightened by the projects that link the source —
 /// on, when none can be read), it is redacted (<see cref="DatabaseErrorRedactor.ForCaller"/>). Every statement that passes
 /// the gate is in the execution log (<see cref="ISqlExecutionAudit"/>) before it is sent, and its row is closed with how it
-/// ended (succeeded, failed with the caller's message, cancelled, timed out).
+/// ended (succeeded, failed with the database's error redacted as with PII detection on whatever the caller's setting,
+/// cancelled, timed out).
 /// </summary>
 internal sealed class GatedSqlRunner(
     ISqlExecutionGate gate,
@@ -133,7 +134,7 @@ internal sealed class GatedSqlRunner(
         }
         catch (QueryExecutionFailedException ex)
         {
-            end = new SqlExecutionEnd(QueryExecutionLogStatus.Failed, 0, stopwatch.Elapsed.TotalMilliseconds, ex.Message);
+            end = new SqlExecutionEnd(QueryExecutionLogStatus.Failed, 0, stopwatch.Elapsed.TotalMilliseconds, ex.LogMessage ?? ex.Message);
             throw;
         }
         finally
@@ -223,7 +224,13 @@ internal sealed class GatedSqlRunner(
                 return new GatedSqlRun([], report, dialect, result.ExecutionTimeMs, TimedOut: true);
             }
 
-            throw new QueryExecutionFailedException(await CallerErrorAsync(request, result.ErrorMessage ?? "Query execution failed.", cancellationToken));
+            var error = result.ErrorMessage ?? "Query execution failed.";
+
+            // The log keeps the error redacted whatever the caller's PII setting: it is read and exported by others.
+            throw new QueryExecutionFailedException(await CallerErrorAsync(request, error, cancellationToken))
+            {
+                LogMessage = request.DataSource.HostManagedKey != null ? error : DatabaseErrorRedactor.ForCaller(error, request.Sql, redact: true)
+            };
         }
 
         return new GatedSqlRun(result.Rows ?? [], report, dialect, result.ExecutionTimeMs, TimedOut: false);

@@ -1,3 +1,4 @@
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 
 namespace Beacon.Core.Configuration;
@@ -45,9 +46,15 @@ public sealed class ExecutionLogOptions
     /// <summary>
     /// Off (the default): a statement whose Started row cannot be written still runs, and a Warning is logged. On: such a
     /// statement does not run, and its caller gets an error. The end of a statement that ran is recorded either way, never
-    /// in place of its result.
+    /// in place of its result. On, the host fails to start when no execution log is registered.
     /// </summary>
     public bool Required { get; set; }
+
+    /// <summary>
+    /// How many days rows are kept; null (the default) keeps them forever. Greater than zero when set. Rows older than this
+    /// are deleted by the execution log retention job (<c>IExecutionLogRetentionService</c>), which the host schedules.
+    /// </summary>
+    public int? RetentionDays { get; set; }
 }
 
 internal sealed class SecurityAuditOptionsValidator : IValidateOptions<SecurityAuditOptions>
@@ -59,6 +66,12 @@ internal sealed class SecurityAuditOptionsValidator : IValidateOptions<SecurityA
         {
             failures.Add(
                 $"{SecurityAuditOptions.SectionName}:{nameof(SecurityAuditOptions.RetentionDays)} must be between {SecurityAuditOptions.MinRetentionDays} and {SecurityAuditOptions.MaxRetentionDays} days, or unset to keep events forever.");
+        }
+
+        if (options.ExecutionLog.RetentionDays is <= 0)
+        {
+            failures.Add(
+                $"{SecurityAuditOptions.SectionName}:{nameof(SecurityAuditOptions.ExecutionLog)}:{nameof(ExecutionLogOptions.RetentionDays)} must be greater than zero when set, or unset to keep rows forever.");
         }
 
         var keyProblem = IntegrityKeyProblem(options.IntegrityKey, nameof(SecurityAuditOptions.IntegrityKey));
@@ -96,5 +109,24 @@ internal sealed class SecurityAuditOptionsValidator : IValidateOptions<SecurityA
         return key.Trim().Length < SecurityAuditOptions.MinIntegrityKeyLength
             ? $"{SecurityAuditOptions.SectionName}:{setting} must be at least {SecurityAuditOptions.MinIntegrityKeyLength} characters."
             : null;
+    }
+}
+
+/// <summary>
+/// With <see cref="ExecutionLogOptions.Required"/> on, the host fails to start when no execution log
+/// (<see cref="Services.ISqlExecutionAudit"/>) is registered: the paths that run statements would otherwise run them
+/// without it.
+/// </summary>
+internal sealed class ExecutionLogRegistrationValidator(IServiceProviderIsService services) : IValidateOptions<SecurityAuditOptions>
+{
+    public ValidateOptionsResult Validate(string? name, SecurityAuditOptions options)
+    {
+        if (!options.ExecutionLog.Required || services.IsService(typeof(Services.ISqlExecutionAudit)))
+        {
+            return ValidateOptionsResult.Success;
+        }
+
+        return ValidateOptionsResult.Fail(
+            $"{SecurityAuditOptions.SectionName}:{nameof(SecurityAuditOptions.ExecutionLog)}:{nameof(ExecutionLogOptions.Required)} is on, but no execution log is registered: statements would run unlogged.");
     }
 }

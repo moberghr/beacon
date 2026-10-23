@@ -5,6 +5,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Exceptions;
+using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
@@ -224,11 +225,70 @@ public class SqlExecutionLogTests
         var result = await audit.RunAsync(
             new SqlExecutionStart(Source.Id, "SELECT status FROM orders", SqlExecutionContexts.DocumentationEnumDiscovery),
             _ => Task.FromResult(new ProviderQueryResult { Success = false, ErrorMessage = "invalid input syntax: \"Ivan Horvat\"" }),
+            CancellationToken.None,
             CancellationToken.None);
 
         result.Success.Should().BeFalse();
         audit.Ends.Should().ContainSingle()
             .Which.Should().Match<SqlExecutionEnd>(x => x.Status == QueryExecutionLogStatus.Failed && !x.ErrorMessage!.Contains("Ivan"));
+    }
+
+    [Test]
+    public async Task AReadStoppedByItsOwnTimeout_IsClosedTimedOut_AndOneTheCallerCancels_Cancelled()
+    {
+        using var timeout = new CancellationTokenSource();
+        await timeout.CancelAsync();
+        using var caller = new CancellationTokenSource();
+        var audit = new RecordingExecutionAudit();
+        var start = new SqlExecutionStart(Source.Id, "SELECT status FROM orders", SqlExecutionContexts.DataQualityRule);
+        var stopped = new ProviderQueryResult { Success = false, ErrorMessage = "canceling statement due to user request" };
+
+        await audit.RunAsync(start, _ => Task.FromResult(stopped), timeout.Token, caller.Token);
+        await caller.CancelAsync();
+        await audit.RunAsync(start, _ => Task.FromResult(stopped), caller.Token, caller.Token);
+
+        audit.Ends.Select(x => x.Status).Should().Equal(QueryExecutionLogStatus.TimedOut, QueryExecutionLogStatus.Cancelled);
+        audit.Ends[0].ErrorMessage.Should().Be("The statement timed out.");
+    }
+
+    [Test]
+    public async Task WithPiiDetectionOff_AFailedStatement_IsLoggedWithTheErrorRedacted_WhileTheCallerGetsItAsIs()
+    {
+        var audit = new RecordingExecutionAudit();
+        var runner = Runner(Answering(new ProviderQueryResult { Success = false, ErrorMessage = "22P02: invalid input syntax for type integer: \"ana@example.com\"" }).Object, audit);
+        var request = Request("SELECT id FROM accounts") with { Pii = new McpSettingsData { EnablePiiDetection = false } };
+
+        var act = () => runner.RunAsync(request, CancellationToken.None);
+
+        var thrown = await act.Should().ThrowAsync<QueryExecutionFailedException>();
+        thrown.Which.Message.Should().Contain("ana@example.com", "PII detection is off for this caller");
+        audit.Ends.Should().ContainSingle()
+            .Which.ErrorMessage.Should().NotBeNullOrEmpty().And.NotContain("ana@example.com");
+    }
+
+    [Test]
+    public void WhenTheLogIsRequired_AHostWithoutAnExecutionLog_FailsAtStartup()
+    {
+        var services = new ServiceCollection();
+        services.AddOptions<SecurityAuditOptions>().Configure(x => x.ExecutionLog.Required = true).ValidateOnStart();
+        services.AddSingleton<IValidateOptions<SecurityAuditOptions>, ExecutionLogRegistrationValidator>();
+        using var provider = services.BuildServiceProvider();
+
+        var act = () => provider.GetRequiredService<IOptions<SecurityAuditOptions>>().Value;
+
+        act.Should().Throw<OptionsValidationException>().WithMessage("*Beacon:Audit:ExecutionLog:Required*");
+    }
+
+    [Test]
+    public void WhenTheLogIsRequired_AHostWithTheExecutionLog_Starts()
+    {
+        var services = new ServiceCollection();
+        services.AddOptions<SecurityAuditOptions>().Configure(x => x.ExecutionLog.Required = true);
+        services.AddSingleton<IValidateOptions<SecurityAuditOptions>, ExecutionLogRegistrationValidator>();
+        services.AddTransient<ISqlExecutionAudit, RecordingExecutionAudit>();
+        using var provider = services.BuildServiceProvider();
+
+        provider.GetRequiredService<IOptions<SecurityAuditOptions>>().Value.ExecutionLog.Required.Should().BeTrue();
     }
 
     [Test]

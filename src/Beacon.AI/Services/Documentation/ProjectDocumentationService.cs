@@ -1229,7 +1229,7 @@ internal sealed class ProjectDocumentationService(
                 using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 timeoutCts.CancelAfter(TimeSpan.FromSeconds(15));
 
-                return (Values: await DiscoverEnumValuesForDataSourceAsync(ds, tables, settings.CustomPiiPatterns, timeoutCts.Token), SamplingOff: false);
+                return (Values: await DiscoverEnumValuesForDataSourceAsync(ds, tables, settings.CustomPiiPatterns, timeoutCts.Token, ct), SamplingOff: false);
             }
             catch (Exception ex)
             {
@@ -1277,7 +1277,7 @@ internal sealed class ProjectDocumentationService(
     /// read, and a column one of whose values looks like PII or a credential is dropped.
     /// </summary>
     private async Task<List<EnumColumnValues>> DiscoverEnumValuesForDataSourceAsync(
-        DataSource dataSource, List<TableInfo> tables, IReadOnlyList<string> customPiiPatterns, CancellationToken ct)
+        DataSource dataSource, List<TableInfo> tables, IReadOnlyList<string> customPiiPatterns, CancellationToken ct, CancellationToken callerToken)
     {
         var provider = dataSourceProviderFactory.GetProvider(dataSource.DataSourceType);
         var engineType = dataSource.DatabaseEngineType!.Value;
@@ -1349,7 +1349,8 @@ internal sealed class ProjectDocumentationService(
                     : await executionAudit.RunAsync(
                         new SqlExecutionStart(dataSource.Id, finalSql, SqlExecutionContexts.DocumentationEnumDiscovery),
                         Read,
-                        ct);
+                        ct,
+                        callerToken);
 
                 if (!queryResult.Success)
                 {

@@ -1,8 +1,10 @@
 using System.Globalization;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Options;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.SecurityAudit;
@@ -17,15 +19,24 @@ namespace Beacon.Core.Handlers.ExecutionLog;
 /// days and at most <see cref="MaxRows"/> rows (the file says when more matched), for an Auditor or a SecurityAdmin. The
 /// rows are the ones the paged read lists for the same filters. The export is recorded before it returns
 /// (<see cref="SecurityAuditActions.ExecutionLogExported"/>: the filters' shape, the row count, whether it was cut) and
-/// fails when the event cannot be written.
+/// fails when the event cannot be written. Rows are shown as the read shows them (<see cref="ExecutionLogView"/>), each
+/// statement's text cut at <see cref="MaxQueryTextChars"/> characters, and a text cell a spreadsheet would read as a
+/// formula is written as text.
 /// </summary>
 internal sealed class ExportExecutionLogHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IProjectAccessEvaluator projectAccess,
-    SecurityAuditReads reads)
+    SecurityAuditReads reads,
+    IOptions<QueryExecutionOptions> queryOptions,
+    TimeProvider timeProvider)
     : IRequestHandler<ExportExecutionLogQuery, ExecutionLogExport>
 {
     internal const int MaxRows = 10_000;
+
+    /// <summary>How much of a statement's text one row of the file holds.</summary>
+    internal const int MaxQueryTextChars = 4000;
+
+    internal const string CutMarker = " [cut]";
 
     private static readonly string[] Columns =
     [
@@ -39,6 +50,7 @@ internal sealed class ExportExecutionLogHandler(
 
         var scope = await projectAccess.GetScopeAsync(cancellationToken);
         var readable = scope.For(ProjectAction.Read);
+        var abandonedBefore = ExecutionLogView.AbandonedBefore(timeProvider, queryOptions.Value);
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         // One row past the cap tells whether the file holds every match.
@@ -48,7 +60,7 @@ internal sealed class ExportExecutionLogHandler(
             .WhereSourceAccessible(context, readable, x => x.DataSourceId)
             .WhereIf(request.DataSourceId.HasValue, x => x.DataSourceId == request.DataSourceId)
             .WhereIf(request.TriggeredByUserId.HasValue, x => x.TriggeredByUserId == request.TriggeredByUserId)
-            .WhereIf(request.Status.HasValue, x => x.Status == request.Status)
+            .WhereShownStatus(request.Status, abandonedBefore)
             .WhereIf(!string.IsNullOrEmpty(request.ExecutionContext), x => x.ExecutionContext == request.ExecutionContext)
             .OrderByDescending(x => x.CreatedTime)
             .ThenByDescending(x => x.Id)
@@ -58,7 +70,9 @@ internal sealed class ExportExecutionLogHandler(
                     x.Id,
                     x.CreatedTime,
                     x.CompletedTime,
-                    x.Status,
+                    Status = x.Status == QueryExecutionLogStatus.Started && x.CreatedTime < abandonedBefore
+                        ? QueryExecutionLogStatus.Abandoned
+                        : x.Status,
                     x.Success,
                     x.ExecutionContext,
                     x.DataSourceId,
@@ -66,7 +80,10 @@ internal sealed class ExportExecutionLogHandler(
                     x.ResultCount,
                     x.ExecutionTimeMs,
                     x.ErrorMessage,
-                    x.QueryText
+                    // One character past the cap tells whether the text was cut.
+                    QueryText = x.QueryText.Substring(0, MaxQueryTextChars + 1),
+                    DataSourceType = x.DataSource != null ? x.DataSource.DataSourceType : (DataSourceType?)null,
+                    DatabaseEngineType = x.DataSource != null ? x.DataSource.DatabaseEngineType : null
                 })
             .Take(MaxRows + 1)
             .ToListAsync(cancellationToken);
@@ -82,13 +99,13 @@ internal sealed class ExportExecutionLogHandler(
                 ["completedTime"] = row.CompletedTime?.ToString("O", CultureInfo.InvariantCulture),
                 ["status"] = row.Status?.ToString(),
                 ["success"] = row.Success,
-                ["executionContext"] = row.ExecutionContext,
+                ["executionContext"] = AsText(row.ExecutionContext),
                 ["dataSourceId"] = row.DataSourceId,
                 ["triggeredByUserId"] = row.TriggeredByUserId,
                 ["resultCount"] = row.ResultCount,
                 ["executionTimeMs"] = row.ExecutionTimeMs,
-                ["errorMessage"] = row.ErrorMessage,
-                ["queryText"] = row.QueryText
+                ["errorMessage"] = AsText(row.ErrorMessage),
+                ["queryText"] = AsText(QueryTextOf(row.QueryText, row.DataSourceType, row.DatabaseEngineType))
             });
         }
 
@@ -110,6 +127,24 @@ internal sealed class ExportExecutionLogHandler(
         var content = await CsvBuilder.GetReport(records, Columns, cancellationToken);
 
         return new ExecutionLogExport(content, $"execution-log-{from:yyyyMMdd}-{to:yyyyMMdd}.csv", records.Count, truncated);
+    }
+
+    // The masked text, cut at the cap (a literal the cut leaves open is masked to the end).
+    private static string QueryTextOf(string queryText, DataSourceType? dataSourceType, DatabaseEngineType? engineType)
+    {
+        var cut = queryText.Length > MaxQueryTextChars;
+        var masked = ExecutionLogView.MaskedQueryText(cut ? queryText[..MaxQueryTextChars] : queryText, dataSourceType, engineType);
+
+        return cut ? masked + CutMarker : masked;
+    }
+
+    // A cell a spreadsheet would evaluate (it starts with =, +, -, @, a tab or a line break) is prefixed with ' so it is
+    // read as text.
+    private static string? AsText(string? value)
+    {
+        return value is { Length: > 0 } && value[0] is '=' or '+' or '-' or '@' or '\t' or '\r' or '\n'
+            ? "'" + value
+            : value;
     }
 }
 

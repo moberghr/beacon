@@ -2,16 +2,19 @@ SELECT count(*)::int
 FROM beacon.manual_query_execution_logs AS m
 WHERE m.created_time >= @from AND m.created_time <= @to AND m.data_source_id IS NOT NULL
 ;
-SELECT m0.id AS "Id", m0.created_time AS "CreatedTime", m0.completed_time AS "CompletedTime", m0.status AS "Status", m0.success AS "Success", m0.execution_context AS "ExecutionContext", m0.data_source_id AS "DataSourceId", d0.name AS "DataSourceName", m0.triggered_by_user_id AS "TriggeredByUserId", m0.result_count AS "ResultCount", m0.execution_time_ms AS "ExecutionTimeMs", m0.query_text AS "QueryText", m0.error_message AS "ErrorMessage"
+SELECT m0.id AS "Id", m0.created_time AS "CreatedTime", m0.completed_time AS "CompletedTime", CASE
+    WHEN m0.status = 1 AND m0.created_time < @abandonedBefore THEN 6
+    ELSE m0.status
+END AS "Status", m0.success AS "Success", m0.execution_context AS "ExecutionContext", m0.data_source_id AS "DataSourceId", d0.name AS "DataSourceName", m0.triggered_by_user_id AS "TriggeredByUserId", m0.result_count AS "ResultCount", m0.execution_time_ms AS "ExecutionTimeMs", m0.query_text AS "QueryText", m0.error_message AS "ErrorMessage", d0.data_source_type AS "DataSourceType", d0.database_engine_type AS "DatabaseEngineType"
 FROM (
     SELECT m.id, m.completed_time, m.created_time, m.data_source_id, m.error_message, m.execution_context, m.execution_time_ms, m.query_text, m.result_count, m.status, m.success, m.triggered_by_user_id
     FROM beacon.manual_query_execution_logs AS m
     WHERE m.created_time >= @from AND m.created_time <= @to AND m.data_source_id IS NOT NULL
     ORDER BY m.created_time DESC, m.id
-    LIMIT @p3 OFFSET @p
+    LIMIT @p4 OFFSET @p
 ) AS m0
 LEFT JOIN (
-    SELECT d.id, d.name
+    SELECT d.id, d.data_source_type, d.database_engine_type, d.name
     FROM beacon.data_sources AS d
     WHERE d.archived_time IS NULL
 ) AS d0 ON m0.data_source_id = d0.id

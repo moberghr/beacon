@@ -19898,6 +19898,7 @@ export enum QueryExecutionLogStatus {
   Failed = 3,
   Cancelled = 4,
   TimedOut = 5,
+  Abandoned = 6,
 }
 
 export interface QueryFolderData {

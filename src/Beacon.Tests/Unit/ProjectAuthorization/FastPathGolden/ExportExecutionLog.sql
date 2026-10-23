@@ -1,8 +1,20 @@
-SELECT m.id AS "Id", m.created_time AS "CreatedTime", m.completed_time AS "CompletedTime", m.status AS "Status", m.success AS "Success", m.execution_context AS "ExecutionContext", m.data_source_id AS "DataSourceId", m.triggered_by_user_id AS "TriggeredByUserId", m.result_count AS "ResultCount", m.execution_time_ms AS "ExecutionTimeMs", m.error_message AS "ErrorMessage", m.query_text AS "QueryText"
-FROM beacon.manual_query_execution_logs AS m
-WHERE m.created_time >= @from AND m.created_time <= @to AND m.data_source_id IS NOT NULL
-ORDER BY m.created_time DESC, m.id DESC
-LIMIT @p
+SELECT m0.id AS "Id", m0.created_time AS "CreatedTime", m0.completed_time AS "CompletedTime", CASE
+    WHEN m0.status = 1 AND m0.created_time < @abandonedBefore THEN 6
+    ELSE m0.status
+END AS "Status", m0.success AS "Success", m0.execution_context AS "ExecutionContext", m0.data_source_id AS "DataSourceId", m0.triggered_by_user_id AS "TriggeredByUserId", m0.result_count AS "ResultCount", m0.execution_time_ms AS "ExecutionTimeMs", m0.error_message AS "ErrorMessage", substring(m0.query_text, 1, 4001) AS "QueryText", d0.data_source_type AS "DataSourceType", d0.database_engine_type AS "DatabaseEngineType"
+FROM (
+    SELECT m.id, m.completed_time, m.created_time, m.data_source_id, m.error_message, m.execution_context, m.execution_time_ms, m.query_text, m.result_count, m.status, m.success, m.triggered_by_user_id
+    FROM beacon.manual_query_execution_logs AS m
+    WHERE m.created_time >= @from AND m.created_time <= @to AND m.data_source_id IS NOT NULL
+    ORDER BY m.created_time DESC, m.id DESC
+    LIMIT @p
+) AS m0
+LEFT JOIN (
+    SELECT d.id, d.data_source_type, d.database_engine_type
+    FROM beacon.data_sources AS d
+    WHERE d.archived_time IS NULL
+) AS d0 ON m0.data_source_id = d0.id
+ORDER BY m0.created_time DESC, m0.id DESC
 ;
 SELECT u.id AS "Id", u.external_id AS "ExternalId", u.is_enabled AND u.archived_time IS NULL AS "IsActive", u.security_stamp AS "SecurityStamp", u.is_super_admin OR EXISTS (
     SELECT 1

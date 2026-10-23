@@ -144,6 +144,7 @@ public static class ServiceConfiguration
             .Bind(configuration.GetSection(Configuration.SecurityAuditOptions.SectionName))
             .ValidateOnStart();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.SecurityAuditOptions>, Configuration.SecurityAuditOptionsValidator>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.SecurityAuditOptions>, Configuration.ExecutionLogRegistrationValidator>());
         services.TryAddSingleton(SecurityAudit.SecurityAuditIntegrity.From(configuration, encryptionKey, previousEncryptionKeys));
         services.TryAddSingleton<SecurityAuditInterceptor>();
         services.TryAddScoped<SecurityAudit.ISecurityAuditRecorder, SecurityAudit.SecurityAuditRecorder>();
@@ -225,6 +226,9 @@ public static class ServiceConfiguration
         services.TryAddTransient<IDataQualityEvaluationService, DataQualityEvaluationService>();
         services.TryAddTransient<IManualQueryExecutionLogger, ManualQueryExecutionLogger>();
         services.TryAddTransient<ISqlExecutionAudit, SqlExecutionAudit>();
+        // Execution log retention purge (Beacon:Audit:ExecutionLog:RetentionDays); a null window is a no-op. Scheduled by
+        // the host as a Warp recurring job (Beacon.SampleProject/Warp/Jobs/McpMaintenanceJobs.cs).
+        services.TryAddTransient<Services.Retention.IExecutionLogRetentionService, Services.Retention.ExecutionLogRetentionService>();
         services.TryAddTransient<IAppSettingsService, AppSettingsService>();
         // Applies the stored base URL and LLM configuration once the host has started (Beacon.Api's StoredSettingsStartupApplier).
         services.TryAddTransient<StoredSettingsApplier>();

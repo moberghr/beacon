@@ -43,8 +43,8 @@ internal sealed record SqlExecutionEntry(int Id)
     public static SqlExecutionEntry NotRecorded { get; } = new(0);
 }
 
-/// <summary>How a statement ended. <paramref name="ErrorMessage"/> is what its caller was told, never the database's own
-/// text where that may quote values.</summary>
+/// <summary>How a statement ended. <paramref name="ErrorMessage"/> is Beacon's generic text or the database's error
+/// redacted as with PII detection on, whatever the caller's setting: never text that may quote values.</summary>
 internal sealed record SqlExecutionEnd(QueryExecutionLogStatus Status, int ResultCount, double ExecutionTimeMs, string? ErrorMessage = null);
 
 /// <summary>
@@ -68,40 +68,56 @@ internal static class SqlExecutionAuditExtensions
 {
     private const string FailedOnTheDataSource = "The statement failed on the data source.";
 
+    private const string TimedOutMessage = "The statement timed out.";
+
     /// <summary>
     /// Runs one provider read between <see cref="ISqlExecutionAudit.StartAsync"/> and
-    /// <see cref="ISqlExecutionAudit.CompleteAsync"/>, for the paths that run the gate's FinalSql themselves. A failed
-    /// result is recorded with a generic message: the database's own error can quote values.
+    /// <see cref="ISqlExecutionAudit.CompleteAsync"/>, for the paths that run the gate's FinalSql themselves.
+    /// <paramref name="statementToken"/> is what the read runs under (the caller's cancellation linked with the path's own
+    /// statement timeout); <paramref name="callerToken"/> is the caller's alone, so a read stopped by the timeout is recorded
+    /// as <see cref="QueryExecutionLogStatus.TimedOut"/> and one the caller cancelled as
+    /// <see cref="QueryExecutionLogStatus.Cancelled"/>. A failed result is recorded with a generic message: the database's
+    /// own error can quote values.
     /// </summary>
     public static async Task<ProviderQueryResult> RunAsync(
         this ISqlExecutionAudit audit,
         SqlExecutionStart start,
         Func<CancellationToken, Task<ProviderQueryResult>> execute,
-        CancellationToken cancellationToken)
+        CancellationToken statementToken,
+        CancellationToken callerToken)
     {
-        var entry = await audit.StartAsync(start, cancellationToken);
+        var entry = await audit.StartAsync(start, statementToken);
         var stopwatch = Stopwatch.StartNew();
         SqlExecutionEnd? end = null;
         try
         {
-            var result = await execute(cancellationToken);
+            var result = await execute(statementToken);
             end = result.Success
                 ? new SqlExecutionEnd(QueryExecutionLogStatus.Succeeded, result.Rows?.Count ?? 0, result.ExecutionTimeMs)
-                : new SqlExecutionEnd(
-                    cancellationToken.IsCancellationRequested ? QueryExecutionLogStatus.Cancelled : QueryExecutionLogStatus.Failed,
-                    0,
-                    result.ExecutionTimeMs,
-                    cancellationToken.IsCancellationRequested ? null : FailedOnTheDataSource);
+                : Stopped(statementToken, callerToken, result.ExecutionTimeMs)
+                    ?? new SqlExecutionEnd(QueryExecutionLogStatus.Failed, 0, result.ExecutionTimeMs, FailedOnTheDataSource);
 
             return result;
         }
         finally
         {
-            end ??= cancellationToken.IsCancellationRequested
-                ? new SqlExecutionEnd(QueryExecutionLogStatus.Cancelled, 0, stopwatch.Elapsed.TotalMilliseconds)
-                : new SqlExecutionEnd(QueryExecutionLogStatus.Failed, 0, stopwatch.Elapsed.TotalMilliseconds, FailedOnTheDataSource);
+            end ??= Stopped(statementToken, callerToken, stopwatch.Elapsed.TotalMilliseconds)
+                ?? new SqlExecutionEnd(QueryExecutionLogStatus.Failed, 0, stopwatch.Elapsed.TotalMilliseconds, FailedOnTheDataSource);
             await audit.CompleteAsync(entry, end);
         }
+    }
+
+    // A read stopped by its caller (cancelled) or by its own timeout (timed out); null when it was not stopped.
+    private static SqlExecutionEnd? Stopped(CancellationToken statementToken, CancellationToken callerToken, double elapsedMs)
+    {
+        if (callerToken.IsCancellationRequested)
+        {
+            return new SqlExecutionEnd(QueryExecutionLogStatus.Cancelled, 0, elapsedMs);
+        }
+
+        return statementToken.IsCancellationRequested
+            ? new SqlExecutionEnd(QueryExecutionLogStatus.TimedOut, 0, elapsedMs, TimedOutMessage)
+            : null;
     }
 }
 

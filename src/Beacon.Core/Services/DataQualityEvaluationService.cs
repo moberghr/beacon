@@ -250,7 +250,7 @@ internal class DataQualityEvaluationService(
             // §1.5 — the read-only path: a READ ONLY transaction on PostgreSQL; on a host-managed source the host
             // policy, host column masking and the generic host error. The provider reports a cancellation as a failed
             // result, so the caller's token is checked here.
-            // The statement is in the execution log before it is sent (a timeout is recorded as cancelled).
+            // The statement is in the execution log before it is sent (the rule timeout is recorded as timed out).
             Task<ProviderQueryResult> Read(CancellationToken token) =>
                 provider.ExecuteReadOnlyQueryAsync(contract.DataSource, query.Sql, query.Parameters, token);
             var result = executionAudit == null
@@ -258,7 +258,8 @@ internal class DataQualityEvaluationService(
                 : await executionAudit.RunAsync(
                     new SqlExecutionStart(contract.DataSourceId, query.Sql, SqlExecutionContexts.DataQualityRule),
                     Read,
-                    timeoutCts.Token);
+                    timeoutCts.Token,
+                    cancellationToken);
             ruleStopwatch.Stop();
             cancellationToken.ThrowIfCancellationRequested();
 
