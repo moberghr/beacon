@@ -364,6 +364,8 @@ app.MapBeaconUi();
 // WarpInitial migration EnsureSchema's the "warp" schema, so this bootstraps a fresh database;
 // it must run before AddOrUpdateRecurringJob (which writes to warp.recurring_job).
 // The boot work is bounded by a stop signal and a ceiling, so a stuck database cannot hold the start forever.
+// WaitAsync(bootToken) only abandons the wait: the underlying call (which takes no token) may still finish on the scope.
+// Migration is safe to cut (idempotent, one transaction per migration).
 using (var bootCancellation = new BootCancellation(TimeSpan.FromMinutes(10)))
 using (var warpStartupScope = app.Services.CreateScope())
 {

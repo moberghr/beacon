@@ -42,6 +42,7 @@ public class WarpJobBoundsTests
 
             timeout.Should().NotBeNull($"{job.Name} needs a timeout ({reason})");
             timeout!.Seconds.Should().Be(timeoutSeconds, job.Name);
+            timeout.Mode.Should().Be(global::Warp.Core.Timeout.TimeoutMode.Fail, $"{job.Name}: a timed-out job stays failed in Warp");
             mutex?.Key.Should().Be(mutexKey, job.Name);
             (mutex == null).Should().Be(mutexKey == null, $"{job.Name}: {reason}");
         }

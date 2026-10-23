@@ -10,7 +10,8 @@ namespace Beacon.SampleProject.Warp.Jobs;
 // chunks each project's latest documentation, optionally prepends an LLM-generated contextual blurb, embeds
 // the chunks, and upserts them into McpDocChunk + McpEmbedding.
 
-[Timeout(3600)]
+// Skip: a run that finds the previous one still going is dropped, not requeued, so the work waits for the next cron tick.
+[Timeout(3600, Mode = TimeoutMode.Fail)]
 [Mutex("mcp-docchunk-reindex", Mode = ConcurrencyMode.Skip)]
 public sealed class ReindexDocChunksJob : IJob;
 

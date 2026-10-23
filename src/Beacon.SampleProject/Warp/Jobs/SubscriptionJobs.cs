@@ -7,7 +7,7 @@ namespace Beacon.SampleProject.Warp.Jobs;
 // Recurring jobs registered per-subscription / per-data-contract via IBeaconScheduler. The cron
 // schedule lives on the Warp recurring-job definition; these handlers run one execution.
 
-[Timeout(1800)]
+[Timeout(1800, Mode = TimeoutMode.Fail)]
 public sealed class ExecuteSubscriptionQueryJob : IJob
 {
     public int SubscriptionId { get; init; }
@@ -19,7 +19,7 @@ public sealed class ExecuteSubscriptionQueryJobHandler(IJobService jobService) :
         => jobService.ExecuteQuery(message.SubscriptionId, cancellationToken);
 }
 
-[Timeout(1800)]
+[Timeout(1800, Mode = TimeoutMode.Fail)]
 public sealed class EvaluateDataContractJob : IJob
 {
     public int ContractId { get; init; }

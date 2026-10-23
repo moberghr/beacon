@@ -8,7 +8,7 @@ namespace Beacon.SampleProject.Warp.Jobs;
 // Fire-and-forget AI background work. The enqueueing user id (when present) travels as job
 // metadata under "BeaconUserId" so JobStatusChangedBehavior can push status to that user only.
 
-[Timeout(3600)]
+[Timeout(3600, Mode = TimeoutMode.Fail)]
 public sealed class GenerateProjectDocumentationJob : IJob
 {
     public int ProjectId { get; init; }
@@ -23,7 +23,7 @@ public sealed class GenerateProjectDocumentationJobHandler(IProjectDocumentation
         => documentationService.GenerateDocumentationAsync(message.ProjectId, message.UserId, cancellationToken);
 }
 
-[Timeout(900)]
+[Timeout(900, Mode = TimeoutMode.Fail)]
 public sealed class AiActorThinkCycleJob : IJob
 {
     public int ActorId { get; init; }
