@@ -81,7 +81,7 @@ internal sealed class JwksSigningKeyCache(TimeProvider timeProvider)
             {
                 // Nothing usable: no keys yet, or the last good set is too old to trust.
                 entry.Keys = null;
-                entry.FailedAt = now;
+                entry.FailedAt = timeProvider.GetUtcNow();
                 throw;
             }
 
