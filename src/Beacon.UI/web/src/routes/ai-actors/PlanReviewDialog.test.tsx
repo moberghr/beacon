@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { mswServer } from '../../../vitest.setup';
 import { renderWithProviders } from '@/test/render';
 import { AiActorActionType, AiActorPlanStatus } from '@/lib/enums';
@@ -66,7 +66,35 @@ function renderDialog(payload: Record<string, unknown>, onClose = vi.fn()) {
   return onClose;
 }
 
+async function confirmApprove() {
+  const dialogs = await screen.findAllByRole('dialog');
+  fireEvent.click(within(dialogs[dialogs.length - 1]).getByRole('button', { name: 'Approve and run' }));
+}
+
 describe('PlanReviewDialog', () => {
+  it('reads the server state again when a decision is refused, so a plan it already moved is no longer actionable', async () => {
+    let status = AiActorPlanStatus.PendingApproval;
+    let reads = 0;
+    mswServer.use(
+      http.get('*/beacon/api/ai-actors/plans/7', () => {
+        reads++;
+        return HttpResponse.json(plan(status === AiActorPlanStatus.PendingApproval ? {} : { status, mayApprove: false, mayRejectOrRevise: false }));
+      }),
+      http.post('*/beacon/api/ai-actors/plans/7/approve', () => {
+        status = AiActorPlanStatus.Rejected;
+        return HttpResponse.json({ success: false, errorMessage: 'The query is locked.' });
+      }),
+    );
+    renderWithProviders(<PlanReviewDialog open actorId={3} planId={7} onClose={vi.fn()} />);
+
+    fireEvent.click(await screen.findByRole('button', { name: 'Approve and run' }));
+    await confirmApprove();
+
+    await waitFor(() => expect(screen.getByText('This plan was decided')).toBeInTheDocument());
+    expect(reads).toBeGreaterThan(1);
+    expect(screen.queryByRole('button', { name: 'Approve and run' })).not.toBeInTheDocument();
+  });
+
   it("shows each proposed action with its SQL: a refinement's current and proposed SQL, a new query's SQL", async () => {
     renderDialog(plan());
 
@@ -92,6 +120,8 @@ describe('PlanReviewDialog', () => {
 
     fireEvent.change(await screen.findByLabelText('Comment'), { target: { value: 'Looks right' } });
     fireEvent.click(screen.getByRole('button', { name: 'Approve and run' }));
+    expect(body).toBeNull();
+    await confirmApprove();
 
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(body).toEqual({ comment: 'Looks right' });
@@ -106,6 +136,7 @@ describe('PlanReviewDialog', () => {
     const onClose = renderDialog(plan());
 
     fireEvent.click(await screen.findByRole('button', { name: 'Approve and run' }));
+    await confirmApprove();
 
     const { toast } = await import('sonner');
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('The plan expired.'));

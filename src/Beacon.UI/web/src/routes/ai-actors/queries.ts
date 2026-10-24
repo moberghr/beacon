@@ -244,6 +244,8 @@ export function usePendingPlanCount(enabled: boolean) {
     queryFn: async () => unwrap<{ count: number }>(await beaconApi().getPendingPlanCount()).count ?? 0,
     enabled,
     refetchInterval: 60_000,
+    // Only while the tab is visible: a hidden tab does not keep asking.
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -262,14 +264,26 @@ function planDecision<TVars extends { planId: number }>(
   successMsg: string,
   errorFallback: string,
 ) {
-  return createSimpleMutation<TVars, PlanDecisionResult>({
+  // Every plan query (the pending lists, the plan views, the badge's count) and the actor (its pending count, its cycles).
+  const keys = [['ai-actor-plans'], ['ai-actor', actorId]];
+  const options = createSimpleMutation<TVars, PlanDecisionResult>({
     qc,
     mutationFn: async (vars) => decided(await run(vars), errorFallback),
-    // Every plan query (the pending lists, the plan views, the badge's count) and the actor (its pending count, its cycles).
-    invalidate: [['ai-actor-plans'], ['ai-actor', actorId]],
+    invalidate: keys,
     successMsg,
     errorFallback,
   });
+
+  // A refused decision may still have moved the plan on the server (a failed action rejects it): read the server's state again.
+  return {
+    ...options,
+    onError: (...args: Parameters<NonNullable<typeof options.onError>>) => {
+      for (const key of keys) {
+        qc.invalidateQueries({ queryKey: key });
+      }
+      return options.onError?.(...args);
+    },
+  };
 }
 
 /** Approving runs the plan's actions (each re-checked by the server) as the approver. */

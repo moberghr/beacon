@@ -300,13 +300,13 @@ describe('Sidebar', () => {
     mswServer.use(http.get('*/beacon/api/ai-actors/pending-plans/count', () => HttpResponse.json({ count: 2 })));
     const { unmount } = renderWithProviders(<Sidebar />);
 
-    expect(await screen.findByLabelText('2 AI actor plans wait for approval')).toHaveTextContent('2');
+    expect(await screen.findByLabelText('2 AI actor plans pending in the projects you may decide for')).toHaveTextContent('2');
     unmount();
 
     mswServer.use(http.get('*/beacon/api/ai-actors/pending-plans/count', () => HttpResponse.json({ count: 0 })));
     renderWithProviders(<Sidebar />);
     expect(await screen.findByText('AI Actors')).toBeInTheDocument();
-    expect(screen.queryByLabelText(/plans? waits? for approval/)).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/AI actor plans? pending/)).not.toBeInTheDocument();
   });
 
   it('does not ask for the pending plans in gateway mode', async () => {

@@ -143,7 +143,7 @@ export function Sidebar() {
   const pendingPlans = usePendingPlanCount(!access.isLoading && !access.gatewayMode && readsProjectData(access));
   const attention: Record<string, { count: number; label: string } | undefined> = {
     'ai-actors': pendingPlans.data
-      ? { count: pendingPlans.data, label: `${pendingPlans.data} AI actor ${pendingPlans.data === 1 ? 'plan waits' : 'plans wait'} for approval` }
+      ? { count: pendingPlans.data, label: `${pendingPlans.data} AI actor ${pendingPlans.data === 1 ? 'plan' : 'plans'} pending in the projects you may decide for` }
       : undefined,
   };
   const sections = SECTIONS

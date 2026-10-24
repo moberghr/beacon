@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { History, Hourglass, Info } from 'lucide-react';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { Dialog } from '@/components/ui/Dialog';
 import { Banner, Button, Field, Pill, Textarea } from '@/components/beacon';
 import { AiActorPlanStatus } from '@/lib/enums';
@@ -40,11 +41,13 @@ export function PlanReviewDialog({ open, actorId, planId, onClose }: PlanReviewD
   const revise = useRequestPlanRevision(actorId);
   const [comment, setComment] = useState('');
   const [error, setError] = useState<string | null>(null);
+  const [confirmingApprove, setConfirmingApprove] = useState(false);
 
   useEffect(() => {
     if (open) {
       setComment('');
       setError(null);
+      setConfirmingApprove(false);
     }
   }, [open, planId]);
 
@@ -56,6 +59,7 @@ export function PlanReviewDialog({ open, actorId, planId, onClose }: PlanReviewD
 
   const decide = async (decision: Decision) => {
     if (planId == null) return;
+    setConfirmingApprove(false);
     const text = comment.trim();
     if (text.length > MAX_COMMENT) {
       setError(`Max ${MAX_COMMENT} characters`);
@@ -101,7 +105,7 @@ export function PlanReviewDialog({ open, actorId, planId, onClose }: PlanReviewD
             </>
           )}
           {mayApprove && (
-            <Button variant="primary" onClick={() => decide('approve')} disabled={busy}>
+            <Button variant="primary" onClick={() => setConfirmingApprove(true)} disabled={busy}>
               {approve.isPending ? 'Approving…' : 'Approve and run'}
             </Button>
           )}
@@ -181,6 +185,15 @@ export function PlanReviewDialog({ open, actorId, planId, onClose }: PlanReviewD
           )}
         </div>
       )}
+      <ConfirmDialog
+        open={confirmingApprove}
+        title="Approve and run"
+        message="Approving runs the plan's actions now (queries and subscriptions are created or changed, notifications are sent) as you. Each action is checked again before it runs."
+        confirmLabel="Approve and run"
+        busy={approve.isPending}
+        onConfirm={() => decide('approve')}
+        onCancel={() => setConfirmingApprove(false)}
+      />
     </Dialog>
   );
 }
