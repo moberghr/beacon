@@ -6,7 +6,7 @@ namespace Beacon.Core.Data.Entities;
 /// Tracks all manual query executions initiated by users in the UI.
 /// This includes queries run in data source editors and query test/preview operations.
 /// </summary>
-public class ManualQueryExecutionLog : BaseEntity
+public class ManualQueryExecutionLog : BaseEntity, ISealedAuditRow
 {
     /// <summary>
     /// User ID who executed the query (nullable until middleware is implemented)
@@ -48,6 +48,22 @@ public class ManualQueryExecutionLog : BaseEntity
     /// </summary>
     public string? ErrorMessage { get; set; }
 
-    // Navigation properties
+    /// <inheritdoc />
+    public Guid? AuditGuid { get; set; }
+
+    /// <inheritdoc />
+    public int? SealVersion { get; set; }
+
+    /// <inheritdoc />
+    public string? HmacKeyId { get; set; }
+
+    /// <inheritdoc />
+    public string? Hmac { get; set; }
+
+    /// <summary>
+    /// The data source, by <see cref="DataSourceId"/>. The key sets it to null when the data source row is deleted at the
+    /// database (Beacon only archives data sources), which changes the sealed row: the verification then reports it as
+    /// modified.
+    /// </summary>
     public DataSource? DataSource { get; set; }
 }

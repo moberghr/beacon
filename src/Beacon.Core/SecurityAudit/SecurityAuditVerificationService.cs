@@ -23,7 +23,8 @@ namespace Beacon.Core.SecurityAudit;
 /// run writes a checkpoint to the log stream (<see cref="SecurityAuditLogEvents.Checkpoint"/>, 9109: how many it checked,
 /// the checkpoint id and that event's HMAC, the ids passed as never committed), which anchors the trail outside the
 /// database; a run that checked events records them as a system <see cref="SecurityAuditActions.AuditVerified"/> event.
-/// Each run then verifies the MCP audit rows written since its last run (<see cref="IMcpAuditVerificationService"/>).
+/// Each run then verifies the MCP audit rows written since its last run (<see cref="IMcpAuditVerificationService"/>), and
+/// the rows of the other sealed audit tables, the execution log and the settings history (<see cref="IAuditTableVerificationService"/>).
 /// The sample host schedules it hourly as the Warp recurring job <c>security-audit-verify</c>; other hosts schedule it
 /// themselves.
 /// </summary>
@@ -73,6 +74,7 @@ internal sealed class SecurityAuditVerificationService(
     TimeProvider timeProvider,
     ILoggerFactory loggerFactory,
     IMcpAuditVerificationService mcpAuditVerification,
+    IAuditTableVerificationService auditTableVerification,
     IMaintenanceHeartbeat? heartbeat = null) : ISecurityAuditVerificationService
 {
     internal const int BatchSize = 1000;
@@ -103,6 +105,7 @@ internal sealed class SecurityAuditVerificationService(
             var checkpoint = await VerifyAsync(cancellationToken);
             await ReportAsync(checkpoint, cancellationToken);
             await mcpAuditVerification.VerifyNewRowsAsync(cancellationToken);
+            await auditTableVerification.VerifyNewRowsAsync(cancellationToken);
 
             if (heartbeat != null)
             {

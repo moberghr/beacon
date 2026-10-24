@@ -1029,7 +1029,7 @@ Not configurable, on every deployment:
 }
 ```
 
-Beacon logs identifiers and counts, never query text, connection strings, row data or tokens. Security log events are structured log events 7101 to 7123; route them to your log pipeline, together with the `Beacon.Audit` category, which carries the MCP audit events and a copy of every committed [security audit](/security/audit-trail/#shipping-to-a-siem) event (9104 to 9112).
+Beacon logs identifiers and counts, never query text, connection strings, row data or tokens. Security log events are structured log events 7101 to 7123; route them to your log pipeline, together with the `Beacon.Audit` category, which carries the MCP audit events and a copy of every committed [security audit](/security/audit-trail/#shipping-to-a-siem) event (9104 to 9114).
 
 ## Complete example
 

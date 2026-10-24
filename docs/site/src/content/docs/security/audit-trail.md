@@ -198,7 +198,10 @@ checked; the scheduled verification's also with its checkpoint id and the ids it
 `audit.purged` (every retention purge, with the number of events it verified, deleted and left for the next purge;
 `refused`, deleting nothing, when an event it would delete fails verification) and
 `audit.mcp_audit_read` (every read of the [MCP audit](/mcp/observability-and-audit/#reading-the-audit)
-export, with the filters' shape and the page).
+export, with the filters' shape and the page), and, by the system, the verification and sealing start of each sealed
+audit table: `audit.mcp_audit_verified` and `audit.mcp_audit_sealing_started` ([The MCP audit rows](#the-mcp-audit-rows)),
+`audit.execution_log_verified`, `audit.execution_log_sealing_started`, `audit.setting_history_verified` and
+`audit.setting_history_sealing_started` ([The execution log and the settings history](#the-execution-log-and-the-settings-history)).
 
 ## How events are written
 
@@ -411,6 +414,8 @@ to keep a copy Beacon's database cannot change.
 | 9110 | `SecurityAuditPurgeFailed` | Error | The retention purge did not run. | The cutoff, the failure's type and code |
 | 9111 | `McpAuditVerificationFailed` | Error | The scheduled verification found MCP audit rows that fail verification (or an MCP audit checkpoint that does). | The counts by verdict, the first failing row ids |
 | 9112 | `McpAuditCheckpoint` | Information | Each run of the MCP audit verification. | `FromAuditId`, `MaxAuditId`, `Checked`, `Failed`, `Unsealed`, `LastHmac`, `KeyId`, `SealedFromAuditId`, `NeverCommitted`, `WaitingForAuditId` |
+| 9113 | `AuditTableVerificationFailed` | Error | The scheduled verification found execution log or settings history rows that fail verification (or a checkpoint of theirs that does). | `Store`, the counts by verdict, the first failing row ids |
+| 9114 | `AuditTableCheckpoint` | Information | Each run of the verification, once per sealed table. | `Store`, `FromRowId`, `MaxRowId`, `Checked`, `Failed`, `Unsealed`, `LastHmac`, `KeyId`, `SealedFromRowId`, `NeverCommitted`, `WaitingForRowId` |
 
 Match a log-stream copy to its row by `EventGuid`. The copy holds the same identifiers, codes and digests as the row,
 nothing more.
@@ -436,6 +441,9 @@ disagree.
   the table append-only at the database itself, give Beacon's connection a role that may not update or delete
   `SecurityAuditEvents` rows other than through the purge, or add triggers; that is the host's to configure. A chain of
   signatures across events, which would make a deletion visible inside the trail, is not part of this version.
+- **The execution log and the settings history are sealed too**, and verified the same way as the MCP audit rows: see
+  [The execution log and the settings history](#the-execution-log-and-the-settings-history), which also shows the DDL a
+  DBA can apply to make the audit tables append-only at the database.
 - **MCP audit rows are sealed too.** See [The MCP audit rows](#the-mcp-audit-rows): a changed row or statement is found
   by the next scheduled run, and again later by the rolling re-check; a deleted row that was already checked is found by
   the row count, one not yet checked only through the checkpoints and the 9100 copies. Rows written before this version
@@ -487,6 +495,63 @@ A user deleted at the database, outside Beacon, sets `UserId` to null on that us
 `ON DELETE SET NULL`), which changes sealed rows: they are reported as modified. Beacon itself never deletes a user (a
 removed user is archived); remove users through Beacon, or expect those findings.
 
+## The execution log and the settings history
+
+Two more audit tables are sealed the same way as the MCP audit rows, each under a key of its own derived from the
+current integrity key: the execution log (`ManualQueryExecutionLogs`, the statements Beacon ran on a data source for its
+own features) and the settings history (`AppSettingHistory`, one row per changed setting of a save, sensitive values as a
+mask). Each row carries `Hmac`, `HmacKeyId`, `SealVersion` and its own `AuditGuid` (unique in its table); the seal covers
+every field but the database id. A row is sealed as it is saved, and Beacon's data context refuses to change or delete
+one.
+
+The same scheduled verification checks both tables after the MCP audit, by id, with the rolling re-check and the row
+count described above, each from its own checkpoint (`audit.execution_log_verified`, `audit.setting_history_verified`,
+system events in this trail). Rows written before this version are **unsealed**: at or below the row the once-recorded
+`audit.execution_log_sealing_started` / `audit.setting_history_sealing_started` event names, or within a day of that start
+while an upgrade rolls out; any other row without a seal is reported as modified. Failures are logged at Error
+(`Beacon.Audit` 9113, naming the table) and counted on `beacon.security_audit.verification_failures` (tagged with the
+table's verified action); every run writes a checkpoint per table to the log stream (9114). The execution log's retention is
+the data retention job's `execution-log` window (`Beacon:Retention:Targets:execution-log`, else `Beacon:Retention:Days`);
+nothing purges the settings history. A row the purge deletes past that window is never counted, so it never fails the
+verification; a counted row deleted inside it is reported as missing.
+
+The content expiry (`Beacon:Retention:ContentDays`) clears an execution log row's statement text and reduces its error
+to its class in place. A row whose seal verifies is sealed again over what is left, by the same update, which applies
+only while the row still carries the seal that was verified; the cleared row keeps verifying, and a later change to it
+is still found. A row whose seal does not verify is cleared without a new seal, so it keeps failing verification; a row
+without a seal stays unsealed.
+
+Beacon does not migrate its schema at startup. While a table's seal columns are missing, the host logs an Error at
+startup, and rows of that table cannot be written: apply the migration `AddAuditTableSeal` before, or with, the upgrade.
+A data source deleted at the database, outside Beacon, sets `DataSourceId` to null on its execution log rows, which is
+reported as modified; Beacon itself only archives data sources.
+
+### Append-only at the database (for the DBA)
+
+Inside Beacon these tables are append-only; a database account that may write them can still change or delete rows. The
+seals find a change, the row count and the checkpoints a deletion of a row already checked. To refuse both at the
+database itself, give Beacon's connection a role without `UPDATE` and `DELETE` on the audit tables, and grant `DELETE`
+only to the account a retention purge runs under, if any. Beacon ships no such DDL; for example, on PostgreSQL:
+
+```sql
+REVOKE UPDATE, DELETE ON beacon.security_audit_events, beacon.mcp_audit_logs, beacon.mcp_audit_statements,
+    beacon.manual_query_execution_logs, beacon.app_setting_history FROM beacon_app;
+
+CREATE FUNCTION beacon.refuse_audit_change() RETURNS trigger LANGUAGE plpgsql AS $$
+BEGIN
+    RAISE EXCEPTION 'audit rows are append-only';
+END $$;
+
+CREATE TRIGGER app_setting_history_append_only
+    BEFORE UPDATE OR DELETE ON beacon.app_setting_history
+    FOR EACH ROW EXECUTE FUNCTION beacon.refuse_audit_change();
+```
+
+On SQL Server, `DENY UPDATE, DELETE ON [beacon].[AppSettingHistory] TO [beacon_app];` (and the same for the other
+tables) does the same. A trigger that refuses `DELETE` also refuses a retention purge of that table: add it only where
+nothing purges the table, or let it allow the purge's account. Changing data sources and users only through Beacon keeps
+the foreign keys from rewriting sealed rows.
+
 ## Table growth
 
 The trail grows with use and, by default, is never trimmed. Sign-ins and reads of audit data are the most frequent
@@ -533,13 +598,17 @@ lets a deployment pin the MCP audit's content on. See
 - **MCP audit rows are sealed.** The migration `AddMcpAuditSeal` adds `AuditGuid`, `SealVersion`, `HmacKeyId` and `Hmac`
   to `McpAuditLogs` (nullable, no backfill) and a unique index on `AuditGuid`. Rows written before it are reported as
   unsealed. Upgrade every node within a day: past that, a row without a seal is reported as modified.
+- **The execution log and the settings history are sealed.** The migration `AddAuditTableSeal` adds the same four columns
+  to `ManualQueryExecutionLogs` and `AppSettingHistory` (nullable, no backfill) and a unique index on each `AuditGuid`.
+  Rows written before it are reported as unsealed. Apply it with the upgrade: until it is, settings saves and execution
+  log rows fail to write.
 - **Retention needs no action now.** Events are kept forever until you set `Beacon:Audit:RetentionDays` (365 to 36,500
   days). The purge verifies the events it is about to delete first and, while any fails verification, deletes nothing,
   records a refused `audit.purged` event and throws (its job fails): investigate the events it names.
 - **Alert on two counters.** `beacon.security_audit.write_failures` (an event written on its own was not stored, and the
   log stream holds it as 9107 with `Persisted=False`; or a purge did not run, 9110) and
   `beacon.security_audit.verification_failures` (stored events failed verification, 9108). Ship the `Beacon.Audit` events
-  9104 to 9112 to your SIEM; the database stays the source of truth, the 9104 copy is best-effort.
+  9104 to 9114 to your SIEM; the database stays the source of truth, the 9104 copy is best-effort.
 - **Reads of audit data fail closed.** `GET /security-audit`, `POST /security-audit/verify`, `GET /mcp/audit` and
   `GET /users/{id}/owned-resources` are recorded in the trail before they return anything and fail when that record
   cannot be written (so they fail while the database cannot take writes). An identical read by the same actor within 60

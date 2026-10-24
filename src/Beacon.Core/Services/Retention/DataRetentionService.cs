@@ -36,7 +36,8 @@ internal sealed class DataRetentionService(
     IOptions<RetentionOptions> options,
     IContentRetentionPolicy contentRetentionPolicy,
     TimeProvider timeProvider,
-    ILoggerFactory loggerFactory) : IDataRetentionService
+    ILoggerFactory loggerFactory,
+    SecurityAudit.SecurityAuditIntegrity? integrity = null) : IDataRetentionService
 {
     internal const string ContentStep = "content";
 
@@ -182,7 +183,7 @@ internal sealed class DataRetentionService(
         if (settings.ContentDays > 0)
         {
             var cutoff = now.AddDays(-settings.ContentDays);
-            var perStore = await ContentExpiry.ClearAsync(context, cutoff, cancellationToken);
+            var perStore = await ContentExpiry.ClearAsync(context, cutoff, cancellationToken, integrity);
             cleared += perStore.Values.Sum();
             _auditLogger.Log(
                 LogLevel.Information,

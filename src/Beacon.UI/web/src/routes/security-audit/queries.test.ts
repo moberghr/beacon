@@ -81,7 +81,11 @@ describe('the catalogue', () => {
       'audit.mcp_audit_read',
       'audit.mcp_audit_verified',
       'audit.mcp_audit_sealing_started',
+      'audit.execution_log_verified',
+      'audit.execution_log_sealing_started',
+      'audit.setting_history_verified',
+      'audit.setting_history_sealing_started',
     ]));
-    expect(SECURITY_AUDIT_RESOURCE_TYPES).toEqual(expect.arrayContaining(['dashboard', 'glossary_term', 'documentation_section', 'mcp_audit']));
+    expect(SECURITY_AUDIT_RESOURCE_TYPES).toEqual(expect.arrayContaining(['dashboard', 'glossary_term', 'documentation_section', 'mcp_audit', 'execution_log']));
   });
 });

@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore.Query;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Base;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Services.Retention;
 
@@ -13,6 +14,10 @@ namespace Beacon.Core.Services.Retention;
 /// the column is required), and error text becomes its error class, as the write-time lock writes it. Rows are read in
 /// batches of ids past the last batch that still hold content (an error already reduced to its class holds none), so a
 /// cleared row is never read or rewritten again. A cancelled token between two batches ends a store with the count so far.
+/// The execution log is sealed (<see cref="AuditTableSeal"/>): each of its rows is cleared on its own, and a row whose seal
+/// verifies intact is sealed again over what is left of it, in the same statement, which applies only while the row still
+/// carries the seal that was verified. A row whose seal does not verify is cleared without a new seal, so it keeps failing
+/// verification; a row without a seal stays without one.
 /// </summary>
 internal static class ContentExpiry
 {
@@ -26,7 +31,7 @@ internal static class ContentExpiry
     [
         Store(x => x.QueryExecutionHistory),
         Store(x => x.Notifications),
-        Store(x => x.ManualQueryExecutionLogs),
+        SealedStore(x => x.ManualQueryExecutionLogs, AuditTableStores.ExecutionLog),
         Store(x => x.AiActorExecutions),
         Store(x => x.AiActorConversations),
         Store(x => x.MigrationExecutions)
@@ -37,13 +42,21 @@ internal static class ContentExpiry
         .Select(x => x.Entity)
         .ToList();
 
-    /// <summary>Clears every content property of the rows created before <paramref name="cutoff"/>; returns the rows cleared per store.</summary>
-    internal static async Task<IReadOnlyDictionary<string, int>> ClearAsync(BeaconContext context, DateTime cutoff, CancellationToken cancellationToken)
+    /// <summary>
+    /// Clears every content property of the rows created before <paramref name="cutoff"/>; returns the rows cleared per
+    /// store. Sealed rows are sealed again under <paramref name="integrity"/>; without it (no seal to keep) they are cleared
+    /// like any other store's.
+    /// </summary>
+    internal static async Task<IReadOnlyDictionary<string, int>> ClearAsync(
+        BeaconContext context,
+        DateTime cutoff,
+        CancellationToken cancellationToken,
+        SecurityAuditIntegrity? integrity = null)
     {
         var cleared = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var store in Stores)
         {
-            cleared[store.Entity.Name] = await store.Clear(context, cutoff, null, cancellationToken);
+            cleared[store.Entity.Name] = await store.Clear(context, cutoff, integrity, cancellationToken);
         }
 
         return cleared;
@@ -125,6 +138,90 @@ internal static class ContentExpiry
         return cleared;
     }
 
+    // One row at a time: read whole (its seal is verified over every field), cleared in process as the batch update clears
+    // it, sealed again when its seal verified, then written by one update that applies only while the row still carries the
+    // seal it was read with. The text read here never leaves this method.
+    internal static async Task<int> ClearSealedAsync<T>(DbSet<T> set, AuditTableStore<T> store, DateTime cutoff, SecurityAuditIntegrity integrity, CancellationToken cancellationToken)
+        where T : BaseEntity, ISealedAuditRow
+    {
+        var properties = ContentProperties(typeof(T));
+        var cleared = 0;
+        var after = 0;
+        while (!cancellationToken.IsCancellationRequested)
+        {
+            var rows = await Expired(set.AsNoTracking(), cutoff, properties)
+                .Where(x => x.Id > after)
+                .OrderBy(x => x.Id)
+                .Take(RetentionBatches.BatchSize)
+                .ToListAsync(cancellationToken);
+            if (rows.Count == 0)
+            {
+                return cleared;
+            }
+
+            after = rows[^1].Id;
+            foreach (var row in rows)
+            {
+                cleared += await ClearSealedRowAsync(set, store, row, properties, integrity, cancellationToken);
+            }
+
+            if (rows.Count < RetentionBatches.BatchSize)
+            {
+                return cleared;
+            }
+        }
+
+        return cleared;
+    }
+
+    private static async Task<int> ClearSealedRowAsync<T>(
+        DbSet<T> set,
+        AuditTableStore<T> store,
+        T row,
+        IReadOnlyList<string> properties,
+        SecurityAuditIntegrity integrity,
+        CancellationToken cancellationToken)
+        where T : BaseEntity, ISealedAuditRow
+    {
+        var intact = AuditTableSeal.Verify(row, store, integrity) == SecurityAuditVerdicts.Intact;
+        var readHmac = row.Hmac;
+        var values = new Dictionary<string, string?>(StringComparer.Ordinal);
+        foreach (var property in properties)
+        {
+            var info = typeof(T).GetProperty(property)!;
+            var value = IsErrorClass(typeof(T), property)
+                ? McpContentRedactor.ErrorClassOf(info.GetValue(row) as string)
+                : McpRetentionDenyList.IsRequiredString(typeof(T), property) ? string.Empty : null;
+            info.SetValue(row, value);
+            values[property] = value;
+        }
+
+        if (intact)
+        {
+            AuditTableSeal.Seal(row, store, integrity);
+        }
+
+        return await set
+            .Where(x => x.Id == row.Id)
+            .Where(x => EF.Property<string?>(x, nameof(ISealedAuditRow.Hmac)) == readHmac)
+            .ExecuteUpdateAsync(
+                x =>
+                {
+                    foreach (var (property, value) in values)
+                    {
+                        x.SetProperty(y => EF.Property<string?>(y, property), value);
+                    }
+
+                    if (intact)
+                    {
+                        x.SetProperty(y => EF.Property<string?>(y, nameof(ISealedAuditRow.Hmac)), row.Hmac);
+                        x.SetProperty(y => EF.Property<string?>(y, nameof(ISealedAuditRow.HmacKeyId)), row.HmacKeyId);
+                        x.SetProperty(y => EF.Property<int?>(y, nameof(ISealedAuditRow.SealVersion)), row.SealVersion);
+                    }
+                },
+                cancellationToken);
+    }
+
     // The class is computed in process (McpContentRedactor.ErrorClassOf, as the interceptor does), then written with one
     // update per class. The error text read here never leaves this method.
     private static async Task ReplaceWithErrorClassAsync<T>(DbSet<T> set, List<int> ids, string property, CancellationToken cancellationToken)
@@ -201,8 +298,18 @@ internal static class ContentExpiry
     private static ContentStore Store<T>(Func<BeaconContext, DbSet<T>> set)
         where T : BaseEntity
     {
-        return new ContentStore(typeof(T), (context, cutoff, only, cancellationToken) => ClearAsync(set(context), cutoff, only, cancellationToken));
+        return new ContentStore(typeof(T), (context, cutoff, _, cancellationToken) => ClearAsync(set(context), cutoff, null, cancellationToken));
     }
 
-    private sealed record ContentStore(Type Entity, Func<BeaconContext, DateTime, IReadOnlyList<string>?, CancellationToken, Task<int>> Clear);
+    private static ContentStore SealedStore<T>(Func<BeaconContext, DbSet<T>> set, AuditTableStore<T> store)
+        where T : BaseEntity, ISealedAuditRow
+    {
+        return new ContentStore(
+            typeof(T),
+            (context, cutoff, integrity, cancellationToken) => integrity == null
+                ? ClearAsync(set(context), cutoff, null, cancellationToken)
+                : ClearSealedAsync(set(context), store, cutoff, integrity, cancellationToken));
+    }
+
+    private sealed record ContentStore(Type Entity, Func<BeaconContext, DateTime, SecurityAuditIntegrity?, CancellationToken, Task<int>> Clear);
 }

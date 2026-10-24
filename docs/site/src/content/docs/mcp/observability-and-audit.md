@@ -133,7 +133,7 @@ your log sink (CloudWatch, a SIEM) at this category to get the audit trail witho
 | 9102 | `McpAuditPurged` | Information | The retention purge runs with `RetentionDays` set. | Deleted count, cutoff |
 | 9103 | `McpAuditRead` | Information | `GET /beacon/api/mcp/audit` is called. | `RequestedByUserId`, `From`, `To`, `ProjectId`, `HasToolFilter` (bool: the admin-supplied `Tool` filter is free text, so only its presence is logged, never the value), `UserId`, `HasCallerHashFilter` (bool, same reasoning), `Page`, `PageSize`, `ReturnedCount` |
 
-The same category carries the [security audit trail](/security/audit-trail/#shipping-to-a-siem)'s events 9104 to 9112: a copy of every committed security audit event, reads and verifications of the trail, purges, write and verification failures, the checkpoints of its scheduled verification, and the failures (9111) and checkpoints (9112) of the MCP audit rows' verification.
+The same category carries the [security audit trail](/security/audit-trail/#shipping-to-a-siem)'s events 9104 to 9114: a copy of every committed security audit event, reads and verifications of the trail, purges, write and verification failures, the checkpoints of its scheduled verification, and the failures (9111) and checkpoints (9112) of the MCP audit rows' verification.
 
 ### Row data sent to the LLM provider
 

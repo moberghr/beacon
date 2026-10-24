@@ -162,7 +162,8 @@ public class McpAuditVerificationTests
                 Options.Create(new SecurityAuditOptions()),
                 new FakeTimeProvider(Now),
                 NullLoggerFactory.Instance,
-                mcpAudit.Object)
+                mcpAudit.Object,
+                Mock.Of<IAuditTableVerificationService>())
             .VerifyNewEventsAsync(cancellation.Token);
 
         mcpAudit.Verify(x => x.VerifyNewRowsAsync(cancellation.Token), Times.Once);

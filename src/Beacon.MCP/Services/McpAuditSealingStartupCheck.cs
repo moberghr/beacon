@@ -10,8 +10,9 @@ namespace Beacon.MCP.Services;
 
 /// <summary>
 /// Runs the MCP audit seal's startup checks (<see cref="McpAuditSealingStartup"/>: the interceptor that seals, the seal
-/// columns, the sealing-started event, a verification that is not scheduled) once the host has started, off the startup
-/// thread and best effort: a database that cannot be read is logged at Warning and never stops the host.
+/// columns, the sealing-started event, a verification that is not scheduled), then those of the other sealed audit tables
+/// (<see cref="AuditTableSealingStartup"/>: the execution log and the settings history), once the host has started, off the
+/// startup thread and best effort: a database that cannot be read is logged at Warning and never stops the host.
 /// </summary>
 internal sealed class McpAuditSealingStartupCheck : IStartupFilter
 {
@@ -33,12 +34,16 @@ internal sealed class McpAuditSealingStartupCheck : IStartupFilter
         {
             await using var scope = services.CreateAsyncScope();
             var startup = scope.ServiceProvider.GetService<McpAuditSealingStartup>();
-            if (startup == null)
+            if (startup != null)
             {
-                return;
+                await startup.RunAsync(cancellationToken);
             }
 
-            await startup.RunAsync(cancellationToken);
+            var tables = scope.ServiceProvider.GetService<AuditTableSealingStartup>();
+            if (tables != null)
+            {
+                await tables.RunAsync(cancellationToken);
+            }
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
