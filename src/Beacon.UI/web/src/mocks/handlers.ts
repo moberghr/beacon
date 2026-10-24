@@ -363,7 +363,24 @@ const queriesHandlers = [
       pageCount: 1,
     })),
   http.get('/beacon/api/query-folders', () => HttpResponse.json({ folders: [] })),
-  http.get('/beacon/api/query-folders/paged', () => HttpResponse.json(paged([]))),
+  http.get('/beacon/api/query-folders/paged', () =>
+    HttpResponse.json(paged([
+      { id: 1, name: 'Demo Finance', description: 'Mock folder — not real', parentFolderId: null, path: 'Demo Finance', sortOrder: 0, queryCount: 1, childFolderCount: 1 },
+      { id: 2, name: 'Demo Monthly', description: null, parentFolderId: 1, path: 'Demo Finance/Demo Monthly', sortOrder: 0, queryCount: 0, childFolderCount: 0 },
+    ]))),
+  http.post('/beacon/api/query-folders', () => HttpResponse.json({ folderId: 3, path: 'Demo New' }, { status: 201 })),
+  http.put('/beacon/api/query-folders/:id', () => new HttpResponse(null, { status: 204 })),
+  http.delete('/beacon/api/query-folders/:id', () => new HttpResponse(null, { status: 204 })),
+  http.put('/beacon/api/queries/:id/folder', () => new HttpResponse(null, { status: 204 })),
+  http.get('/beacon/api/glossary/paged', ({ request }) =>
+    HttpResponse.json(new URL(request.url).searchParams.has('projectId')
+      ? paged([
+          { id: 1, projectId: 1, dataSourceId: null, term: 'Demo active customer', synonyms: 'demo client', definition: 'Mock definition — not real', targetSchema: null, targetTable: null, targetColumn: null, metricExpression: null, isActive: true, createdTime: '2026-01-01T00:00:00Z' },
+        ])
+      : paged([]))),
+  http.post('/beacon/api/glossary', () => HttpResponse.json({ id: 2 })),
+  http.put('/beacon/api/glossary/:id', () => new HttpResponse(null, { status: 204 })),
+  http.delete('/beacon/api/glossary/:id', () => new HttpResponse(null, { status: 204 })),
   // Detail for the two list fixtures above (QueryDetailsData, returned unwrapped).
   http.get('/beacon/api/queries/:id', ({ params }) => {
     const id = Number(params.id);

@@ -23,6 +23,8 @@ const NewQueryPage = lazyWithRetry(() => import('./routes/queries/NewQueryPage')
 const QueryVersionsPage = lazyWithRetry(() => import('./routes/queries/QueryVersionsPage'));
 const QueryVersionDetailPage = lazyWithRetry(() => import('./routes/queries/QueryVersionDetailPage'));
 const RecipientsListPage = lazyWithRetry(() => import('./routes/recipients/RecipientsListPage'));
+const QueryFoldersPage = lazyWithRetry(() => import('./routes/query-folders/QueryFoldersPage'));
+const GlossaryPage = lazyWithRetry(() => import('./routes/glossary/GlossaryPage'));
 const TasksListPage = lazyWithRetry(() => import('./routes/tasks/TasksListPage'));
 const TaskDetailPage = lazyWithRetry(() => import('./routes/tasks/TaskDetailPage'));
 const ApprovalsListPage = lazyWithRetry(() => import('./routes/approvals/ApprovalsListPage'));
@@ -137,6 +139,8 @@ export default function App() {
                     <Route path="/queries/:id/edit" element={lazyRoute(QueryEditorPage)} />
                     <Route path="/queries/:id/versions" element={lazyRoute(QueryVersionsPage)} />
                     <Route path="/queries/:id/versions/:versionId" element={lazyRoute(QueryVersionDetailPage)} />
+                    <Route path="/query-folders" element={lazyRoute(QueryFoldersPage)} />
+                    <Route path="/glossary" element={lazyRoute(GlossaryPage)} />
                     <Route path="/recipients" element={lazyRoute(RecipientsListPage)} />
                     <Route path="/tasks" element={lazyRoute(TasksListPage)} />
                     <Route path="/tasks/:id" element={lazyRoute(TaskDetailPage)} />
