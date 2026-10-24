@@ -13,15 +13,19 @@ namespace Beacon.Api;
 public static class ServiceConfiguration
 {
     /// <summary>
-    /// The antiforgery header Beacon's React shell sends its token in. <see cref="AddApi"/> sets it on the application's
-    /// antiforgery options, which the host's own antiforgery shares.
+    /// The antiforgery header Beacon's React shell sends its token in, which <see cref="AddApi"/> sets.
     /// </summary>
     public const string AntiforgeryHeaderName = "X-XSRF-TOKEN";
+
+    /// <summary>The antiforgery cookie name <see cref="AddApi"/> sets, kept apart from a default-named host cookie.</summary>
+    public const string AntiforgeryCookieName = ".Beacon.Antiforgery";
 
     /// <summary>
     /// Adds Beacon's REST API for the React shell: its services (<c>AddBeaconApiServices</c>,
     /// configured by <paramref name="configure"/>), its authorization policies (<c>AddBeaconApiAuthorization</c>) and
-    /// antiforgery with the header the shell sends (<see cref="AntiforgeryHeaderName"/>). <c>MapBeacon()</c> maps it.
+    /// antiforgery with the header the shell sends (<see cref="AntiforgeryHeaderName"/>) and Beacon's cookie name
+    /// (<see cref="AntiforgeryCookieName"/>). Both are set on the application's antiforgery options, which the host's own
+    /// antiforgery shares. <c>MapBeacon()</c> maps the API.
     /// </summary>
     public static BeaconBuilder AddApi(this BeaconBuilder builder, Action<BeaconApiOptions>? configure = null)
     {
@@ -29,7 +33,11 @@ public static class ServiceConfiguration
 
         builder.Services.AddBeaconApiServices(configure);
         builder.Services.AddBeaconApiAuthorization();
-        builder.Services.AddAntiforgery(x => x.HeaderName = AntiforgeryHeaderName);
+        builder.Services.AddAntiforgery(x =>
+        {
+            x.HeaderName = AntiforgeryHeaderName;
+            x.Cookie.Name = AntiforgeryCookieName;
+        });
 
         return builder;
     }

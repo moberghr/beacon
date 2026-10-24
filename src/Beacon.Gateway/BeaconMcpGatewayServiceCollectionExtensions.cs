@@ -59,9 +59,9 @@ public static class BeaconMcpGatewayServiceCollectionExtensions
         services.AddSingleton(options);
         var entra = options.EntraConfiguration!;
 
-        // A profile of the host chain (AddBeacon → AddAI → AddApi → AddMcp). Beacon's user store exists (the admin UI
-        // provisions its administrators in it) but holds no password and has no first-run setup: the host owns sign-in.
-        // No scheduler: a gateway has no subscriptions or data sources to schedule.
+        // A profile of the host chain (AddBeacon → AddAI → AddMcp) that keeps AI off. Beacon's user store exists (the
+        // admin UI provisions its administrators in it) but holds no password and has no first-run setup: the host owns
+        // sign-in. No scheduler: a gateway has no subscriptions or data sources to schedule.
         var beacon = services.AddBeacon(configuration, x =>
         {
             x.AddBeaconScheduler<UnavailableBeaconScheduler>();
@@ -95,10 +95,11 @@ public static class BeaconMcpGatewayServiceCollectionExtensions
             }
         });
 
-        // The MCP tools' hard dependency; no LLM provider is configured, the client brings its own model.
-        beacon.AddAI();
+        // The MCP tools' hard dependency; no LLM provider is configured, the client brings its own model. AI stays off: the
+        // evaluation harness and pattern replay keep refusing (the AI-off stand-ins stay).
+        beacon.AddAIKeepingAiOff();
         var admin = options.AdminConfiguration;
-        Action<BeaconApiOptions> api = x =>
+        services.AddBeaconApiServices(x =>
         {
             x.Realtime = false;
             x.GatewayMode = true;
@@ -106,17 +107,14 @@ public static class BeaconMcpGatewayServiceCollectionExtensions
             {
                 x.ExternalLogin = new ExternalLoginOptions { LoginUrl = admin.SignInPath, ReturnUrlParameter = admin.ReturnUrlParameter };
             }
-        };
-        if (admin == null)
+        });
+        if (admin != null)
         {
-            // Beacon's API services only: no REST API is served, and the host's antiforgery stays as the host set it.
-            services.AddBeaconApiServices(api);
-        }
-        else
-        {
-            // Beacon's REST API policies and antiforgery (its shell sends the token in this header), and the identity bridge
-            // that makes a holder of the host's admin policy Beacon's administrator on /beacon.
-            beacon.AddApi(api);
+            // Beacon's REST API policies and antiforgery (its shell sends the token in this header; the cookie keeps the
+            // host's name), and the identity bridge that makes a holder of the host's admin policy Beacon's administrator
+            // on /beacon.
+            services.AddBeaconApiAuthorization();
+            services.AddAntiforgery(x => x.HeaderName = Beacon.Api.ServiceConfiguration.AntiforgeryHeaderName);
             services.AddMemoryCache();
             services.AddScoped<BeaconGatewayAdminDirectory>();
             services.AddScoped<IClaimsTransformation, BeaconGatewayAdminClaimsTransformation>();

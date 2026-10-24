@@ -72,7 +72,7 @@ public static class ServiceConfiguration
     {
         ArgumentNullException.ThrowIfNull(configure);
 
-        return services.AddBeaconCore(configuration, x =>
+        var builder = services.AddBeaconCore(configuration, x =>
         {
             configure(x);
             if (x.UseAI)
@@ -81,6 +81,9 @@ public static class ServiceConfiguration
                     "AddBeacon does not take UseAI = true: call .AddAI() on the builder it returns, which registers Beacon's AI services and switches AI on.");
             }
         });
+        BeaconBuilder.MarkChain(services);
+
+        return builder;
     }
 
     /// <summary>

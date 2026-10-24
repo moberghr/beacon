@@ -30,12 +30,18 @@ public static class ServiceConfiguration
     {
         ArgumentNullException.ThrowIfNull(builder);
 
-        if (!builder.Services.Any(x => x.ServiceType == typeof(LlmConfiguration)))
+        if (!builder.AiAdded || !builder.Services.Any(x => x.ServiceType == typeof(LlmConfiguration)))
         {
             throw new InvalidOperationException("AddMcp() needs Beacon's AI services: call .AddAI() before it.");
         }
 
+        if (builder.Services.Any(x => x.ServiceType == typeof(BeaconMcpOptions)))
+        {
+            throw new InvalidOperationException("Beacon's MCP server is already registered: call .AddMcp() once, and not beside AddBeaconMcp.");
+        }
+
         builder.Services.AddBeaconMcpServices(configure ?? (_ => { }));
+        BeaconBuilder.MarkChain(builder.Services);
 
         return builder;
     }
@@ -50,6 +56,8 @@ public static class ServiceConfiguration
     /// </remarks>
     public static IServiceCollection AddBeaconMcp(this IServiceCollection services)
     {
+        RefuseBesideChain(services);
+
         return services.AddBeaconMcpServices(_ => { });
     }
 
@@ -64,6 +72,8 @@ public static class ServiceConfiguration
     /// </remarks>
     public static IServiceCollection AddBeaconMcp(this IServiceCollection services, Action<BeaconMcpOptions> configure)
     {
+        RefuseBesideChain(services);
+
         return services.AddBeaconMcpServices(configure);
     }
 
@@ -262,4 +272,13 @@ public static class ServiceConfiguration
         services?.GetService<ISavedQueryToolSource>() == null
             ? null
             : services.GetService<SavedQueryToolService>();
+
+    private static void RefuseBesideChain(IServiceCollection services)
+    {
+        if (BeaconBuilder.UsesChain(services))
+        {
+            throw new InvalidOperationException(
+                "This host is wired with the chain (services.AddBeacon(...), .AddAI(), .AddMcp()): add the MCP server with .AddMcp() on its builder, not AddBeaconMcp.");
+        }
+    }
 }

@@ -7,6 +7,7 @@ using Beacon.Gateway;
 using Beacon.MCP;
 using Beacon.Tests.Common;
 using FluentAssertions;
+using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
@@ -15,6 +16,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using NUnit.Framework;
 
 namespace Beacon.Tests.Unit.Hosting;
@@ -165,7 +167,127 @@ public class BeaconHostChainTests
 
         var again = () => builder.AddAI();
 
-        again.Should().Throw<InvalidOperationException>().WithMessage("AI is already on*");
+        again.Should().Throw<InvalidOperationException>().WithMessage("Beacon's AI services are already registered*");
+    }
+
+    [Test]
+    public void AddAI_AfterTheOlderAddBeaconAI_Throws()
+    {
+        var services = new ServiceCollection();
+        var configuration = Configuration();
+        var builder = services.AddBeaconServices(configuration, x => x.AddBeaconScheduler<NoScheduler>());
+        services.AddBeaconAI(configuration);
+
+        var act = () => builder.AddAI();
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("Beacon's AI services are already registered*not beside AddBeaconAI*");
+    }
+
+    [Test]
+    public void OlderAddBeaconAI_AfterAddAI_Throws()
+    {
+        var services = new ServiceCollection();
+        var configuration = Configuration();
+        services.AddBeacon(configuration, x => x.AddBeaconScheduler<NoScheduler>()).AddAI();
+
+        var act = () => services.AddBeaconAI(configuration);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("This host is wired with the chain*add AI with .AddAI()*");
+    }
+
+    [Test]
+    public void OlderAddBeaconAI_OnAHostStartedWithAddBeacon_Throws_InsteadOfLeavingTheStandInsInPlace()
+    {
+        var services = new ServiceCollection();
+        var configuration = Configuration();
+        services.AddBeacon(configuration, x => x.AddBeaconScheduler<NoScheduler>());
+
+        var act = () => services.AddBeaconAI(configuration);
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("This host is wired with the chain*");
+        services.Should().NotContain(x => x.ImplementationType == typeof(McpEvalService), "nothing of AI was registered");
+    }
+
+    [Test]
+    public void AddMcp_AfterTheOlderAddBeaconMcp_Throws()
+    {
+        var services = new ServiceCollection();
+        var builder = services.AddBeaconServices(Configuration(), x => x.AddBeaconScheduler<NoScheduler>());
+        services.AddBeaconMcp();
+        builder.AddAI();
+
+        var act = () => builder.AddMcp();
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("Beacon's MCP server is already registered*not beside AddBeaconMcp*");
+    }
+
+    [Test]
+    public void OlderAddBeaconMcp_AfterAddMcp_Throws()
+    {
+        var services = new ServiceCollection();
+        services.AddBeacon(Configuration(), x => x.AddBeaconScheduler<NoScheduler>()).AddAI().AddMcp();
+
+        var act = () => services.AddBeaconMcp();
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("This host is wired with the chain*with .AddMcp()*");
+    }
+
+    [Test]
+    public void AddMcp_WithAiFromTheOlderAddBeaconAI_Throws()
+    {
+        var services = new ServiceCollection();
+        var configuration = Configuration();
+        var builder = services.AddBeaconServices(configuration, x =>
+        {
+            x.AddBeaconScheduler<NoScheduler>();
+            x.UseAI = true;
+        });
+        services.AddBeaconAI(configuration);
+
+        var act = () => builder.AddMcp();
+
+        act.Should().Throw<InvalidOperationException>().WithMessage("AddMcp() needs Beacon's AI services: call .AddAI() before it.");
+    }
+
+    [Test]
+    public void TheOlderEntryPoints_UsedAlone_StillRegisterAiAndMcp()
+    {
+        var services = new ServiceCollection();
+        var configuration = Configuration();
+
+        services.AddBeaconServices(configuration, x =>
+        {
+            x.AddBeaconScheduler<NoScheduler>();
+            x.UseAI = true;
+        });
+        services.AddBeaconAI(configuration);
+        services.AddBeaconMcp();
+
+        ImplementationOf<IMcpEvalService>(services).Should().Be(typeof(McpEvalService));
+        services.Should().ContainSingle(x => x.ServiceType == typeof(BeaconMcpOptions));
+    }
+
+    [Test]
+    public void AddApi_SetsTheShellsAntiforgeryHeader_AndBeaconsCookieName()
+    {
+        using var app = ChainApp();
+
+        var antiforgery = app.Services.GetRequiredService<IOptions<AntiforgeryOptions>>().Value;
+
+        antiforgery.HeaderName.Should().Be("X-XSRF-TOKEN");
+        antiforgery.Cookie.Name.Should().Be(".Beacon.Antiforgery");
+    }
+
+    [Test]
+    public void MapBeacon_WithoutCookieAuth_MapsNoSignInEndpoints()
+    {
+        using var app = ChainApp(cookieAuth: false);
+
+        app.MapBeacon();
+
+        var routes = Routes(app);
+        routes.Should().ContainKey("/beacon/api/health");
+        routes.Keys.Should().NotContain(x => x.StartsWith("/beacon/api/auth/log", StringComparison.Ordinal), "sign-in issues the cookie this host does not register");
     }
 
     [Test]
@@ -178,13 +300,13 @@ public class BeaconHostChainTests
         act.Should().Throw<InvalidOperationException>().WithMessage("AddMcp() needs Beacon's AI services: call .AddAI() before it.");
     }
 
-    private static WebApplication ChainApp(Action<BeaconConfiguration>? configure = null)
+    private static WebApplication ChainApp(Action<BeaconConfiguration>? configure = null, bool cookieAuth = true)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing" });
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
         builder.Configuration.AddInMemoryCollection(BeaconHostChain.RequiredSettings());
-        BeaconHostChain.Add(builder.Services, builder.Configuration, configure);
+        BeaconHostChain.Add(builder.Services, builder.Configuration, configure, cookieAuth);
 
         return builder.Build();
     }

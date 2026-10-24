@@ -24,18 +24,39 @@ public static class ServiceConfiguration
     /// </summary>
     public static BeaconBuilder AddAI(this BeaconBuilder builder)
     {
+        return builder.AddAIThroughChain(switchAiOn: true);
+    }
+
+    /// <summary>
+    /// The MCP gateway's AI: Beacon's AI services, with AI left off (<see cref="Core.BeaconConfiguration.UseAI"/> false) and
+    /// the AI-off stand-ins kept, so the evaluation harness and pattern replay refuse as they always have on a gateway.
+    /// </summary>
+    internal static BeaconBuilder AddAIKeepingAiOff(this BeaconBuilder builder)
+    {
+        return builder.AddAIThroughChain(switchAiOn: false);
+    }
+
+    internal static BeaconBuilder AddAIThroughChain(this BeaconBuilder builder, bool switchAiOn)
+    {
         ArgumentNullException.ThrowIfNull(builder);
 
         var options = builder.Options
             ?? throw new InvalidOperationException("AddAI() needs the builder services.AddBeacon(...) returns.");
-        if (options.UseAI)
+        if (builder.AiAdded || options.UseAI || builder.Services.Any(x => x.ServiceType == typeof(LlmConfiguration)))
         {
-            throw new InvalidOperationException("AI is already on: call AddAI() once, and do not also set UseAI = true.");
+            throw new InvalidOperationException(
+                "Beacon's AI services are already registered: call .AddAI() once, and not beside AddBeaconAI or UseAI = true.");
         }
 
-        options.UseAI = true;
-        Core.Services.AiDisabled.RemoveStandIns(builder.Services);
+        if (switchAiOn)
+        {
+            options.UseAI = true;
+            Core.Services.AiDisabled.RemoveStandIns(builder.Services);
+        }
+
         builder.Services.AddBeaconAIServices(builder.Configuration);
+        builder.AiAdded = true;
+        BeaconBuilder.MarkChain(builder.Services);
 
         return builder;
     }
@@ -52,6 +73,12 @@ public static class ServiceConfiguration
         this IServiceCollection services,
         IConfiguration configuration)
     {
+        if (BeaconBuilder.UsesChain(services))
+        {
+            throw new InvalidOperationException(
+                "This host is wired with the chain (services.AddBeacon(...), .AddAI(), .AddMcp()): add AI with .AddAI() on its builder, not AddBeaconAI.");
+        }
+
         return services.AddBeaconAIServices(configuration);
     }
 

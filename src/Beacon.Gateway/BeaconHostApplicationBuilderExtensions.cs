@@ -83,8 +83,8 @@ public static class BeaconHostApplicationBuilderExtensions
     }
 
     /// <summary>
-    /// Maps Beacon's endpoints: with <c>.AddApi()</c> the REST API, the sign-in endpoints, the first-run setup endpoints
-    /// (with user management) and the React shell at <c>/beacon</c>; with <c>.AddMcp()</c> the MCP server at
+    /// Maps Beacon's endpoints: with <c>.AddApi()</c> the REST API, the sign-in endpoints (with <c>.AddCookieAuth()</c>), the
+    /// first-run setup endpoints (with user management) and the React shell at <c>/beacon</c>; with <c>.AddMcp()</c> the MCP server at
     /// <c>/beacon/mcp</c> under the Execute-scope policy and the anonymous discovery documents.
     /// </summary>
     public static WebApplication MapBeacon(this WebApplication app)
@@ -98,7 +98,13 @@ public static class BeaconHostApplicationBuilderExtensions
         if (api)
         {
             app.MapBeaconApi();
-            app.MapLoginEndpoints(AuthenticationPathOptions.BeaconPath, configuration);
+
+            // Sign-in issues the Beacon.Auth cookie: mapped only when the cookie scheme is registered (.AddCookieAuth()).
+            if (app.Services.GetService<IServiceProviderIsService>()?.IsService(typeof(IBeaconAuthenticationService)) == true)
+            {
+                app.MapLoginEndpoints(AuthenticationPathOptions.BeaconPath, configuration);
+            }
+
             if (configuration.UserManagement.Enabled)
             {
                 app.MapSetupEndpoints(AuthenticationPathOptions.BeaconPath);

@@ -20,7 +20,11 @@ namespace Beacon.Tests.Common;
 /// </summary>
 internal static class BeaconHostChain
 {
-    public static BeaconBuilder Add(IServiceCollection services, IConfiguration configuration, Action<BeaconConfiguration>? configure = null)
+    public static BeaconBuilder Add(
+        IServiceCollection services,
+        IConfiguration configuration,
+        Action<BeaconConfiguration>? configure = null,
+        bool cookieAuth = true)
     {
         var builder = services
             .AddBeacon(configuration, x =>
@@ -30,8 +34,12 @@ internal static class BeaconHostChain
             })
             .AddAI()
             .AddMcp()
-            .AddApi()
-            .AddCookieAuth<PassThroughClaims>();
+            .AddApi();
+        if (cookieAuth)
+        {
+            builder.AddCookieAuth<PassThroughClaims>();
+        }
+
         builder.UsePostgreSql(NpgsqlDataSource.Create("Host=localhost;Database=unused"));
 
         return builder;
