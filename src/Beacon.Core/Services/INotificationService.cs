@@ -13,12 +13,14 @@ public interface INotificationService
         int? lastExecutedQueryResultCount,
         CancellationToken cancellationToken = default);
 
+    [Obsolete("Use GetNotificationsQuery; removed in 6.0.")]
     Task<PagedList<QueryExecutionHistoryData>> GetQueryExecutionHistory(GetQueryExecutionHistoryRequest request, CancellationToken cancellationToken);
 
     /// <summary>
     /// One run with its stored result rows, or null when it does not exist or is not readable within
     /// <paramref name="scope"/>.
     /// </summary>
+    [Obsolete("Use GetNotificationDetailQuery; removed in 6.0.")]
     Task<NotificationDetailsData?> GetNotificationDetails(
         int queryExecutionHistoryId,
         StoredRunScope scope,

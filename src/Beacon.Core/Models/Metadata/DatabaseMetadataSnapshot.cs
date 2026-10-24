@@ -10,8 +10,8 @@ public record DatabaseMetadataSnapshot(
 )
 {
     /// <summary>
-    /// The table and column names the refresh that read this snapshot left out because they carry a quote, bracket,
-    /// semicolon or control character (logged by name); 0 for a snapshot read from storage.
+    /// The table names, column names and foreign-key targets the refresh that read this snapshot left out because they carry
+    /// a quote, bracket, semicolon or control character (logged by name); 0 for a snapshot read from storage.
     /// </summary>
     public int SkippedNameCount { get; init; }
 }
@@ -47,6 +47,23 @@ public record ColumnMetadataDto(
     string? ForeignKeySchema = null,
     string? ForeignKeyConstraintName = null,
     bool SampleValuesComplete = false
+)
+{
+    /// <summary>
+    /// Every foreign key this column takes part in, in constraint-name order (<see cref="ColumnForeignKeys.InConstraintOrder"/>).
+    /// A column can take part in several, e.g. <c>tenant_id</c> referencing <c>tenants</c> on its own and <c>x</c> together
+    /// with <c>x_id</c>. The single-target fields above carry the first of them. Null when only those fields are known (a
+    /// connector or stored row that does not supply the list): read it through <see cref="ColumnForeignKeys.Of"/>.
+    /// </summary>
+    public IReadOnlyList<ColumnForeignKeyReference>? ForeignKeys { get; init; }
+}
+
+/// <summary>One foreign key a column takes part in: the constraint and the target column this column is paired with.</summary>
+public record ColumnForeignKeyReference(
+    string? ConstraintName,
+    string? TargetSchema,
+    string TargetTable,
+    string TargetColumn
 );
 
 public record IndexMetadataDto(
@@ -87,38 +104,19 @@ public static class ForeignKeyTargetResolver
         string sourceSchema,
         ColumnMetadataDto column)
     {
-        if (string.IsNullOrEmpty(column.ForeignKeyTable))
-        {
-            return null;
-        }
+        return Resolve(tables, sourceSchema, column.ForeignKeyTable, column.ForeignKeySchema);
+    }
 
-        var nameMatches = tables
-            .Where(x => x.TableName.Equals(column.ForeignKeyTable, StringComparison.OrdinalIgnoreCase))
-            .ToList();
-
-        if (nameMatches.Count == 0)
-        {
-            return null;
-        }
-
-        // Extractor supplied the target schema — a qualified match is the only correct answer.
-        if (!string.IsNullOrEmpty(column.ForeignKeySchema))
-        {
-            return nameMatches
-                .Where(x => x.SchemaName.Equals(column.ForeignKeySchema, StringComparison.OrdinalIgnoreCase))
-                .FirstOrDefault();
-        }
-
-        if (nameMatches.Count == 1)
-        {
-            return nameMatches[0];
-        }
-
-        // Unqualified and ambiguous: same-schema is the only defensible assumption. Cross-schema with
-        // several candidates and no qualifier stays unresolved rather than picking whichever sorts first.
-        return nameMatches
-            .Where(x => x.SchemaName.Equals(sourceSchema, StringComparison.OrdinalIgnoreCase))
-            .FirstOrDefault();
+    /// <summary>
+    /// Returns the table <paramref name="foreignKey"/> (one of a column's <see cref="ColumnForeignKeys.Of"/>) points at, under the
+    /// same rules as the column overload.
+    /// </summary>
+    public static TableMetadataDto? Resolve(
+        IReadOnlyList<TableMetadataDto> tables,
+        string sourceSchema,
+        ColumnForeignKeyReference foreignKey)
+    {
+        return Resolve(tables, sourceSchema, foreignKey.TargetTable, foreignKey.TargetSchema);
     }
 
     /// <summary>
@@ -163,5 +161,45 @@ public static class ForeignKeyTargetResolver
         }
 
         return constraints;
+    }
+
+    private static TableMetadataDto? Resolve(
+        IReadOnlyList<TableMetadataDto> tables,
+        string sourceSchema,
+        string? targetTable,
+        string? targetSchema)
+    {
+        if (string.IsNullOrEmpty(targetTable))
+        {
+            return null;
+        }
+
+        var nameMatches = tables
+            .Where(x => x.TableName.Equals(targetTable, StringComparison.OrdinalIgnoreCase))
+            .ToList();
+
+        if (nameMatches.Count == 0)
+        {
+            return null;
+        }
+
+        // Extractor supplied the target schema — a qualified match is the only correct answer.
+        if (!string.IsNullOrEmpty(targetSchema))
+        {
+            return nameMatches
+                .Where(x => x.SchemaName.Equals(targetSchema, StringComparison.OrdinalIgnoreCase))
+                .FirstOrDefault();
+        }
+
+        if (nameMatches.Count == 1)
+        {
+            return nameMatches[0];
+        }
+
+        // Unqualified and ambiguous: same-schema is the only defensible assumption. Cross-schema with
+        // several candidates and no qualifier stays unresolved rather than picking whichever sorts first.
+        return nameMatches
+            .Where(x => x.SchemaName.Equals(sourceSchema, StringComparison.OrdinalIgnoreCase))
+            .FirstOrDefault();
     }
 }

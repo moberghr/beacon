@@ -243,10 +243,10 @@ public class HostEndpointDispatchTests
     {
         var service = ThingsService();
 
-        var result = await service.CallAsync("api_minimal_echo", Args(new { name = "a b/c", count = 2 }), CancellationToken.None);
+        var result = await service.CallAsync("api_minimal_echo", Args(new { name = "a b&c?", count = 2 }), CancellationToken.None);
 
         result.IsError.Should().NotBe(true, Text(result));
-        result.StructuredContent!.Value.GetProperty("name").GetString().Should().Be("a b/c");
+        result.StructuredContent!.Value.GetProperty("name").GetString().Should().Be("a b&c?");
         result.StructuredContent.Value.GetProperty("count").GetInt32().Should().Be(2);
     }
 

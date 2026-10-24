@@ -1,12 +1,15 @@
+using Beacon.Core.Configuration;
 using Beacon.Api.Authentication;
 using Beacon.Api.Endpoints;
 using Beacon.Api.Hubs;
+using Beacon.Api.Security;
 using Beacon.Api.SignalR;
 using Beacon.Core;
 using Beacon.Core.Authorization;
 using Beacon.Core.Services;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 
 namespace Beacon.Api;
 
@@ -86,12 +89,46 @@ public static class ServiceConfiguration
         // Login throttle ships with Beacon.Api so every host gets it, realtime on or off.
         services.TryAddSingleton<LoginRateLimiter>();
 
+        // Security headers and the Host/Origin check (UseBeaconAuthentication): Beacon:Security, unreadable origins refused at startup.
+        services.AddOptions<BeaconHostSecurityOptions>()
+            .BindConfiguration(BeaconHostSecurityOptions.SectionName)
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<BeaconHostSecurityOptions>, BeaconHostSecurityOptionsValidator>());
+
+        // The per-caller limits of /beacon/api and of the anonymous requests Beacon refuses (Beacon:RateLimits).
+        services.TryAddSingleton<BeaconApiRateLimiter>();
+        // The embed routes' own per-minute limits (used only while embedding is on).
+        services.TryAddSingleton<Beacon.Core.Services.Embed.EmbedAuditLimiter>();
+        services.TryAddSingleton<EmbedRateLimiter>();
+
         if (!options.Realtime)
         {
             services.TryAddScoped<IApprovalNotifier, RealtimeDisabledApprovalNotifier>();
 
             return services;
         }
+
+        // Hub bounds from Beacon:RequestLimits, registered before the host's ConfigureSignalR hook so a host's own
+        // AddHubOptions (applied later) wins.
+        services.AddOptions<HubOptions>()
+            .Configure<IOptions<RequestLimitsOptions>>((hub, limits) =>
+            {
+                var value = limits.Value;
+                if (value.HubMaxReceiveMessageBytes > 0)
+                {
+                    hub.MaximumReceiveMessageSize = value.HubMaxReceiveMessageBytes;
+                }
+
+                if (value.HubMaxParallelInvocationsPerClient > 0)
+                {
+                    hub.MaximumParallelInvocationsPerClient = value.HubMaxParallelInvocationsPerClient;
+                }
+
+                if (value.HubClientTimeoutSeconds > 0)
+                {
+                    hub.ClientTimeoutInterval = TimeSpan.FromSeconds(value.HubClientTimeoutSeconds);
+                }
+            });
 
         var signalR = services.AddSignalR();
         options.ConfigureSignalR?.Invoke(signalR);

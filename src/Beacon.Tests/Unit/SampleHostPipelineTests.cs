@@ -167,11 +167,11 @@ public class SampleHostPipelineTests(SampleHostPipelineTests.HostWiring wiring)
     }
 
     [Test]
-    public async Task SampleAdditionalPaths_AreTheWarpDashboardOnly()
+    public async Task SampleAdditionalPaths_AreTheWarpDashboardAndTheOpenApiDocument()
     {
         await using var host = await PipelineHost.StartAsync(_wiring);
 
-        host.AdditionalPaths.Should().Equal("/warp");
+        host.AdditionalPaths.Should().Equal("/warp", "/openapi");
     }
 
     [TestCase("/.well-known/oauth-protected-resource")]

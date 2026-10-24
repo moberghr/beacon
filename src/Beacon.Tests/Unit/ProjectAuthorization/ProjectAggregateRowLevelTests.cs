@@ -156,6 +156,31 @@ public class ProjectAggregateRowLevelTests
     }
 
     [Test]
+    public async Task DataQualityOverviewPage_IsTheReadableSourcesScoresAndContracts_PagedBySource()
+    {
+        var all = await AnswerAsync<PagedList<DataQualityOverviewData>>(new ListDataQualityOverviewQuery());
+        var second = await AnswerAsync<PagedList<DataQualityOverviewData>>(new ListDataQualityOverviewQuery { Page = 1, PageSize = 2 });
+
+        all.Items.Select(x => x.DataSourceId).Should().BeEquivalentTo([10, 30, 60]);
+        all.TotalCount.Should().Be(3);
+        all.Items.Sum(x => x.TotalTables).Should().Be(3);
+        all.Items.Single(x => x.DataSourceId == 30).ActiveContracts.Should().Be(1, "project 3 is read through the Viewer role");
+        all.Items.ToDictionary(x => x.DataSourceId, x => x.OwnerNotAuthorizedContracts).Should().Equal(new Dictionary<int, int> { [10] = 1, [30] = 1, [60] = 0 });
+        second.TotalCount.Should().Be(3);
+        second.PageCount.Should().Be(2);
+        second.Items.Should().ContainSingle("page 2 of 2-row pages over three readable sources");
+    }
+
+    [Test]
+    public async Task FoldersPage_CountsOnlyTheReadableQueries()
+    {
+        var page = await AnswerAsync<PagedList<QueryFolderData>>(new ListQueryFoldersQuery());
+
+        page.TotalCount.Should().Be(page.Items.Count);
+        page.Items.Select(x => (x.Id, x.QueryCount)).Should().BeEquivalentTo([(1, 1), (2, 1)]);
+    }
+
+    [Test]
     public async Task ControlTowerStatistics_CountTheReadableContractsWhoseScheduledEvaluationWasSkipped()
     {
         var answer = await AnswerAsync<GetControlTowerStatisticsResult>(new GetControlTowerStatisticsQuery());
