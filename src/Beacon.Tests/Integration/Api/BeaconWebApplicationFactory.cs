@@ -21,6 +21,9 @@ public sealed class BeaconWebApplicationFactory : WebApplicationFactory<Program>
     {
         builder.UseEnvironment("Testing");
 
+        // The contract tests read the document anonymously; outside Development it is otherwise gated.
+        builder.UseSetting("Beacon:OpenApi:Anonymous", "true");
+
         // UseSetting (not ConfigureAppConfiguration) — with minimal hosting the app's own
         // appsettings.json loads after factory-added configuration sources and would win;
         // UseSetting values are applied on top of the app's configuration.

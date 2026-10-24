@@ -7,7 +7,9 @@ using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Protocols.OpenIdConnect;
+using Beacon.Api.Security;
 using Beacon.Api.SignalR;
 using Beacon.Core;
 using Beacon.Core.Authentication;
@@ -22,6 +24,9 @@ namespace Beacon.Api.Authentication;
 /// </summary>
 public static class AuthServiceExtensions
 {
+    private const string SecurityHeadersAddedKey = "Beacon.SecurityHeadersAdded";
+    private const string OriginGuardAddedKey = "Beacon.OriginGuardAdded";
+
     // A problem body without the members it does not carry (a plain refusal has no detail).
     private static readonly System.Text.Json.JsonSerializerOptions ProblemJson = new()
     {
@@ -81,6 +86,13 @@ public static class AuthServiceExtensions
                 {
                     if (IsApiRequest(context))
                     {
+                        // An anonymous request to a Beacon route is counted against its address's limit of refused
+                        // anonymous requests (Beacon:RateLimits:Anonymous): over it, 429 instead of the 401.
+                        if (!AnonymousRefusalThrottle.TryAdmit(context.HttpContext, out var retryAfter))
+                        {
+                            return RateLimitRefusal.WriteAsync(context.HttpContext, retryAfter);
+                        }
+
                         return WriteJsonStatusAsync(context, StatusCodes.Status401Unauthorized, "Unauthorized");
                     }
 
@@ -98,6 +110,11 @@ public static class AuthServiceExtensions
                     return Task.CompletedTask;
                 };
             });
+
+        // Opt-in stricter cookie: Beacon:Authentication:Cookie:SecureAlways issues the session cookie with the Secure flag
+        // whatever the request's scheme (the default stays SameAsRequest). Plain-HTTP listeners outside Development are warned about.
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IConfigureOptions<CookieAuthenticationOptions>, BeaconCookieSecurePolicyConfigurator>());
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, CookieTransportStartupWarning>());
 
         // Data Protection, which protects the session cookie, is the host's: Beacon sets no application name and no key
         // storage here (AddBeaconDataProtection is Beacon's default, for a host that asks for it). Outside Development the
@@ -236,18 +253,61 @@ public static class AuthServiceExtensions
 
     /// <summary>
     /// Beacon's authentication in the order it needs (§1.9): API keys, bearer JWTs (when enabled), the host's
-    /// <c>UseAuthentication</c>, then the <c>Beacon.Auth</c> cookie. Call it in place of <c>UseAuthentication</c>, before
-    /// <c>UseAuthorization</c>. The Beacon middlewares act on <c>/beacon</c> and <c>Beacon:Authentication:AdditionalPaths</c>
-    /// only (<see cref="BeaconRequestPaths"/>); every other route keeps the host's own authentication.
+    /// <c>UseAuthentication</c>, then the <c>Beacon.Auth</c> cookie, followed by the Host and Origin check
+    /// (<c>Beacon:Security</c>). Before them come the security response headers, unless the host added them earlier with
+    /// <c>UseBeaconSecurityHeaders</c>. Call it in place of <c>UseAuthentication</c>, before <c>UseAuthorization</c>. The
+    /// Beacon middlewares act on <c>/beacon</c> and <c>Beacon:Authentication:AdditionalPaths</c> only
+    /// (<see cref="BeaconRequestPaths"/>); every other route keeps the host's own authentication.
     /// </summary>
     public static IApplicationBuilder UseBeaconAuthentication(this IApplicationBuilder app)
     {
+        app.UseBeaconSecurityHeaders();
+        app.UseMiddleware<BeaconRequestLimitsMiddleware>();
         app.UseMiddleware<ApiKeyAuthMiddleware>();
         app.UseBeaconJwtBearerAuthentication();
         app.UseAuthentication();
         app.UseMiddleware<BeaconCookieAuthMiddleware>();
 
+        // After authentication: a remote sign-in callback (an OIDC form post from the identity provider) is answered by
+        // UseAuthentication and never reaches the check.
+        app.UseBeaconOriginGuard();
+
         return app;
+    }
+
+    /// <summary>
+    /// The security response headers on Beacon's routes (<c>Beacon:Security</c>, <see cref="BeaconHostSecurityOptions"/>).
+    /// <see cref="UseBeaconAuthentication"/> adds them when the host has not; call this earlier, before <c>UseStaticFiles</c>,
+    /// for the SPA's static files to carry them too. Added once, however often it is called.
+    /// </summary>
+    public static IApplicationBuilder UseBeaconSecurityHeaders(this IApplicationBuilder app)
+    {
+        if (app.Properties.ContainsKey(SecurityHeadersAddedKey))
+        {
+            return app;
+        }
+
+        app.Properties[SecurityHeadersAddedKey] = true;
+
+        return app.UseMiddleware<SecurityHeadersMiddleware>();
+    }
+
+    /// <summary>
+    /// The Host and Origin check on Beacon's routes (<c>Beacon:Security</c>, <see cref="BeaconHostSecurityOptions"/>).
+    /// <see cref="UseBeaconAuthentication"/> adds it after authentication; a host that does not use that (the MCP gateway)
+    /// adds it with this. An OpenID Connect callback, sign-out callback or remote sign-out path is never refused, wherever
+    /// the check sits. Added once, however often it is called.
+    /// </summary>
+    public static IApplicationBuilder UseBeaconOriginGuard(this IApplicationBuilder app)
+    {
+        if (app.Properties.ContainsKey(OriginGuardAddedKey))
+        {
+            return app;
+        }
+
+        app.Properties[OriginGuardAddedKey] = true;
+
+        return app.UseMiddleware<OriginGuardMiddleware>();
     }
 
     private static bool IsApiRequest(Microsoft.AspNetCore.Authentication.RedirectContext<Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationOptions> context)
