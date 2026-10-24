@@ -193,23 +193,27 @@ internal static class ToolHelper
         Success(text, null);
 
     /// <summary>
-    /// Cuts <paramref name="text"/> to at most <paramref name="maxBytes"/> UTF-8 bytes (notice included) on a character
-    /// boundary, appending a note that it was cut; text within the budget is returned as is.
+    /// Cuts <paramref name="text"/> to at most <paramref name="maxBytes"/> bytes (notice included) on a character
+    /// boundary, appending a note that it was cut; text within the budget is returned as is. Bytes are counted as the
+    /// JSON string the SDK sends, by an upper bound (every character that may be escaped counts as its longest escape),
+    /// so the wire text never exceeds the budget. A budget too small for the notice returns a cut without it.
     /// </summary>
     public static string WithinByteBudget(string text, int maxBytes)
     {
-        if (Encoding.UTF8.GetByteCount(text) <= maxBytes)
+        if (EscapedSize(text) <= maxBytes)
         {
             return text;
         }
 
         const string notice = "\n\n_Truncated: the response reached the result size limit._\n";
-        var budget = Math.Max(0, maxBytes - Encoding.UTF8.GetByteCount(notice));
+        var noticeBytes = EscapedSize(notice);
+        var suffix = noticeBytes <= maxBytes ? notice : string.Empty;
+        var budget = Math.Max(0, maxBytes - (suffix.Length == 0 ? 0 : noticeBytes));
         var length = 0;
         var bytes = 0;
         foreach (var rune in text.EnumerateRunes())
         {
-            var runeBytes = rune.Utf8SequenceLength;
+            var runeBytes = EscapedSize(rune);
             if (bytes + runeBytes > budget)
             {
                 break;
@@ -219,7 +223,30 @@ internal static class ToolHelper
             length += rune.Utf16SequenceLength;
         }
 
-        return text[..length] + notice;
+        return text[..length] + suffix;
+    }
+
+    private static int EscapedSize(string text)
+    {
+        var total = 0;
+        foreach (var rune in text.EnumerateRunes())
+        {
+            total += EscapedSize(rune);
+        }
+
+        return total;
+    }
+
+    // Upper bound of a rune's size in a JSON string: printable ASCII is itself, except the characters an encoder may
+    // write as \u00XX (6); control characters take 6; anything else may be written as \uXXXX per UTF-16 unit (6 or 12).
+    private static int EscapedSize(Rune rune)
+    {
+        if (rune.Value < 0x80)
+        {
+            return rune.Value < 0x20 || rune.Value == 0x7F || "\"\\<>&'+`".Contains((char)rune.Value) ? 6 : 1;
+        }
+
+        return rune.Utf16SequenceLength * 6;
     }
 
     // SDK 2.2's CallToolResult.StructuredContent is a JsonElement?, so the JsonNode payload the
