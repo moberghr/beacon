@@ -13,6 +13,8 @@ using Moq;
 using NUnit.Framework;
 using Beacon.Core.SecurityAudit;
 
+using Beacon.Core.Services.Metadata;
+
 namespace Beacon.Tests.Unit.Grounding;
 
 /// <summary>
@@ -85,6 +87,21 @@ public class DocumentationCurationEffectTests
         store.Status.Description.Should().Be("Where the order is in fulfilment.");
         patch.Should().BeEquivalentTo(new { Status = McpDocPatchStatus.Applied, AppliedByUserId = (int?)CuratorUserId }, x => x.ExcludingMissingMembers());
         patch.AppliedAt.Should().BeOnOrAfter(before);
+    }
+
+    // A description is part of the stored catalog the ask path caches: applying one drops the source's snapshots.
+    [TestCase(McpDocPatchTarget.ColumnDescription, "public.orders.status")]
+    [TestCase(McpDocPatchTarget.TableDescription, "public.orders")]
+    public async Task ApplyingADescriptionPatch_InvalidatesTheCatalogSnapshotsOfItsDataSource(McpDocPatchTarget target, string identifier)
+    {
+        var store = new Store();
+        store.Add(Patch(31, target, identifier, "Curated text."));
+        var snapshots = new Mock<ICatalogSnapshotCache>();
+
+        await new ApplyDocumentationPatchHandler(store.Factory, new RecordingSecurityAudit(), snapshots.Object)
+            .Handle(new ApplyDocumentationPatchCommand { PatchId = 31, AppliedByUserId = CuratorUserId }, CancellationToken.None);
+
+        snapshots.Verify(x => x.Invalidate(DataSourceId), Times.Once);
     }
 
     [Test]

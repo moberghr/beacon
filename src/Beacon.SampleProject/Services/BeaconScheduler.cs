@@ -41,16 +41,17 @@ public sealed class BeaconScheduler(
 
     public async Task<string> EnqueueProjectDocumentation(int projectId, int userId, string? notifyUserId)
     {
-        var jobParameters = new JobParameters();
+        var jobId = await publisher.Enqueue(
+            new GenerateProjectDocumentationJob { ProjectId = projectId, UserId = userId },
+            NotifyingParameters(notifyUserId));
+        await publisher.SaveChangesAsync();
 
-        // Tag the job with the enqueueing user so JobStatusChangedBehavior publishes
-        // JobStatusChanged events to /beacon/api/hub for that user only (PII guard, §1.11).
-        if (!string.IsNullOrWhiteSpace(notifyUserId))
-        {
-            jobParameters.Metadata = new Dictionary<string, object> { ["BeaconUserId"] = notifyUserId };
-        }
+        return jobId.ToString();
+    }
 
-        var jobId = await publisher.Enqueue(new GenerateProjectDocumentationJob { ProjectId = projectId, UserId = userId }, jobParameters);
+    public async Task<string?> EnqueueBackgroundTask(int taskId, string? notifyUserId)
+    {
+        var jobId = await publisher.Enqueue(new RunBackgroundTaskJob { TaskId = taskId }, NotifyingParameters(notifyUserId));
         await publisher.SaveChangesAsync();
 
         return jobId.ToString();
@@ -78,6 +79,19 @@ public sealed class BeaconScheduler(
         await publisher.SaveChangesAsync();
 
         return jobId.ToString();
+    }
+
+    // Tags the job with the enqueueing user so JobStatusChangedBehavior publishes JobStatusChanged events to
+    // /beacon/api/hub for that user only (PII guard, §1.11).
+    private static JobParameters NotifyingParameters(string? notifyUserId)
+    {
+        var jobParameters = new JobParameters();
+        if (!string.IsNullOrWhiteSpace(notifyUserId))
+        {
+            jobParameters.Metadata = new Dictionary<string, object> { ["BeaconUserId"] = notifyUserId };
+        }
+
+        return jobParameters;
     }
 
     private async Task RemoveRecurringJobByName(string name)

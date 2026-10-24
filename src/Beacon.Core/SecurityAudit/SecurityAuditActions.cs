@@ -114,6 +114,7 @@ public static class SecurityAuditActions
     public const string SsoSignedIn = "auth.sso_signed_in";
     public const string SsoRefused = "auth.sso_refused";
     public const string SetupTokenRefused = "auth.setup_token_refused";
+    public const string UserLockedOut = "auth.user_locked_out";
 
     // Identity
     public const string SuperAdminCreated = "identity.super_admin_created";
@@ -144,6 +145,7 @@ public static class SecurityAuditActions
     public const string DataSourceUnlinked = "access.data_source_unlinked";
     public const string RepositoryTokenChanged = "access.repository_token_changed";
     public const string RepositoryScanRequested = "access.repository_scan_requested";
+    public const string RepositoryScanRan = "access.repository_scan_ran";
 
     // Data sources
     public const string DataSourceCreated = "data_sources.data_source_created";
@@ -188,6 +190,8 @@ public static class SecurityAuditActions
     public const string AiPlanRejected = "approvals.ai_plan_rejected";
     public const string AiPlanRevisionRequested = "approvals.ai_plan_revision_requested";
     public const string AiActorCreated = "approvals.ai_actor_created";
+    public const string AiActorThinkStarted = "approvals.ai_actor_think_started";
+    public const string AiActorArchived = "approvals.ai_actor_archived";
 
     // Ownership
     public const string OwnerChanged = "ownership.owner_changed";
@@ -214,6 +218,7 @@ public static class SecurityAuditActions
     public const string GlossaryTermUpdated = "curation.glossary_term_updated";
     public const string GlossaryTermDeleted = "curation.glossary_term_deleted";
     public const string DocumentationSectionEdited = "curation.documentation_section_edited";
+    public const string DocumentationGenerationStarted = "curation.documentation_generation_started";
 
     // Data quality
     public const string ContractCreated = "data_quality.contract_created";
@@ -224,6 +229,7 @@ public static class SecurityAuditActions
     // Data migrations
     public const string MigrationJobCreated = "migrations.job_created";
     public const string MigrationJobDeleted = "migrations.job_deleted";
+    public const string MigrationJobRunRequested = "migrations.job_run_requested";
     public const string MigrationJobStarted = "migrations.job_started";
     public const string MigrationJobRunEnded = "migrations.job_run_ended";
 
