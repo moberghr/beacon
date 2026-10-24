@@ -32,7 +32,7 @@ internal sealed class GetAiActorDetailsHandler : IRequestHandler<GetAiActorDetai
 
         var queries = await _aiActorService.GetActorQueriesAsync(request.ActorId, cancellationToken);
         var subscriptions = await _aiActorService.GetActorSubscriptionsAsync(request.ActorId, cancellationToken);
-        var executions = await _aiActorService.GetExecutionHistoryAsync(request.ActorId, request.ExecutionHistoryLimit, cancellationToken);
+        var executions = await _aiActorService.GetExecutionHistoryAsync(request.ActorId, Math.Clamp(request.ExecutionHistoryLimit ?? 10, 1, InputLimits.MaxListTake), cancellationToken);
         var pendingPlans = await _aiActorService.GetPendingPlansAsync(request.ActorId, cancellationToken);
         var ownerDisplayName = actor.CreatedByUserId == null
             ? null

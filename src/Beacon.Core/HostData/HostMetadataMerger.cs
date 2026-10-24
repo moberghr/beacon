@@ -102,6 +102,7 @@ internal static class HostMetadataMerger
             existing.ForeignKeyColumn = column.ForeignKeyColumn;
             existing.ForeignKeySchema = column.ForeignKeySchema;
             existing.ForeignKeyConstraintName = column.ForeignKeyConstraintName;
+            existing.ForeignKeys = ColumnForeignKeys.Serialize(column.ForeignKeys);
             existing.MaxLength = column.MaxLength;
             existing.Description = column.Description ?? existing.Description;
         }
@@ -151,6 +152,7 @@ internal static class HostMetadataMerger
             ForeignKeyColumn = column.ForeignKeyColumn,
             ForeignKeySchema = column.ForeignKeySchema,
             ForeignKeyConstraintName = column.ForeignKeyConstraintName,
+            ForeignKeys = ColumnForeignKeys.Serialize(column.ForeignKeys),
             MaxLength = column.MaxLength,
             Description = column.Description
         };

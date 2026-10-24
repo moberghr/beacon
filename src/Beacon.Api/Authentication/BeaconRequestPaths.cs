@@ -9,12 +9,19 @@ namespace Beacon.Api.Authentication;
 /// cookie middlewares and the login and first-run redirects pass every other request on untouched, and the cookie
 /// scheme's own events (<see cref="BeaconSessionEvents"/>) refuse the <c>Beacon.Auth</c> session there, also when the
 /// host's <c>UseAuthentication</c> or policies authenticate with the cookie scheme: a Beacon credential never
-/// authenticates a host route.
+/// authenticates a host route. The anonymous embed routes are not Beacon requests while embedding is on
+/// (<see cref="BeaconEmbedPaths"/>): no Beacon credential but an embed one authenticates them.
 /// </summary>
 public static class BeaconRequestPaths
 {
     public static bool IsBeaconRequest(HttpContext context)
     {
+        // The anonymous embed routes, while embedding is on, are the embed middleware's alone (BeaconEmbedPaths).
+        if (BeaconEmbedPaths.IsEmbedRequest(context))
+        {
+            return false;
+        }
+
         var path = context.Request.Path;
         if (path.StartsWithSegments(AuthenticationPathOptions.BeaconPath, StringComparison.OrdinalIgnoreCase))
         {

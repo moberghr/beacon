@@ -26,13 +26,11 @@ public class CloudWatchProvider(
 
     public string GetQueryLanguageName() => "CloudWatch Logs Insights";
 
-    public async Task<ConnectionTestResult> TestConnectionAsync(
+    public Task<ConnectionTestResult> TestConnectionAsync(
         DataSourceEntity dataSource,
         CancellationToken cancellationToken = default)
     {
-        var stopwatch = Stopwatch.StartNew();
-
-        try
+        return ConnectorProviderSupport.TestConnectionAsync(logger, dataSource, "CloudWatch", async () =>
         {
             var config = ParseConfiguration(dataSource);
             using var client = CreateCloudWatchLogsClient(config);
@@ -41,34 +39,14 @@ public class CloudWatchProvider(
             var request = new DescribeLogGroupsRequest { Limit = 1 };
             var response = await client.DescribeLogGroupsAsync(request, cancellationToken);
 
-            stopwatch.Stop();
-
-            return new ConnectionTestResult
+            return new Dictionary<string, object?>
             {
-                Success = true,
-                TestDurationMs = stopwatch.Elapsed.TotalMilliseconds,
-                ConnectionInfo = new Dictionary<string, object?>
-                {
-                    ["Region"] = config.Region,
-                    ["LogGroupCount"] = config.LogGroups.Count,
-                    ["ConfiguredLogGroups"] = string.Join(", ", config.LogGroups),
-                    ["AvailableLogGroups"] = response.LogGroups.Count
-                }
+                ["Region"] = config.Region,
+                ["LogGroupCount"] = config.LogGroups.Count,
+                ["ConfiguredLogGroups"] = string.Join(", ", config.LogGroups),
+                ["AvailableLogGroups"] = response.LogGroups.Count
             };
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Connection test failed for CloudWatch data source {DataSourceId}", dataSource.Id);
-
-            stopwatch.Stop();
-
-            return new ConnectionTestResult
-            {
-                Success = false,
-                ErrorMessage = ConnectionFailureDescriber.Describe(ex),
-                TestDurationMs = stopwatch.Elapsed.TotalMilliseconds
-            };
-        }
+        });
     }
 
     public async Task<ProviderQueryResult> ExecuteQueryAsync(
@@ -234,13 +212,7 @@ public class CloudWatchProvider(
                 }
             }
 
-            return Task.FromResult(new QueryValidationResult
-            {
-                IsValid = !errors.Any(),
-                Errors = errors,
-                Warnings = warnings,
-                Suggestions = suggestions
-            });
+            return ConnectorProviderSupport.ValidationVerdict(errors, warnings, suggestions);
         }
         catch (Exception ex)
         {
@@ -408,18 +380,10 @@ public class CloudWatchProvider(
 
     private CloudWatchConfiguration ParseConfiguration(DataSourceEntity dataSource)
     {
-        try
-        {
-            var decryptedJson = connectionResolver.GetConnectionData(dataSource);
-            var config = JsonSerializer.Deserialize<CloudWatchConfiguration>(decryptedJson)
-                ?? throw new BeaconException("Failed to parse CloudWatch configuration");
-
-            return config;
-        }
-        catch (JsonException ex)
-        {
-            throw new BeaconException($"Invalid CloudWatch configuration JSON: {ex.Message}", ex);
-        }
+        return ConnectorProviderSupport.ParseConfiguration<CloudWatchConfiguration>(
+            connectionResolver.GetConnectionData(dataSource),
+            "Failed to parse CloudWatch configuration",
+            "Invalid CloudWatch configuration JSON: ");
     }
 
     private AmazonCloudWatchLogsClient CreateCloudWatchLogsClient(CloudWatchConfiguration config)
