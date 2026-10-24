@@ -322,7 +322,7 @@ public class ApprovalWorkflowStartupNoteTests
     public void TheConnectionKindsCovered_AreNamedWithWhatTheWorkflowHolds()
     {
         using var recorder = new LogRecorder();
-        var workflow = new ApprovalWorkflowOptions { Enabled = true, CoversDataSourceConnections = true, CoversLlmConnection = true };
+        var workflow = new ApprovalWorkflowOptions { Enabled = true, CoversDataSourceConnections = true, CoversLlmConnection = true, CoversAdminRoleGrants = true };
 
         ApprovalWorkflowStartupNote.Note(recorder.For<ApprovalWorkflowStartupNote>(), workflow, isDevelopment: false);
 
@@ -363,6 +363,66 @@ public class ApprovalWorkflowStartupNoteTests
         }
 
         uncovered.Entries.Should().NotContain(x => x.Message.Contains("are Admins", StringComparison.Ordinal));
+    }
+
+    // Grants of the Admin role are off by default: covered, they are named, and never self-approved.
+    [Test]
+    public void TheAdminRoleGrantsCovered_AreNamedWithWhatTheWorkflowHolds()
+    {
+        using var recorder = new LogRecorder();
+        var workflow = new ApprovalWorkflowOptions { Enabled = true, CoversAdminRoleGrants = true };
+
+        ApprovalWorkflowStartupNote.Note(recorder.For<ApprovalWorkflowStartupNote>(), workflow, isDevelopment: false);
+
+        recorder.Entries[1].Message.Should().Contain("grants of the Admin role (not applied until another live Admin approves them, whatever self-approval allows)");
+        recorder.Entries[2].Message.Should().NotContain("CoversAdminRoleGrants");
+    }
+
+    // Only a live Admin other than the requester approves a grant of the Admin role, whatever self-approval allows: fewer
+    // than two Admins leave every grant undecidable, and the note says so; Approvers who are no Admin do not count.
+    [TestCase(1, false, true)]
+    [TestCase(1, true, true)]
+    [TestCase(2, true, false)]
+    public async Task TooFewAdmins_WhileAdminRoleGrantsAreReviewed_IsAWarning(int admins, bool allowSelfApproval, bool warned)
+    {
+        var store = new GovernanceStore();
+        store.Users.AddRange([Approver(3, "ext-ada"), Approver(4, "ext-ben")]);
+        foreach (var id in Enumerable.Range(10, admins))
+        {
+            store.Users.Add(new BeaconUser { Id = id, ExternalId = $"ext-admin-{id}", UserName = $"admin-{id}", IsEnabled = true, IsSuperAdmin = true });
+        }
+
+        using var recorder = new LogRecorder();
+
+        await Note(recorder, new ApprovalWorkflowOptions { Enabled = true, CoversAdminRoleGrants = true, AllowSelfApproval = allowSelfApproval }).NoteCountsAsync(Services(store), CancellationToken.None);
+
+        var warning = recorder.Entries
+            .Where(x => x.Level == LogLevel.Warning)
+            .Where(x => x.Message.Contains("grant of the Admin role", StringComparison.Ordinal))
+            .ToList();
+        warning.Should().HaveCount(warned ? 1 : 0);
+        if (warned)
+        {
+            warning[0].Message.Should().StartWith("1 active users are Admins").And.Contain("ApprovalWorkflow.CoversAdminRoleGrants").And.Contain("whatever ApprovalWorkflow.AllowSelfApproval says");
+        }
+    }
+
+    // With grants of the Admin role not covered, the pending ones are not applied: they are counted.
+    [Test]
+    public async Task TheAdminRoleGrantsOff_CountThePendingGrants()
+    {
+        var store = new ChangeApprovalStore();
+        store.AddRequest(ChangeApprovalKind.AdminRoleGrant, 7, "a", "ext-ben");
+        store.AddRequest(ChangeApprovalKind.AdminRoleGrant, 8, "b", "ext-ben", ApprovalStatus.Approved);
+        using var recorder = new LogRecorder();
+
+        await Note(recorder, new ApprovalWorkflowOptions { Enabled = true }).NoteCountsAsync(ReleaseServices(store), CancellationToken.None);
+
+        recorder.Entries
+            .Where(x => x.Level == LogLevel.Warning)
+            .Where(x => x.Message.Contains("grants of the Admin role", StringComparison.Ordinal))
+            .Select(x => x.Message)
+            .Should().Equal("1 grants of the Admin role are pending, and with ApprovalWorkflow.CoversAdminRoleGrants off they are not applied. Turn it on to decide them, or grant the role again");
     }
 
     // A host may leave a kind of change out of the workflow: the note names the option, and says nothing else is left out.

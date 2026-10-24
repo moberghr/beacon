@@ -307,7 +307,7 @@ public class GoldenCurationTests
     // --- security audit -----------------------------------------------------------------------------------------
 
     [Test]
-    public async Task APromotion_IsRecorded_InItsTransaction_NeverTheQuestionOrSql()
+    public async Task APromotion_IsRecorded_InItsTransaction_WithContentDigests_NeverTheQuestionOrSql()
     {
         var audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(AdminUserId, "ext-11"));
         var store = new Store();
@@ -320,13 +320,16 @@ public class GoldenCurationTests
         promoted.Should().BeEquivalentTo(
             new { Action = SecurityAuditActions.GoldenCasePromoted, ActorUserId = (int?)AdminUserId, ResourceType = SecurityAuditResources.EvalCase, ResourceId = "40", ProjectId = (int?)ProjectId },
             x => x.ExcludingMissingMembers());
-        promoted.DetailsJson.Should().Be($"{{\"signalId\":1,\"dataSourceId\":{DataSourceId}}}");
+        var promotedCase = store.Saved.OfType<McpEvalCase>().Single();
+        promoted.DetailsJson.Should().Be(
+            $"{{\"signalId\":1,\"dataSourceId\":{DataSourceId},\"contentFields\":[\"question\",\"goldSql\"],"
+            + $"\"afterDigests\":{Digests(promotedCase.Question, promotedCase.GoldSql)}}}");
         audit.Ways.Should().Equal("saved");
         store.Capture.Timeline.Should().Equal(SqlCapture.TransactionBegun, SqlCapture.TransactionCommitted);
     }
 
     [Test]
-    public async Task AnEdit_RecordsWhichPartsChanged_NeverTheirText()
+    public async Task AnEdit_RecordsWhichPartsChanged_AndContentDigestsBeforeAndAfter_NeverTheirText()
     {
         var audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(AdminUserId, "ext-11"));
         var store = new Store();
@@ -338,7 +341,12 @@ public class GoldenCurationTests
         edited.Should().BeEquivalentTo(
             new { Action = SecurityAuditActions.GoldenCaseEdited, ResourceId = "5", ProjectId = (int?)ProjectId },
             x => x.ExcludingMissingMembers());
-        edited.DetailsJson.Should().Be("{\"questionChanged\":false,\"goldSqlChanged\":true,\"notesChanged\":false,\"isActiveBefore\":true,\"isActiveAfter\":false}");
+        var stored = store.Cases.Single(x => x.Id == 5);
+        edited.DetailsJson.Should().Be(
+            "{\"questionChanged\":false,\"goldSqlChanged\":true,\"notesChanged\":false,\"isActiveBefore\":true,\"isActiveAfter\":false,"
+            + $"\"contentFields\":[\"question\",\"goldSql\"],\"beforeDigests\":{Digests("How many orders?", "SELECT id FROM orders")},"
+            + $"\"afterDigests\":{Digests(stored.Question, stored.GoldSql)}}}");
+        stored.GoldSql.Should().Contain("status FROM orders", "the after digest is of the stored, edited SQL");
         audit.Ways.Should().Equal("staged");
     }
 
@@ -985,6 +993,12 @@ public class GoldenCurationTests
             UserVerdict = verdict,
             CreatedTime = new DateTime(2026, 10, 1, 8, 0, 0, DateTimeKind.Utc).AddMinutes(id)
         };
+    }
+
+    // The keyed digests an event holds of a case's question and gold SQL, as JSON.
+    private static string Digests(params string?[] values)
+    {
+        return "[" + string.Join(",", values.Select(x => $"\"{SecurityAuditTestKit.Integrity.Digest(x)}\"")) + "]";
     }
 
     private static McpEvalCase Case(int id, int? promotedBy)

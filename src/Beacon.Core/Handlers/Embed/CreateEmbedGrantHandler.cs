@@ -319,4 +319,13 @@ public sealed record CreateEmbedGrantResult(
     int VersionNumber,
     DateTime ExpiresTime,
     IReadOnlyList<string> AllowedOrigins,
-    IReadOnlyList<string> LockedParameters);
+    IReadOnlyList<string> LockedParameters)
+{
+    // The compiler-generated ToString prints every member; the secrets are printed redacted.
+    private bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"Id = {Id}, PublicId = {PublicId}, Secret = {RedactedPrint.Of(Secret)}, QueryVersionId = {QueryVersionId}, VersionNumber = {VersionNumber}, ExpiresTime = {ExpiresTime}, AllowedOrigins = {AllowedOrigins}, LockedParameters = {LockedParameters}");
+
+        return true;
+    }
+}

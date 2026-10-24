@@ -5,6 +5,9 @@ namespace Beacon.Core.Adapters.Jira;
 /// </summary>
 internal static class JqlHelper
 {
+    /// <summary>The prefix of the labels that tie an issue to one subscription's deliveries to one recipient.</summary>
+    public const string CorrelationLabelPrefix = "beacon-sub-";
+
     /// <summary>
     /// Escapes a string value for safe use in JQL queries.
     /// This prevents JQL injection by escaping special characters.
@@ -31,14 +34,29 @@ internal static class JqlHelper
     }
 
     /// <summary>
-    /// Builds a JQL query for searching Beacon notifications by subscription name.
+    /// Builds a JQL query for the open issues one subscription delivery created, found by its correlation label within
+    /// the project.
     /// </summary>
-    public static string BuildSearchBySubscriptionQuery(string subscriptionName, string reporterEmail)
+    public static string BuildSearchByLabelQuery(string label, string project, string reporterEmail)
     {
-        var escapedName = EscapeJqlString(subscriptionName);
+        var escapedLabel = EscapeJqlString(label);
+        var escapedProject = EscapeJqlString(project);
         var escapedEmail = EscapeJqlString(reporterEmail);
 
-        return $"text ~ \"{escapedName}\" AND reporter = \"{escapedEmail}\" order by created DESC";
+        return $"project = \"{escapedProject}\" AND labels = \"{escapedLabel}\" AND reporter = \"{escapedEmail}\" AND statusCategory != Done order by created DESC";
+    }
+
+    /// <summary>
+    /// Builds a JQL query for the open issues of a project whose text names the subscription: the match for issues
+    /// created before deliveries carried a correlation label.
+    /// </summary>
+    public static string BuildSearchBySubscriptionQuery(string subscriptionName, string project, string reporterEmail)
+    {
+        var escapedName = EscapeJqlString(subscriptionName);
+        var escapedProject = EscapeJqlString(project);
+        var escapedEmail = EscapeJqlString(reporterEmail);
+
+        return $"text ~ \"{escapedName}\" AND project = \"{escapedProject}\" AND reporter = \"{escapedEmail}\" AND statusCategory != Done order by created DESC";
     }
 
     /// <summary>
@@ -50,6 +68,6 @@ internal static class JqlHelper
         var escapedProject = EscapeJqlString(project);
         var escapedEmail = EscapeJqlString(reporterEmail);
 
-        return $"text ~ \"{escapedSessionId}\" AND project = \"{escapedProject}\" AND reporter = \"{escapedEmail}\" order by created DESC";
+        return $"text ~ \"{escapedSessionId}\" AND project = \"{escapedProject}\" AND reporter = \"{escapedEmail}\" AND statusCategory != Done order by created DESC";
     }
 }

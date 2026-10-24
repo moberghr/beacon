@@ -462,7 +462,9 @@ public class SecurityAuditVerificationTests
                 new SecurityAuditReadGate(TimeProvider.System),
                 Options.Create(new SecurityAuditOptions()),
                 new FakeTimeProvider(Now),
-                NullLoggerFactory.Instance)
+                NullLoggerFactory.Instance,
+                Mock.Of<IMcpAuditVerificationService>(),
+                Mock.Of<IAuditTableVerificationService>())
             .VerifyNewEventsAsync(CancellationToken.None);
 
         capture.Commands.Should().HaveCount(2, "the checkpoints, then the first batch of the scan");
@@ -666,7 +668,9 @@ public class SecurityAuditVerificationTests
             new SecurityAuditReadGate(TimeProvider.System),
             Options.Create(new SecurityAuditOptions()),
             new FakeTimeProvider(Now),
-            LoggerFactory.Create(x => x.AddProvider(logs)));
+            LoggerFactory.Create(x => x.AddProvider(logs)),
+            Mock.Of<IMcpAuditVerificationService>(),
+            Mock.Of<IAuditTableVerificationService>());
     }
 
     // The stored rows as they are when read; once the read numbered afterRead has gone through every row, the writer acts.

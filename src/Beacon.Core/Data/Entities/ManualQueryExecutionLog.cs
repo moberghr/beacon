@@ -1,17 +1,36 @@
 using Beacon.Core.Data.Entities.Base;
+using Beacon.Core.Data.Enums;
 
 namespace Beacon.Core.Data.Entities;
 
 /// <summary>
-/// Tracks all manual query executions initiated by users in the UI.
-/// This includes queries run in data source editors and query test/preview operations.
+/// The execution log of the statements Beacon runs on a data source for its own features: every statement the
+/// <c>GatedSqlRunner</c> runs (query previews and steps, subscription runs, AI actor checks, migration reads, column value
+/// samples) and every documentation enum discovery statement, written as <see cref="QueryExecutionLogStatus.Started"/>
+/// before the statement runs and closed when it ends; plus one summary row per query preview run.
 /// </summary>
-public class ManualQueryExecutionLog : BaseEntity
+public class ManualQueryExecutionLog : BaseEntity, ISealedAuditRow
 {
     /// <summary>
-    /// User ID who executed the query (nullable until middleware is implemented)
+    /// The caller's user id as a preview's summary row recorded it. Null on statement rows, which record
+    /// <see cref="TriggeredByUserId"/> instead.
     /// </summary>
     public string? UserId { get; set; }
+
+    /// <summary>
+    /// The <c>Users.Id</c> of the user the statement ran for: the request's caller, or the owner scheduled work runs as.
+    /// Null for work the system does on its own, and for rows recorded before Beacon kept it.
+    /// </summary>
+    public int? TriggeredByUserId { get; set; }
+
+    /// <summary>
+    /// Where the statement is: <see cref="QueryExecutionLogStatus.Started"/> while it runs (a row that stays Started is a
+    /// statement whose end was never recorded), then how it ended. Null for rows recorded only after the statement ran.
+    /// </summary>
+    public QueryExecutionLogStatus? Status { get; set; }
+
+    /// <summary>When the statement's end was recorded; null while it is <see cref="QueryExecutionLogStatus.Started"/>.</summary>
+    public DateTime? CompletedTime { get; set; }
 
     /// <summary>
     /// The SQL query or command text that was executed
@@ -34,7 +53,7 @@ public class ManualQueryExecutionLog : BaseEntity
     public int? DataSourceId { get; set; }
 
     /// <summary>
-    /// Optional context: "QueryStepPreview", "FullQueryPreview"
+    /// What ran it: one of <see cref="Beacon.Core.Services.SqlExecutionContexts"/>, or "FullQueryPreview" on a summary row
     /// </summary>
     public string? ExecutionContext { get; set; }
 
@@ -48,6 +67,22 @@ public class ManualQueryExecutionLog : BaseEntity
     /// </summary>
     public string? ErrorMessage { get; set; }
 
-    // Navigation properties
+    /// <inheritdoc />
+    public Guid? AuditGuid { get; set; }
+
+    /// <inheritdoc />
+    public int? SealVersion { get; set; }
+
+    /// <inheritdoc />
+    public string? HmacKeyId { get; set; }
+
+    /// <inheritdoc />
+    public string? Hmac { get; set; }
+
+    /// <summary>
+    /// The data source, by <see cref="DataSourceId"/>. The key sets it to null when the data source row is deleted at the
+    /// database (Beacon only archives data sources), which changes the sealed row: the verification then reports it as
+    /// modified.
+    /// </summary>
     public DataSource? DataSource { get; set; }
 }

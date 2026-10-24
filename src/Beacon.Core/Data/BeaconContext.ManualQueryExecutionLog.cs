@@ -25,6 +25,8 @@ public abstract partial class BeaconContext
             entity.Property(e => e.QueryText).IsRequired();
             entity.Property(e => e.ExecutionContext).HasMaxLength(100);
             entity.Property(e => e.ErrorMessage).HasMaxLength(4000);
+            entity.Property(e => e.HmacKeyId).HasMaxLength(32);
+            entity.Property(e => e.Hmac).HasMaxLength(64);
 
             // Relationship with DataSource
             entity.HasOne(e => e.DataSource)
@@ -39,6 +41,8 @@ public abstract partial class BeaconContext
             entity.HasIndex(e => e.ExecutionContext);
             entity.HasIndex(e => new { e.UserId, e.CreatedTime });
             entity.HasIndex(e => new { e.DataSourceId, e.CreatedTime });
+            entity.HasIndex(e => new { e.TriggeredByUserId, e.CreatedTime });
+            entity.HasIndex(e => e.AuditGuid).IsUnique();
         });
     }
 }

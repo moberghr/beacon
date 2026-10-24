@@ -63,6 +63,7 @@ public static class McpRetentionDenyList
         Rule<McpAuditLog>(nameof(McpAuditLog.ErrorMessage), RetentionKind.ErrorClass),
         Rule<McpAuditLog>(nameof(McpAuditLog.CallerKind), RetentionKind.Structural),
         Rule<McpAuditLog>(nameof(McpAuditLog.CallerHash), RetentionKind.Structural),
+        Rule<McpAuditLog>(nameof(McpAuditLog.CorrelationId), RetentionKind.Structural),
         Rule<McpAuditLog>(nameof(McpAuditLog.TraceId), RetentionKind.Structural),
         Rule<McpAuditLog>(nameof(McpAuditLog.SpanId), RetentionKind.Structural),
         Rule<McpAuditLog>(nameof(McpAuditLog.McpSessionId), RetentionKind.Structural),
@@ -70,6 +71,8 @@ public static class McpRetentionDenyList
 
         // A keyed hash of the parameters: kept whatever the lock, so calls with the same input still match.
         Rule<McpAuditLog>(nameof(McpAuditLog.ContentHash), RetentionKind.Structural),
+        Rule<McpAuditLog>(nameof(McpAuditLog.HmacKeyId), RetentionKind.Structural),
+        Rule<McpAuditLog>(nameof(McpAuditLog.Hmac), RetentionKind.Structural),
 
         // McpAuditStatement — the statement text is content; its keyed hash, purpose, tables and error class are structure.
         Rule<McpAuditStatement>(nameof(McpAuditStatement.Purpose), RetentionKind.Structural),
@@ -154,6 +157,8 @@ public static class McpRetentionDenyList
         Rule<ManualQueryExecutionLog>(nameof(ManualQueryExecutionLog.QueryText), RetentionKind.Content),
         Rule<ManualQueryExecutionLog>(nameof(ManualQueryExecutionLog.ExecutionContext), RetentionKind.Structural),
         Rule<ManualQueryExecutionLog>(nameof(ManualQueryExecutionLog.ErrorMessage), RetentionKind.ErrorClass),
+        Rule<ManualQueryExecutionLog>(nameof(ManualQueryExecutionLog.HmacKeyId), RetentionKind.Structural),
+        Rule<ManualQueryExecutionLog>(nameof(ManualQueryExecutionLog.Hmac), RetentionKind.Structural),
 
         // AI actors: everything the model wrote about the data is content; the model name is structure.
         Rule<AiActorExecution>(nameof(AiActorExecution.Model), RetentionKind.Structural),

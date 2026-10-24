@@ -301,6 +301,7 @@ internal sealed class ChangeApprovalSubmitter(
             ChangeApprovalKind.RecipientDestination => "recipient",
             ChangeApprovalKind.DataSourceConnection => "data source",
             ChangeApprovalKind.LlmConnection => "LLM connection",
+            ChangeApprovalKind.AdminRoleGrant => "user",
             _ => "resource"
         };
     }

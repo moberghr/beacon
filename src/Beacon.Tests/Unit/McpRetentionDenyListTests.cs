@@ -91,6 +91,8 @@ public class McpRetentionDenyListTests
         KindOf<McpLearnedPattern>(nameof(McpLearnedPattern.ExampleQuestion)).Should().Be(RetentionKind.Content);
         KindOf<McpEvalResult>(nameof(McpEvalResult.JudgeVerdict)).Should().Be(RetentionKind.Content);
         KindOf<McpGlossaryTerm>(nameof(McpGlossaryTerm.Definition)).Should().Be(RetentionKind.Structural);
+        KindOf<ManualQueryExecutionLog>(nameof(ManualQueryExecutionLog.Hmac)).Should().Be(RetentionKind.Structural);
+        KindOf<ManualQueryExecutionLog>(nameof(ManualQueryExecutionLog.HmacKeyId)).Should().Be(RetentionKind.Structural);
     }
 
     [Test]

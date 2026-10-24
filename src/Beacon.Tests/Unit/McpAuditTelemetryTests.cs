@@ -102,7 +102,7 @@ public partial class McpAuditTelemetryTests
         auditEvent.EventId.Name.Should().Be("McpToolAudited");
         auditEvent.State.Keys.Should().BeEquivalentTo(
             "Tool", "AuditId", "Persisted", "ProjectId", "DataSourceId", "UserId", "ApiKeyId", "CallerKind",
-            "CallerHash", "DurationMs", "Rows", "ErrorClass", "TraceId", "McpSessionId", "UpstreamRequestId",
+            "CallerHash", "DurationMs", "Rows", "ErrorClass", "CorrelationId", "TraceId", "McpSessionId", "UpstreamRequestId",
             "{OriginalFormat}");
         auditEvent.State["Tool"].Should().Be(_tool);
         auditEvent.State["Persisted"].Should().Be(true);

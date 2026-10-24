@@ -30,7 +30,16 @@ internal sealed record EmbedTokenPayload(
     DateTimeOffset ExpiresAt);
 
 /// <summary>A token as <see cref="EmbedTokenCodec.MintAsync"/> made it.</summary>
-internal sealed record EmbedTokenIssued(string Token, string TokenId, DateTimeOffset ExpiresAt);
+internal sealed record EmbedTokenIssued(string Token, string TokenId, DateTimeOffset ExpiresAt)
+{
+    // The compiler-generated ToString prints every member; the secrets are printed redacted.
+    private bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"Token = {RedactedPrint.Of(Token)}, TokenId = {TokenId}, ExpiresAt = {ExpiresAt}");
+
+        return true;
+    }
+}
 
 /// <summary>The outcome of <see cref="EmbedTokenCodec.ValidateAsync"/>: a payload, or the reason it was refused.</summary>
 internal sealed record EmbedTokenCheck(EmbedTokenPayload? Payload, EmbedTokenRefusal? Refusal)

@@ -1,0 +1,58 @@
+**IMPORTANT: Always use fully qualified table names (schema.table_name) in SQL queries.**
+
+### sales.order_lines
+Columns:
+- order_id (integer) [PK, FK, NOT NULL]
+  → sales.orders.id
+- tenant_id (integer) [PK, FK, NOT NULL]
+  → sales.orders.tenant_id
+- line_no (smallint) [PK, NOT NULL]
+- sku (varchar) [NOT NULL]
+- status (text) [NOT NULL]
+- amount (numeric(12,2))
+- contact_email (varchar)
+- notes (text)
+
+### sales.orders
+Columns:
+- id (bigint) [PK, NOT NULL]
+- tenant_id (integer) [PK, NOT NULL]
+- customer_id (integer) [FK, NOT NULL]
+  → crm.customers.id
+- legacy_ref (integer) [FK]
+  → .
+- placed_at (timestamp with time zone) [NOT NULL]
+
+### audit.events
+Columns:
+- c01 (integer) [NOT NULL]
+- c02 (integer)
+- c03 (text) [NOT NULL]
+- c04 (integer)
+- c05 (integer) [NOT NULL]
+- c06 (text)
+- c07 (integer) [NOT NULL]
+- c08 (integer)
+- c09 (text) [NOT NULL]
+- c10 (integer)
+- c11 (integer) [NOT NULL]
+- c12 (text)
+- c13 (integer) [NOT NULL]
+- c14 (integer)
+- c15 (text) [NOT NULL]
+- c16 (integer)
+- c17 (integer) [NOT NULL]
+- c18 (text)
+- c19 (integer) [NOT NULL]
+- c20 (integer)
+- c21 (text) [NOT NULL]
+- c22 (integer)
+- c23 (integer) [NOT NULL]
+- c24 (text)
+- c25 (integer) [NOT NULL]
+- c26 (integer)
+- c27 (text) [NOT NULL]
+- c28 (integer)
+- c29 (integer) [NOT NULL]
+- c30 (text)
+

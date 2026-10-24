@@ -567,6 +567,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<Guid?>("AuditGuid")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<DateTime>("ChangedAt")
                         .HasColumnType("datetime2");
 
@@ -577,6 +580,14 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("datetime2");
 
+                    b.Property<string>("Hmac")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("HmacKeyId")
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
                     b.Property<string>("NewValue")
                         .HasMaxLength(2000)
                         .HasColumnType("nvarchar(2000)");
@@ -585,12 +596,19 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("nvarchar(2000)");
 
+                    b.Property<int?>("SealVersion")
+                        .HasColumnType("int");
+
                     b.Property<string>("SettingKey")
                         .IsRequired()
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AuditGuid")
+                        .IsUnique()
+                        .HasFilter("[AuditGuid] IS NOT NULL");
 
                     b.HasIndex("ChangedAt");
 
@@ -1211,6 +1229,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
 
+                    b.Property<DateTime?>("ArchivedTime")
+                        .HasColumnType("datetime2");
+
                     b.Property<string>("ColumnName")
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
@@ -1570,6 +1591,33 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.ToTable("EmbedGrants", "beacon");
                 });
 
+            modelBuilder.Entity("Beacon.Core.Data.Entities.MaintenanceHeartbeat", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("LastRunTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Name")
+                        .IsUnique();
+
+                    b.ToTable("MaintenanceHeartbeats", "beacon");
+                });
+
             modelBuilder.Entity("Beacon.Core.Data.Entities.ManualQueryExecutionLog", b =>
                 {
                     b.Property<int>("Id")
@@ -1577,6 +1625,12 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasColumnType("int");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<Guid?>("AuditGuid")
+                        .HasColumnType("uniqueidentifier");
+
+                    b.Property<DateTime?>("CompletedTime")
+                        .HasColumnType("datetime2");
 
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("datetime2");
@@ -1595,6 +1649,14 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<double>("ExecutionTimeMs")
                         .HasColumnType("float");
 
+                    b.Property<string>("Hmac")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("HmacKeyId")
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
                     b.Property<string>("QueryText")
                         .IsRequired()
                         .HasColumnType("nvarchar(max)");
@@ -1602,14 +1664,27 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<int>("ResultCount")
                         .HasColumnType("int");
 
+                    b.Property<int?>("SealVersion")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("Status")
+                        .HasColumnType("int");
+
                     b.Property<bool>("Success")
                         .HasColumnType("bit");
+
+                    b.Property<int?>("TriggeredByUserId")
+                        .HasColumnType("int");
 
                     b.Property<string>("UserId")
                         .HasMaxLength(100)
                         .HasColumnType("nvarchar(100)");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AuditGuid")
+                        .IsUnique()
+                        .HasFilter("[AuditGuid] IS NOT NULL");
 
                     b.HasIndex("CreatedTime");
 
@@ -1620,6 +1695,8 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.HasIndex("UserId");
 
                     b.HasIndex("DataSourceId", "CreatedTime");
+
+                    b.HasIndex("TriggeredByUserId", "CreatedTime");
 
                     b.HasIndex("UserId", "CreatedTime");
 
@@ -1637,6 +1714,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<int?>("ApiKeyId")
                         .HasColumnType("int");
 
+                    b.Property<Guid?>("AuditGuid")
+                        .HasColumnType("uniqueidentifier");
+
                     b.Property<string>("CallerHash")
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
@@ -1648,6 +1728,10 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<string>("ContentHash")
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("CorrelationId")
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
 
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("datetime2");
@@ -1662,6 +1746,14 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<int>("ExecutionTimeMs")
                         .HasColumnType("int");
 
+                    b.Property<string>("Hmac")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("HmacKeyId")
+                        .HasMaxLength(32)
+                        .HasColumnType("nvarchar(32)");
+
                     b.Property<string>("McpSessionId")
                         .HasMaxLength(128)
                         .HasColumnType("nvarchar(128)");
@@ -1674,6 +1766,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasColumnType("int");
 
                     b.Property<int?>("ResultRowCount")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("SealVersion")
                         .HasColumnType("int");
 
                     b.Property<string>("SpanId")
@@ -1697,6 +1792,10 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasColumnType("int");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("AuditGuid")
+                        .IsUnique()
+                        .HasFilter("[AuditGuid] IS NOT NULL");
 
                     b.HasIndex("CreatedTime");
 
@@ -3200,6 +3299,12 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("datetime2");
 
+                    b.Property<int?>("EditedByUserId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("EditedTime")
+                        .HasColumnType("datetime2");
+
                     b.Property<int>("ProjectDocumentationId")
                         .HasColumnType("int");
 
@@ -3506,6 +3611,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("SubscriptionId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("TriggeredByUserId")
                         .HasColumnType("int");
 
                     b.HasKey("Id");

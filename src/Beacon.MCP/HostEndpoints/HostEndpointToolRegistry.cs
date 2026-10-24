@@ -11,6 +11,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Beacon.Core.HostData;
 using Beacon.Core.HostEndpoints;
+using Beacon.Core.Services;
 
 namespace Beacon.MCP.HostEndpoints;
 
@@ -240,7 +241,7 @@ internal sealed class HostEndpointProjectResolver(
 
         var projectId = await hostProjects.FindAsync(options.ProjectName, cancellationToken);
 
-        cache.Set(key, projectId, projectId.HasValue ? FoundLifetime : MissingLifetime);
+        cache.Set(key, projectId, BeaconCacheEntries.For(projectId.HasValue ? FoundLifetime : MissingLifetime));
 
         return projectId;
     }

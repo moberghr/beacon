@@ -17,7 +17,10 @@ namespace Beacon.Core.SecurityAudit;
 /// (<see cref="SecurityAuditEvent.KeyId"/>, a digest that reveals nothing of the key), and verification accepts the
 /// current key, <c>Beacon:Audit:PreviousIntegrityKeys</c>, and the keys derived from the current secret and from each
 /// <c>Beacon:PreviousEncryptionKeys</c> entry, so events keep verifying after a key change. It finds an event whose fields
-/// were changed or that was written without the key; it cannot tell that an event was deleted.
+/// were changed or that was written without the key; it cannot tell that an event was deleted. The rows of the other audit
+/// stores (the MCP audit, <see cref="McpAuditSeal"/>; the execution log and the settings history,
+/// <see cref="AuditTableSeal"/>) are sealed with the same keys, each store under a key of its own
+/// derived from them.
 /// </summary>
 public sealed class SecurityAuditIntegrity
 {
@@ -25,6 +28,7 @@ public sealed class SecurityAuditIntegrity
     private const string KeyIdLabel = "beacon:security-audit-key-id:v1";
     private const string DigestKeyLabel = "beacon:security-audit-value-digest:v1";
     private const string CanonicalVersion = "v1";
+    private const string StoreKeyLabel = "beacon:audit-store-integrity:v1:";
 
     // What a digest of an absent value is computed over: a byte UTF-8 never produces, so no text digests the same.
     private static readonly byte[] AbsentValue = [0xFF];
@@ -123,6 +127,32 @@ public sealed class SecurityAuditIntegrity
     }
 
     /// <summary>
+    /// The id of the current key and the HMAC of <paramref name="canonical"/> under a key derived from it for
+    /// <paramref name="store"/> only, for the rows of another audit store (<see cref="McpAuditSeal"/>): a row of one store
+    /// never verifies as a row of another, nor as a security audit event.
+    /// </summary>
+    internal (string KeyId, string Hmac) SealRecord(string store, ReadOnlySpan<byte> canonical)
+    {
+        return (CurrentKeyId, Convert.ToHexStringLower(HMACSHA256.HashData(StoreKey(_currentKey, store), canonical)));
+    }
+
+    /// <summary>How a row of <paramref name="store"/> sealed by <see cref="SealRecord"/> verifies.</summary>
+    internal SecurityAuditVerdict VerifyRecord(string store, string keyId, string hmac, ReadOnlySpan<byte> canonical)
+    {
+        if (!_verificationKeys.TryGetValue(keyId, out var key))
+        {
+            return SecurityAuditVerdict.UnknownKey;
+        }
+
+        var expected = Encoding.ASCII.GetBytes(Convert.ToHexStringLower(HMACSHA256.HashData(StoreKey(key, store), canonical)));
+        var stored = Encoding.ASCII.GetBytes(hmac);
+
+        return CryptographicOperations.FixedTimeEquals(expected, stored)
+            ? SecurityAuditVerdict.Intact
+            : SecurityAuditVerdict.Modified;
+    }
+
+    /// <summary>
     /// A keyed digest of <paramref name="value"/> (32 lowercase hex characters) for an event that must show a value changed
     /// without holding it (a setting's value before and after a save): the same value gives the same digest under the same
     /// key, an absent value one no text gives, and the value cannot be read back from it.
@@ -169,6 +199,11 @@ public sealed class SecurityAuditIntegrity
         });
 
         return Convert.ToHexStringLower(HMACSHA256.HashData(key, canonical));
+    }
+
+    private static byte[] StoreKey(byte[] key, string store)
+    {
+        return HMACSHA256.HashData(key, Encoding.UTF8.GetBytes(StoreKeyLabel + store));
     }
 
     private static byte[] Derive(string secret)

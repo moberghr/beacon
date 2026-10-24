@@ -48,20 +48,13 @@ internal sealed class DocChunkIndexingService(
         Given the entire documentation section and one chunk taken from it, write a short standalone
         context — one or two sentences, at most about 80 tokens — that explains what the chunk is about
         and where it sits in the section. Answer with ONLY the situating context, no preamble, no quotes.
-        """;
+        """ + "\n" + PromptData.Rule;
 
     public async Task ReindexAsync(CancellationToken ct)
     {
         if (!embeddingService.IsAvailable)
         {
             logger.LogInformation("Embedding service unavailable; skipping MCP doc-chunk re-index.");
-            return;
-        }
-
-        var settings = await settingsProvider.GetSettingsAsync(ct);
-        if (!settings.EnableSemanticRetrieval)
-        {
-            logger.LogInformation("Semantic retrieval disabled; skipping MCP doc-chunk re-index.");
             return;
         }
 
@@ -96,10 +89,19 @@ internal sealed class DocChunkIndexingService(
         }
 
         var failed = 0;
+        var skipped = 0;
         foreach (var projectId in projectIds)
         {
             try
             {
+                // Each project under its own effective settings: its opt-out of semantic or contextual retrieval holds.
+                var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId, ct);
+                if (!settings.EnableSemanticRetrieval)
+                {
+                    skipped++;
+                    continue;
+                }
+
                 await IndexProjectAsync(projectId, settings, ct);
             }
             catch (OperationCanceledException)
@@ -114,12 +116,17 @@ internal sealed class DocChunkIndexingService(
             }
         }
 
+        if (skipped > 0)
+        {
+            logger.LogInformation("Semantic retrieval disabled for {Skipped} of {Total} project(s); their doc chunks were not re-indexed.", skipped, projectIds.Count);
+        }
+
         // A per-project failure must not leave the chunk store silently half-populated behind a green job.
         // If EVERY project failed, throw so the job is marked Failed and investigated (§6.4 — retries off).
-        if (failed > 0 && failed == projectIds.Count)
+        if (failed > 0 && failed == projectIds.Count - skipped)
         {
             throw new InvalidOperationException(
-                $"MCP doc-chunk re-index failed for all {projectIds.Count} project(s) — chunk store not populated.");
+                $"MCP doc-chunk re-index failed for all {failed} indexed project(s) — chunk store not populated.");
         }
 
         if (failed > 0)
@@ -135,7 +142,7 @@ internal sealed class DocChunkIndexingService(
             return;
         }
 
-        var settings = await settingsProvider.GetSettingsAsync(ct);
+        var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId, ct);
         if (!settings.EnableSemanticRetrieval)
         {
             return;
@@ -653,14 +660,10 @@ internal sealed class DocChunkIndexingService(
 
     private static string BuildBlurbUserMessage(string sectionText, string chunkText) =>
         $"""
-        <document>
-        {sectionText}
-        </document>
+        {PromptData.Fence("document", sectionText)}
 
         Here is the chunk we want to situate within the document:
-        <chunk>
-        {chunkText}
-        </chunk>
+        {PromptData.Fence("chunk", chunkText)}
 
         Give a short succinct context to situate this chunk within the section for retrieval. Answer only with the succinct context and nothing else.
         """;
