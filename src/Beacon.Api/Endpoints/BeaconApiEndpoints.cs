@@ -101,6 +101,12 @@ public static class BeaconApiEndpoints
                 }
             });
 
+        // The SPA's pages (MapBeaconUi): signed-in callers only while the login form is on, the host's FallbackPolicy while
+        // it is off. Post-configured, so the host's own FallbackPolicy is already set.
+        services.AddOptions<AuthorizationOptions>()
+            .PostConfigure<IServiceProvider>((options, serviceProvider) =>
+                BeaconUiPagePolicies.AddTo(options, serviceProvider.GetService<Beacon.Core.BeaconConfiguration>()));
+
         // Fails startup when Core would read no request's caller (its off-request principal is still registered).
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, RequestPrincipalStartupCheck>());
 

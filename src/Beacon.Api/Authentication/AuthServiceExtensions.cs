@@ -83,6 +83,15 @@ public static class AuthServiceExtensions
                 options.Events.OnCheckSlidingExpiration = BeaconSessionEvents.CheckSlidingExpirationAsync;
                 options.Events.OnRedirectToLogin = context =>
                 {
+                    // A UI page refused a signed-out browser (BeaconUiPagePolicies): the login form's own redirect, without
+                    // a return URL, the target LoginFormAuthMiddleware answers.
+                    if (BeaconUiPagePolicies.IsPage(context.HttpContext)
+                        && context.HttpContext.RequestServices.GetService<BeaconConfiguration>() is { Authentication.EnableLoginForm: true } configuration)
+                    {
+                        context.Response.Redirect(BeaconLoginPage.PathFor(AuthenticationPathOptions.BeaconPath, configuration));
+                        return Task.CompletedTask;
+                    }
+
                     if (BeaconApiRequest.Is(context.HttpContext))
                     {
                         return BeaconAuthenticationResponses.WriteProblemAsync(context.HttpContext, StatusCodes.Status401Unauthorized);

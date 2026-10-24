@@ -47,11 +47,14 @@ public static class BeaconOpenApiExtensions
     {
         var builder = app.MapOpenApi();
         var anonymous = app.Environment.IsDevelopment() || app.Configuration.GetValue<bool>(AnonymousSettingName);
-        if (!anonymous)
+        if (anonymous)
         {
-            builder.RequireAuthorization(BeaconApiEndpoints.AuthPolicyName);
+            // Marked anonymous, so the login redirect leaves it alone where /openapi is one of Beacon's paths.
+            builder.AllowAnonymous();
+            return builder;
         }
 
+        builder.RequireAuthorization(BeaconApiEndpoints.AuthPolicyName);
         return builder;
     }
 }
