@@ -23,7 +23,12 @@ internal static class DataQualityEndpoints
 
         quality.MapGet("/overview", ([FromQuery] int? dataSourceId, IMediator m, CancellationToken ct) =>
                 m.Send(new GetDataQualityOverviewQuery(dataSourceId), ct))
-            .WithName("GetDataQualityOverview");
+            .WithName("GetDataQualityOverview")
+            .AsDeprecatedUnpagedList("GET /data-quality/overview/paged");
+
+        // Paged form of the overview above (deprecated: all sources up to a 10,000 safety cap): one card per data source.
+        quality.MapGet("/overview/paged", ([AsParameters] ListDataQualityOverviewQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
+            .WithName("ListDataQualityOverview");
 
         quality.MapGet("/contracts", ([AsParameters] GetDataContractsQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
             .WithName("GetDataContracts");

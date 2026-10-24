@@ -49,17 +49,6 @@ public class MySqlMetadataExtractor : IDatabaseMetadataExtractor
               AND REFERENCED_TABLE_NAME IS NOT NULL";
 
         var foreignKeys = (await connection.QueryAsync(new CommandDefinition(foreignKeysQuery, new { DatabaseName = databaseName }, commandTimeout: 180, cancellationToken: cancellationToken))).AsList();
-        var fkLookup = foreignKeys
-            .GroupBy(fk => $"{fk.table_schema}.{fk.table_name}.{fk.column_name}")
-            .ToDictionary(
-                g => g.Key,
-                g => (
-                    TableName: (string)g.First().foreign_table_name,
-                    ColumnName: (string)g.First().foreign_column_name,
-                    SchemaName: (string?)g.First().foreign_schema_name,
-                    ConstraintName: (string?)g.First().constraint_name)
-            );
-
         const string indexesQuery = @"
             SELECT
                 TABLE_SCHEMA AS table_schema,
@@ -72,6 +61,28 @@ public class MySqlMetadataExtractor : IDatabaseMetadataExtractor
             GROUP BY TABLE_SCHEMA, TABLE_NAME, INDEX_NAME, NON_UNIQUE";
 
         var indexesData = (await connection.QueryAsync(new CommandDefinition(indexesQuery, new { DatabaseName = databaseName }, commandTimeout: 180, cancellationToken: cancellationToken))).AsList();
+
+        return Assemble(columnsData, foreignKeys, indexesData);
+    }
+
+    /// <summary>
+    /// Builds the table list from the rows the catalog queries returned. Pure: no connection, so a fixture can pin it.
+    /// </summary>
+    internal static IReadOnlyList<TableMetadataDto> Assemble(IEnumerable<dynamic> columnsData, IEnumerable<dynamic> foreignKeys, IEnumerable<dynamic> indexesData)
+    {
+        var fkLookup = foreignKeys
+            .GroupBy(fk => $"{fk.table_schema}.{fk.table_name}.{fk.column_name}")
+            .ToDictionary(
+                g => g.Key,
+                g => (
+                    TableName: (string)g.First().foreign_table_name,
+                    ColumnName: (string)g.First().foreign_column_name,
+                    SchemaName: (string?)g.First().foreign_schema_name,
+                    ConstraintName: (string?)g.First().constraint_name)
+            );
+
+        // One pass over the index rows instead of a scan of all of them per table.
+        var indexesByTable = indexesData.ToLookup(i => ((string)i.table_schema, (string)i.table_name));
 
         var tables = columnsData
             .GroupBy(c => new { schema = (string)c.table_schema, table = (string)c.table_name })
@@ -101,8 +112,7 @@ public class MySqlMetadataExtractor : IDatabaseMetadataExtractor
                     );
                 }).ToList();
 
-                var indexes = indexesData
-                    .Where(i => (string)i.table_schema == g.Key.schema && (string)i.table_name == g.Key.table)
+                var indexes = indexesByTable[(g.Key.schema, g.Key.table)]
                     .Select(i => new IndexMetadataDto(
                         IndexName: (string)i.index_name,
                         IsUnique: (long)i.non_unique == 0,

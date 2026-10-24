@@ -48,9 +48,9 @@ public class ScheduledWorkVisibilityTests
                 [8, created, "Daily orders", DBNull.Value, false, false, DBNull.Value, DBNull.Value, 3, 3, 0, 0],
                 [9, created, "Refunds", DBNull.Value, false, false, DBNull.Value, DBNull.Value, 3, 2, 0, 0])
             .ThenRows(
-                [7, (int)NotificationStatus.Skipped, DateTime.UtcNow.AddHours(-1), 0, NotificationFailureReasons.OwnerNotAuthorized],
-                [8, (int)NotificationStatus.NotificationSent, DateTime.UtcNow.AddHours(-1), 4, DBNull.Value],
-                [9, (int)NotificationStatus.Skipped, DateTime.UtcNow.AddHours(-1), 0, NotificationFailureReasons.NotApproved]);
+                [7, (int)NotificationStatus.Skipped, DateTime.UtcNow.AddHours(-1), 0, NotificationFailureReasons.OwnerNotAuthorized, 1],
+                [8, (int)NotificationStatus.NotificationSent, DateTime.UtcNow.AddHours(-1), 4, DBNull.Value, 1],
+                [9, (int)NotificationStatus.Skipped, DateTime.UtcNow.AddHours(-1), 0, NotificationFailureReasons.NotApproved, 1]);
         var service = new ControlTowerService(capture.Factory(), new MemoryCache(new MemoryCacheOptions()));
 
         var page = await service.GetSubscriptionHealthOverview(new GetControlTowerDataRequest { Readable = ProjectSet.All }, CancellationToken.None);

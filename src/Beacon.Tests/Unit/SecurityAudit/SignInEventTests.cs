@@ -120,6 +120,21 @@ public class SignInEventTests
     }
 
     [Test]
+    public async Task ASignInOfALockedOutUser_IsARefusal_WithTheGenericAnswer()
+    {
+        var audit = new RecordingSecurityAudit();
+        await using var app = await StartAsync(new AuthenticationResult { Success = false, ErrorMessage = "Invalid username or password.", BeaconUserId = 7, LockedOut = true }, audit);
+
+        var response = await LoginAsync(app);
+
+        response.StatusCode.Should().Be(System.Net.HttpStatusCode.Unauthorized);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("Invalid username or password.");
+        audit.Single(TypedName, Password).Should().BeEquivalentTo(
+            new { Action = SecurityAuditActions.PasswordSignInRefused, Outcome = SecurityAuditOutcomes.Refused, ResourceId = "7", DetailsJson = "{\"reason\":\"locked_out\"}" },
+            x => x.ExcludingMissingMembers());
+    }
+
+    [Test]
     public async Task ASignIn_IsRecordedAsItsUsers()
     {
         var audit = new RecordingSecurityAudit();
