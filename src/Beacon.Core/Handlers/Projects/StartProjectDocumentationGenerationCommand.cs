@@ -2,6 +2,7 @@ using Beacon.Core.Authorization;
 using Beacon.Core.BackgroundTasks;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models;
+using Beacon.Core.SecurityAudit;
 using MediatR;
 
 namespace Beacon.Core.Handlers.Projects;
@@ -16,9 +17,23 @@ internal sealed class StartProjectDocumentationGenerationHandler(IBackgroundTask
             throw new InvalidOperationException("Project id must be positive.");
         }
 
-        return await backgroundTasks.StartAsync(BackgroundTaskKind.DocumentationGeneration, request.ProjectId, null, cancellationToken)
+        return await backgroundTasks.StartAsync(
+                BackgroundTaskKind.DocumentationGeneration,
+                request.ProjectId,
+                taskId => DocumentationGenerationAudit.Started(request.ProjectId, taskId),
+                cancellationToken)
             ?? throw new BeaconRateLimitedException("The documentation of this project is already being generated.");
     }
+}
+
+/// <summary>The security event of an accepted documentation generation: ids only, recorded in the save that records the task.</summary>
+public static class DocumentationGenerationAudit
+{
+    public static SecurityAuditEntry Started(int projectId, int taskId)
+        => new SecurityAuditEntry(SecurityAuditActions.DocumentationGenerationStarted)
+            .On(SecurityAuditResources.Project, projectId)
+            .InProject(projectId)
+            .With(new SecurityAuditDetails().Add("taskId", taskId));
 }
 
 /// <summary>

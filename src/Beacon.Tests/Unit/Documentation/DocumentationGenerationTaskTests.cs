@@ -5,6 +5,7 @@ using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.Projects;
 using Beacon.Core.Models;
+using Beacon.Core.SecurityAudit;
 using Beacon.Tests.Common;
 using FluentAssertions;
 using Moq;
@@ -30,7 +31,7 @@ public class DocumentationGenerationTaskTests
         var ticket = new BackgroundTaskTicket(TaskId, "job-1", BackgroundTaskState.Queued);
         var tasks = new Mock<IBackgroundTaskService>();
         tasks
-            .Setup(x => x.StartAsync(BackgroundTaskKind.DocumentationGeneration, ProjectId, null, It.IsAny<CancellationToken>()))
+            .Setup(x => x.StartAsync(BackgroundTaskKind.DocumentationGeneration, ProjectId, It.IsAny<Func<int, SecurityAuditEntry>?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(ticket);
 
         var started = await new StartProjectDocumentationGenerationHandler(tasks.Object)
@@ -44,13 +45,41 @@ public class DocumentationGenerationTaskTests
     {
         var tasks = new Mock<IBackgroundTaskService>();
         tasks
-            .Setup(x => x.StartAsync(It.IsAny<BackgroundTaskKind>(), It.IsAny<int>(), null, It.IsAny<CancellationToken>()))
+            .Setup(x => x.StartAsync(It.IsAny<BackgroundTaskKind>(), It.IsAny<int>(), It.IsAny<Func<int, SecurityAuditEntry>?>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync((BackgroundTaskTicket?)null);
 
         var start = () => new StartProjectDocumentationGenerationHandler(tasks.Object)
             .Handle(new StartProjectDocumentationGenerationCommand(ProjectId), CancellationToken.None);
 
         await start.Should().ThrowAsync<BeaconRateLimitedException>();
+    }
+
+    [Test]
+    public async Task Start_OnBothRoutes_StagesAnIdsOnlyAuditEventWithTheTask()
+    {
+        var ticket = new BackgroundTaskTicket(TaskId, "job-1", BackgroundTaskState.Queued);
+        var events = new List<SecurityAuditEntry>();
+        var tasks = new Mock<IBackgroundTaskService>();
+        tasks
+            .Setup(x => x.StartAsync(BackgroundTaskKind.DocumentationGeneration, ProjectId, It.IsNotNull<Func<int, SecurityAuditEntry>?>(), It.IsAny<CancellationToken>()))
+            .Callback<BackgroundTaskKind, int, Func<int, SecurityAuditEntry>?, CancellationToken>((_, _, audit, _) => events.Add(audit!(TaskId)))
+            .ReturnsAsync(ticket);
+
+        await new StartProjectDocumentationGenerationHandler(tasks.Object)
+            .Handle(new StartProjectDocumentationGenerationCommand(ProjectId), CancellationToken.None);
+        await new Beacon.AI.Handlers.Projects.GenerateProjectDocumentationHandler(tasks.Object)
+            .Handle(new GenerateProjectDocumentationCommand(ProjectId, UserId), CancellationToken.None);
+
+        events.Should().HaveCount(2);
+        foreach (var entry in events)
+        {
+            entry.Action.Should().Be(SecurityAuditActions.DocumentationGenerationStarted);
+            entry.Action.Should().Be("curation.documentation_generation_started");
+            entry.ResourceType.Should().Be(SecurityAuditResources.Project);
+            entry.ResourceId.Should().Be(ProjectId.ToString());
+            entry.ProjectId.Should().Be(ProjectId);
+            entry.Details.Should().NotBeNull();
+        }
     }
 
     [Test]

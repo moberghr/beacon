@@ -3,6 +3,7 @@ using Beacon.Core.BackgroundTasks;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.Projects;
 using Beacon.Core.Models;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.AI.Handlers.Projects;
 
@@ -20,7 +21,7 @@ internal sealed class GenerateProjectDocumentationHandler(IBackgroundTaskService
         var ticket = await backgroundTasks.StartAsync(
                 BackgroundTaskKind.DocumentationGeneration,
                 request.ProjectId,
-                null,
+                taskId => DocumentationGenerationAudit.Started(request.ProjectId, taskId),
                 cancellationToken)
             ?? throw new BeaconRateLimitedException("The documentation of this project is already being generated.");
 

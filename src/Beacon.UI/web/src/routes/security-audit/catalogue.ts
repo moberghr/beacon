@@ -156,6 +156,7 @@ export const SECURITY_AUDIT_CATEGORIES: readonly SecurityAuditCategory[] = [
       'curation.glossary_term_updated',
       'curation.glossary_term_deleted',
       'curation.documentation_section_edited',
+      'curation.documentation_generation_started',
     ],
   },
   {

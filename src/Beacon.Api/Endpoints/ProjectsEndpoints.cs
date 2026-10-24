@@ -11,6 +11,13 @@ namespace Beacon.Api.Endpoints;
 
 internal static class ProjectsEndpoints
 {
+    // The file is the reader's to open: it may not run anything, whatever the sections hold.
+    internal static void ApplyExportHeaders(HttpResponse response)
+    {
+        response.Headers["Content-Security-Policy"] = "sandbox";
+        response.Headers["X-Content-Type-Options"] = "nosniff";
+    }
+
     public static RouteGroupBuilder MapProjectsEndpoints(this RouteGroupBuilder group)
     {
         var projects = group.MapGroup("/projects").WithTags("Projects");
@@ -87,10 +94,12 @@ internal static class ProjectsEndpoints
             int id,
             [FromQuery(Name = "asHtml")] bool asHtml,
             IMediator m,
+            HttpContext http,
             CancellationToken ct) =>
         {
             var result = await m.Send(new ExportProjectDocumentationCommand(id, asHtml), ct);
             var bytes = System.Text.Encoding.UTF8.GetBytes(result.Content);
+            ApplyExportHeaders(http.Response);
             return Results.File(bytes, result.ContentType, result.FileName);
         }).WithName("ExportProjectDocumentation");
 

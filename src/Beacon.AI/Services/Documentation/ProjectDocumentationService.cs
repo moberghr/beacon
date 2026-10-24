@@ -1452,9 +1452,10 @@ internal sealed class ProjectDocumentationService(
 
     private static readonly MarkdownPipeline MarkdownPipelineInstance = new MarkdownPipelineBuilder()
         .UseAdvancedExtensions()
+        .DisableHtml()
         .Build();
 
-    private static string ConvertToHtml(string markdown)
+    internal static string ConvertToHtml(string markdown)
     {
 
         var body = Markdig.Markdown.ToHtml(markdown, MarkdownPipelineInstance);
