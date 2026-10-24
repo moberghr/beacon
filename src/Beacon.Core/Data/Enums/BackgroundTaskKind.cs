@@ -4,5 +4,8 @@ namespace Beacon.Core.Data.Enums;
 public enum BackgroundTaskKind
 {
     /// <summary>A forced re-read of a data source's metadata; the subject is the data source.</summary>
-    MetadataRefresh = 1
+    MetadataRefresh = 1,
+
+    /// <summary>A think cycle an AI actor's creator or an Admin asked for now; the subject is the AI actor.</summary>
+    AiActorThink = 2
 }

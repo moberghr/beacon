@@ -4,6 +4,8 @@ import { beaconApi } from '@/api/client';
 import { usePagedList } from '@/lib/usePagedList';
 import { AiActorExecutionPhase, AiActorStatus } from '@/lib/enums';
 import { createSimpleMutation } from '@/lib/mutations';
+import { useBackgroundTaskStatus } from '@/lib/useBackgroundTask';
+import type { BackgroundTaskStatus, BackgroundTaskTicket } from '@/api/generated/beacon-api';
 
 export const ACTOR_STATUS_LABEL: Record<number, string> = {
   [AiActorStatus.Draft]: 'Draft',
@@ -134,5 +136,35 @@ export function useCreateAiActor() {
       successMsg: 'AI actor created',
       errorFallback: 'Failed to create AI actor',
     }),
+  );
+}
+
+/** Archives the actor (soft delete); its creator's or an Admin's. */
+export function useArchiveAiActor(id: number) {
+  const qc = useQueryClient();
+  return useMutation(
+    createSimpleMutation<void, unknown>({
+      qc,
+      mutationFn: () => beaconApi().archiveAiActor(id),
+      invalidate: [['ai-actor', id], ['ai-actors']],
+      successMsg: 'AI actor archived',
+      errorFallback: 'Archiving the AI actor failed',
+    }),
+  );
+}
+
+/**
+ * Starts a think cycle as a background task (202 with its ticket); a 429 says one is already queued or running. Its
+ * progress is followed with useAiActorThinkStatus; the cycle in the request (executeAiActorThinkCycle) stays for API callers.
+ */
+export function useStartAiActorThink(id: number) {
+  return useMutation({
+    mutationFn: async () => unwrap<BackgroundTaskTicket>(await beaconApi().startAiActorThink(id)),
+  });
+}
+
+export function useAiActorThinkStatus(id: number, ticket: BackgroundTaskTicket | null) {
+  return useBackgroundTaskStatus(['ai-actor', id, 'think'] as const, ticket, async (taskId) =>
+    unwrap<BackgroundTaskStatus>(await beaconApi().getAiActorThinkTask(id, taskId)),
   );
 }

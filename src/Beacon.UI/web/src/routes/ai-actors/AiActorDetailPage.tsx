@@ -7,6 +7,7 @@ import { isNotFound, NOT_FOUND_DETAIL } from '@/lib/api';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { useAccess } from '@/auth/useAuth';
 import { SetOwnerDialog } from '../users/SetOwnerDialog';
+import { AiActorActions } from './AiActorActions';
 import {
   useAiActorDetailsQuery,
   useSetAiActorOwner,
@@ -44,6 +45,7 @@ export default function AiActorDetailPage() {
         }
         actions={
           <>
+            {data && <AiActorActions actorId={data.actorId} actorName={data.name} status={data.status} />}
             {canChangeOwner && data && (
               <Button type="button" onClick={() => setChangingOwner(true)}>
                 Change owner

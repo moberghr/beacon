@@ -125,6 +125,7 @@ export const SECURITY_AUDIT_CATEGORIES: readonly SecurityAuditCategory[] = [
       'approvals.ai_plan_rejected',
       'approvals.ai_plan_revision_requested',
       'approvals.ai_actor_created',
+      'approvals.ai_actor_think_started',
     ],
   },
   {

@@ -75,7 +75,7 @@ by an Admin until an Admin sets its creator.
 
 Pause applies to an `Active` actor; resume takes a `Paused` or `Failed` actor back to `Active`. On the actor's edit
 page (`/beacon/ai-actors/{id}/edit`) use **Pause actor** / **Resume actor**; the routes are
-`POST /beacon/api/ai-actors/{id}/pause` and `/resume`. Archive with `DELETE /beacon/api/ai-actors/{id}`; the list
+`POST /beacon/api/ai-actors/{id}/pause` and `/resume`. Archive with `DELETE /beacon/api/ai-actors/{id}` (the **Archive** button on the actor's page, after a confirmation); the list
 shows archived actors with **Include archived**.
 
 ## The think cycle
@@ -112,15 +112,23 @@ total cost and the recent think cycles.
 
 **When cycles run.**
 
-- **On demand**: `POST /beacon/api/ai-actors/{id}/think`. A cycle you start runs as you.
+- **On demand**: the actor's page has a **Think now** button, which starts the cycle as a background task:
+  `POST /beacon/api/ai-actors/{id}/think-tasks` answers `202` with the task (its `jobId` correlates the `JobStatusChanged`
+  events the user gets), and `GET .../think-tasks/{taskId}` reads its state (`Queued`, `Running`, `Succeeded`, `Failed`
+  or `Skipped`, with a `failureCode`: `cooldown`, `plan_pending`, `forbidden`, `not_found`, `abandoned`, `cancelled`,
+  `failed`; never the provider's message, the cycle's own reason is on its execution). Only the creator or an Admin may start
+  one; a second start while one is queued or running answers `429`. The task runs as you and re-checks that you may
+  still run the actor and reach its data source right before the LLM call; if not it is skipped, never run as the
+  system. The older `POST /beacon/api/ai-actors/{id}/think` runs the cycle inside the request and answers with its
+  result (kept for 5.0 callers). Starting a task is recorded as `approvals.ai_actor_think_started`.
 - **After a subscription run**: when a subscription linked to an `Active` actor finishes, a think cycle is enqueued as
   a background job. Only an executed `CreateSubscription` action links a subscription to an actor, so an actor whose
   actions are proposed has no linked subscriptions and its cycles run on demand.
 
 **Cooldown.** An actor thinks at most once per `Beacon:AiActors:ThinkCooldownMinutes` (default `15`, `0` = off, at most
 `1440`; validated at startup), counted from its last think time. A cycle within the cooldown is skipped: a background
-one is only logged at Debug (actor id), and a subscription run within it is dropped, not deferred: nothing is enqueued for later. A cycle you request with
-`POST .../think` does **not** bypass it: it answers `success: false` with the minutes left. The cooldown starts when a cycle starts, so a failed cycle consumes it too; the initial setup of a new actor does not count towards it. The cycle claims the actor
+one is only logged at Debug (actor id), and a subscription run within it is dropped, not deferred: nothing is enqueued for later. A cycle you request (**Think now**, or
+`POST .../think`) does **not** bypass it: it answers `success: false` with the minutes left. The cooldown starts when a cycle starts, so a failed cycle consumes it too; the initial setup of a new actor does not count towards it. The cycle claims the actor
 with one conditional update, so two hosts or job runs cannot both start one.
 
 A background cycle runs as the actor's creator. Before any LLM call or SQL, Beacon checks that the creator may still
