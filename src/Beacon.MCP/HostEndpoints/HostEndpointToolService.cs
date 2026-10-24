@@ -5,10 +5,12 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.WebUtilities;
+using Microsoft.Extensions.DependencyInjection;
 using ModelContextProtocol.Protocol;
 using Beacon.Core.Authorization;
 using Beacon.Core.HostEndpoints;
 using Beacon.Core.Mcp;
+using Beacon.MCP.DynamicTools;
 using Beacon.MCP.Services;
 using Beacon.MCP.Tools;
 
@@ -101,8 +103,8 @@ internal sealed class HostEndpointToolService(
 
         return
         [
-            CatalogTool(SearchToolName, writes.Count == 0 ? "Search the host application's read-only endpoints" : "Search the host application's endpoints", SearchDescription(visible.Count, writes.Count), SearchInputSchema, ReadOnlyAnnotations()),
-            CatalogTool(CallToolName, "Call a host application endpoint", CallDescription(writes.Count), CallInputSchema, CallAnnotations(writes))
+            McpCatalogTool.Create(SearchToolName, writes.Count == 0 ? "Search the host application's read-only endpoints" : "Search the host application's endpoints", SearchDescription(visible.Count, writes.Count), SearchInputSchema, McpCatalogTool.ReadOnlyAnnotations()),
+            McpCatalogTool.Create(CallToolName, "Call a host application endpoint", CallDescription(writes.Count), CallInputSchema, CallAnnotations(writes))
         ];
     }
 
@@ -492,22 +494,13 @@ internal sealed class HostEndpointToolService(
             : $"Run one host endpoint tool found with {SearchToolName}, as your host identity. Pass its name and arguments matching its input schema. " +
               "A tool with read_only: false changes data in the host application: call it only when the user asked for that change.";
 
-    private static ToolAnnotations ReadOnlyAnnotations() =>
-        new()
-        {
-            ReadOnlyHint = true,
-            DestructiveHint = false,
-            IdempotentHint = true,
-            OpenWorldHint = false
-        };
-
     /// <summary>
     /// <c>call_api</c> can reach every visible tool, so its hints are the most permissive of them: once one write tool
     /// is reachable it is not read-only (clients then ask before each call), and destructive when any write tool is.
     /// </summary>
     private static ToolAnnotations CallAnnotations(IReadOnlyList<HostEndpointToolDescriptor> writes) =>
         writes.Count == 0
-            ? ReadOnlyAnnotations()
+            ? McpCatalogTool.ReadOnlyAnnotations()
             : new ToolAnnotations
             {
                 ReadOnlyHint = false,
@@ -516,17 +509,35 @@ internal sealed class HostEndpointToolService(
                 OpenWorldHint = false
             };
 
-    private static Tool CatalogTool(string name, string title, string description, JsonElement schema, ToolAnnotations annotations) =>
-        new()
-        {
-            Name = name,
-            Title = title,
-            Description = description,
-            InputSchema = schema,
-            Annotations = annotations
-        };
-
     private sealed record HostEndpointAccess(int? ProjectId, McpCaller? Caller, System.Security.Claims.ClaimsPrincipal? McpPrincipal, string? Error);
+}
+
+/// <summary>
+/// The host endpoint tools as a dynamic tool source, listed after the saved-query tools. Its names are known once the
+/// host's endpoints are discovered, so the startup name check covers each <c>api_</c> tool.
+/// </summary>
+internal sealed class HostEndpointDynamicToolSource(HostEndpointToolRegistry registry) : IMcpDynamicToolSource
+{
+    public int Order => 200;
+
+    public McpDynamicToolNames ClaimedNames() =>
+        new(
+            "the host endpoint tools",
+            [HostEndpointToolService.SearchToolName, HostEndpointToolService.CallToolName, .. registry.Tools.Select(x => x.ToolName)],
+            [HostEndpointToolDescriptor.ToolNamePrefix]);
+
+    public bool Handles(IServiceProvider requestServices, string toolName) =>
+        requestServices.GetService<HostEndpointToolService>()?.Handles(toolName) == true;
+
+    public async Task<IReadOnlyList<Tool>> ListToolsAsync(IServiceProvider requestServices, CancellationToken cancellationToken)
+    {
+        var service = requestServices.GetService<HostEndpointToolService>();
+
+        return service == null ? [] : await service.ListToolsAsync(cancellationToken);
+    }
+
+    public Task<CallToolResult> CallAsync(IServiceProvider requestServices, string toolName, IDictionary<string, JsonElement>? arguments, CancellationToken cancellationToken) =>
+        requestServices.GetRequiredService<HostEndpointToolService>().CallAsync(toolName, arguments, cancellationToken);
 }
 
 /// <summary>

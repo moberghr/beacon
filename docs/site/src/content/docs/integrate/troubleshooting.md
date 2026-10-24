@@ -21,6 +21,7 @@ description: "Startup failures, empty pages, 401s and 404s, jobs that do nothing
 | `Beacon:Mcp:Callers` validation errors | Callers configured without `AllowedTenants`, without bearer JWT validation, or with both `ClientId` and `ObjectId`. | See [Connect AI clients](/mcp/connect/#option-b-entra-id-callers). |
 | `Beacon host endpoint tools are misconfigured:` | A `[BeaconTool]` endpoint without `ReadOnly`, without authorization metadata, with an untrusted auth scheme, or a write tool without `AllowWriteTools`. | Fix each listed endpoint. |
 | `AddHostEndpointTools can only be called once.` | Called twice. | Call it once, after `AddBeaconMcp()`. |
+| `The MCP tool name '…' is claimed by both …` | Two tool sources (saved-query tools, host endpoint tools, an attribute tool the host added) serve the same name or name prefix. | Rename the host's tool so it no longer starts with `q_` or `api_` or reuses a catalog name. |
 | Options validation for `Beacon:Query`, `Beacon:Mcp`, `Beacon:ApiKeys`, `Beacon:Notifications`, `Beacon:Authorization`… | A value is out of range or malformed. | The message names the key; see [Configuration](/getting-started/configuration/). |
 
 ## Database
