@@ -15,18 +15,21 @@ namespace Beacon.Gateway;
 public static class BeaconMcpGatewayApplicationBuilderExtensions
 {
     /// <summary>
-    /// The MCP gateway's part of the pipeline, before the host's <c>UseAuthentication()</c>: the RFC 9728
-    /// <c>resource_metadata</c> pointer on every 401 from <c>/beacon/mcp</c>, and Beacon's bearer middleware on
-    /// <c>/beacon/mcp</c> only — a bearer token authenticates nobody on any other route.
+    /// The MCP gateway's part of the pipeline, before the host's <c>UseAuthentication()</c>: the security response headers
+    /// on Beacon's routes, the RFC 9728 <c>resource_metadata</c> pointer on every 401 from <c>/beacon/mcp</c>, Beacon's
+    /// bearer middleware on <c>/beacon/mcp</c> only — a bearer token authenticates nobody on any other route — and the Host
+    /// and Origin check on Beacon's routes (<c>Beacon:Security</c>), which lets an OpenID Connect callback through.
     /// </summary>
     public static IApplicationBuilder UseBeaconMcpGateway(this IApplicationBuilder app)
     {
         ArgumentNullException.ThrowIfNull(app);
 
+        app.UseBeaconSecurityHeaders();
         app.UseMcpResourceMetadataChallenge();
         app.UseWhen(
             x => x.Request.Path.StartsWithSegments(McpDiscoveryPaths.McpPath, StringComparison.OrdinalIgnoreCase),
             x => x.UseBeaconJwtBearerAuthentication());
+        app.UseBeaconOriginGuard();
 
         return app;
     }

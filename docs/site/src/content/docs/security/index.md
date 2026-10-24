@@ -162,6 +162,7 @@ Beacon's guarantees assume the host does its share:
 - read-only logins on every data source;
 - secrets in a secret store, Data Protection keys encrypted at rest;
 - `UseForwardedHeaders` with known proxies, and `Beacon:PublicBaseUrl` set, behind a reverse proxy;
+- HSTS and `AllowedHosts` set by the host, and Beacon's origin check switched to `Enforce` once its warnings are gone;
 - the middleware order from [Host wiring](/integrate/host-setup/#the-middleware-pipeline);
 - every job scope marked as system work;
 - security log events and the `Beacon.Audit` category (including the security audit trail's copies and verification checkpoints, 9104 to 9110) shipped to a monitored log store;
