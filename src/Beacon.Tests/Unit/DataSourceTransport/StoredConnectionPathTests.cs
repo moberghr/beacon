@@ -47,7 +47,7 @@ public class StoredConnectionPathTests
         ["src/Beacon.Core/Data/Entities/DataSource.cs"] = "the entity property itself",
         ["src/Beacon.Core/HostData/DataSourceConnectionResolver.cs"] = "the one decrypt that becomes a connection",
         ["src/Beacon.Core/HostData/HostDataSourceSynchronizer.cs"] = "writes a host source's reference (a connection string name, never a credential) and reads it back to compare",
-        ["src/Beacon.Core/Services/DataSourceService.cs"] = "encrypts a connection on create and update; its StoredConnection helper decrypts the stored one only to compare an update's connection and target with it and to empty the old connection's driver pool, never to connect",
+        ["src/Beacon.Core/Services/DataSourceService.cs"] = "encrypts a connection on create and update; its StoredConnection helper decrypts the stored one only to compare an update's connection, target and definition with it, to empty the old connection's driver pool, and for the engine probe a held source gets once at its approval (the probe at approval: transport check, then the engine verifier), never to connect a query",
         ["src/Beacon.Core/Services/DatabaseMetadataService.cs"] = "projects the encrypted value, never decrypted, to tell whether a source's connection changed while its metadata scan ran",
         ["src/Beacon.Core/Services/StoredValueReEncryptionService.cs"] = "re-encrypts stored values under the current key",
         ["src/Beacon.Core/Services/Providers/DataSourceTransportStatus.cs"] = "projects the encrypted value and hands it to the resolver's badge check",
@@ -55,7 +55,8 @@ public class StoredConnectionPathTests
     };
 
     // A decrypt of the stored value itself: only the resolver (a connection), the host sync (a reference) and the data-source
-    // update (a comparison and a pool clear, through its StoredConnection helper) may.
+    // service (an update's comparison and pool clear, and a held source's engine probe at approval, through its
+    // StoredConnection helper) may.
     private static readonly HashSet<string> AllowedDecrypts = new(StringComparer.Ordinal)
     {
         "src/Beacon.Core/HostData/DataSourceConnectionResolver.cs",

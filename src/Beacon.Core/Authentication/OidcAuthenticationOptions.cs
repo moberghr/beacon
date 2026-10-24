@@ -1,7 +1,15 @@
+using Microsoft.Extensions.Configuration;
+
 namespace Beacon.Core.Authentication;
 
+/// <summary>
+/// Single sign-on (OIDC), bound from <c>Beacon:Authentication:Oidc</c>. Every reader of the section goes through
+/// <see cref="FromConfiguration"/> or <c>IOptions&lt;OidcAuthenticationOptions&gt;</c>, never through the raw keys.
+/// </summary>
 public class OidcAuthenticationOptions
 {
+    public const string SectionName = "Beacon:Authentication:Oidc";
+
     public bool Enabled { get; set; } = false;
     public string? Authority { get; set; }
     public string? ClientId { get; set; }
@@ -67,6 +75,22 @@ public class OidcAuthenticationOptions
     public IList<string> AcceptedAcrValues { get; set; } = new List<string>();
 
     /// <summary>
+    /// Binds <see cref="SectionName"/> from <paramref name="configuration"/>; an absent section gives the defaults (SSO off).
+    /// </summary>
+    public static OidcAuthenticationOptions FromConfiguration(IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        return configuration.GetSection(SectionName).Get<OidcAuthenticationOptions>() ?? new OidcAuthenticationOptions();
+    }
+
+    /// <summary>The <see cref="Authority"/> without a trailing slash while SSO is <see cref="Enabled"/>, else null.</summary>
+    public string? GetEnabledAuthority()
+    {
+        return Enabled ? Authority?.TrimEnd('/') : null;
+    }
+
+    /// <summary>
     /// Fails startup when SSO is enabled without its required settings or without a tenant admission rule.
     /// </summary>
     public void Validate()
@@ -81,13 +105,13 @@ public class OidcAuthenticationOptions
             || string.IsNullOrWhiteSpace(ClientSecret))
         {
             throw new InvalidOperationException(
-                "Beacon:Authentication:Oidc is Enabled but Authority, ClientId, or ClientSecret is missing.");
+                $"{SectionName} is Enabled but Authority, ClientId, or ClientSecret is missing.");
         }
 
         if (!AllowAnyTenant && !AllowedTenants.Any(x => !string.IsNullOrWhiteSpace(x)))
         {
             throw new InvalidOperationException(
-                "Beacon:Authentication:Oidc is Enabled but admits every tenant: set AllowedTenants to your tenant id(s), " +
+                $"{SectionName} is Enabled but admits every tenant: set AllowedTenants to your tenant id(s), " +
                 "or set AllowAnyTenant to true when your identity provider issues no tenant (tid) claim.");
         }
     }

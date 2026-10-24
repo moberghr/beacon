@@ -396,7 +396,7 @@ describe('McpLearningPage golden curation (Admin)', () => {
         promoted = await request.json();
         return HttpResponse.json({ evalCaseId: 7, alreadyPromoted: false });
       }),
-      http.get('*/beacon/api/eval/golden', () => HttpResponse.json([GOLDEN_CASE])),
+      http.get('*/beacon/api/eval/golden/paged', () => HttpResponse.json(paged([GOLDEN_CASE]))),
     );
 
     renderWithProviders(<McpLearningPage />);
@@ -420,7 +420,7 @@ describe('McpLearningPage golden curation (Admin)', () => {
     mswServer.use(
       http.get('*/beacon/api/eval/golden/candidates', () => HttpResponse.json(paged([CANDIDATE]))),
       http.post('*/beacon/api/eval/golden/promote', () => HttpResponse.json({ evalCaseId: 7, alreadyPromoted: true })),
-      http.get('*/beacon/api/eval/golden', () => HttpResponse.json([GOLDEN_CASE])),
+      http.get('*/beacon/api/eval/golden/paged', () => HttpResponse.json(paged([GOLDEN_CASE]))),
     );
 
     renderWithProviders(<McpLearningPage />);
@@ -448,9 +448,9 @@ describe('McpLearningPage golden curation (Admin)', () => {
     mockLearning([]);
     let asked: string | null = null;
     mswServer.use(
-      http.get('*/beacon/api/eval/golden', ({ request }) => {
+      http.get('*/beacon/api/eval/golden/paged', ({ request }) => {
         asked = new URL(request.url).searchParams.get('projectId');
-        return HttpResponse.json([GOLDEN_CASE, { ...GOLDEN_CASE, id: 8, question: 'Older case', promotedByName: null, modifiedByName: null }]);
+        return HttpResponse.json(paged([GOLDEN_CASE, { ...GOLDEN_CASE, id: 8, question: 'Older case', promotedByName: null, modifiedByName: null }]));
       }),
     );
 
@@ -486,11 +486,11 @@ describe('McpLearningPage golden examples (Admin)', () => {
   it('flags the cases prompts leave out, with the reason, and shows hidden characters escaped', async () => {
     mockLearning([]);
     mswServer.use(
-      http.get('*/beacon/api/eval/golden', () =>
-        HttpResponse.json([
+      http.get('*/beacon/api/eval/golden/paged', () =>
+        HttpResponse.json(paged([
           { ...GOLDEN_CASE, question: 'Orders\u2066 shipped?', goldSqlWithheld: true, questionWithheld: true },
           { ...GOLDEN_CASE, id: 8, question: 'Kept case' },
-        ])),
+        ]))),
     );
 
     await openGoldenExamples();
@@ -512,9 +512,9 @@ describe('McpLearningPage golden examples (Admin)', () => {
     let body: unknown = null;
     let reads = 0;
     mswServer.use(
-      http.get('*/beacon/api/eval/golden', () => {
+      http.get('*/beacon/api/eval/golden/paged', () => {
         reads++;
-        return HttpResponse.json([GOLDEN_CASE, { ...GOLDEN_CASE, id: 8, question: 'Retired case', isActive: false }]);
+        return HttpResponse.json(paged([GOLDEN_CASE, { ...GOLDEN_CASE, id: 8, question: 'Retired case', isActive: false }]));
       }),
       http.put('*/beacon/api/eval/golden/:id', async ({ request, params }) => {
         body = { id: params.id, ...(await request.json() as object) };
@@ -539,7 +539,7 @@ describe('McpLearningPage golden examples (Admin)', () => {
     mockLearning([]);
     let deactivated = false;
     mswServer.use(
-      http.get('*/beacon/api/eval/golden', () => HttpResponse.json([GOLDEN_CASE])),
+      http.get('*/beacon/api/eval/golden/paged', () => HttpResponse.json(paged([GOLDEN_CASE]))),
       http.put('*/beacon/api/eval/golden/:id', () => {
         deactivated = true;
         return new HttpResponse(null, { status: 204 });

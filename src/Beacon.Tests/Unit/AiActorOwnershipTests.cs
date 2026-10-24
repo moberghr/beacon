@@ -4,6 +4,7 @@ using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
 using Beacon.AI.Handlers.AiActors;
@@ -11,6 +12,7 @@ using Beacon.AI.Services.Ai.AiActor;
 using Beacon.AI.Services.Ai.AiActor.Models;
 using Beacon.Core;
 using Beacon.Core.Authorization;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
@@ -538,6 +540,65 @@ public class AiActorOwnershipTests
         await act.Should().ThrowAsync<BeaconNotFoundException>().WithMessage("AI actor 404 not found.");
     }
 
+    // What the plan view tells a reviewer matches what approving does: the same cases as the approval handler's.
+    [TestCase("ext-ben", "Approver", true, false)]
+    [TestCase("ext-admin", RoleService.RoleNames.Admin, true, true)]
+    [TestCase("ext-ana", "Approver", false, true)]
+    [TestCase("ext-ana", null, false, true)]
+    [TestCase("ext-ben", RoleService.RoleNames.Editor, false, false)]
+    public async Task PlanView_WithTheWorkflowOn_SaysWhetherTheCallerMayApprove(string caller, string? role, bool mayApprove, bool mayRejectOrRevise)
+    {
+        var workflowOn = new BeaconConfiguration { ApprovalWorkflow = new ApprovalWorkflowOptions { Enabled = true } };
+
+        var result = await PlanView(Interactive(caller, role), workflowOn).Handle(new GetAiActorPlanQuery { PlanId = PlanId }, CancellationToken.None);
+
+        result!.MayApprove.Should().Be(mayApprove);
+        result.MayRejectOrRevise.Should().Be(mayRejectOrRevise);
+        if (mayApprove)
+        {
+            result.ApproveBlockedReason.Should().BeNull();
+        }
+        else
+        {
+            result.ApproveBlockedReason.Should().NotBeNullOrWhiteSpace();
+        }
+    }
+
+    [TestCase("ext-ana", null, true)]
+    [TestCase("ext-admin", RoleService.RoleNames.Admin, true)]
+    [TestCase("ext-ben", "Approver", false)]
+    public async Task PlanView_WithTheWorkflowOff_LetsTheCreatorOrAnAdminApprove(string caller, string? role, bool allowed)
+    {
+        var result = await PlanView(Interactive(caller, role)).Handle(new GetAiActorPlanQuery { PlanId = PlanId }, CancellationToken.None);
+
+        result!.MayApprove.Should().Be(allowed);
+        result.MayRejectOrRevise.Should().Be(allowed);
+        result.ApproveBlockedReason.Should().Be(allowed ? null : "Only the AI actor's creator or an Admin can change or run it.");
+    }
+
+    [Test]
+    public async Task PlanView_ForACallerWhoMayNotWriteTheActorsDataSource_OffersNoDecision()
+    {
+        var result = await PlanView(Interactive("ext-ana"), scope: ProjectAccessScope.None).Handle(new GetAiActorPlanQuery { PlanId = PlanId }, CancellationToken.None);
+
+        result!.MayApprove.Should().BeFalse();
+        result.MayRejectOrRevise.Should().BeFalse();
+        result.ApproveBlockedReason.Should().Contain("write access");
+    }
+
+    [Test]
+    public async Task PlanView_ForAPlanNoLongerPending_OffersNoDecisionAndNoReason()
+    {
+        _actors[0].CreatedByUserId = "ext-ana";
+        var decided = new AiActorPlan { Id = PlanId, AiActorId = ActorId, AiActor = _actors[0], Status = AiActorPlanStatus.Rejected, Analysis = "a", ActionsJson = "[]", ProposedAt = DateTime.UtcNow };
+
+        var result = await PlanView(Interactive("ext-ana"), plan: decided).Handle(new GetAiActorPlanQuery { PlanId = PlanId }, CancellationToken.None);
+
+        result!.MayApprove.Should().BeFalse();
+        result.MayRejectOrRevise.Should().BeFalse();
+        result.ApproveBlockedReason.Should().BeNull();
+    }
+
     private IEnumerable<Func<Task>> ChangesAndRuns(IBeaconActorAccessor caller)
     {
         var factory = Factory();
@@ -570,6 +631,30 @@ public class AiActorOwnershipTests
             TestPermissions.Holding(BeaconPermissions.Approver),
             Factory(),
             new BeaconConfiguration { ApprovalWorkflow = new ApprovalWorkflowOptions { Enabled = true } });
+    }
+
+    // The plan view of the pending plan (or of <paramref name="plan"/>) for a caller with <paramref name="scope"/> (default: everything).
+    private GetAiActorPlanHandler PlanView(ClaimsPrincipal caller, BeaconConfiguration? configuration = null, ProjectAccessScope? scope = null, AiActorPlan? plan = null)
+    {
+        var pending = plan ?? Plans()[^1];
+        if (plan == null)
+        {
+            pending.ProposedAt = DateTime.UtcNow;
+        }
+
+        _service
+            .Setup(x => x.GetPlanAsync(PlanId, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(pending);
+
+        return new GetAiActorPlanHandler(
+            _service.Object,
+            Mock.Of<IOptionsMonitor<AiActorOptions>>(x => x.CurrentValue == new AiActorOptions()),
+            TimeProvider.System,
+            Actor(caller),
+            TestPermissions.ForPrincipal(caller),
+            TestProjectAccess.Evaluator(scope ?? TestProjectAccess.Unrestricted),
+            Factory(),
+            configuration ?? new BeaconConfiguration());
     }
 
     private RejectAiActorPlanHandler RejectHandler(ClaimsPrincipal caller)

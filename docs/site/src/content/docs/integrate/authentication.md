@@ -71,9 +71,9 @@ The full request shapes are in the OpenAPI document (`/openapi/v1.json`), once s
 
 ### Passwords
 
-Passwords are hashed with PBKDF2-SHA256 (100,000 iterations, 32-byte salt). Policy is code-configured: `MinimumPasswordLength` (default 8) and `RequirePasswordComplexity` (default `true`). A password an administrator sets must be changed at first sign-in. Users change their own password under **Settings**; there is no REST route that sets another user's password.
+Passwords are hashed with PBKDF2-SHA256 (600,000 iterations stored in the hash, 32-byte salt; older hashes are upgraded at the next successful sign-in, see [Password hashes](/security/user-management/#password-hashes)). Policy is code-configured: `MinimumPasswordLength` (default 8) and `RequirePasswordComplexity` (default `true`). A password an administrator sets must be changed at first sign-in. Users change their own password under **Settings**; there is no REST route that sets another user's password.
 
-Password sign-in is throttled to **10 attempts per 60 seconds per client IP** (429 with `Retry-After`). Behind a proxy that only works if your host runs `UseForwardedHeaders` with the proxy listed. See [Production checklist](/integrate/production/#reverse-proxy).
+Password sign-in is throttled to **10 attempts per 60 seconds per client IP** (429 with `Retry-After`), and an internal user is locked out for 15 minutes after 5 wrong passwords (the same generic answer, whatever password is sent; break-glass accounts are never locked, and `Beacon:RateLimits:Lockout:Enabled` `false` turns the lockout off). IPv6 clients are limited per `/64` block. Behind a proxy the per-IP limit only works if your host runs `UseForwardedHeaders` with the proxy listed. See [Production checklist](/integrate/production/#reverse-proxy) and [Request limits](/getting-started/configuration/#request-limits).
 
 ### Turning password sign-in off (break-glass)
 
@@ -154,18 +154,18 @@ builder.Services.AddBeaconJwtAuthentication(jwt =>
     jwt.Validation.ValidAudiences = [ "api://<beacon-app-id>", "<beacon-app-id>" ];
 });
 // …
-app.UseBeaconJwtBearerAuthentication();   // in the pipeline, after ApiKeyAuthMiddleware
+app.UseBeaconAuthentication();   // judges the bearer token, the API key or the cookie, whichever is presented
 ```
 
 | Option | Default | Notes |
 |---|---|---|
 | `EnableBearerAuthentication` | `false` | Turns the middleware on. |
-| `Validation.JwksEndpoint` or `Validation.SigningKey` | Required | One is required. |
+| `Validation.JwksEndpoint` or `Validation.SigningKey` | Required | One is required. The JWKS endpoint is an `https` URL (`http` to a loopback host in Development only); a signing key is at least 32 bytes. |
 | `Validation.ValidIssuer(s)`, `ValidAudience(s)` | Required | At least one of each; issuer, audience and lifetime validation must stay on. |
 | `Validation.ClockSkew` | 5 min | At most 5 minutes. |
 | `AccessTokenClaim` | None | For non-Entra providers: a claim that proves the token is an access token (ID-token claims such as `sub` or `nonce` are refused). |
 | `ClaimsMapping` | `sub`, `preferred_username`, `email`, `roles`, `name` | Which claims carry the user id, user name, email, roles and display name. |
-| `ExternalLoginEndpoint` | None | Let the login form validate credentials against your own token endpoint. |
+| `ExternalLoginEndpoint` | None | Let the login form validate credentials against your own token endpoint (an `https` URL). Internal users still sign in first. |
 
 A token must prove it is an **access** token (Entra: `azp`/`appid` plus `scp` or `roles`; others: `typ: at+jwt` or `AccessTokenClaim`) and must bind to an existing, enabled Beacon user, so bearer tokens on the REST API need Beacon's user management. On `/beacon/mcp`, tokens go through the **MCP caller mapping** instead (`Beacon:Mcp:Callers`). See [Connect AI clients](/mcp/connect/#option-b-entra-id-callers).
 

@@ -1,12 +1,7 @@
 import { useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import { useAuth } from '@/auth/useAuth';
-import {
-  connectBeaconHub,
-  type BeaconHub,
-  type ApprovalUpdatedEvent,
-  type JobStatusChangedEvent,
-} from './hub';
+import type { BeaconHub, ApprovalUpdatedEvent, JobStatusChangedEvent } from './hub';
 
 /**
  * Lazily-initialized singleton hub connection shared across the React app so
@@ -38,7 +33,8 @@ function ensureConnected(): void {
     return;
   }
 
-  const connecting: Promise<BeaconHub> = connectBeaconHub().then(hub => {
+  // The SignalR client is imported on first use so it stays out of the entry chunk.
+  const connecting: Promise<BeaconHub> = import('./hub').then(m => m.connectBeaconHub()).then(hub => {
     // When automatic reconnect exhausts, the connection is dead for good.
     // Drop the cached promise, mark every subscriber detached, and schedule
     // a fresh connection so already-mounted pages recover. A connection

@@ -22,6 +22,20 @@ public abstract class SqlClientTransportInspector(DatabaseEngineType databaseEng
     public DataSourceTransportVerdict Inspect(string connectionData)
     {
         var settings = Read(connectionData);
+
+        return Verdict(settings).WithDefinition(settings.Definition);
+    }
+
+    /// <summary>
+    /// The transport settings of <paramref name="connectionData"/> as SqlClient's own connection string builder reads
+    /// them; any <c>Encrypt</c> value other than Mandatory or Strict is <see cref="SqlClientEncrypt.Optional"/>. A reader
+    /// that fills <see cref="SqlClientTransportSettings.Definition"/> gives the verdict its definition. Throws when the
+    /// builder cannot read the connection string.
+    /// </summary>
+    protected abstract SqlClientTransportSettings Read(string connectionData);
+
+    private static DataSourceTransportVerdict Verdict(SqlClientTransportSettings settings)
+    {
         var target = Target(settings);
 
         if (settings.Encrypt is not (SqlClientEncrypt.Mandatory or SqlClientEncrypt.Strict))
@@ -33,13 +47,6 @@ public abstract class SqlClientTransportInspector(DatabaseEngineType databaseEng
             ? DataSourceTransportVerdict.Fail("TrustServerCertificate", "Set TrustServerCertificate=false, or leave it out (use HostNameInCertificate or ServerCertificate for a certificate from a private CA)", target)
             : DataSourceTransportVerdict.Pass(target);
     }
-
-    /// <summary>
-    /// The transport settings of <paramref name="connectionData"/> as SqlClient's own connection string builder reads
-    /// them; any <c>Encrypt</c> value other than Mandatory or Strict is <see cref="SqlClientEncrypt.Optional"/>. Throws when
-    /// the builder cannot read the connection string.
-    /// </summary>
-    protected abstract SqlClientTransportSettings Read(string connectionData);
 
     // "tcp:host,port": the host and, when given, the port.
     private static DataSourceTransportTarget Target(SqlClientTransportSettings settings)

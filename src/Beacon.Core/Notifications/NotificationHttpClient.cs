@@ -175,12 +175,14 @@ internal sealed class NotificationHttpSender(IHttpClientFactory httpClientFactor
 }
 
 /// <summary>
-/// Caps a response body: a declared <c>Content-Length</c> over the limit fails at once, an undeclared body fails as soon
+/// Caps a response body (notification adapters and the other bounded outbound clients): a declared <c>Content-Length</c> over the limit fails at once, an undeclared body fails as soon
 /// as reading passes the limit, before it is all buffered, and reading the body fails once
 /// <paramref name="readTimeout"/> has passed since the headers arrived.
 /// </summary>
 internal sealed class ResponseSizeLimitHandler(long maxBytes, TimeSpan readTimeout) : DelegatingHandler
 {
+    public long MaxBytes => maxBytes;
+
     protected override async Task<HttpResponseMessage> SendAsync(HttpRequestMessage request, CancellationToken cancellationToken)
     {
         var response = await base.SendAsync(request, cancellationToken);
@@ -188,7 +190,7 @@ internal sealed class ResponseSizeLimitHandler(long maxBytes, TimeSpan readTimeo
         if (response.Content.Headers.ContentLength > maxBytes)
         {
             response.Dispose();
-            throw new HttpRequestException("The notification destination's response exceeded the size limit.");
+            throw new HttpRequestException("The response exceeded the size limit.");
         }
 
         var stream = await response.Content.ReadAsStreamAsync(cancellationToken);
@@ -240,7 +242,7 @@ internal sealed class LengthLimitedStream(Stream inner, long maxBytes, TimeSpan 
         }
         catch (OperationCanceledException) when (_deadline.IsCancellationRequested && !cancellationToken.IsCancellationRequested)
         {
-            throw new HttpRequestException("The notification destination's response was not read within the time limit.");
+            throw new HttpRequestException("The response was not read within the time limit.");
         }
     }
 
@@ -275,7 +277,7 @@ internal sealed class LengthLimitedStream(Stream inner, long maxBytes, TimeSpan 
         _read += read;
         if (_read > maxBytes)
         {
-            throw new HttpRequestException("The notification destination's response exceeded the size limit.");
+            throw new HttpRequestException("The response exceeded the size limit.");
         }
 
         return read;

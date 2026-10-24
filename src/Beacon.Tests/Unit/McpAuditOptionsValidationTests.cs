@@ -22,11 +22,10 @@ public class McpAuditOptionsValidationTests
         options.Audit.RequestIdHeader.Should().Be("X-Request-Id");
     }
 
-    [TestCase(0)]
-    [TestCase(-1)]
-    public void NonPositiveRetentionDays_Fails(int days)
+    [Test]
+    public void NegativeRetentionDays_Fails()
     {
-        var result = Validate(new McpAuditOptions { RetentionDays = days });
+        var result = Validate(new McpAuditOptions { RetentionDays = -1 });
 
         result.Failed.Should().BeTrue();
         result.Failures.Should().ContainSingle()
@@ -34,9 +33,10 @@ public class McpAuditOptionsValidationTests
     }
 
     [Test]
-    public void PositiveRetentionDays_Succeeds()
+    public void PositiveOrZeroRetentionDays_Succeeds()
     {
         Validate(new McpAuditOptions { RetentionDays = 90 }).Succeeded.Should().BeTrue();
+        Validate(new McpAuditOptions { RetentionDays = 0 }).Succeeded.Should().BeTrue("zero keeps the audit forever");
     }
 
     [TestCase("X Request Id")]
@@ -72,7 +72,7 @@ public class McpAuditOptionsValidationTests
     [Test]
     public void BothInvalid_ReportsBothFailures()
     {
-        var result = Validate(new McpAuditOptions { RetentionDays = 0, RequestIdHeader = "bad header" });
+        var result = Validate(new McpAuditOptions { RetentionDays = -1, RequestIdHeader = "bad header" });
 
         result.Failures.Should().HaveCount(2);
     }

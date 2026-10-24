@@ -1,5 +1,6 @@
 using System.Net.Http.Json;
 using System.Reflection;
+using System.Security.Cryptography;
 using System.Text.Json.Nodes;
 using FluentAssertions;
 using MediatR;
@@ -38,8 +39,11 @@ public class OpenApiContractTests
         try
         {
             _factory = new BeaconWebApplicationFactory();
-            // The whole surface: the migration endpoints are mapped only on a host that runs migrations.
-            _host = _factory.WithWebHostBuilder(x => x.UseSetting("Beacon:Migrations:Enabled", "true"));
+            // The whole surface: the migration and embed endpoints are mapped only on a host that turned them on.
+            _host = _factory.WithWebHostBuilder(x => x
+                .UseSetting("Beacon:Migrations:Enabled", "true")
+                .UseSetting("Beacon:Embed:Enabled", "true")
+                .UseSetting("Beacon:Embed:SigningKey", Convert.ToBase64String(RandomNumberGenerator.GetBytes(32))));
             _client = _host.CreateClient();
         }
         catch (Exception ex)

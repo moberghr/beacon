@@ -77,7 +77,7 @@ internal sealed class SqlCapture
     public int Commits { get; private set; }
 
     /// <summary>
-    /// Answers every command the script does not: a <c>count(*)</c> read with one, anything else with no rows. For tests
+    /// Answers every command the script does not: a <c>count(*)</c> read with one, an average with a NULL row, anything else with no rows. For tests
     /// that compare the SQL a handler sends, not what it does with the rows.
     /// </summary>
     public SqlCapture AnsweringCountsWithOne()
@@ -85,7 +85,9 @@ internal sealed class SqlCapture
         _fallback = sql => sql.Contains("count(*)", StringComparison.OrdinalIgnoreCase)
             && sql.TrimStart().StartsWith("SELECT count(", StringComparison.OrdinalIgnoreCase)
                 ? (() => Scalar(1), 1)
-                : (() => new DataTable().CreateDataReader(), 1);
+                : sql.TrimStart().StartsWith("SELECT avg(", StringComparison.OrdinalIgnoreCase)
+                    ? (() => NullAverage(), 1)
+                    : (() => new DataTable().CreateDataReader(), 1);
 
         return this;
     }
@@ -184,6 +186,16 @@ internal sealed class SqlCapture
         return value is DBNull ? typeof(string) : value.GetType();
     }
 
+    // An average over no rows: the database answers one row holding NULL.
+    private static DbDataReader NullAverage()
+    {
+        var table = new DataTable();
+        table.Columns.Add("value", typeof(double));
+        table.Rows.Add(DBNull.Value);
+
+        return table.CreateDataReader();
+    }
+
     private static DbDataReader Scalar(object value)
     {
         var table = new DataTable();
@@ -191,6 +203,20 @@ internal sealed class SqlCapture
         table.Rows.Add(value);
 
         return table.CreateDataReader();
+    }
+
+    /// <summary>
+    /// Runs <paramref name="ended"/> once the stand-in <paramref name="transaction"/> ends (when it is disposed, committed or
+    /// not), as the database releases a lock the transaction owns.
+    /// </summary>
+    internal static void WhenEnded(DbTransaction transaction, Action ended)
+    {
+        if (transaction is not StandInTransaction standIn)
+        {
+            throw new ArgumentException("Not a stand-in transaction of a capture.", nameof(transaction));
+        }
+
+        standIn.WhenEnded(ended);
     }
 
     /// <summary>
@@ -337,7 +363,23 @@ internal sealed class SqlCapture
 
     private sealed class StandInTransaction(SqlCapture capture, DbConnection connection, IsolationLevel isolationLevel) : DbTransaction
     {
+        private Action? _ended;
+
         public override IsolationLevel IsolationLevel => isolationLevel;
+
+        public void WhenEnded(Action ended)
+        {
+            _ended += ended;
+        }
+
+        // Disposed once its unit of work is over, committed or not: what waited for its end runs, once.
+        protected override void Dispose(bool disposing)
+        {
+            var ended = _ended;
+            _ended = null;
+            ended?.Invoke();
+            base.Dispose(disposing);
+        }
 
         protected override DbConnection DbConnection => connection;
 

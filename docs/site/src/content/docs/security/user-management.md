@@ -7,7 +7,7 @@ Beacon has a built-in user store: internal users who sign in with a password sto
 
 ## Overview
 
-- **Internal users** sign in with a user name (or e-mail address) and a password Beacon stores as a PBKDF2-SHA256 hash (100,000 iterations, 32-byte salt).
+- **Internal users** sign in with a user name (or e-mail address) and a password Beacon stores as a PBKDF2-SHA256 hash (600,000 iterations, 32-byte salt; see [Password hashes](#password-hashes)).
 - **External users** sign in through single sign-on (OIDC), a REST bearer token, or a login API that returns a JWT. Their roles always come from Beacon, never from the token.
 - **Global roles** Admin, Editor and Viewer; **functional roles** Approver, Auditor, SecurityAdmin, UserAdmin, DataSourceAdmin and MigrationOperator, one administrative duty each, without project data.
 - **First-run setup** creates the super admin with a setup token.
@@ -87,6 +87,7 @@ An Admin or a UserAdmin manages users on **Users** (`/beacon/users`):
 - **Add user** creates an internal or an external user with roles. Internal users are an Admin's to create; a UserAdmin creates external users only. A password an Admin sets must be replaced at first sign-in (see [Passwords set by an administrator](#passwords-set-by-an-administrator)).
 - **Edit user** changes the display name, enabled state and roles. The user name and e-mail address are an Admin's to change.
 - **Sign out everywhere** ends every session of the user.
+- **User names and e-mail addresses** are trimmed. A user name needs 3 to 100 characters and no control characters; an e-mail address is optional, but when given it must be one plain address (no display name, no list) of at most 255 characters. Otherwise creating the user answers `400`. Editing a user keeps a user name or e-mail address sent back exactly as stored, surrounding whitespace included, and trims and checks only the fields that change, so an account stored before these rules, or provisioned at an identity-provider sign-in, can still be saved or disabled. First-run setup applies the same rules and refuses a password confirmation that differs. Users provisioned at an identity-provider sign-in keep the provider's values.
 - Disabling or archiving a user revokes their [API keys](/security/api-keys/#when-the-owner-leaves); re-enabling revokes any key still active instead of restoring one.
 
 Set a **display name** for everyone who should be added to projects: project member search matches display names only, and other users see people by display name (or "User {id}"), never by user name or e-mail address.
@@ -169,7 +170,11 @@ builder.Services.AddBeaconJwtAuthentication(jwt =>
 });
 ```
 
-With `ExternalLoginEndpoint` or `EnableBearerAuthentication` set, the host does not start without a signing key or JWKS endpoint, at least one issuer and one audience; issuer, audience and lifetime validation must stay on, and `ClockSkew` may be at most five minutes.
+With `ExternalLoginEndpoint` or `EnableBearerAuthentication` set, the host does not start without a signing key or JWKS endpoint, at least one issuer and one audience; issuer, audience and lifetime validation must stay on, and `ClockSkew` may be at most five minutes. A `SigningKey` is at least 32 bytes (use base64 of 32 or more random bytes), and `JwksEndpoint` and `ExternalLoginEndpoint` are `https` URLs (`http` to a loopback host is accepted in Development only).
+
+With `ExternalLoginEndpoint` set, `AddBeaconJwtAuthentication` makes `HybridAuthenticationProvider` the sign-in provider whenever user management holds internal users: internal users sign in first, and the external login API is the fallback. Without user management, or with `AllowInternalUsers` off, the external login is the provider on its own.
+
+Tokens are accepted only with `RS256/384/512`, `PS256/384/512` or `ES256/384/512` from a JWKS endpoint, or `HS256/384/512` with a signing key, and only with the header `typ` `JWT`, `at+jwt` or none at all; any other declared type (a logout or event token, for one) is refused.
 
 The token must be an **access token**, shown by positive evidence: a Microsoft Entra token names its client (`azp` or `appid`) and carries `scp` or `roles`; a token from any other issuer has the header `typ: at+jwt` or carries the claim named by `AccessTokenClaim`. A token with `nonce`, `at_hash` or `c_hash` is an ID token and is refused. `AccessTokenClaim` may not name a claim ID tokens carry (`sub`, `aud`, `nonce`, `azp`, `roles`, …); startup fails otherwise. When the SSO authority issued the token, it must also pass the [admission rules](#single-sign-on-admission).
 
@@ -267,7 +272,7 @@ With `Enabled: false`:
 
 `BreakGlassUserNames` holds up to 3 names, each compared exactly (case included) with the stored user name; the holder may type that name or the account's e-mail address. A blank entry or a longer list fails startup, and so does turning local login off with no OIDC, no `BeaconApiOptions.ExternalLogin` (a host-owned login page) and no break-glass account. The JWT login API (`ExternalLoginEndpoint`) does not count for this check. The first-run super admin is a password account: list it (or another internal Admin) before turning local login off.
 
-Password sign-in, and the first-run setup, are throttled per client address: 10 login attempts per 60 seconds, then `429` with `Retry-After`. Behind a reverse proxy configure forwarded headers, or the limit applies to the proxy's address.
+Password sign-in, and the first-run setup, are throttled per client address: 10 login attempts per 60 seconds, then `429` with `Retry-After`. Behind a reverse proxy configure forwarded headers, or the limit applies to the proxy's address. After 5 wrong passwords an internal user is locked out for 15 minutes: every password, the right one included, gets the generic answer, and an administrator's password reset ends the lock early. A wrong current password on a password change counts too, and a locked user cannot change the password. The count starts again after 15 minutes without a wrong password. Break-glass accounts are never locked, only limited per address. Anyone who knows a user name can lock that user out this way; `Beacon:RateLimits:Lockout:Enabled` `false` turns the lockout off. Both are set under [`Beacon:RateLimits`](/getting-started/configuration/#request-limits).
 
 ## Passwords set by an administrator
 
@@ -276,6 +281,16 @@ Whoever sets a password can sign in with it, so a password an Admin sets (a new 
 - The right user name and password answer `401` with `passwordChangeRequired: true` (no session); a wrong password answers as usual.
 - The login page asks for a new password and sends the same sign-in again with `newPassword`. When the rules accept it (and it differs from the one set), it becomes the user's password, the requirement clears, the security stamp changes and the user is signed in. A refused password answers `400` with the reason.
 - Changing your own password (`POST /beacon/api/user-settings/change-password`) also clears the requirement.
+
+## Password hashes
+
+Passwords are hashed with PBKDF2-HMAC-SHA256, a 32-byte random salt per password and 600,000 iterations. The iteration count is stored in the hash itself (`v2$600000$<Base64 hash>` in `PasswordHash`; the salt stays in `PasswordSalt`), so no schema change is needed to raise it.
+
+- A hash written by an earlier version (bare Base64 at 100,000 iterations) or with fewer iterations still verifies. The user's next successful password sign-in replaces it with a hash at the current count. That is the same password, so the user's sessions stay. The replacement is written only while the stored hash is still the one verified, so it never undoes a password change made at the same moment.
+- A malformed stored hash, or one claiming fewer than 100,000 or more than 10,000,000 iterations, verifies as a wrong password and logs a warning.
+- Every verification costs the current 600,000 iterations: an older hash is topped up with discarded work, and an unknown user, a missing or a malformed hash costs a full dummy derivation, so the time a failed sign-in takes does not tell these accounts apart.
+- **Rollback:** a version before this one cannot read a `v2$` hash, so users whose hash was upgraded cannot sign in with a password after a rollback until an Admin resets their password.
+- A host's own `IPasswordHasher` keeps working: `NeedsRehash` defaults to `false`, so Beacon never replaces its hashes.
 
 ## Sign-in sessions
 
@@ -352,7 +367,7 @@ must choose a new one is recorded as a refused sign-in (`password_change_require
 | `UserName` | unique user name |
 | `Email`, `DisplayName` | optional |
 | `IsInternalUser` | the password is stored in Beacon |
-| `PasswordHash` | PBKDF2-SHA256 hash; null for external users |
+| `PasswordHash` | PBKDF2-SHA256 hash, written as `v2$<iterations>$<hash>`; null for external users |
 | `IsSuperAdmin` | passes every check |
 | `IsEnabled` | enabled or disabled |
 | `LastLoginAt` | last sign-in with the user's own identity (password, SSO, an identity-provider token; never an API key) |
@@ -415,6 +430,7 @@ For an Admin or a UserAdmin (see [Functional roles](#functional-roles) for a Use
 | `NotAccessToken` from a non-Entra provider | set `AccessTokenClaim` to a claim the provider puts in access tokens only |
 | SSO user sees "no access yet" | assign a role, or set `DefaultRoleName`; the user then selects **Check again** |
 | Login answers `429` | 10 attempts per 60 seconds per address; behind a proxy, configure forwarded headers |
+| The right password is refused for a while | The user is locked out after 5 wrong passwords (15 minutes, `auth.user_locked_out` in the security audit); wait, or reset the password |
 
 ## Upgrading from 4.5
 

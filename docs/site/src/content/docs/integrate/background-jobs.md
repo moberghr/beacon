@@ -31,15 +31,27 @@ public interface IBeaconScheduler
 
     // The members below have default bodies that throw NotImplementedException.
     // Implement them to enable the feature that calls them.
-    // EnqueueMetadataRefresh is the exception: its default returns null instead of throwing.
+    // EnqueueMetadataRefresh and EnqueueBackgroundTask are the exceptions: their defaults return null instead of throwing.
     Task AddOrUpdateDataQualityJob(int contractId, string contractName, string cron);   // data contracts
     Task RemoveDataQualityJob(int contractId, string contractName);
     Task<string> EnqueueProjectDocumentation(int projectId, int userId, string? notifyUserId); // AI documentation
     Task<string> EnqueueAiActorThinkCycle(int actorId, int subscriptionId);              // AI actors
     Task<string> EnqueueMcpEval(int runId);                                              // MCP evaluation runs
     Task<string?> EnqueueMetadataRefresh(int dataSourceId);                              // metadata re-scan after a connection target change
+    Task<string?> EnqueueBackgroundTask(int taskId, string? notifyUserId);               // a task a user started and follows (metadata refresh, migration run, repository scan)
 }
 ```
+
+`EnqueueBackgroundTask` is optional too. Beacon records long work a user starts from the UI (a forced metadata
+refresh, an AI actor's think-now, a manual migration run, a scan of a project's repositories, a project's documentation generation) as a background task and hands its id to this method; your job calls `IBackgroundTaskService.ExecuteAsync(taskId, ct)`
+in a scope marked as system work; Beacon then runs it as the stored user who started it (by `Users.Id`) and re-checks
+their access first (a task they may no longer run is recorded as skipped, and the job succeeds). It runs with the
+user's own access, not the credential's: a start made with an API key is not capped by the key's scope or projects in
+the job, and revoking or narrowing the key after the start does not stop it (disabling the user, or removing its
+access, does). Return the job id (the UI follows
+`JobStatusChanged` for it, sent to `notifyUserId`: the id the SignalR hub addresses the caller by, a signed-in
+session's external id, or `null` for an API key or an MCP caller), or `null` (the default): Beacon then runs the task in
+the request that started it, as before.
 
 `EnqueueMetadataRefresh` is optional. Beacon calls it after a data source's connection is pointed at another target, to re-scan its metadata in the background. Return the job id, or `null` (the default) when your host runs no such job; Beacon then logs that the old schema stays until a manual refresh.
 
@@ -57,9 +69,10 @@ Each job opens a **new DI scope**, marks it as system work, and calls one Beacon
 |---|---|---|
 | Subscription run | `IJobService.ExecuteQuery(subscriptionId, ct)` | `AddOrUpdate` / `Remove` |
 | Data contract evaluation | `IJobService.EvaluateDataContract(contractId, ct)` | `AddOrUpdateDataQualityJob` / `RemoveDataQualityJob` |
-| Project documentation | `IProjectDocumentationService.GenerateDocumentationAsync(projectId, userId, ct)` (Beacon.AI) | `EnqueueProjectDocumentation` |
+| Project documentation (5.0 route and job) | `IProjectDocumentationService.GenerateDocumentationAsync(projectId, userId, ct)` (Beacon.AI) | `EnqueueProjectDocumentation` |
 | AI actor think cycle | `IAiActorServiceExtended.ExecuteThinkCycleBackgroundAsync(actorId, subscriptionId)` (Beacon.AI) | `EnqueueAiActorThinkCycle` |
 | MCP evaluation run | `IJobService.RunMcpEval(runId, ct)` | `EnqueueMcpEval` |
+| Background task (metadata refresh, AI actor think-now, migration run, repository scan, documentation generation) | `IBackgroundTaskService.ExecuteAsync(taskId, ct)` | `EnqueueBackgroundTask` |
 
 ### Recurring maintenance jobs
 
@@ -69,10 +82,11 @@ Register these yourself at startup (the reference host's schedule):
 |---|---|---|---|
 | `mcp-learning-aggregate` | `0 */6 * * *` | `IJobService.AggregateLearnedPatterns` | Mine MCP usage signals into learned patterns. |
 | `mcp-learning-cleanup` | `0 3 * * *` | `IJobService.CleanupOldSignals` | Delete signals past their retention. |
-| `mcp-audit-retention` | `30 3 * * *` | `IMcpAuditRetentionService.PurgeExpiredAsync` | Purge MCP audit rows older than `Beacon:Mcp:Audit:RetentionDays` (no-op when unset). |
+| `mcp-audit-retention` | `30 3 * * *` | `IMcpAuditRetentionService.PurgeExpiredAsync` | Purge MCP audit rows older than `Beacon:Mcp:Audit:RetentionDays` (no-op when unset or `0`). |
+| `data-retention` | `50 3 * * *` | `IDataRetentionService.RunAsync` | Delete run history and logs older than `Beacon:Retention:Days` (no-op while it and every target are `0`, the default) and clear content older than `Beacon:Retention:ContentDays` (content first). A run works at most 50 minutes, each step within its share, and the next run continues what it left. `[Timeout]` one hour, `[Mutex]` one run at a time. See [Data retention](/getting-started/configuration/#data-retention-beaconretention). |
 | `security-audit-retention` | `45 3 * * *` | `ISecurityAuditRetentionService.PurgeExpiredAsync` | Purge security audit events older than `Beacon:Audit:RetentionDays` (no-op when unset: events are kept forever). |
 | `security-audit-verify` | `15 * * * *` | `ISecurityAuditVerificationService.VerifyNewEventsAsync` | Check events written since the last run against their integrity hashes; failures are logged at Error. |
-| `mcp-embedding-reindex` | `0 */12 * * *` | `IJobService.ReindexEmbeddings` | Re-embed metadata and examples for semantic retrieval. |
+| `mcp-embedding-reindex` | `0 */12 * * *` | `IJobService.ReindexEmbeddings` | Re-embed metadata and examples for semantic retrieval. Content that did not change since the last run (same text, model and version) is skipped, so a run costs what changed. |
 | `mcp-docchunk-reindex` | `0 */12 * * *` | `IJobService.ReindexDocChunks` | Re-chunk and re-embed project documentation. |
 
 One-off operator jobs:
@@ -152,6 +166,7 @@ public static class BeaconWarpSetup
         await recurring.AddOrUpdateRecurringJob(new CleanupOldSignalsJob(), "mcp-learning-cleanup", "0 3 * * *");
         await recurring.AddOrUpdateRecurringJob(new PurgeExpiredMcpAuditLogsJob(), "mcp-audit-retention", "30 3 * * *");
         await recurring.AddOrUpdateRecurringJob(new PurgeExpiredSecurityAuditEventsJob(), "security-audit-retention", "45 3 * * *");
+        await recurring.AddOrUpdateRecurringJob(new DataRetentionJob(), "data-retention", "50 3 * * *");
         await recurring.AddOrUpdateRecurringJob(new VerifySecurityAuditEventsJob(), "security-audit-verify", "15 * * * *");
         await recurring.AddOrUpdateRecurringJob(new ReindexEmbeddingsJob(), "mcp-embedding-reindex", "0 */12 * * *");
         await recurring.AddOrUpdateRecurringJob(new ReindexDocChunksJob(), "mcp-docchunk-reindex", "0 */12 * * *");
@@ -246,6 +261,16 @@ public sealed class PurgeExpiredSecurityAuditEventsJobHandler(ISecurityAuditRete
 {
     public Task HandleAsync(PurgeExpiredSecurityAuditEventsJob message, CancellationToken cancellationToken)
         => retention.PurgeExpiredAsync(cancellationToken);
+}
+
+// [Timeout] and [Mutex] go on the job type (Warp.Core.Timeout, Warp.Core.Concurrency), never on the handler.
+[Timeout(3600)]
+[Mutex("data-retention")]
+public sealed class DataRetentionJob : IJob;
+public sealed class DataRetentionJobHandler(IDataRetentionService retention) : IJobHandler<DataRetentionJob>
+{
+    public Task HandleAsync(DataRetentionJob message, CancellationToken cancellationToken)
+        => retention.RunAsync(cancellationToken);
 }
 
 public sealed class VerifySecurityAuditEventsJob : IJob;
@@ -345,18 +370,19 @@ public sealed class BeaconScheduler(
 **6. The dashboard (optional).** Keep it Admin-only:
 
 ```csharp
-app.UseWarpUI(x =>
-{
-    x.RoutePrefix = "/warp";
-    x.Authorization = new AdminOnlyWarpFilter();   // IWarpAuthorizationFilter: authenticated + IsInRole("Admin")
-});
+var warpUi = new WarpUIOptions { RoutePrefix = "/warp" };
+warpUi.Authorization = new AdminOnlyWarpFilter();   // IWarpAuthorizationFilter: authenticated + IsInRole("Admin")
+WarpDashboardGuard.Require(warpUi.Authorization, warpUi.RoutePrefix);
+app.UseWarpUI(warpUi);
 ```
+
+Warp's default, with no filter, admits every request that reaches the route, and Beacon's login gate does not cover `/warp`. `WarpDashboardGuard.Require` (`Beacon.Api.Authentication`) throws when the filter it is given is null. Call it on the finished options' `Authorization` before mapping, as the sample's `UseGuardedWarpUI` does; a host that calls `UseWarpUI` directly is not checked.
 
 The filter reads the Beacon session, which applies to `/beacon` and the prefixes in `Beacon:Authentication:AdditionalPaths` only: list `/warp` there (`"Beacon": { "Authentication": { "AdditionalPaths": [ "/warp" ] } }`), or the dashboard refuses every request.
 
 ### Live job status in the UI
 
-The reference host also pushes `JobStatusChanged` (Processing / Succeeded / Failed) to the user who started a documentation job, through the SignalR hub. It tags the job with `BeaconUserId` metadata (the `notifyUserId` Beacon passes: the enqueuing user's hub user id, their `Users.ExternalId`) and a second pipeline behaviour sends the event to `Clients.User` with it; see `src/Beacon.SampleProject/Warp/JobStatusChangedBehavior.cs`. Without it everything works; the UI just does not show live progress for those jobs.
+The reference host also pushes `JobStatusChanged` (Processing / Succeeded / Failed) to the user who started a documentation job or a background task, through the SignalR hub. It tags the job with `BeaconUserId` metadata (the `notifyUserId` Beacon passes: the enqueuing user's hub user id, their `Users.ExternalId`) and a second pipeline behaviour sends the event to `Clients.User` with it; see `src/Beacon.SampleProject/Warp/JobStatusChangedBehavior.cs`. Without it everything works; the UI just does not show live progress for those jobs.
 
 ## Other job runners
 

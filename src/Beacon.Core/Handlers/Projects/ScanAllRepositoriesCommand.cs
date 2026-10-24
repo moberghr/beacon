@@ -11,4 +11,11 @@ public record ScanAllRepositoriesCommand(int ProjectId) : IRequest<ScanAllReposi
     ];
 }
 
-public record ScanAllRepositoriesResult(int ScannedCount, List<string> Errors);
+public record ScanAllRepositoriesResult(int ScannedCount, List<string> Errors)
+{
+    /// <summary>The scanned repositories whose scan hit a limit (files, file size or time): their references are incomplete.</summary>
+    public List<RepositoryPartialScan> PartialScans { get; init; } = [];
+}
+
+/// <summary>A repository whose scan completed but hit a limit, and why.</summary>
+public record RepositoryPartialScan(int RepositoryId, List<string> Reasons);

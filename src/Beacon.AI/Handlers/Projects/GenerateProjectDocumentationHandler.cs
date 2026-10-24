@@ -1,32 +1,30 @@
 using MediatR;
-using Beacon.Core.Authorization;
+using Beacon.Core.BackgroundTasks;
+using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.Projects;
-using Beacon.Core.Worker;
+using Beacon.Core.Models;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.AI.Handlers.Projects;
 
-internal sealed class GenerateProjectDocumentationHandler(
-    IBeaconScheduler beaconScheduler,
-    IBeaconActorAccessor actorAccessor,
-    IActorUserResolver actorUserResolver)
+/// <summary>
+/// The 5.0 route's command: starts the same background task as <see cref="StartProjectDocumentationGenerationCommand"/>, so
+/// the generation runs as the caller (the command's user id is no longer used) and answers with the job id.
+/// </summary>
+internal sealed class GenerateProjectDocumentationHandler(IBackgroundTaskService backgroundTasks)
     : IRequestHandler<GenerateProjectDocumentationCommand, GenerateProjectDocumentationResult>
 {
     public async Task<GenerateProjectDocumentationResult> Handle(
         GenerateProjectDocumentationCommand request,
         CancellationToken cancellationToken)
     {
-        // The job records who enqueued it: the caller's stored user when the request names none. notifyUserId lets the
-        // host scope JobStatusChanged push events on /beacon/api/hub to the enqueueing user only: the actor's UserId, the
-        // id the hub addresses the caller's connection by (HubUserIdProvider).
-        var enqueuedBy = request.UserId != 0
-            ? request.UserId
-            : await actorUserResolver.ResolveActorUserIdAsync(cancellationToken) ?? 0;
-        var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
-        var jobId = await beaconScheduler.EnqueueProjectDocumentation(
-            request.ProjectId,
-            enqueuedBy,
-            string.IsNullOrWhiteSpace(actor.UserId) ? null : actor.UserId);
+        var ticket = await backgroundTasks.StartAsync(
+                BackgroundTaskKind.DocumentationGeneration,
+                request.ProjectId,
+                taskId => DocumentationGenerationAudit.Started(request.ProjectId, taskId),
+                cancellationToken)
+            ?? throw new BeaconRateLimitedException("The documentation of this project is already being generated.");
 
-        return new GenerateProjectDocumentationResult(jobId);
+        return new GenerateProjectDocumentationResult(ticket.JobId ?? string.Empty);
     }
 }

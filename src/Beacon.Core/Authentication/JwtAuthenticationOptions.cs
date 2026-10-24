@@ -1,3 +1,5 @@
+using System.Text;
+
 namespace Beacon.Core.Authentication;
 
 /// <summary>
@@ -14,7 +16,7 @@ public class JwtAuthenticationOptions
     };
 
     /// <summary>
-    /// External API endpoint for authentication (e.g., "https://auth.example.com/api/login").
+    /// External API endpoint for authentication, an https URL (e.g., "https://auth.example.com/api/login").
     /// When configured, the login form will call this endpoint to authenticate users
     /// and receive a JWT token.
     /// </summary>
@@ -52,7 +54,11 @@ public class JwtAuthenticationOptions
     /// Any flow that validates tokens — bearer authentication or external login — requires a signing key or a JWKS
     /// endpoint, at least one issuer and one audience, issuer, audience and lifetime validation left on, and a clock skew of
     /// at most five minutes: a shared JWKS (Entra's, for one) signs tokens for every tenant and every application. An
-    /// <see cref="AccessTokenClaim"/>, when set, must not be a claim an ID token can carry.
+    /// <see cref="AccessTokenClaim"/>, when set, must not be a claim an ID token can carry. A
+    /// <see cref="JwtValidationOptions.SigningKey"/> is at least <see cref="JwtValidationOptions.MinimumSigningKeyBytes"/>
+    /// bytes, and <see cref="JwtValidationOptions.JwksEndpoint"/> and <see cref="ExternalLoginEndpoint"/> are absolute
+    /// <c>https</c> URLs; <c>http</c> is accepted here for a loopback host only, and the host refuses even that at startup
+    /// outside Development.
     /// </summary>
     public void Validate()
     {
@@ -96,12 +102,68 @@ public class JwtAuthenticationOptions
                 $"JWT Validation.ClockSkew must be between zero and {JwtValidationOptions.MaxClockSkew.TotalMinutes:0} minutes.");
         }
 
+        if (!string.IsNullOrEmpty(Validation.SigningKey)
+            && Encoding.UTF8.GetByteCount(Validation.SigningKey) < JwtValidationOptions.MinimumSigningKeyBytes)
+        {
+            throw new InvalidOperationException(
+                $"JWT Validation.SigningKey must be at least {JwtValidationOptions.MinimumSigningKeyBytes} bytes: use a random " +
+                "value (for example base64 of 32 or more random bytes), never a word or a phrase.");
+        }
+
+        RequireHttps(nameof(ExternalLoginEndpoint), ExternalLoginEndpoint);
+        RequireHttps($"{nameof(Validation)}.{nameof(JwtValidationOptions.JwksEndpoint)}", Validation.JwksEndpoint);
+
         if (AccessTokenClaim != null && IdTokenClaimNames.Contains(AccessTokenClaim.Trim()))
         {
             throw new InvalidOperationException(
                 $"JWT AccessTokenClaim '{AccessTokenClaim.Trim()}' does not tell an access token from an ID token: name a " +
                 "claim the identity provider puts in access tokens only (for example 'scope' or 'scp').");
         }
+    }
+
+    /// <summary>
+    /// The names of the configured endpoints that use <c>http</c> to a loopback host: <see cref="Validate"/> accepts them,
+    /// and the host refuses them at startup outside Development.
+    /// </summary>
+    internal IReadOnlyList<string> LoopbackHttpEndpoints()
+    {
+        return new[]
+            {
+                (Name: nameof(ExternalLoginEndpoint), Url: ExternalLoginEndpoint),
+                (Name: $"{nameof(Validation)}.{nameof(JwtValidationOptions.JwksEndpoint)}", Url: Validation.JwksEndpoint)
+            }
+            .Where(x => IsLoopbackHttp(x.Url))
+            .Select(x => x.Name)
+            .ToList();
+    }
+
+    private static void RequireHttps(string name, string? url)
+    {
+        if (string.IsNullOrWhiteSpace(url))
+        {
+            return;
+        }
+
+        if (!Uri.TryCreate(url.Trim(), UriKind.Absolute, out var uri))
+        {
+            throw new InvalidOperationException($"JWT {name} must be an absolute https URL.");
+        }
+
+        if (uri.Scheme == Uri.UriSchemeHttps || IsLoopbackHttp(url))
+        {
+            return;
+        }
+
+        throw new InvalidOperationException(
+            $"JWT {name} must be an https URL: keys or passwords sent over plain http can be read or replaced on the way. " +
+            "http is accepted only for a loopback host in Development.");
+    }
+
+    private static bool IsLoopbackHttp(string? url)
+    {
+        return Uri.TryCreate(url?.Trim(), UriKind.Absolute, out var uri)
+            && uri.Scheme == Uri.UriSchemeHttp
+            && uri.IsLoopback;
     }
 }
 
@@ -140,14 +202,20 @@ public class JwtValidationOptions
     /// </summary>
     public List<string> ValidAudiences { get; set; } = [];
 
+    /// <summary>The fewest bytes (UTF-8) <see cref="SigningKey"/> may have: the size of an HS256 key.</summary>
+    public const int MinimumSigningKeyBytes = 32;
+
     /// <summary>
-    /// HMAC secret key for symmetric signing (HS256, HS384, HS512).
+    /// HMAC secret key for symmetric signing (HS256, HS384, HS512), at least <see cref="MinimumSigningKeyBytes"/> bytes
+    /// (UTF-8) and random (for example base64 of 32 or more random bytes). HS384 and HS512 tokens need a key of at least 48
+    /// and 64 bytes. With a signing key, only HS256, HS384 and HS512 tokens are accepted.
     /// Either SigningKey or JwksEndpoint must be provided.
     /// </summary>
     public string? SigningKey { get; set; }
 
     /// <summary>
-    /// JWKS endpoint for asymmetric key discovery (RS256, etc.).
+    /// JWKS endpoint for asymmetric key discovery, an https URL. With a JWKS endpoint, only RS256/384/512, PS256/384/512 and
+    /// ES256/384/512 tokens are accepted.
     /// Used for OIDC integration. Either SigningKey or JwksEndpoint must be provided.
     /// </summary>
     public string? JwksEndpoint { get; set; }
