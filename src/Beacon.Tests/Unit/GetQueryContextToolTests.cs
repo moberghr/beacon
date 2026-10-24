@@ -15,6 +15,9 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Models;
+using Beacon.Core.Services;
+using Beacon.Core.Services.Retention;
 using Beacon.MCP.Services;
 using Beacon.MCP.Tools;
 using Beacon.Tests.Common;
@@ -196,6 +199,29 @@ public class GetQueryContextToolTests
             "the data source was already resolved when the context assembly threw");
     }
 
+    // A data-source resolution that throws is recorded under the resolved project, so that project's retention decides
+    // the row's content, never the deployment default.
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task DataSourceResolutionThrows_TheRowFollowsTheProjectsRetention(bool projectRetainsContent)
+    {
+        const string failure = "lookup of data source 'billing' timed out";
+        var settings = SettingsProviderMock.Create(
+            settings: new McpSettingsData { RetainQueryContent = true },
+            projectSettings: new Dictionary<int, McpSettingsData> { [ProjectId] = new() { RetainQueryContent = projectRetainsContent } });
+
+        var result = await CallAsync(
+            CreateTool(multiSource: false, toolReadFails: new TimeoutException(failure), settings: settings.Object),
+            x => x.ExecuteAsync(question: Question, datasource_name: "billing", cancellationToken: CancellationToken.None));
+
+        (result.IsError ?? false).Should().BeTrue();
+        var row = _auditLogs.Should().ContainSingle("§1.7 — the failure path records one audit row").Subject;
+        row.Tool.Should().Be("get_query_context");
+        row.ProjectId.Should().Be(ProjectId, "the project was resolved before the data source");
+        row.DataSourceId.Should().BeNull("the data source was never resolved");
+        row.ErrorMessage.Should().Be(projectRetainsContent ? failure : McpContentRedactor.ErrorClassOf(failure));
+    }
+
     [Test]
     public async Task HardCutTruncation_NeverSplitsASurrogatePair()
     {
@@ -282,7 +308,12 @@ public class GetQueryContextToolTests
         log.Entries.Should().BeEmpty();
     }
 
-    private GetQueryContextTool CreateTool(bool multiSource, List<int>? queryProjectIds = null, ILlmRowDataEgress? egress = null)
+    private GetQueryContextTool CreateTool(
+        bool multiSource,
+        List<int>? queryProjectIds = null,
+        ILlmRowDataEgress? egress = null,
+        Exception? toolReadFails = null,
+        IMcpSettingsProvider? settings = null)
     {
         // One factory serves both the tool (data-source resolution) and the audit service; each
         // CreateDbContextAsync call gets a fresh context over the same captured audit-log list
@@ -291,14 +322,23 @@ public class GetQueryContextToolTests
         factory.Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => new QueryContextTestContext(multiSource, _auditLogs));
 
+        // The tool's own reads fail when asked to; the audit writes still go through the working factory.
+        var toolFactory = factory;
+        if (toolReadFails != null)
+        {
+            toolFactory = new Mock<IDbContextFactory<BeaconContext>>();
+            toolFactory.Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+                .ThrowsAsync(toolReadFails);
+        }
+
         var projectContext = new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId], QueryProjectIds = queryProjectIds };
 
-        var auditService = new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog());
+        var auditService = new McpAuditService(factory.Object, settings ?? SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog());
         _recorder = TestToolCalls.Recorder(auditService);
 
         return new GetQueryContextTool(
             _knowledgeGraph.Object,
-            factory.Object,
+            toolFactory.Object,
             projectContext,
             _recorder,
             egress ?? TestRowDataEgress.Discarding());

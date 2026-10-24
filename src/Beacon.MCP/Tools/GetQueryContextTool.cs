@@ -57,6 +57,9 @@ internal sealed class GetQueryContextTool(
             return Fail(null, datasource_id, resolveError);
         }
 
+        // Recorded before the data source is resolved: a throw there is audited under this project's retention.
+        recorder.WithProject(projectId);
+
         int dataSourceId;
         if (datasource_id != null)
         {
@@ -96,7 +99,7 @@ internal sealed class GetQueryContextTool(
             dataSourceId = sourceIds[0];
         }
 
-        recorder.WithProject(projectId).WithDataSource(dataSourceId);
+        recorder.WithDataSource(dataSourceId);
 
         var maxChars = Math.Clamp(max_chars ?? DefaultMaxChars, MinMaxChars, MaxMaxChars);
 
