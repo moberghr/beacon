@@ -98,6 +98,7 @@ internal static class McpAuditSeal
         Text(writer, row.ErrorMessage);
         Text(writer, row.CallerKind);
         Text(writer, row.CallerHash);
+        Text(writer, row.CorrelationId);
         Text(writer, row.TraceId);
         Text(writer, row.SpanId);
         Text(writer, row.McpSessionId);

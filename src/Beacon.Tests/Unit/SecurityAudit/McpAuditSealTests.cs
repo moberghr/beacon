@@ -56,6 +56,8 @@ public class McpAuditSealTests
     [TestCase("user")]
     [TestCase("time")]
     [TestCase("guid")]
+    [TestCase("correlation")]
+    [TestCase("correlationCleared")]
     [TestCase("statementSql")]
     [TestCase("statementRows")]
     [TestCase("statementRemoved")]
@@ -84,6 +86,12 @@ public class McpAuditSealTests
             case "guid":
                 row.AuditGuid = Guid.NewGuid();
                 break;
+            case "correlation":
+                row.CorrelationId = new string('4', 32);
+                break;
+            case "correlationCleared":
+                row.CorrelationId = null;
+                break;
             case "statementSql":
                 statements[0].Sql = "SELECT 2";
                 break;
@@ -106,6 +114,24 @@ public class McpAuditSealTests
 
         McpAuditSeal.Verify(row, statements, SecurityAuditTestKit.Integrity)
             .Should().BeOneOf([SecurityAuditVerdicts.Modified, SecurityAuditVerdicts.UnknownKey], "a {0} change is a changed row", change);
+    }
+
+    // A call without a correlation id (and every row from before the column) seals the missing value as such.
+    [Test]
+    public void ARowWithoutACorrelationId_IsSealedAsHavingNone_AndGainingOneFailsVerification()
+    {
+        using var context = NpgsqlTestContext.Create();
+        var row = Row();
+        row.CorrelationId = null;
+        context.McpAuditLogs.Add(row);
+
+        Interceptor().Seal(context);
+
+        McpAuditSeal.Verify(row, Read(row), SecurityAuditTestKit.Integrity).Should().Be(SecurityAuditVerdicts.Intact);
+        row.CorrelationId = string.Empty;
+        McpAuditSeal.Verify(row, Read(row), SecurityAuditTestKit.Integrity).Should().Be(SecurityAuditVerdicts.Modified, "an empty correlation id is not a missing one");
+        row.CorrelationId = new string('3', 32);
+        McpAuditSeal.Verify(row, Read(row), SecurityAuditTestKit.Integrity).Should().Be(SecurityAuditVerdicts.Modified);
     }
 
     [Test]
@@ -316,6 +342,7 @@ public class McpAuditSealTests
             ErrorMessage = "timeout",
             CallerKind = "User",
             CallerHash = new string('c', 64),
+            CorrelationId = new string('3', 32),
             TraceId = new string('1', 32),
             SpanId = new string('2', 16),
             ApiKeyId = 8,

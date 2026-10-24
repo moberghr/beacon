@@ -214,6 +214,27 @@ public class McpAuditVerificationTests
     }
 
     [Test]
+    public async Task ARowWhoseCorrelationIdWasChanged_AddedOrRemoved_IsChanged_AndOneSealedWithoutItIsIntact()
+    {
+        var store = new Store();
+        store.Add(Sealed(1, Now.UtcDateTime.AddHours(-4)));
+        var changed = store.Add(Sealed(2, Now.UtcDateTime.AddHours(-3), new string('a', 32)));
+        var removed = store.Add(Sealed(3, Now.UtcDateTime.AddHours(-2), new string('b', 32)));
+        var added = store.Add(Sealed(4, Now.UtcDateTime.AddHours(-1)));
+        changed.CorrelationId = new string('c', 32);
+        removed.CorrelationId = null;
+        added.CorrelationId = new string('d', 32);
+        var audit = new RecordingSecurityAudit(Core.Authorization.BeaconActor.OffRequest);
+        var logs = new LogRecorder();
+
+        var checkpoint = await Verification(store, audit, logs).VerifyNewRowsAsync(CancellationToken.None);
+
+        checkpoint.Should().BeEquivalentTo(new { MaxAuditId = 4, CheckedCount = 4, ModifiedCount = 3, UnsealedCount = 0 });
+        checkpoint.FailedAuditIds.Should().Equal(2, 3, 4);
+        audit.Events.Single().Outcome.Should().Be(SecurityAuditOutcomes.Failure);
+    }
+
+    [Test]
     public async Task TheRecheck_ContinuesAfterTheRowTheLastRunsRecheckReached()
     {
         var store = new Store();
@@ -337,15 +358,15 @@ public class McpAuditVerificationTests
             LoggerFactory.Create(x => x.AddProvider(logs)));
     }
 
-    private static McpAuditLog Sealed(int id, DateTime createdTime)
+    private static McpAuditLog Sealed(int id, DateTime createdTime, string? correlationId = null)
     {
-        var row = Unsealed(id, createdTime);
+        var row = Unsealed(id, createdTime, correlationId);
         McpAuditSeal.Seal(row, SecurityAuditTestKit.Integrity);
 
         return row;
     }
 
-    private static McpAuditLog Unsealed(int id, DateTime createdTime)
+    private static McpAuditLog Unsealed(int id, DateTime createdTime, string? correlationId = null)
     {
         return new McpAuditLog
         {
@@ -355,6 +376,7 @@ public class McpAuditVerificationTests
             Tool = "query",
             ProjectId = 42,
             ExecutionTimeMs = 10,
+            CorrelationId = correlationId,
             Statements =
             [
                 new McpAuditStatement { McpAuditLogId = id, CreatedTime = createdTime, ProjectId = 42, Purpose = McpStatementPurposes.Initial, Sql = "SELECT 1", RowCount = 1 }
