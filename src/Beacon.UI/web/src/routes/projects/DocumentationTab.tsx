@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { AlertTriangle, BookOpen } from 'lucide-react';
-import { Button, CardBody } from '@/components/beacon';
+import { Button, CardBody, Pill } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
 import { formatNumber, formatRelativeTime, formatDateTime } from '@/lib/format';
 import { useImportedDocumentsQuery, useProjectDocumentationQuery, type ProjectDocSectionEntry } from './queries';
@@ -85,7 +85,14 @@ export default function DocumentationTab({ projectId, canCurateHere }: { project
           {sections.map(section => (
             <section key={section.id}>
               <header className="flex items-center justify-between mb-2">
-                <h3 className="m-0 text-sm font-semibold text-text">{section.title}</h3>
+                <div className="flex items-center gap-2">
+                  <h3 className="m-0 text-sm font-semibold text-text">{section.title}</h3>
+                  {section.editedTime && (
+                    <Pill tone="info" title={`Edited ${formatDateTime(section.editedTime)}; regenerating keeps this section`}>
+                      Curated
+                    </Pill>
+                  )}
+                </div>
                 {canCurate && (
                   <div className="flex items-center gap-1">
                     <Button

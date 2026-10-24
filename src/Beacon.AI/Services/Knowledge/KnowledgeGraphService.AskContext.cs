@@ -597,7 +597,7 @@ internal sealed partial class KnowledgeGraphService
                     leftOut.Add(term.Id);
                 }
 
-                sb.Append($"- **{term.Term}**: {term.Definition}");
+                sb.Append($"- **{PromptData.OneLine(term.Term)}**: {PromptData.OneLine(term.Definition)}");
                 var target = FormatGlossaryTarget(term, metricExpression);
                 if (target != null)
                 {
@@ -669,10 +669,11 @@ internal sealed partial class KnowledgeGraphService
             // structure, not literals.
             var maskedVector = await questionVector.GetAsync(ct);
 
-            // Data-source-scoped (projectId omitted) — same NN helpers, GoldenCase owner type.
+            // The data source AND the caller's project, so another project's cases on a shared data source never take
+            // the top-k slots. A vector indexed before vectors carried their project is stamped by a migration (and by the re-index).
             var hits = context.Database.ProviderName == NpgsqlProviderName
-                ? await GetNearestPostgresAsync(context, maskedVector, [dataSourceId], GoldenCaseOwnerTypes, limit, ct)
-                : await GetNearestInMemoryAsync(context, maskedVector, [dataSourceId], GoldenCaseOwnerTypes, limit, ct);
+                ? await GetNearestPostgresAsync(context, maskedVector, [dataSourceId], GoldenCaseOwnerTypes, limit, ct, projectId: projectId)
+                : await GetNearestInMemoryAsync(context, maskedVector, [dataSourceId], GoldenCaseOwnerTypes, limit, ct, projectId: projectId);
 
             if (hits.Count == 0)
             {
@@ -1291,7 +1292,7 @@ internal sealed partial class KnowledgeGraphService
         {
             sb.AppendLine("### Known Corrections");
             foreach (var p in corrections)
-                sb.AppendLine($"- {p.PatternContent}");
+                sb.AppendLine($"- {PromptData.OneLine(p.PatternContent)}");
             sb.AppendLine();
         }
 
@@ -1302,7 +1303,7 @@ internal sealed partial class KnowledgeGraphService
             foreach (var p in clarifications)
             {
                 var colPart = p.ColumnName != null ? $".{p.ColumnName}" : "";
-                sb.AppendLine($"- {p.TableName}{colPart}: {p.PatternContent}");
+                sb.AppendLine($"- {p.TableName}{colPart}: {PromptData.OneLine(p.PatternContent)}");
             }
             sb.AppendLine();
         }
@@ -1312,7 +1313,7 @@ internal sealed partial class KnowledgeGraphService
         {
             sb.AppendLine("### Join Patterns");
             foreach (var p in joins)
-                sb.AppendLine($"- {p.PatternContent}");
+                sb.AppendLine($"- {PromptData.OneLine(p.PatternContent)}");
             sb.AppendLine();
         }
 
@@ -1325,7 +1326,7 @@ internal sealed partial class KnowledgeGraphService
                 if (!string.IsNullOrEmpty(p.ExampleQuestion))
                     sb.AppendLine($"- \"{p.ExampleQuestion}\"");
                 else
-                    sb.AppendLine($"- {p.PatternContent}");
+                    sb.AppendLine($"- {PromptData.OneLine(p.PatternContent)}");
                 if (!string.IsNullOrEmpty(p.ExampleSql))
                     sb.AppendLine($"  → `{p.ExampleSql}`");
             }
@@ -1341,7 +1342,7 @@ internal sealed partial class KnowledgeGraphService
         {
             sb.AppendLine("### Business Term Mappings");
             foreach (var p in mappings)
-                sb.AppendLine($"- {p.PatternContent}");
+                sb.AppendLine($"- {PromptData.OneLine(p.PatternContent)}");
             sb.AppendLine();
         }
 
@@ -1350,7 +1351,7 @@ internal sealed partial class KnowledgeGraphService
         {
             sb.AppendLine("### Documentation Gaps (caution)");
             foreach (var p in gaps)
-                sb.AppendLine($"- {p.PatternContent}");
+                sb.AppendLine($"- {PromptData.OneLine(p.PatternContent)}");
             sb.AppendLine();
         }
 

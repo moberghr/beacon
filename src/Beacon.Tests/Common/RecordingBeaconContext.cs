@@ -1,5 +1,6 @@
 using Beacon.Core.Data;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.EntityFrameworkCore.Diagnostics;
 using Moq;
 
 namespace Beacon.Tests.Common;
@@ -10,14 +11,16 @@ namespace Beacon.Tests.Common;
 /// set, which only tracks. SaveChanges records the added entities in <c>saved</c> instead of writing them, and
 /// changes to served entities land on the list's objects, so later contexts see them. With an <c>offline</c> capture
 /// it never opens a connection, and transactions are stand-ins. <c>onSave</c> is told about every SaveChanges, for tests
-/// that count units of work.
+/// that count units of work. <c>interceptors</c> are registered on the context as a host registers them (for code that
+/// checks which it runs with); without an <c>offline</c> capture only.
 /// </summary>
 internal sealed class RecordingBeaconContext(
     IReadOnlyDictionary<Type, object> sets,
     List<object> saved,
     SqlCapture? offline = null,
-    Action? onSave = null)
-    : BeaconContext(offline == null ? Options : OfflineOptions(offline), "beacon"), IObservableSaves
+    Action? onSave = null,
+    IInterceptor[]? interceptors = null)
+    : BeaconContext(offline == null ? interceptors == null ? Options : WithInterceptors(interceptors) : OfflineOptions(offline), "beacon"), IObservableSaves
 {
     // An unserved set is the real EF set: it never connects (SqlCapture.NeverConnects), so reading one fails at once.
     private static readonly DbContextOptions<RecordingBeaconContext> Options =
@@ -34,6 +37,13 @@ internal sealed class RecordingBeaconContext(
             .UseNpgsql("Host=localhost;Database=unused")
             .UseSnakeCaseNamingConvention()
             .AddInterceptors(offline.OfflineInterceptors())
+            .Options;
+
+    private static DbContextOptions<RecordingBeaconContext> WithInterceptors(IInterceptor[] interceptors) =>
+        new DbContextOptionsBuilder<RecordingBeaconContext>()
+            .UseNpgsql("Host=localhost;Database=unused")
+            .UseSnakeCaseNamingConvention()
+            .AddInterceptors([SqlCapture.NeverConnects, .. interceptors])
             .Options;
 
     /// <inheritdoc />

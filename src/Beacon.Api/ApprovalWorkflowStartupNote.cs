@@ -16,20 +16,22 @@ namespace Beacon.Api;
 /// Notes once at startup how query changes are governed: the approval workflow off (a Warning outside Development, where
 /// any change with write access goes live unreviewed), self-approval allowed (a Warning: one person can request, approve
 /// and publish a change), and, with the workflow on, what subscription runs require (strict mode or not) and which other
-/// changes — migration jobs, Custom SQL rules, recipient destinations, data-source connections, the LLM connection — wait
-/// for approval, and which the host left out. With the
+/// changes — migration jobs, Custom SQL rules, recipient destinations, data-source connections, the LLM connection, grants
+/// of the Admin role — wait for approval, and which the host left out. With the
 /// workflow on, after the host has started — off the startup thread and best effort: a database that cannot be read is
 /// noted, never a failure — it counts what the rules leave open: the queries never versioned (they run as stored outside
 /// strict mode, each run logged); the queries with subscriptions whose stored SQL is not their active version's content
 /// (every run is skipped); in strict mode, the queries with subscriptions or MCP tools whose active version is not approved
 /// for its content hash (neither runs); with self-approval off, whether fewer than two users can approve a change through
-/// their stored roles, and, while LLM connection changes are reviewed, whether fewer than two users are Admins; outside
+/// their stored roles, and, while LLM connection changes are reviewed, whether fewer than two users are Admins; while
+/// grants of the Admin role are reviewed (self-approval never applies to them), whether fewer than two users are Admins;
+/// outside
 /// strict mode, the MCP tools whose approval recorded no content hash. For each kind of change
 /// the workflow does not cover now — every kind while it is off — it counts what that releases: the migration jobs, Custom
 /// SQL rules and recipients the workflow governed that hold a definition nobody approved (created and never approved,
 /// changed, or rejected) and the data sources held since their creation, which now run, are evaluated, receive deliveries
 /// or connect as they are, and the pending requests of that kind (a staged LLM connection change is never applied
-/// unreviewed: only its pending requests are counted). Each Warning names the remedy. Configuration names, counts and tool
+/// unreviewed, nor is a grant of the Admin role: only their pending requests are counted). Each Warning names the remedy. Configuration names, counts and tool
 /// names only (§1.11).
 /// </summary>
 internal sealed class ApprovalWorkflowStartupNote(
@@ -44,7 +46,8 @@ internal sealed class ApprovalWorkflowStartupNote(
         (ChangeApprovalKind.CustomSqlRules, nameof(ApprovalWorkflowOptions.CoversCustomSqlRules), "enabled Custom SQL rules", "are evaluated", "new and changed Custom SQL rules"),
         (ChangeApprovalKind.RecipientDestination, nameof(ApprovalWorkflowOptions.CoversRecipientDestinations), "recipients", "receive deliveries", "new recipients and changed destinations"),
         (ChangeApprovalKind.DataSourceConnection, nameof(ApprovalWorkflowOptions.CoversDataSourceConnections), "data sources", "connect", "new data sources and changed connections"),
-        (ChangeApprovalKind.LlmConnection, nameof(ApprovalWorkflowOptions.CoversLlmConnection), "LLM connection changes", "are not applied", "changes of the LLM connection")
+        (ChangeApprovalKind.LlmConnection, nameof(ApprovalWorkflowOptions.CoversLlmConnection), "LLM connection changes", "are not applied", "changes of the LLM connection"),
+        (ChangeApprovalKind.AdminRoleGrant, nameof(ApprovalWorkflowOptions.CoversAdminRoleGrants), "Admin role grants", "are not applied", "grants of the Admin role")
     ];
 
     public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next)
@@ -101,7 +104,8 @@ internal sealed class ApprovalWorkflowStartupNote(
             (workflow.CoversCustomSqlRules, "new and changed Custom SQL rules (they are not evaluated until approved)", nameof(ApprovalWorkflowOptions.CoversCustomSqlRules)),
             (workflow.CoversRecipientDestinations, "new recipients and changed destinations (deliveries skip them until approved)", nameof(ApprovalWorkflowOptions.CoversRecipientDestinations)),
             (workflow.CoversDataSourceConnections, "new data sources and changed connections (they connect to nothing until approved)", nameof(ApprovalWorkflowOptions.CoversDataSourceConnections)),
-            (workflow.CoversLlmConnection, "changes of the LLM connection's provider, endpoint, region or authentication mode (staged until a live Admin approves them)", nameof(ApprovalWorkflowOptions.CoversLlmConnection))
+            (workflow.CoversLlmConnection, "changes of the LLM connection's provider, endpoint, region or authentication mode (staged until a live Admin approves them)", nameof(ApprovalWorkflowOptions.CoversLlmConnection)),
+            (workflow.CoversAdminRoleGrants, "grants of the Admin role (not applied until another live Admin approves them, whatever self-approval allows)", nameof(ApprovalWorkflowOptions.CoversAdminRoleGrants))
         };
         var covered = kinds
             .Where(x => x.Covered)
@@ -197,6 +201,12 @@ internal sealed class ApprovalWorkflowStartupNote(
             }
         }
 
+        // Self-approval never applies to a grant of the Admin role: fewer than two Admins leave every grant undecidable.
+        if (workflow.Covers(ChangeApprovalKind.AdminRoleGrant) && configuration!.UserManagement.Enabled)
+        {
+            await NoteAsync("Admins who can approve a grant of the Admin role", () => NoteAdminGrantDecidersAsync(contextFactory, cancellationToken));
+        }
+
         if (!workflow.RequireApprovedVersionToRun)
         {
             await NoteAsync("MCP tools approved without a content hash", () => NoteToolsOnApprovalsWithoutAHashAsync(contextFactory, cancellationToken));
@@ -226,6 +236,16 @@ internal sealed class ApprovalWorkflowStartupNote(
         }
 
         var option = nameof(BeaconConfiguration.ApprovalWorkflow) + "." + (workflow.Enabled ? kind.Option : nameof(ApprovalWorkflowOptions.Enabled));
+        if (kind.Kind == ChangeApprovalKind.AdminRoleGrant)
+        {
+            logger.LogWarning(
+                "{RequestCount} grants of the Admin role are pending, and with {Option} off they are not applied. Turn it on to decide them, or grant the role again",
+                released.PendingRequests,
+                option);
+
+            return;
+        }
+
         if (kind.Kind == ChangeApprovalKind.LlmConnection)
         {
             logger.LogWarning(
@@ -336,6 +356,22 @@ internal sealed class ApprovalWorkflowStartupNote(
             "{AdminCount} active users are Admins, and only an Admin other than the requester approves a change of the LLM connection ({Option}): no such change can be approved until a second user is an Admin, or {SelfApproval} is turned on",
             count,
             nameof(BeaconConfiguration.ApprovalWorkflow) + "." + nameof(ApprovalWorkflowOptions.CoversLlmConnection),
+            nameof(BeaconConfiguration.ApprovalWorkflow) + "." + nameof(ApprovalWorkflowOptions.AllowSelfApproval));
+    }
+
+    // Only a live Admin other than the requester approves a grant of the Admin role, whatever self-approval allows.
+    private async Task NoteAdminGrantDecidersAsync(IDbContextFactory<BeaconContext> contextFactory, CancellationToken cancellationToken)
+    {
+        var count = await ApprovalWorkflowReport.CountAdminsAsync(contextFactory, cancellationToken);
+        if (count >= 2)
+        {
+            return;
+        }
+
+        logger.LogWarning(
+            "{AdminCount} active users are Admins, and only an Admin other than the requester approves a grant of the Admin role ({Option}), whatever {SelfApproval} says: no grant can be approved until a second user is an Admin, or the option is turned off",
+            count,
+            nameof(BeaconConfiguration.ApprovalWorkflow) + "." + nameof(ApprovalWorkflowOptions.CoversAdminRoleGrants),
             nameof(BeaconConfiguration.ApprovalWorkflow) + "." + nameof(ApprovalWorkflowOptions.AllowSelfApproval));
     }
 

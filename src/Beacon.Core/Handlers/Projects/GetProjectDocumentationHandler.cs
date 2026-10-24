@@ -39,7 +39,14 @@ public record ProjectDocSectionEntry(
     ProjectDocSectionType SectionType,
     string Title,
     string Content,
-    int SortOrder);
+    int SortOrder)
+{
+    /// <summary>
+    /// When a person last edited the section (by hand or by applying a documentation patch); null for generated text. An
+    /// edited section is curated: regenerating the documentation carries it forward instead of replacing it.
+    /// </summary>
+    public DateTime? EditedTime { get; init; }
+}
 
 public record ProjectDocumentationHistoryEntry(
     int Id,
@@ -79,7 +86,8 @@ internal sealed class GetProjectDocumentationHandler(
                 Sections = d.Sections
                     .OrderBy(s => s.SortOrder)
                     .Select(s => new ProjectDocSectionEntry(
-                        s.Id, s.SectionType, s.Title, s.Content, s.SortOrder))
+                        s.Id, s.SectionType, s.Title, s.Content, s.SortOrder)
+                    { EditedTime = s.EditedTime })
                     .ToList()
             })
             .ToListAsync(cancellationToken);

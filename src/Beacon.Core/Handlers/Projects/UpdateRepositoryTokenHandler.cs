@@ -54,4 +54,13 @@ internal sealed class UpdateRepositoryTokenHandler(
 
 /// <summary>Sets, replaces or (with no token) clears a repository's access token. For an Admin or a SecurityAdmin.</summary>
 [ProjectScopeExempt("gated by the SecurityAdmin permission: a repository's access token is a credential decision", Policy = BeaconPermissions.SecurityAdminPolicy)]
-public record UpdateRepositoryTokenCommand(int RepositoryId, string? AccessToken) : IRequest;
+public record UpdateRepositoryTokenCommand(int RepositoryId, string? AccessToken) : IRequest
+{
+    // The compiler-generated ToString prints every member; the secrets are printed redacted.
+    protected virtual bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"RepositoryId = {RepositoryId}, AccessToken = {RedactedPrint.Of(AccessToken)}");
+
+        return true;
+    }
+}

@@ -22,9 +22,10 @@ internal sealed class GetChangeApprovalsHandler(
 }
 
 /// <summary>
-/// The pending changes of migration jobs, data contracts' Custom SQL rules, recipients, data-source connections and the
-/// LLM connection, newest first unless <c>sort</c> says otherwise; of one <c>kind</c> when given. An Approver (an Admin
-/// holds the permission) lists every one but the LLM connection's, which only a live Admin lists; anyone else, as for
+/// The pending changes of migration jobs, data contracts' Custom SQL rules, recipients, data-source connections, the LLM
+/// connection and grants of the Admin role, newest first unless <c>sort</c> says otherwise; of one <c>kind</c> when given.
+/// An Approver (an Admin holds the permission) lists every one but the LLM connection's and the Admin role's grants,
+/// which only a live Admin lists; anyone else, as for
 /// query approvals, those of the migration jobs and data contracts it reads, never a recipient's or a connection's.
 /// </summary>
 public record GetChangeApprovalsQuery : ListRequest, IRequest<PagedList<ChangeApprovalSummary>>, IProjectFilteredRequest

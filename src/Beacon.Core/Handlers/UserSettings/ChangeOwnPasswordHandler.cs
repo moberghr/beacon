@@ -38,4 +38,13 @@ internal sealed class ChangeOwnPasswordHandler(
 }
 
 [ProjectScopeExempt("owner-scoped: the caller's own settings")]
-public record ChangeOwnPasswordCommand(string CurrentPassword, string NewPassword) : IRequest;
+public record ChangeOwnPasswordCommand(string CurrentPassword, string NewPassword) : IRequest
+{
+    // The compiler-generated ToString prints every member; the secrets are printed redacted.
+    protected virtual bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"CurrentPassword = {RedactedPrint.Of(CurrentPassword)}, NewPassword = {RedactedPrint.Of(NewPassword)}");
+
+        return true;
+    }
+}

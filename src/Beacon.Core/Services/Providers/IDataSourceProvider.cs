@@ -66,6 +66,16 @@ public interface IDataSourceProvider
         CancellationToken cancellationToken = default);
 
     /// <summary>
+    /// Refuses a new or changed connection configuration (create, update with a new connection, test connection) that the
+    /// connector does not accept, with an <see cref="InvalidOperationException"/> naming the setting to change and never a
+    /// value read from <paramref name="connectionData"/>. A stored configuration is not checked here: the connector decides
+    /// what it does with one when it connects. The default accepts every configuration.
+    /// </summary>
+    void EnsureNewConnectionDataAllowed(string connectionData)
+    {
+    }
+
+    /// <summary>
     /// Gets the query language name for UI display
     /// </summary>
     [Obsolete("Not called by Beacon; removed in 5.0.")]

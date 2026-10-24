@@ -44,9 +44,9 @@ does.
 | Type | Fields (required in bold) |
 |---|---|
 | Database | **Database engine**, **Connection string**, and the [metadata options](#metadata-loading-options) |
-| AWS CloudWatch | **AWS region**, **Log groups (comma-separated)**, Access key id, Secret access key, AWS profile |
+| AWS CloudWatch | **AWS region**, **Log groups (comma-separated)**, Access key id, Secret access key, AWS profile (an AWS profile, or no access key, needs `AllowHostCredentials`: see [Driver options and hosts](#driver-options-and-hosts)) |
 | Databricks | **Host**, **HTTP path**, **Personal access token**, Catalog, Schema |
-| BigQuery | **Project id**, Dataset id, Location, **Service account JSON** |
+| BigQuery | **Project id**, Dataset id, Location, **Service account JSON** (a service account key) |
 | API (OpenAPI) | **Base URL**, **OpenAPI spec URL**, Authentication (None, API key, Bearer token, Basic auth), Include path patterns, Exclude path patterns |
 
 Connection string examples for the database engines:
@@ -76,6 +76,31 @@ database qualifier is accepted. See [Database names in SQL](/security/authorizat
 
 If **Test connection** fails, check that the host can reach the server (firewall, VPN, private endpoint), that the
 credentials and database name are right, and that the login can read.
+
+### API (OpenAPI) requests
+
+An API data source's credentials go only to the API it names:
+
+- **API key location.** Send the API key in a header. A new or changed configuration with the key in the query string
+  (`ApiKeyLocation: Query`) is refused: a URL is written to server and proxy logs, and an API that echoes its URL hands
+  the key back. A stored one keeps working, with one Warning per data source per process; change it to a header.
+- **Masked answers.** The data source's bearer token, API key, Basic password and Basic header value are replaced with
+  `***` in what the API answers, before it becomes rows, also URL- or JSON-escaped.
+- **No redirects.** Beacon does not follow redirects: a `3xx` answer fails the query or the test and says so. Point the
+  **Base URL** and the **OpenAPI spec URL** at their final addresses.
+- **Paths stay under the base URL.** A query's path (after its path parameters are filled in) may not contain `.` or
+  `..` segments, also percent-encoded or behind a backslash, nor a `#` or a control character, and the request URL keeps
+  the base URL's scheme, host, port and path.
+- **Headers.** A query may add its own headers, but not `Host`, `Forwarded`, `X-Forwarded-*`, `Via`, `X-Real-IP`,
+  `X-Original-URL`, `X-Rewrite-URL`, the method overrides (`X-HTTP-Method`, `X-HTTP-Method-Override`,
+  `X-Method-Override`), `Content-Length`, `Transfer-Encoding`, `Connection`, `Upgrade`, `Expect`, `Authorization`,
+  `Cookie`, `Proxy-*`, nor the API key's own header. A header name must be an HTTP token and a value carries no control
+  character other than a tab.
+- **Test connection** fetches the OpenAPI spec URL with the credentials only when it has the base URL's scheme, host and
+  port; a description served elsewhere is fetched without them.
+- **Logs and traces.** The connector's HTTP client writes no request log, and neither the spec URL nor a query's path is
+  logged. Its requests are marked: leave them out of HTTP tracing with `ApiConnectorRequests.IsApiConnectorRequest`
+  (`Beacon.Connector.Api.Services`), as the sample host does.
 
 ### Transport security (TLS)
 
@@ -114,6 +139,49 @@ How Beacon applies the rule:
 - **`Beacon:DataSources:Transport:AllowInsecure`** lifts the rule for development hosts whose local databases have no
   TLS (the sample host sets it in its Development configuration). Outside Development the host logs a Warning at
   startup while it is set. See [Configuration](/getting-started/configuration/#data-source-transport-security).
+
+### Driver options and hosts
+
+A connection carries the data source's own credentials and nothing that acts on the Beacon host. Each connector reads
+the connection with its driver's own parser and refuses these options:
+
+| Engine | Refused | Signs in as the Beacon host (lifted by `AllowHostCredentials`) |
+|---|---|---|
+| PostgreSQL | `Options`, `Passfile`, `Include Error Detail=true`, `Log Parameters=true` | A Unix-socket `Host`, `GSS Encryption Mode=Require`, a `Require Auth` that admits `GSS` or `SSPI`, no `Password` and no `SSL Certificate` (the host's `PGPASSWORD` or pgpass file) |
+| SQL Server, Azure Synapse | `AttachDBFilename`, `User Instance=true`, `Authentication=Active Directory Interactive` or `Device Code Flow` | `Integrated Security` (`Trusted_Connection`), any `Authentication` other than `SqlPassword`, `Active Directory Password` or `Active Directory Service Principal`, `Column Encryption Setting=Enabled`, a named-pipe (`np:`), shared-memory (`lpc:`) or LocalDB `Data Source` |
+| MySQL | `AllowLoadLocalInfile=true`, `AllowLoadLocalInfileInPath`, `CommandInterceptors`, `ExceptionInterceptors` | `IntegratedSecurity`, a Kerberos, Windows or OCI `DefaultAuthenticationPlugin`, `OciConfigFile`, `CertificateStoreLocation`, a `ConnectionProtocol` other than TCP, no `Password` |
+| Snowflake | `client_config_file`, `disable_saml_url_check=true`, `authenticator=externalbrowser` or `oauth_authorization_code` | `authenticator=workload_identity`, `private_key_file` (give the key with `private_key`) |
+| BigQuery | **Service account JSON** that is not a service account key (`"type": "service_account"`), or a key whose `token_uri` is not `https://oauth2.googleapis.com/token`, whose `universe_domain` is not `googleapis.com`, or whose other `*_uri`/`*_url` is not an https URL on `accounts.google.com` or below `googleapis.com` | No service account JSON (the host's application default credentials) |
+| AWS CloudWatch | An **AWS region** that is not a region name | An **AWS profile**, or no access key (the host's IAM role) |
+| Databricks | A **Host** that is not a bare host name (no `https://`, port or path) | |
+
+The rule applies where the transport rule does: creating, changing and testing a connection refuse an option above
+(the message names the option, never a value); a stored source keeps working, with one Warning per data source per
+process, and is refused only under `Beacon:DataSources:Transport:EnforceOnExisting`. A host-managed source is the
+host's own wiring and may sign in as the host: the option rule does not apply to it, only the host list below.
+BigQuery also builds its client from a service account key that reaches only Google, so a stored source with any other
+credential JSON fails when it connects. `Beacon:DataSources:Transport:AllowInsecure` lifts the option rule on
+development hosts.
+
+A server can also ask for a sign-in the connection does not name. A PostgreSQL connection that carries its own
+`Password` or `SSL Certificate` opens with `Require Auth=!GSS,!SSPI` and `GSS Encryption Mode=Disable` unless it sets
+them itself, so a server asking for Kerberos or SSPI is refused before the Beacon host's identity is offered. MySql.Data
+follows a server's switch to another authentication plugin and has no setting to refuse it: with a password its
+Kerberos plugin uses the login's own credentials and its OCI plugin needs the OCI SDK (which Beacon does not
+reference), but a Beacon host on Windows answers a switch to the Windows plugin with its Windows account, so connect
+from Windows only to MySQL servers you trust.
+
+`Beacon:DataSources:AllowedHosts` restricts the hosts a connection may reach: every host the connection names (each
+host of a PostgreSQL or MySQL host list, the SQL Server failover partner, the Snowflake host or the account's
+`snowflakecomputing.com` host as the driver composes it, its proxy, Okta and OAuth URLs, the API base and spec URLs,
+the Databricks host, the BigQuery key's `token_uri` host `oauth2.googleapis.com`) must be listed. CloudWatch reaches
+only its region's AWS endpoint and passes. A host that is not a bare host name or IP address (a scheme, port, path,
+`?`, `#`, `@`, a space or a non-ASCII character in it) matches no entry, and a connection whose hosts its connector
+cannot tell (MySQL `DnsSrv`, a Snowflake OAuth URL that is not an absolute URL, a type with no option check) is
+refused while the list is set. Entries and hosts are ASCII (write an internationalised name in its `xn--` form) and IP
+addresses are compared in their canonical form. The list matches names as the connection writes them: the addresses
+they resolve to are not pinned, so it trusts the Beacon host's DNS. `AllowInsecure` does not lift the list. See
+[Configuration](/getting-started/configuration/#data-source-driver-options-and-hosts).
 
 ### Engine check
 
@@ -546,7 +614,7 @@ project, not `dataEditor` or `admin`.
 warehouse.
 
 **CloudWatch:** Beacon's own CloudWatch features read only the log groups the data source configures, so restrict the
-IAM role to `logs:StartQuery`, `logs:GetQueryResults` and `logs:StopQuery` on those log groups, plus
+access key's IAM user or role to `logs:StartQuery`, `logs:GetQueryResults` and `logs:StopQuery` on those log groups, plus
 `logs:DescribeLogGroups` for **Test connection**.
 CloudWatch sources cannot be queried through MCP `query`.
 

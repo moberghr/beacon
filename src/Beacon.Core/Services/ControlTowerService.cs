@@ -14,7 +14,7 @@ internal class ControlTowerService(
     IDbContextFactory<BeaconContext> contextFactory,
     IMemoryCache memoryCache) : IControlTowerService
 {
-    private const string StatisticsCacheKeyPrefix = "ControlTower_Statistics";
+    private static readonly string StatisticsCacheKeyPrefix = BeaconCacheEntries.Key("control-tower-statistics");
     private static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(30);
     private const double GreenThreshold = 90;
     private const double AmberThreshold = 70;
@@ -117,7 +117,7 @@ internal class ControlTowerService(
         CancellationToken cancellationToken)
     {
         // The statistics depend on what the caller may read, so callers share an entry only with the same scope.
-        var cacheKey = $"{StatisticsCacheKeyPrefix}:{request.TimeRangeDays}:{request.FolderId}:{request.DataSourceId}:{request.SearchKeyword}:{request.HasUnresolvedTasks}:{request.HealthStatus}:{ProjectSetFingerprint.Of(request.Readable)}";
+        var cacheKey = StatisticsCacheKey(request);
         if (memoryCache.TryGetValue(cacheKey, out ControlTowerStatistics? cached))
         {
             return cached!;
@@ -218,7 +218,7 @@ internal class ControlTowerService(
             OwnerNotAuthorizedContracts = ownerNotAuthorizedContracts
         };
 
-        memoryCache.Set(cacheKey, statistics, CacheDuration);
+        memoryCache.Set(cacheKey, statistics, BeaconCacheEntries.For(CacheDuration));
         return statistics;
     }
 
@@ -350,6 +350,16 @@ internal class ControlTowerService(
                 UnresolvedTaskCount = context.QueryTasks.Count(y => y.SubscriptionId == x.Id && !y.Resolved),
                 TotalTaskCount = context.QueryTasks.Count(y => y.SubscriptionId == x.Id)
             });
+    }
+
+    // The free-text filter enters the key as a fixed-size digest, so a caller's keyword never sets the key's length.
+    internal static string StatisticsCacheKey(GetControlTowerDataRequest request)
+    {
+        var keyword = string.IsNullOrEmpty(request.SearchKeyword)
+            ? ""
+            : Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(request.SearchKeyword)));
+
+        return $"{StatisticsCacheKeyPrefix}:{request.TimeRangeDays}:{request.FolderId}:{request.DataSourceId}:{keyword}:{request.HasUnresolvedTasks}:{request.HealthStatus}:{ProjectSetFingerprint.Of(request.Readable)}";
     }
 
     private static IQueryable<SubscriptionStatsRow> ApplyFilters(

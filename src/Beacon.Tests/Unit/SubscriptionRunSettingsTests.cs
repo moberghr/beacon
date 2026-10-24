@@ -290,20 +290,25 @@ public class SubscriptionRunSettingsTests
         result.MaxRows.Should().Be(maxRows is > 0 ? maxRows : Constants.Query.DefaultMaxRows);
     }
 
-    // A subscription run is recorded in its run history, not as a manual execution: no row per run, per step or for the
-    // whole query. Running the same query from the editor still records one.
+    // A subscription run is recorded in its run history, not as a manual execution: no summary row for the query. Each of
+    // its statements is in the execution log, as a subscription step. Running the same query from the editor still records
+    // a summary row.
     [Test]
-    public async Task ASubscriptionRun_RecordsNoManualExecution()
+    public async Task ASubscriptionRun_RecordsNoManualExecution_AndLogsEachStatementAsASubscriptionStep()
     {
         ConnectLedger([("id", x => x + 1)]);
         var log = new Mock<IManualQueryExecutionLogger>();
-        var service = Service([(Ledger, "SELECT id FROM accounts")], executionLogger: log.Object);
+        var audit = new RecordingExecutionAudit();
+        var service = Service([(Ledger, "SELECT id FROM accounts")], executionLogger: log.Object, executionAudit: audit);
 
         await service.ExecuteQuery(SubscriptionId, CancellationToken.None);
 
         log.Verify(
             x => x.LogQueryExecutionAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<double>(), It.IsAny<bool>(), It.IsAny<int?>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
             Times.Never);
+        audit.Starts.Should().ContainSingle()
+            .Which.Should().Match<SqlExecutionStart>(x => x.DataSourceId == Ledger && x.ExecutionContext == SqlExecutionContexts.SubscriptionStep);
+        audit.Ends.Should().ContainSingle().Which.Status.Should().Be(QueryExecutionLogStatus.Succeeded);
     }
 
     [Test]
@@ -311,14 +316,18 @@ public class SubscriptionRunSettingsTests
     {
         ConnectLedger([("id", x => x + 1)]);
         var log = new Mock<IManualQueryExecutionLogger>();
-        var service = Service([(Ledger, "SELECT id FROM accounts")], executionLogger: log.Object);
+        var audit = new RecordingExecutionAudit();
+        var service = Service([(Ledger, "SELECT id FROM accounts")], executionLogger: log.Object, executionAudit: audit);
 
         await service.ExecuteQueryAdvanced(QueryId, cancellationToken: CancellationToken.None);
         await service.PreviewQueryStep(QueryId, 1, CancellationToken.None);
 
+        // Each statement is in the execution log in place of a summary row per step.
+        audit.Starts.Select(x => x.ExecutionContext).Should().Equal(SqlExecutionContexts.QueryStep, SqlExecutionContexts.QueryStep);
+        audit.Ends.Should().HaveSameCount(audit.Starts).And.OnlyContain(x => x.Status == QueryExecutionLogStatus.Succeeded);
         log.Verify(
-            x => x.LogQueryExecutionAsync(It.IsAny<string>(), 3, It.IsAny<double>(), true, Ledger, "QueryStepPreview", It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
-            Times.Exactly(2));
+            x => x.LogQueryExecutionAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<double>(), It.IsAny<bool>(), It.IsAny<int?>(), "QueryStepPreview", It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
+            Times.Never);
         log.Verify(
             x => x.LogQueryExecutionAsync(It.IsAny<string>(), 3, It.IsAny<double>(), true, Ledger, "FullQueryPreview", It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()),
             Times.Once);
@@ -346,7 +355,8 @@ public class SubscriptionRunSettingsTests
         int? finalQueryTimeoutSeconds = null,
         HostExposureSnapshot? hostSnapshot = null,
         int? maxRows = 50,
-        IManualQueryExecutionLogger? executionLogger = null)
+        IManualQueryExecutionLogger? executionLogger = null,
+        ISqlExecutionAudit? executionAudit = null)
     {
         var dataSources = new List<DataSource>
         {
@@ -406,7 +416,8 @@ public class SubscriptionRunSettingsTests
             providers: providers,
             finalQueryTimeoutSeconds: finalQueryTimeoutSeconds,
             statementTimeout: statementTimeout,
-            executionLogger: executionLogger);
+            executionLogger: executionLogger,
+            executionAudit: executionAudit);
     }
 
     private sealed class SingleHostRegistry(HostExposureSnapshot snapshot) : IHostDataSourceRegistry

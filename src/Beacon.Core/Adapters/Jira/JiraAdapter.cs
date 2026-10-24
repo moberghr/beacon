@@ -1,4 +1,4 @@
-﻿using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging;
 using Beacon.Core.Data.Enums;
 
 namespace Beacon.Core.Adapters.Jira;
@@ -25,14 +25,7 @@ internal class JiraAdapter(
             return;
         }
 
-        var jqlQuery = JqlHelper.BuildSearchBySubscriptionQuery(
-            recipientQueryResult.QueryResult.SubscriptionName,
-            credentials.Email);
-        var issues = await jiraApiAdapter.SearchTickets(credentials, jqlQuery, 50, cancellationToken);
-
-        var existingIssue = issues
-            .Where(x => x.Summary == IssueSummary(recipientQueryResult.QueryResult.SubscriptionName))
-            .FirstOrDefault();
+        var existingIssue = await FindExistingIssueAsync(credentials, recipientQueryResult, cancellationToken);
 
         if (recipientQueryResult.QueryResult.TotalRecords == 0)
         {
@@ -53,6 +46,52 @@ internal class JiraAdapter(
         await AddCommentToIssueAsync(credentials, existingIssue.Key, recipientQueryResult, cancellationToken);
     }
 
+    /// <summary>
+    /// The label that ties an issue to one subscription's deliveries to one recipient, so later deliveries find it
+    /// without relying on free text; null when the delivery does not name both.
+    /// </summary>
+    internal static string? CorrelationLabel(RecipientQueryResult recipientQueryResult)
+    {
+        var subscriptionId = recipientQueryResult.QueryResult.SubscriptionId;
+        var recipientId = recipientQueryResult.RecipientId;
+
+        return subscriptionId == null || recipientId == null
+            ? null
+            : $"{JqlHelper.CorrelationLabelPrefix}{subscriptionId}-rcpt-{recipientId}";
+    }
+
+    // Issues are found by their correlation label inside the recipient's project. Issues created before the label existed
+    // are still matched, for this release only, by the subscription's text and the exact summary within the same project.
+    private async Task<JiraTicketSearchDto?> FindExistingIssueAsync(JiraCredentials credentials, RecipientQueryResult recipientQueryResult, CancellationToken cancellationToken)
+    {
+        var label = CorrelationLabel(recipientQueryResult);
+        if (label != null)
+        {
+            var labelled = await jiraApiAdapter.SearchTickets(
+                credentials,
+                JqlHelper.BuildSearchByLabelQuery(label, credentials.Project, credentials.Email),
+                1,
+                cancellationToken);
+
+            var match = labelled.FirstOrDefault();
+            if (match != null)
+            {
+                return match;
+            }
+        }
+
+        var legacy = await jiraApiAdapter.SearchTickets(
+            credentials,
+            JqlHelper.BuildSearchBySubscriptionQuery(recipientQueryResult.QueryResult.SubscriptionName, credentials.Project, credentials.Email),
+            50,
+            cancellationToken);
+
+        return legacy
+            .Where(x => x.Summary == IssueSummary(recipientQueryResult.QueryResult.SubscriptionName))
+            .Where(x => (x.Labels ?? []).All(y => !y.StartsWith(JqlHelper.CorrelationLabelPrefix, StringComparison.Ordinal)))
+            .FirstOrDefault();
+    }
+
     private async Task CreateIssueAndCommentAsync(JiraCredentials credentials, RecipientQueryResult recipientQueryResult, CancellationToken cancellationToken)
     {
         var description = Helpers.GenerateJiraAdf(recipientQueryResult.QueryResult);
@@ -63,7 +102,7 @@ internal class JiraAdapter(
             title: IssueSummary(recipientQueryResult.QueryResult.SubscriptionName),
             description: description,
             issueType: "Task",
-            label: "Beacon",
+            label: CorrelationLabel(recipientQueryResult) is { } correlation ? $"Beacon {correlation}" : "Beacon",
             cancellationToken: cancellationToken);
 
         await AddCommentToIssueAsync(credentials, result.TicketKey, recipientQueryResult, cancellationToken);
