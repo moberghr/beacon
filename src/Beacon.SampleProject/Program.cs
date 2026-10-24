@@ -11,6 +11,7 @@ using Beacon.Core.Notifications;
 using Beacon.Core.Worker;
 using Beacon.Core.PostgreSql;
 using Beacon.Core.SqlServer;
+using Beacon.Core.Authentication;
 using Beacon.Core.Authentication.Providers;
 using Beacon.Connector.PostgreSql;
 using Beacon.Connector.SqlServer;
@@ -154,7 +155,7 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
     .AddBigQueryConnector()
     .AddApiConnector()
     // Configure EF Core database provider for Beacon's own data store
-    // Connection string and schema come from ConnectionStrings:BeaconContext and Beacon:Schema.
+    // The connection string comes from ConnectionStrings:BeaconContext; the schema is always beacon.
     .UsePostgreSql()
     ;
 
@@ -171,19 +172,15 @@ builder.Services.AddBeaconDataProtection(builder.Configuration, builder.Environm
 builder.Services.AddBeaconOidcAuthentication(builder.Configuration);
 
 // Step 2c: MCP bearer JWT authentication if OIDC is enabled with a JWKS endpoint
-var oidcSection = builder.Configuration.GetSection("Beacon:Authentication:Oidc");
-var oidcEnabled = oidcSection.GetValue<bool>("Enabled");
-var mcpJwksEndpoint = oidcSection.GetValue<string>("McpJwksEndpoint");
-if (oidcEnabled && !string.IsNullOrWhiteSpace(mcpJwksEndpoint))
+var oidc = OidcAuthenticationOptions.FromConfiguration(builder.Configuration);
+if (oidc.Enabled && !string.IsNullOrWhiteSpace(oidc.McpJwksEndpoint))
 {
-    var oidcAuthority = oidcSection.GetValue<string>("Authority")?.TrimEnd('/');
-    var oidcClientId = oidcSection.GetValue<string>("ClientId");
     builder.Services.AddBeaconJwtAuthentication(jwt =>
     {
         jwt.EnableBearerAuthentication = true;
-        jwt.Validation.JwksEndpoint = mcpJwksEndpoint;
-        jwt.Validation.ValidIssuer = oidcAuthority;
-        jwt.Validation.ValidAudience = oidcClientId;
+        jwt.Validation.JwksEndpoint = oidc.McpJwksEndpoint;
+        jwt.Validation.ValidIssuer = oidc.GetEnabledAuthority();
+        jwt.Validation.ValidAudience = oidc.ClientId;
         jwt.Validation.ValidateIssuer = true;
         jwt.Validation.ValidateAudience = true;
     });

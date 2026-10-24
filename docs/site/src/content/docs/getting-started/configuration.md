@@ -165,7 +165,7 @@ Beacon only supports the 'beacon' schema, but 'tenant_a' was configured.
 Remove Beacon:Schema (or set it to 'beacon') and move any existing Beacon tables into 'beacon'.
 ```
 
-`.UsePostgreSql(connectionString, schema)` and `.UseSqlServer(connectionString, schema)` accept a schema argument for the same reason only as `beacon`. On PostgreSQL the search path is `beacon,public`, so a pgvector extension installed in `public` resolves.
+The obsolete overloads `.UsePostgreSql(connectionString, schema)` and `.UseSqlServer(connectionString, schema)` (removed in 6.0) accept a schema argument for the same reason only as `beacon`, and otherwise ignore it. On PostgreSQL the search path is `beacon,public`, so a pgvector extension installed in `public` resolves.
 
 ### Forwarded headers
 

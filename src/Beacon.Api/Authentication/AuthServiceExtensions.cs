@@ -115,10 +115,9 @@ public static class AuthServiceExtensions
         this IServiceCollection services,
         IConfiguration configuration)
     {
-        var section = configuration.GetSection("Beacon:Authentication:Oidc");
-        var options = section.Get<OidcAuthenticationOptions>() ?? new OidcAuthenticationOptions();
+        var options = OidcAuthenticationOptions.FromConfiguration(configuration);
 
-        services.Configure<OidcAuthenticationOptions>(section);
+        services.Configure<OidcAuthenticationOptions>(configuration.GetSection(OidcAuthenticationOptions.SectionName));
 
         if (!options.Enabled)
         {
@@ -133,7 +132,7 @@ public static class AuthServiceExtensions
         if (roleMapping.IsPrivilegedRoleName(options.DefaultRoleName))
         {
             throw new InvalidOperationException(
-                "Beacon:Authentication:Oidc:DefaultRoleName cannot be the Admin role or the role of a functional permission: every user signing in for the first time would administer Beacon.");
+                $"{OidcAuthenticationOptions.SectionName}:{nameof(OidcAuthenticationOptions.DefaultRoleName)} cannot be the Admin role or the role of a functional permission: every user signing in for the first time would administer Beacon.");
         }
 
         // Warns at startup when the tenant check is skipped for an Entra authority.
