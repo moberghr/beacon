@@ -267,7 +267,7 @@ These are the grounding, retrieval and learning settings of `McpSettingsData`; t
 |---|---|---|
 | `EnableSampleValueCollection` | `false` | Collect real sample values for the M-Schema block (and discover column values for documentation) |
 | `EnableValueGrounding` | `false` | Probe live values for the literal-looking words of a question and add the matches to the context |
-| `ValueGroundingMaxProbes` | `12` | Most value probes per question; on a shared data source the lowest value among the linking projects wins |
+| `ValueGroundingMaxProbes` | `12` | Most value probes per question; on a shared data source the lowest value among the linking projects wins. The probes of one question run up to three at a time (never more than `MaxConcurrentQueriesPerKey`) and share a 2.5-second deadline: a probe still running then matches nothing, and the others keep their matches |
 | `EnableLearning` | `true` | Master switch for signal mining |
 | `LearningAutoApproveThreshold` | `0.7` | Stored with the settings; promotion is decided by replay verification (`EnableReplayVerification`, `LearningReplayMinFlips`) |
 | `LearningInjectionBudgetChars` | `1500` | Character budget for the learned-patterns block |
@@ -299,6 +299,7 @@ The same holds for every grounding call that names a data source, and for every 
 - **Project material** (DataModel documentation, code references from the project's repositories, glossary terms, golden examples and learned patterns) comes from that project only, never from another project that links the same data source.
 - **A data source the project does not link** is not searched, described or catalogued: the table and column search finds nothing in it, the LLM context, table knowledge, lineage, data source overview and table schemas for it answer "not found", its schema catalog is empty (so every table in SQL against it fails the schema check), and value grounding probes nothing.
 - **Live value probes need Query.** Value grounding probes the live data only for a caller who may query the project; a caller who may only read it (`get_query_context` as a Viewer) is grounded with the stored sample values alone.
+- **The stored catalog is cached per project and data source.** `ask`, `get_query_context`, `query` and `dry_run` read a data source's stored tables and columns from a snapshot kept for up to 15 minutes, one per project. The project's link is checked on every call before the snapshot is read, and the stored sample values are screened under the project's settings on every call. A metadata refresh, a host model sync, an applied description patch, and a data source update, enable, disable, delete or migration-write mark drop the source's snapshots at once on the instance that made the change; another instance serves its own snapshot until it expires.
 - **Code references** belong to the repository that holds them, and a repository to one project: a scan names its project.
 - An eval run needs a project (`400` without one).
 

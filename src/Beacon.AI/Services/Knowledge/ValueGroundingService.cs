@@ -21,6 +21,9 @@ namespace Beacon.AI.Services.Knowledge;
 /// </summary>
 internal sealed record CandidateColumn(string Schema, string Table, ValueGroundingColumn Column);
 
+// One candidate of a literal, in rank order: resolved from its samples, or the index of its probe.
+internal sealed record GroundingSlot(string? SampleHit, int? ProbeIndex);
+
 internal sealed class ValueGroundingService(
     IDbContextFactory<BeaconContext> contextFactory,
     IDataSourceProviderFactory providerFactory,
@@ -37,6 +40,12 @@ internal sealed class ValueGroundingService(
     private const int MaxDomainCandidateLength = 100;
     private const int ProbeResultLimit = 3;
     private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(5);
+
+    // At most this many probes of one ask run at once, and never more than the per-key query concurrency.
+    private const int MaxParallelProbes = 3;
+
+    /// <summary>The time all the probes of one ask may take together; a probe still running then is cut and matches nothing.</summary>
+    internal static readonly TimeSpan DefaultProbeDeadline = TimeSpan.FromMilliseconds(2500);
 
     // Sentence-starting question words are excluded from the capitalised-token rule even when they are
     // capitalised (they are how the question is phrased, not a value in the data) — spec item 5 step 1.
@@ -63,6 +72,8 @@ internal sealed class ValueGroundingService(
     private static readonly Regex SentenceSplitRegex = new(@"(?<=[.!?])\s+", RegexOptions.Compiled);
     private static readonly Regex DateLikeRegex = new(@"^\d{1,4}[-/]\d{1,2}[-/]\d{1,4}$", RegexOptions.Compiled);
     private static readonly Regex AllowedCharsetRegex = new(@"^[\p{L}\p{N} .\-_/&']+$", RegexOptions.Compiled);
+
+    internal TimeSpan ProbeDeadline { get; init; } = DefaultProbeDeadline;
 
     public async Task<string> BuildValueMatchesBlockAsync(
         int dataSourceId, int projectId, string question, IReadOnlyList<ValueGroundingTable> tables, McpSettingsData settings, CancellationToken ct)
@@ -106,14 +117,16 @@ internal sealed class ValueGroundingService(
             var configuredDatabase = configuredDatabases.Resolve(dataSource);
             var rowSecurity = await rowSecurityResolver.ResolveAsync(dataSource.Id, ct);
             var provider = providerFactory.GetProvider(dataSource.DataSourceType);
-            var probesUsed = 0;
-            var matchLines = new List<string>();
 
+            // Which candidates resolve from their samples and which are probed is decided in order, as before; the probes
+            // then run a few at a time within one deadline, and their hits are put back in that order.
+            var plan = new List<(string Literal, List<GroundingSlot> Slots)>();
+            var probes = new List<(CandidateColumn Candidate, string Literal)>();
             foreach (var literal in literals)
             {
                 ct.ThrowIfCancellationRequested();
 
-                var hits = new List<string>();
+                var slots = new List<GroundingSlot>();
                 var candidates = RankCandidateColumns(groundable, literal);
 
                 foreach (var candidate in candidates)
@@ -122,20 +135,37 @@ internal sealed class ValueGroundingService(
                     if (sampleHit != null)
                     {
                         // Sample-value hit — resolved WITHOUT a probe, does not count against the cap.
-                        hits.Add(sampleHit);
+                        slots.Add(new GroundingSlot(sampleHit, ProbeIndex: null));
                         continue;
                     }
 
-                    if (probesUsed >= settings.ValueGroundingMaxProbes)
+                    if (probes.Count >= settings.ValueGroundingMaxProbes)
                     {
                         continue;
                     }
 
-                    probesUsed++;
-                    var probeHits = await ProbeColumnAsync(provider, dataSource, dialect, configuredDatabase, rowSecurity, candidate, literal, settings, ct);
-                    if (probeHits != null)
+                    slots.Add(new GroundingSlot(SampleHit: null, probes.Count));
+                    probes.Add((candidate, literal));
+                }
+
+                plan.Add((literal, slots));
+            }
+
+            var probeHits = await RunProbesAsync(provider, dataSource, dialect, configuredDatabase, rowSecurity, probes, settings, ct);
+
+            var matchLines = new List<string>();
+            foreach (var (literal, slots) in plan)
+            {
+                var hits = new List<string>();
+                foreach (var slot in slots)
+                {
+                    if (slot.SampleHit != null)
                     {
-                        hits.AddRange(probeHits);
+                        hits.Add(slot.SampleHit);
+                    }
+                    else if (probeHits[slot.ProbeIndex!.Value] is { } found)
+                    {
+                        hits.AddRange(found);
                     }
                 }
 
@@ -349,9 +379,72 @@ internal sealed class ValueGroundingService(
             .ToList();
     }
 
+    // The probes of one ask, at most MaxParallelProbes (and the per-key query concurrency) at a time, all within
+    // ProbeDeadline. A probe the deadline cuts, or that has not started by then, matches nothing; the cut probes are logged
+    // as one count. The caller's cancellation still cancels.
+    private async Task<IReadOnlyList<string>?[]> RunProbesAsync(
+        IDataSourceProvider provider, DataSource dataSource, string? dialect, string? configuredDatabase, RowSecurityContext rowSecurity,
+        List<(CandidateColumn Candidate, string Literal)> probes, McpSettingsData settings, CancellationToken ct)
+    {
+        if (probes.Count == 0)
+        {
+            return [];
+        }
+
+        using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        deadline.CancelAfter(ProbeDeadline);
+        using var slots = new SemaphoreSlim(Math.Clamp(settings.MaxConcurrentQueriesPerKey, 1, MaxParallelProbes));
+        var cut = 0;
+
+        async Task<IReadOnlyList<string>?> ProbeAsync(CandidateColumn candidate, string literal)
+        {
+            await slots.WaitAsync(ct);
+            try
+            {
+                IReadOnlyList<string>? hits = null;
+                if (!deadline.IsCancellationRequested)
+                {
+                    try
+                    {
+                        hits = await ProbeColumnAsync(provider, dataSource, dialect, configuredDatabase, rowSecurity, candidate, literal, settings, deadline.Token, ct);
+                    }
+                    catch (Exception) when (deadline.IsCancellationRequested && !ct.IsCancellationRequested)
+                    {
+                        // A driver may report the cut as an error of its own: still a cut, not a failure of the block.
+                    }
+                }
+
+                if (hits == null && deadline.IsCancellationRequested && !ct.IsCancellationRequested)
+                {
+                    Interlocked.Increment(ref cut);
+                }
+
+                return hits;
+            }
+            finally
+            {
+                slots.Release();
+            }
+        }
+
+        var results = await Task.WhenAll(probes.Select(x => ProbeAsync(x.Candidate, x.Literal)));
+        if (cut > 0)
+        {
+            // §1.11 — counts only, never a literal, column or probe SQL.
+            logger.LogWarning(
+                "Value-grounding probes for data source {DataSourceId} reached their deadline of {DeadlineMs} ms: {CutProbes} of {Probes} probe(s) matched nothing",
+                dataSource.Id,
+                (int)ProbeDeadline.TotalMilliseconds,
+                cut,
+                probes.Count);
+        }
+
+        return results;
+    }
+
     private async Task<IReadOnlyList<string>?> ProbeColumnAsync(
         IDataSourceProvider provider, DataSource dataSource, string? dialect, string? configuredDatabase, RowSecurityContext rowSecurity, CandidateColumn candidate,
-        string literal, McpSettingsData settings, CancellationToken ct)
+        string literal, McpSettingsData settings, CancellationToken deadline, CancellationToken ct)
     {
         var sql = BuildProbeSql(dataSource.DatabaseEngineType, candidate.Schema, candidate.Table, candidate.Column.ColumnName, literal);
 
@@ -380,7 +473,7 @@ internal sealed class ValueGroundingService(
             return null;
         }
 
-        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
+        using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(deadline);
         timeoutCts.CancelAfter(ProbeTimeout);
 
         ProviderQueryResult result;
@@ -396,7 +489,13 @@ internal sealed class ValueGroundingService(
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            // The probe's own 5s timeout fired, not the caller's cancellation — treat as no match.
+            // The probe's own 5s timeout or the ask's probe deadline fired, not the caller's cancellation — treat as no
+            // match. A deadline cut is counted by the caller.
+            if (deadline.IsCancellationRequested)
+            {
+                return null;
+            }
+
             // §1.11 — data source id and column name only, never the literal or the probe SQL.
             logger.LogWarning(
                 "Value-grounding probe timed out for data source {DataSourceId} (column {Table}.{Column})",

@@ -225,6 +225,9 @@ public static class ServiceConfiguration
         services.TryAddTransient<Services.Metadata.IColumnValueSampler, Services.Metadata.ColumnValueSampler>();
         services.TryAddTransient<Services.Metadata.ISchemaRelationshipSyncService, Services.Metadata.SchemaRelationshipSyncService>();
         services.TryAddTransient<Services.Metadata.ISchemaGraphService, Services.Metadata.SchemaGraphService>();
+        // The stored catalog the ask path reads, cached per data source and project; every catalog write invalidates it.
+        services.TryAddSingleton<Services.Metadata.CatalogSnapshotCache>();
+        services.TryAddSingleton<Services.Metadata.ICatalogSnapshotCache>(x => x.GetRequiredService<Services.Metadata.CatalogSnapshotCache>());
         services.TryAddTransient<IAnomalyDetectionService, AnomalyDetectionService>();
         services.TryAddTransient<IDataQualitySqlGenerator, DataQualitySqlGenerator>();
         services.TryAddTransient<IDataQualityEvaluationService, DataQualityEvaluationService>();

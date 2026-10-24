@@ -363,7 +363,7 @@ public class MetadataRefreshTests
     }
 
     [Test]
-    public async Task Refresh_InvalidatesTheRelationshipGraph()
+    public async Task Refresh_InvalidatesTheRelationshipGraphAndTheCatalogSnapshots()
     {
         var world = new MetadataWorld();
         world.Extracted = [Extracted("sales", "orders", null, ("id", null))];
@@ -371,6 +371,7 @@ public class MetadataRefreshTests
         await world.Service().RefreshMetadataAsync(DataSourceId, forceRefresh: true);
 
         world.Graph.Verify(x => x.Invalidate(DataSourceId), Times.Once);
+        world.Snapshots.Verify(x => x.Invalidate(DataSourceId), Times.Once);
     }
 
     // A disabled source keeps its stored tables and sampled values for when it is enabled, but none of them is served.
@@ -541,7 +542,7 @@ public class MetadataRefreshTests
     }
 
     [Test]
-    public async Task ArchivingADataSource_EvictsItsMetadataAndGraph()
+    public async Task ArchivingADataSource_EvictsItsMetadataGraphAndCatalogSnapshots()
     {
         var world = new MetadataWorld();
         world.Cache.Set(DatabaseMetadataService.GetCacheKey(DataSourceId), Snapshot());
@@ -551,6 +552,7 @@ public class MetadataRefreshTests
         world.DataSources.Single().ArchivedTime.Should().NotBeNull();
         world.Cache.TryGetValue(DatabaseMetadataService.GetCacheKey(DataSourceId), out _).Should().BeFalse("an archived source's metadata is never served from the cache");
         world.Graph.Verify(x => x.Invalidate(DataSourceId), Times.Once);
+        world.Snapshots.Verify(x => x.Invalidate(DataSourceId), Times.Once);
     }
 
     // Archiving takes the column values sampled from the source with it, archived tables' columns included; another
@@ -578,7 +580,7 @@ public class MetadataRefreshTests
     }
 
     [Test]
-    public async Task ChangingADataSourcesConnection_EvictsItsMetadataAndGraph()
+    public async Task ChangingADataSourcesConnection_EvictsItsMetadataGraphAndCatalogSnapshots()
     {
         var world = new MetadataWorld();
         world.Cache.Set(DatabaseMetadataService.GetCacheKey(DataSourceId), Snapshot());
@@ -596,6 +598,7 @@ public class MetadataRefreshTests
 
         world.Cache.TryGetValue(DatabaseMetadataService.GetCacheKey(DataSourceId), out _).Should().BeFalse();
         world.Graph.Verify(x => x.Invalidate(DataSourceId), Times.Once);
+        world.Snapshots.Verify(x => x.Invalidate(DataSourceId), Times.Once);
     }
 
     private static RefreshDataSourceMetadataHandler RefreshHandler(
@@ -713,6 +716,8 @@ public class MetadataRefreshTests
 
         public Mock<ISchemaGraphService> Graph { get; } = new();
 
+        public Mock<ICatalogSnapshotCache> Snapshots { get; } = new();
+
         public DatabaseMetadataService Service(
             ILogger<DatabaseMetadataService>? logger = null,
             IColumnValueSampler? sampler = null,
@@ -741,7 +746,8 @@ public class MetadataRefreshTests
                 SettingsProviderMock.Unshared(SettingsProviderMock.Create(settings ?? new McpSettingsData { EnableSampleValueCollection = false }).Object),
                 Cache,
                 Graph.Object,
-                logger ?? NullLogger<DatabaseMetadataService>.Instance);
+                logger ?? NullLogger<DatabaseMetadataService>.Instance,
+                Snapshots.Object);
         }
 
         public IDataSourceService DataSourceService()
@@ -757,7 +763,8 @@ public class MetadataRefreshTests
                 TestEngineVerifier.Passing,
                 TestChangeApprovals.Submitter(),
                 TestTransport.Hasher(),
-                NullLogger<DataSourceService>.Instance);
+                NullLogger<DataSourceService>.Instance,
+                catalogSnapshots: Snapshots.Object);
         }
 
         private IDbContextFactory<BeaconContext> Factory()

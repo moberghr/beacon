@@ -24,9 +24,25 @@ public class DatabaseMetadataService(
     ISharedSourceSettings sharedSourceSettings,
     IMemoryCache cache,
     ISchemaGraphService schemaGraphService,
-    ILogger<DatabaseMetadataService> logger)
+    ILogger<DatabaseMetadataService> logger,
+    ICatalogSnapshotCache catalogSnapshots)
     : IDatabaseMetadataService
 {
+    /// <summary>A service whose refreshes leave the ask path's catalog snapshots to expire on their own.</summary>
+    [Obsolete("Pass the ICatalogSnapshotCache so a refresh invalidates the catalog snapshots the ask path reads.")]
+    public DatabaseMetadataService(
+        IDbContextFactory<BeaconContext> contextFactory,
+        IDataSourceConnectionResolver connectionResolver,
+        IEnumerable<IDatabaseMetadataExtractor> metadataExtractors,
+        IColumnValueSampler columnValueSampler,
+        ISharedSourceSettings sharedSourceSettings,
+        IMemoryCache cache,
+        ISchemaGraphService schemaGraphService,
+        ILogger<DatabaseMetadataService> logger)
+        : this(contextFactory, connectionResolver, metadataExtractors, columnValueSampler, sharedSourceSettings, cache, schemaGraphService, logger, NoCatalogSnapshotCache.Instance)
+    {
+    }
+
     private const string CacheKeyPrefix = "DbMetadata_";
     private const int MaxLoggedSkippedNames = 50;
     private static readonly TimeSpan CacheExpiration = TimeSpan.FromHours(1);
@@ -129,6 +145,7 @@ public class DatabaseMetadataService(
             }
 
             schemaGraphService.Invalidate(dataSourceId);
+            catalogSnapshots.Invalidate(dataSourceId);
 
             if (current is not { Readable: true })
             {

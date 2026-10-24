@@ -584,6 +584,79 @@ public class ValueGroundingServiceTests
             Times.Never);
     }
 
+    // The probes of one ask share a deadline: a probe still running then is cut and matches nothing, the others keep their
+    // hits, and the block comes back at the deadline instead of after every probe's own timeout.
+    [Test]
+    public async Task BuildValueMatchesBlockAsync_AProbePastTheDeadline_IsCut_AndTheOtherHitsAreKept()
+    {
+        var tables = new[]
+        {
+            new ValueGroundingTable("sales", "orders", new[] { new ValueGroundingColumn("status", "varchar", false, null, null) }),
+            new ValueGroundingTable("crm", "accounts", new[] { new ValueGroundingColumn("country", "varchar", false, null, null) })
+        };
+        var provider = new Mock<IDataSourceProvider>();
+        provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.Is<string>(y => y.Contains("\"status\"")), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderQueryResult { Success = true, Rows = [new Dictionary<string, object?> { ["status"] = "REFUNDED" }] });
+        provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.Is<string>(y => y.Contains("\"country\"")), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .Returns(async (DataSource _, string _, Dictionary<string, object?> _, CancellationToken token) =>
+            {
+                await Task.Delay(Timeout.Infinite, token);
+
+                return new ProviderQueryResult { Success = true };
+            });
+        var (service, _) = BuildService(provider, probeDeadline: TimeSpan.FromMilliseconds(300));
+        var settings = NewSettings();
+        settings.ValueGroundingMaxProbes = 2;
+        var started = System.Diagnostics.Stopwatch.StartNew();
+
+        var block = await service.BuildValueMatchesBlockAsync(
+            DataSourceId, ProjectId, "orders that were 'refunded'", tables, settings, CancellationToken.None);
+
+        started.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(4), "the deadline cuts the probe before its own 5 s timeout");
+        block.Should().Contain("sales.orders.status = 'REFUNDED'").And.NotContain("crm.accounts");
+    }
+
+    // Probes run a few at a time; their hits come back in the order the candidates were ranked, whichever probe finishes
+    // first.
+    [Test]
+    public async Task BuildValueMatchesBlockAsync_ProbesRunTogether_AndTheirHitsKeepTheRankedOrder()
+    {
+        var tables = new[]
+        {
+            new ValueGroundingTable("sales", "orders", new[]
+            {
+                new ValueGroundingColumn("status", "varchar", false, null, null),
+                new ValueGroundingColumn("note", "varchar", false, null, null)
+            })
+        };
+        var running = 0;
+        var mostAtOnce = 0;
+        var provider = new Mock<IDataSourceProvider>();
+        provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .Returns(async (DataSource _, string sql, Dictionary<string, object?> _, CancellationToken token) =>
+            {
+                var now = Interlocked.Increment(ref running);
+                InterlockedMax(ref mostAtOnce, now);
+
+                // The first-ranked column (status) answers last.
+                var isStatus = sql.Contains("\"status\"");
+                await Task.Delay(isStatus ? 400 : 50, token);
+                Interlocked.Decrement(ref running);
+
+                return new ProviderQueryResult { Success = true, Rows = [new Dictionary<string, object?> { ["v"] = isStatus ? "REFUNDED" : "refunded late" }] };
+            });
+        var (service, _) = BuildService(provider);
+
+        var block = await service.BuildValueMatchesBlockAsync(
+            DataSourceId, ProjectId, "orders that were 'refunded'", tables, NewSettings(), CancellationToken.None);
+
+        mostAtOnce.Should().Be(2);
+        block.Should().Contain("sales.orders.status = 'REFUNDED'; sales.orders.note = 'refunded late'");
+    }
+
     [Test]
     public async Task BuildValueMatchesBlockAsync_NoTables_ReturnsEmpty()
     {
@@ -614,7 +687,8 @@ public class ValueGroundingServiceTests
         DatabaseEngineType engine = DatabaseEngineType.PostgreSQL,
         string? configuredDatabase = null,
         string? hostManagedKey = null,
-        IMcpStatementLog? statementLog = null)
+        IMcpStatementLog? statementLog = null,
+        TimeSpan? probeDeadline = null)
     {
         var dataSource = new DataSource
         {
@@ -648,9 +722,27 @@ public class ValueGroundingServiceTests
             TestRowSecurity.Resolver,
             new QueryGuardrailService(),
             statementLog ?? new McpStatementLog(),
-            NullLogger<ValueGroundingService>.Instance);
+            NullLogger<ValueGroundingService>.Instance)
+        {
+            ProbeDeadline = probeDeadline ?? ValueGroundingService.DefaultProbeDeadline
+        };
 
         return (service, factory);
+    }
+
+    private static void InterlockedMax(ref int target, int value)
+    {
+        var current = Volatile.Read(ref target);
+        while (value > current)
+        {
+            var seen = Interlocked.CompareExchange(ref target, value, current);
+            if (seen == current)
+            {
+                return;
+            }
+
+            current = seen;
+        }
     }
 
     private static Mock<DbSet<T>> BuildDbSet<T>(IEnumerable<T> data) where T : class
