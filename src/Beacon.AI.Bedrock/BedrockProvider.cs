@@ -11,6 +11,8 @@ namespace Beacon.AI.Services.LlmProviders;
 
 public class BedrockProvider : ILlmProvider
 {
+    private static readonly JsonSerializerOptions ResponseJson = new() { PropertyNameCaseInsensitive = true };
+
     private readonly IAmazonBedrockRuntime _client;
     private readonly string _modelId;
     private readonly Amazon.Runtime.AWSCredentials? _explicitCredentials;
@@ -289,8 +291,7 @@ public class BedrockProvider : ILlmProvider
 
         using var reader = new StreamReader(response.Body);
         var responseBody = await reader.ReadToEndAsync(cancellationToken);
-        var result = JsonSerializer.Deserialize<LlamaBedrockResponse>(responseBody,
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        var result = JsonSerializer.Deserialize<LlamaBedrockResponse>(responseBody, ResponseJson);
 
         if (result == null)
             throw new AiServiceException("Failed to parse Bedrock Llama API response");
@@ -333,8 +334,7 @@ public class BedrockProvider : ILlmProvider
     /// </summary>
     internal Beacon.Core.Models.Ai.LlmResponse ParseClaudeResponse(string responseBody)
     {
-        var result = JsonSerializer.Deserialize<ClaudeBedrockResponse>(responseBody,
-            new JsonSerializerOptions { PropertyNameCaseInsensitive = true });
+        var result = JsonSerializer.Deserialize<ClaudeBedrockResponse>(responseBody, ResponseJson);
 
         if (result == null)
         {

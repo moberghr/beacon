@@ -1,5 +1,6 @@
 using System.Net.Http.Headers;
 using System.Text.Json;
+using Beacon.Core.Http;
 using Microsoft.Extensions.Options;
 
 namespace Beacon.AI.Services.GitHub;
@@ -84,7 +85,7 @@ internal sealed class GitHubApiClient(IHttpClientFactory httpClientFactory, IOpt
 
     private HttpClient CreateClient(string? accessToken)
     {
-        var client = httpClientFactory.CreateClient("GitHub");
+        var client = httpClientFactory.CreateClient(BeaconHttpClients.GitHub);
         client.DefaultRequestHeaders.UserAgent.Add(new ProductInfoHeaderValue("Beacon", "1.0"));
         client.DefaultRequestHeaders.Accept.Add(new MediaTypeWithQualityHeaderValue("application/vnd.github.v3+json"));
         if (!string.IsNullOrEmpty(accessToken))

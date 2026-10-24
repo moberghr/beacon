@@ -10,6 +10,8 @@ export interface PermissionsFixture {
   migrationsEnabled?: boolean;
   /** Whether Beacon runs as an MCP gateway; off unless a test turns it on. */
   gatewayMode?: boolean;
+  /** Whether the deployment serves embeds; off unless a test turns it on. */
+  embedEnabled?: boolean;
 }
 
 /**
@@ -26,6 +28,7 @@ export function permissionsHandler(fixture: PermissionsFixture = {}) {
       permissions: isAdmin ? [...BEACON_PERMISSIONS] : fixture.permissions ?? [],
       migrationsEnabled: fixture.migrationsEnabled ?? true,
       gatewayMode: fixture.gatewayMode ?? false,
+      embedEnabled: fixture.embedEnabled ?? false,
     }),
   );
 }
