@@ -61,11 +61,27 @@ export function useMcpAuditList(defaults: { from: string; to: string }) {
 
   const totalCount = query.data?.totalCount ?? 0;
 
+  /** One page of the window as filtered, for the export download (not cached: every read is audited). */
+  const fetchExportPage = async (exportPage: number, exportPageSize: number) =>
+    unwrap<GetMcpAuditLogsResult>(
+      await beaconApi().getMcpAuditLogs(
+        auditWindow.from!,
+        auditWindow.to!,
+        idParam(filters.projectId),
+        filters.tool.trim() || undefined,
+        filters.callerHash.trim() || undefined,
+        idParam(filters.userId),
+        exportPage,
+        exportPageSize,
+      ),
+    );
+
   return {
     filters,
     setFilter: list.setFilter,
     resetFilters: list.resetFilters,
     auditWindow,
+    fetchExportPage,
     items: query.data?.items ?? [],
     totalCount,
     isLoading: query.isLoading,

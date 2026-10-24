@@ -2,11 +2,12 @@ import { useMemo } from 'react';
 import { AlertTriangle, RotateCcw, ScrollText } from 'lucide-react';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
-import { Banner, Button, Card, CardBody, CardHead, CardSub, CardTitle, Field, Input, PageHeader, Pill } from '@/components/beacon';
+import { Banner, Button, Card, CardActions, CardBody, CardHead, CardSub, CardTitle, Field, Input, PageHeader, Pill } from '@/components/beacon';
 import { useRequirePermission } from '@/auth/useRequirePermission';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { useSearchFilter } from '@/lib/usePagedList';
 import { MAX_WINDOW_DAYS, defaultWindow } from '../security-audit/queries';
+import { AuditExportButton } from '../security-audit/AuditExportButton';
 import { useMcpAuditList, type McpAuditLogItem } from './mcpAuditQueries';
 
 const GRID_TEMPLATE = '1.2fr 1.2fr 0.6fr 1.4fr 0.6fr 0.7fr 0.6fr 1.4fr';
@@ -145,6 +146,13 @@ function McpAuditView() {
         <CardHead>
           <CardTitle>Tool calls</CardTitle>
           <CardSub>{formatNumber(list.totalCount)} in the window</CardSub>
+          <CardActions>
+            <AuditExportButton
+              fileName={`mcp-audit-${filters.from}_${filters.to}.json`}
+              fetchPage={list.fetchExportPage}
+              disabled={auditWindow.error !== undefined || list.totalCount === 0}
+            />
+          </CardActions>
         </CardHead>
         {list.isError
           ? (

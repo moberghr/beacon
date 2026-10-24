@@ -23,6 +23,7 @@ export {
   GroundingRecheckKind,
   HealthStatus,
   McpDocPatchStatus,
+  McpEvalFailureTag,
   McpDocPatchTarget,
   McpPatternStatus,
   McpPatternType,
