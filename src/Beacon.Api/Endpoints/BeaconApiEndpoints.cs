@@ -5,6 +5,7 @@ using Beacon.Core.Authorization;
 using Beacon.Core.Configuration;
 using Beacon.Core.Mcp;
 using Beacon.Core.Services;
+using Beacon.Core.Services.Embed;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Antiforgery;
@@ -24,8 +25,8 @@ public static class BeaconApiEndpoints
     internal const string HubPath = "/beacon/api/hub";
 
     /// <summary>
-    /// Requires the <c>Execute</c> scope for scoped callers (§1.4): API keys minted by <c>ApiKeyAuthMiddleware</c> and
-    /// JWT callers on <c>/beacon/mcp</c> minted by <c>JwtBearerAuthMiddleware</c> (<c>auth_method=mcp_caller</c>, scope
+    /// Requires the <c>Execute</c> scope for scoped callers (§1.4): API keys minted by <c>ApiKeyAuthenticationHandler</c> and
+    /// JWT callers on <c>/beacon/mcp</c> minted by <c>BeaconJwtAuthenticationHandler</c> (<c>auth_method=mcp_caller</c>, scope
     /// decided by <see cref="IMcpCallerMapper"/>, never by the token). Interactive cookie/OIDC sessions and JWT callers
     /// on other routes carry no such marker and are not scope-gated — they are a full authenticated session governed
     /// by role. Every <c>/beacon/api</c> request that is not GET/HEAD/OPTIONS needs the same scope through
@@ -46,12 +47,15 @@ public static class BeaconApiEndpoints
 
     public static IServiceCollection AddBeaconApiAuthorization(this IServiceCollection services)
     {
+        // The per-caller limits of /beacon/api and of the anonymous requests Beacon refuses (Beacon:RateLimits), here as
+        // well as in AddBeaconApiServices: every host that maps Beacon's routes registers its policies.
+        services.TryAddSingleton<BeaconApiRateLimiter>();
+
         services.AddAuthorization(options =>
         {
-            // Scheme-agnostic on purpose: ApiKeyAuthMiddleware assigns context.User directly
-            // (no scheme registration), so pinning the policy to a single scheme would 403
-            // every API-key caller. RequireAuthenticatedUser() honours whatever identity the
-            // upstream middleware (cookie OR API key) has put on the context.
+            // Scheme-agnostic on purpose: UseBeaconAuthentication records the API key, bearer or cookie
+            // result on the request, and pinning the policy to one scheme would 403 every other
+            // caller. RequireAuthenticatedUser() honours whatever identity it has put on the context.
             options.AddPolicy(AuthPolicyName, new AuthorizationPolicyBuilder()
                 .RequireAuthenticatedUser()
                 .Build());
@@ -121,6 +125,7 @@ public static class BeaconApiEndpoints
 
         // Notes at startup which key seals security audit events (a Warning when it is derived) and how long they are kept.
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, SecurityAuditStartupNote>());
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, RetentionStartupNote>());
 
         // Applies the stored Admin settings (base URL, LLM provider configuration) once the host has started.
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, StoredSettingsStartupApplier>());
@@ -158,13 +163,15 @@ public static class BeaconApiEndpoints
     {
         // Group-level auth policy: every endpoint requires an authenticated cookie session.
         // Endpoints opt out via .AllowAnonymous() (health, auth/me, csrf).
-        // The access-exception filter is outermost: it maps refused and missing resources to 403/404 problems.
+        // The rate-limit filter is outermost: a caller over its Beacon:RateLimits:Api limit gets 429 before anything runs.
+        // The access-exception filter is next: it maps refused and missing resources to 403/404 problems.
         // The scope filter runs next: a scoped caller (API key, mapped MCP caller) needs the Execute scope for
         // every request that is not GET/HEAD/OPTIONS and for GETs marked RequiresExecuteScope().
         // The permission filter enforces Viewer (read) vs Editor (write) when authorization or user
         // management is on; it runs after antiforgery so a forged request never reaches the user lookup.
         var group = endpoints.MapGroup(GroupPrefix)
             .RequireAuthorization(AuthPolicyName)
+            .AddEndpointFilter<BeaconApiRateLimitFilter>()
             .AddEndpointFilter<BeaconAccessExceptionEndpointFilter>()
             .AddEndpointFilter<BeaconScopeEndpointFilter>()
             .AddEndpointFilter<AntiforgeryEndpointFilter>()
@@ -196,6 +203,15 @@ public static class BeaconApiEndpoints
             group.MapMigrationsEndpoints();
         }
 
+        // Embedding saved queries is off unless the host turned it on (Beacon:Embed:Enabled), and never on an MCP gateway:
+        // unmapped, every embed route answers 404. The anonymous token exchange, render and embed page sit outside the group
+        // (no cookie, antiforgery or BeaconApi policy): the embed middleware alone decides their caller.
+        if (BeaconEmbedPaths.IsEnabled(endpoints.ServiceProvider))
+        {
+            group.MapEmbedGrantsEndpoints();
+            endpoints.MapEmbedEndpoints();
+        }
+
         group.MapRecipientsEndpoints();
         group.MapSubscriptionsEndpoints();
         group.MapDataSourcesEndpoints();
@@ -218,7 +234,7 @@ public static class BeaconApiEndpoints
         // case, so the server never advertises a hub it did not map.
         // The hub also admits only callers who may use it (HubAccessPolicy), and a connection is closed when the
         // expiry its request reported passes: for a cookie session the session's next check against the user store
-        // (BeaconSessionEvents), capped at its absolute lifetime; for an API key the same interval (ApiKeyAuthMiddleware).
+        // (BeaconSessionEvents), capped at its absolute lifetime; for an API key the same interval (ApiKeyAuthenticator).
         // The client then reconnects, and is checked again.
         var options = endpoints.ServiceProvider.GetService<BeaconApiOptions>();
         if (options?.Realtime == true)

@@ -1,44 +1,28 @@
 import { cn } from '@/lib/utils';
-
-const COMMIT_SHA = import.meta.env.BEACON_COMMIT_SHA;
-const BUILD_DATE = import.meta.env.BEACON_BUILD_DATE;
-
-function formatBuildDate(iso: string): string {
-  const parsed = new Date(iso);
-  if (Number.isNaN(parsed.getTime())) {
-    return iso;
-  }
-  // YYYY-MM-DD — terse, locale-agnostic, identifies the day uniquely.
-  const y = parsed.getUTCFullYear();
-  const m = String(parsed.getUTCMonth() + 1).padStart(2, '0');
-  const d = String(parsed.getUTCDate()).padStart(2, '0');
-  return `${y}-${m}-${d}`;
-}
+import { useAuth, usePermissions } from '@/auth/useAuth';
 
 interface BuildBadgeProps {
   className?: string;
 }
 
 /**
- * Single source of truth for the running build's identity. Renders
- * `<short-sha> · <build-date>` and exposes the full ISO timestamp on hover.
- * Used in the in-app Sidebar header and the login footer so both surfaces
- * agree on what's deployed.
+ * The running build's identity, `<version> · <short commit>`, with the full value on hover. The server reports it to
+ * signed-in callers only (`GET /auth/permissions`); nothing is written into the public bundle. Used in the in-app
+ * Sidebar header, so every signed-in view shows what is deployed.
  */
 export function BuildBadge({ className }: BuildBadgeProps) {
-  // Build-time env vars may be missing (e.g. dev shells without git) —
-  // fall back to a "dev" badge instead of rendering "undefined · undefined".
-  if (!COMMIT_SHA && !BUILD_DATE) {
-    return <span className={cn('text-2xs mono text-text-subtle', className)}>dev</span>;
+  const auth = useAuth();
+  const build = usePermissions(auth.data?.isAuthenticated === true).data?.build;
+  if (!build) {
+    return null;
   }
-  const sha = COMMIT_SHA || 'dev';
-  const date = BUILD_DATE ? formatBuildDate(BUILD_DATE) : 'unknown';
+  const commit = build.commit ? build.commit.slice(0, 7) : null;
   return (
     <span
       className={cn('text-2xs mono text-text-subtle', className)}
-      title={`Build ${sha} · ${BUILD_DATE || 'unknown build date'}`}
+      title={`Build ${build.version}${build.commit ? `+${build.commit}` : ''}`}
     >
-      {sha} · {date}
+      {commit ? `${build.version} · ${commit}` : build.version}
     </span>
   );
 }

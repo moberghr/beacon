@@ -83,8 +83,8 @@ public class DryRunToolTests
         _warehouseType = type;
         _warehouseEngine = null;
 
-        var result = await CreateTool().ExecuteAsync(
-            datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(), x => x.ExecuteAsync(
+            datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         result.StructuredContent!.Value.GetProperty("valid").GetBoolean().Should().BeTrue();
@@ -100,7 +100,7 @@ public class DryRunToolTests
             .Setup(x => x.ValidateAsync(DataSourceId, It.IsAny<string>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ProviderDryRunOutcome("22P02: invalid input syntax for type integer: \"Ivan Horvat\"", false));
 
-        await CreateTool().ExecuteAsync(datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None);
+        await TestToolCalls.InvokeAsync(CreateTool(), x => x.ExecuteAsync(datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None));
 
         _signals.Should().ContainSingle()
             .Which.DryRunError.Should().Be("Database error 22P02 (data exception): a value could not be converted to integer. The database's message is withheld because it can quote row values.");
@@ -109,8 +109,8 @@ public class DryRunToolTests
     [Test]
     public async Task ValidSelect_AllGatesPass_AppliesRowLimit_AndRunsProviderDryRun()
     {
-        var result = await CreateTool().ExecuteAsync(
-            datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(), x => x.ExecuteAsync(
+            datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         var text = GetText(result);
@@ -159,8 +159,8 @@ public class DryRunToolTests
         var effective = McpSettingsProvider.Resolve(new McpSettingsData { MaxRowLimit = 0 }, null, new McpDeploymentOptions()).Effective;
         var settingsProvider = SettingsProviderMock.Create(effective);
 
-        var result = await CreateTool(settingsProvider).ExecuteAsync(
-            datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(settingsProvider), x => x.ExecuteAsync(
+            datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         GetText(result).Should().NotContain(SqlGateCodes.InvalidRowCap);
@@ -177,8 +177,8 @@ public class DryRunToolTests
             new McpSettingsData { MaxRowLimit = 1000 },
             projectSettings: new Dictionary<int, McpSettingsData> { [ProjectId] = new McpSettingsData { MaxRowLimit = 10 } });
 
-        var result = await CreateTool(settingsProvider).ExecuteAsync(
-            datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(settingsProvider), x => x.ExecuteAsync(
+            datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         result.StructuredContent!.Value.GetProperty("executable_sql").GetString().Should().Be($"{ValidSql} LIMIT 10",
@@ -192,8 +192,8 @@ public class DryRunToolTests
         const string insertSql = "INSERT INTO customers (id) VALUES (1)";
         SetupGuardrailValidation(isValid: false, error: "Only SELECT queries are allowed", piiColumns: null);
 
-        var result = await CreateTool().ExecuteAsync(
-            datasource_id: DataSourceId, sql: insertSql, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(), x => x.ExecuteAsync(
+            datasource_id: DataSourceId, sql: insertSql, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse("an INVALID verdict is still a successful dry run");
         var text = GetText(result);
@@ -228,8 +228,8 @@ public class DryRunToolTests
         // The guardrail mock passes everything; the REAL AST validator inside the gate catches SELECT ... INTO.
         const string sql = "SELECT id INTO t2 FROM customers";
 
-        var result = await CreateTool().ExecuteAsync(
-            datasource_id: DataSourceId, sql: sql, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(), x => x.ExecuteAsync(
+            datasource_id: DataSourceId, sql: sql, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         var text = GetText(result);
@@ -250,8 +250,8 @@ public class DryRunToolTests
     {
         const string sql = "SELECT nonexistent_col FROM customers";
 
-        var result = await CreateTool().ExecuteAsync(
-            datasource_id: DataSourceId, sql: sql, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(), x => x.ExecuteAsync(
+            datasource_id: DataSourceId, sql: sql, cancellationToken: CancellationToken.None));
 
         var text = GetText(result);
         text.Should().Contain("INVALID");
@@ -275,8 +275,8 @@ public class DryRunToolTests
     [Test]
     public async Task CatalogRelation_ReportsTheSystemCatalogCode_AndRunsNoProviderDryRun()
     {
-        var result = await CreateTool().ExecuteAsync(
-            datasource_id: DataSourceId, sql: "SELECT most_common_vals FROM pg_stats", cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(), x => x.ExecuteAsync(
+            datasource_id: DataSourceId, sql: "SELECT most_common_vals FROM pg_stats", cancellationToken: CancellationToken.None));
 
         var structured = result.StructuredContent!.Value;
         structured.GetProperty("valid").GetBoolean().Should().BeFalse();
@@ -294,8 +294,8 @@ public class DryRunToolTests
             .Setup(x => x.GetSchemaCatalogAsync(DataSourceId, ProjectId, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
 
-        var result = await CreateTool().ExecuteAsync(
-            datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(), x => x.ExecuteAsync(
+            datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse("an INVALID verdict is still a successful dry run");
         var text = GetText(result);
@@ -323,8 +323,8 @@ public class DryRunToolTests
             .Setup(x => x.ValidateAsync(DataSourceId, ValidSql, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ProviderDryRunOutcome(providerError, false));
 
-        var result = await CreateTool().ExecuteAsync(
-            datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(), x => x.ExecuteAsync(
+            datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         var text = GetText(result);
@@ -356,8 +356,8 @@ public class DryRunToolTests
             .Setup(x => x.ValidateAsync(DataSourceId, ValidSql, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ProviderDryRunOutcome(skipReason, true));
 
-        var result = await CreateTool().ExecuteAsync(
-            datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(), x => x.ExecuteAsync(
+            datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse("an INVALID verdict is still a successful dry run");
         var text = GetText(result);
@@ -384,8 +384,8 @@ public class DryRunToolTests
     [Test]
     public async Task MissingSql_ReturnsError()
     {
-        var result = await CreateTool().ExecuteAsync(
-            datasource_id: DataSourceId, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(), x => x.ExecuteAsync(
+            datasource_id: DataSourceId, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeTrue();
         result.Content.OfType<TextContentBlock>().Single().Text
@@ -407,8 +407,8 @@ public class DryRunToolTests
     [Test]
     public async Task ApiDataSource_IsRejected_SqlOnly_AndAudited()
     {
-        var result = await CreateTool().ExecuteAsync(
-            datasource_id: ApiDataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(), x => x.ExecuteAsync(
+            datasource_id: ApiDataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeTrue();
         GetText(result).Should().Be("dry_run validates SQL only — API data sources are not supported.");
@@ -428,8 +428,8 @@ public class DryRunToolTests
             .Setup(x => x.GetSchemaCatalogAsync(DataSourceId, ProjectId, It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("catalog offline"));
 
-        var result = await CreateTool().ExecuteAsync(
-            datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(), x => x.ExecuteAsync(
+            datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeTrue();
         _auditLogs.Should().ContainSingle("§1.7 — the catch path must record an audit row");
@@ -444,8 +444,8 @@ public class DryRunToolTests
     {
         SetupGuardrailValidation(isValid: true, error: null, piiColumns: ["email"]);
 
-        var result = await CreateTool().ExecuteAsync(
-            datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(), x => x.ExecuteAsync(
+            datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None));
 
         GetText(result).Should().Contain("**PII columns that would be masked:** email");
 
@@ -468,8 +468,8 @@ public class DryRunToolTests
             [ProjectId + 1] = new() { MaxRowLimit = 5 }
         });
 
-        var result = await CreateTool(sharedSources: sharedSources).ExecuteAsync(
-            datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(sharedSources: sharedSources), x => x.ExecuteAsync(
+            datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None));
 
         result.StructuredContent!.Value.GetProperty("executable_sql").GetString().Should().Be($"{ValidSql} LIMIT 5");
     }
@@ -483,8 +483,8 @@ public class DryRunToolTests
         using var running = limiter.TryAcquire("user:1", 1);
         var settingsProvider = SettingsProviderMock.Create(new McpSettingsData { MaxConcurrentQueriesPerKey = 1 });
 
-        var result = await CreateTool(settingsProvider, limiter: limiter).ExecuteAsync(
-            datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(settingsProvider, limiter: limiter), x => x.ExecuteAsync(
+            datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeTrue();
         GetText(result).Should().Be(McpQueryConcurrencyLimiter.RefusalMessage);
@@ -499,7 +499,7 @@ public class DryRunToolTests
         var limiter = new McpQueryConcurrencyLimiter();
         var settingsProvider = SettingsProviderMock.Create(new McpSettingsData { MaxConcurrentQueriesPerKey = 1 });
 
-        await CreateTool(settingsProvider, limiter: limiter).ExecuteAsync(datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None);
+        await TestToolCalls.InvokeAsync(CreateTool(settingsProvider, limiter: limiter), x => x.ExecuteAsync(datasource_id: DataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None));
 
         limiter.InFlight("user:1").Should().Be(0);
     }
@@ -529,7 +529,7 @@ public class DryRunToolTests
 
         _gate = new RecordingSqlGate(TestSqlGate.Create(_guardrail.Object));
 
-        return new DryRunTool(
+        return TestToolCalls.Track(recorder => new DryRunTool(
             factory.Object,
             _gate,
             TestConfiguredDatabases.None,
@@ -538,10 +538,8 @@ public class DryRunToolTests
             _queryExecution.Object,
             sharedSources ?? SettingsProviderMock.Unshared(settingsProvider.Object),
             projectContext,
-            auditService,
-            signalService,
-            limiter ?? new McpQueryConcurrencyLimiter(),
-            NullLogger<DryRunTool>.Instance);
+            recorder,
+            limiter ?? new McpQueryConcurrencyLimiter()), () => TestToolCalls.Recorder(auditService, signalService));
     }
 
     private static string GetText(CallToolResult result)

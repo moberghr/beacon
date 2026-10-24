@@ -24,8 +24,8 @@ namespace Beacon.Tests.Unit.RowSecurity;
 /// attributes only, a user holds a value once, a table has one class per source and a policy one version per number. Enums
 /// are stored as integers; table names and values compare ordinally (SQL Server through a binary collation). A data source
 /// cannot be deleted under its policies or classes, a user's or an attribute's values go with it, a policy's versions go
-/// with the policy, and the active version adds no second cascade path. Its target model is the snapshot, the model has no
-/// pending changes, and it sorts right after the unused-feature removal.
+/// with the policy, and the active version adds no second cascade path. Its target model differs from the next migration's
+/// only by that migration, the model has no pending changes, and it sorts right after the unused-feature removal.
 /// </summary>
 [TestFixture]
 public class RowSecurityModelMigrationTests
@@ -73,10 +73,13 @@ public class RowSecurityModelMigrationTests
             .Should().BeEquivalentTo(Signatures(differ.GetDifferences(before, target)), "Up is exactly the difference from the model before");
         Signatures(migration.DownOperations)
             .Should().BeEquivalentTo(Signatures(differ.GetDifferences(target, before)), "Down removes exactly what Up adds");
-        differ.GetDifferences(target, Initialized(migrations.ModelSnapshot!.Model, initializer).GetRelationalModel())
-            .Should().BeEmpty("the migration's target model is the snapshot");
+        // The next migration's own content is pinned by ConnectionChangeApprovalMigrationTests.
+        var next = MigrationNamed(context, migrations, "_AddConnectionChangeApproval");
+        Signatures(differ.GetDifferences(target, Initialized(next.TargetModel!, initializer).GetRelationalModel()))
+            .Should().BeEquivalentTo(
+                Signatures(next.UpOperations),
+                "this migration's target model differs from the next one's only by the next migration");
         context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
-        // The data-only golden-case backfill that follows it is pinned by GoldenCaseEmbeddingProjectBackfillTests.
         migrations.Migrations.Keys
             .Order(StringComparer.Ordinal)
             .SkipWhile(x => !x.EndsWith("_RemoveUnusedFeatures", StringComparison.Ordinal))

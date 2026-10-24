@@ -6,6 +6,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Authorization;
 using Beacon.Core.Models;
 using Beacon.Core.SecurityAudit;
+using Beacon.Core.Services.Metadata;
 
 namespace Beacon.Core.Handlers.McpLearning;
 
@@ -20,7 +21,10 @@ namespace Beacon.Core.Handlers.McpLearning;
 /// racing another write changes nothing. The conditional statement compares under the database's collation; the exact
 /// comparison is made on the content read just before it.
 /// </summary>
-internal sealed class ApplyDocumentationPatchHandler(IDbContextFactory<BeaconContext> contextFactory, ISecurityAuditRecorder securityAudit)
+internal sealed class ApplyDocumentationPatchHandler(
+    IDbContextFactory<BeaconContext> contextFactory,
+    ISecurityAuditRecorder securityAudit,
+    ICatalogSnapshotCache? catalogSnapshots = null)
     : IRequestHandler<ApplyDocumentationPatchCommand>
 {
     internal const string TargetChangedMessage =
@@ -92,6 +96,9 @@ internal sealed class ApplyDocumentationPatchHandler(IDbContextFactory<BeaconCon
         {
             throw new BeaconConflictException(TargetChangedMessage);
         }
+
+        // The description is part of the stored catalog the ask path reads.
+        catalogSnapshots?.Invalidate(patch.DataSourceId);
     }
 
     private async Task ApplyToSectionAsync(BeaconContext context, McpDocumentationPatch patch, ApplyDocumentationPatchCommand request, CancellationToken ct)

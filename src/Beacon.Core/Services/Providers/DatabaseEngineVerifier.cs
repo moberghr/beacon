@@ -34,10 +34,29 @@ internal interface IDatabaseEngineVerifier
         DatabaseEngineType declared,
         string connectionString,
         CancellationToken cancellationToken);
+
+    /// <summary>
+    /// <see cref="EnsureDeclaredEngineAsync(int?, DatabaseEngineType, string, CancellationToken)"/>; with
+    /// <paramref name="refuseUnreachable"/> a server it cannot connect to or identify the engine of is refused too, with
+    /// an <see cref="InvalidOperationException"/> that keeps the cause (for a check that is the only one, as at an approval).
+    /// </summary>
+    Task EnsureDeclaredEngineAsync(
+        int? dataSourceId,
+        DatabaseEngineType declared,
+        string connectionString,
+        bool refuseUnreachable,
+        CancellationToken cancellationToken)
+    {
+        return EnsureDeclaredEngineAsync(dataSourceId, declared, connectionString, cancellationToken);
+    }
 }
 
 internal sealed class DatabaseEngineVerifier(ILogger<DatabaseEngineVerifier> logger) : IDatabaseEngineVerifier
 {
+    /// <summary>Why a check that must reach the server refuses when it cannot (never a host or a driver's message).</summary>
+    internal const string UnreachableMessage =
+        "Beacon could not connect to the data source's server to check its declared engine: try again once the server can be reached.";
+
     // How long connecting and identifying may take before the check gives up (and passes, with a Warning).
     internal static readonly TimeSpan Timeout = TimeSpan.FromSeconds(15);
 
@@ -81,10 +100,20 @@ internal sealed class DatabaseEngineVerifier(ILogger<DatabaseEngineVerifier> log
         return identification;
     }
 
+    public Task EnsureDeclaredEngineAsync(
+        int? dataSourceId,
+        DatabaseEngineType declared,
+        string connectionString,
+        CancellationToken cancellationToken)
+    {
+        return EnsureDeclaredEngineAsync(dataSourceId, declared, connectionString, refuseUnreachable: false, cancellationToken);
+    }
+
     public async Task EnsureDeclaredEngineAsync(
         int? dataSourceId,
         DatabaseEngineType declared,
         string connectionString,
+        bool refuseUnreachable,
         CancellationToken cancellationToken)
     {
         if (DatabaseEngineIdentity.IdentificationSql(declared) == null)
@@ -109,7 +138,17 @@ internal sealed class DatabaseEngineVerifier(ILogger<DatabaseEngineVerifier> log
                 ex.GetType().Name,
                 declared);
 
+            if (refuseUnreachable)
+            {
+                throw new InvalidOperationException(UnreachableMessage, ex);
+            }
+
             return;
+        }
+
+        if (refuseUnreachable && identification.Verdict == DatabaseEngineIdentityVerdict.Unverified)
+        {
+            throw new InvalidOperationException(UnreachableMessage);
         }
 
         if (identification.Verdict == DatabaseEngineIdentityVerdict.Mismatch)

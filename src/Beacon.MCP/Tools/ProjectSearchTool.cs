@@ -1,6 +1,4 @@
 using System.ComponentModel;
-using System.Diagnostics;
-using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Beacon.AI.Services.Knowledge;
@@ -12,8 +10,7 @@ namespace Beacon.MCP.Tools;
 internal sealed class ProjectSearchTool(
     IKnowledgeGraphService knowledgeGraph,
     IProjectContext projectContext,
-    McpAuditService auditService,
-    ILogger<ProjectSearchTool> logger)
+    McpToolCallRecorder recorder)
 {
     [McpServerTool(Name = "search", Title = "Search Catalog", ReadOnly = true, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Search tables, columns, and documentation across all data sources in the project by keyword and, when embeddings are enabled, semantic similarity. Host-imported documents appear as IMPORTED_DOC with their path (fetch one with get_documentation document=<path>). Returns matching items with descriptions, ordered by relevance. Page through large result sets with max_results and offset.")]
@@ -28,121 +25,101 @@ internal sealed class ProjectSearchTool(
         int? offset = null,
         CancellationToken cancellationToken = default)
     {
-        var sw = Stopwatch.StartNew();
+        // Written by McpAuditCallToolFilter after the tool returns or throws (§1.7).
+        recorder.Start("search", projectContext.UserId, query);
         var maxResults = Math.Min(max_results ?? 20, 50);
         var offsetValue = Math.Max(offset ?? 0, 0);
 
         if (offsetValue > 200)
         {
             const string offsetError = "offset must be between 0 and 200.";
-            sw.Stop();
-            await auditService.LogToolCallAsync(projectContext.UserId, "search",
-                query, null, null, (int)sw.ElapsedMilliseconds, null, offsetError, ct: cancellationToken);
+            recorder.Fail(offsetError);
             return ToolHelper.Error(offsetError);
         }
 
         if (string.IsNullOrWhiteSpace(query))
         {
             const string queryError = "Missing required parameter: query";
-            sw.Stop();
-            await auditService.LogToolCallAsync(projectContext.UserId, "search",
-                query, null, null, (int)sw.ElapsedMilliseconds, null, queryError, ct: cancellationToken);
+            recorder.Fail(queryError);
             return ToolHelper.Error(queryError);
         }
 
         var resolveError = ToolHelper.ResolveProjectId(projectContext, "search", project_id, out var projectId);
         if (resolveError != null)
         {
-            sw.Stop();
-            await auditService.LogToolCallAsync(projectContext.UserId, "search",
-                query, null, null, (int)sw.ElapsedMilliseconds, null, resolveError, ct: cancellationToken);
+            recorder.Fail(resolveError);
             return ToolHelper.Error(resolveError);
         }
 
+        recorder.WithProject(projectId);
+
         // No McpSignalService call here (audit-only) — see GetContextTool for the full rationale.
-        try
+
+        // Over-fetch by one past the requested window so "more available" is detected
+        // without a second round-trip; the window is cut in memory below.
+        var results = await knowledgeGraph.SearchProjectAsync(query, projectId, offsetValue + maxResults + 1, cancellationToken);
+
+        if (results.Count == 0)
         {
-            // Over-fetch by one past the requested window so "more available" is detected
-            // without a second round-trip; the window is cut in memory below.
-            var results = await knowledgeGraph.SearchProjectAsync(query, projectId, offsetValue + maxResults + 1, cancellationToken);
+            recorder.Succeed(0);
+            return ToolHelper.Success($"No results found for '{query}'.");
+        }
 
-            if (results.Count == 0)
+        var window = results
+            .Skip(offsetValue)
+            .Take(maxResults)
+            .ToList();
+
+        if (window.Count == 0)
+        {
+            // Offset points past the end — the fetch came back short of the over-fetch
+            // budget, so results.Count is the true total.
+            recorder.Succeed(0);
+            return ToolHelper.Success($"No results at offset {offsetValue} for '{query}' — only {results.Count} results exist.");
+        }
+
+        var text = $"# Search Results for '{query}'\n\n";
+        text += offsetValue > 0
+            ? $"**Showing {window.Count} results (offset {offsetValue})**\n\n"
+            : $"**{window.Count} results found**\n\n";
+
+        foreach (var r in window)
+        {
+            if (r.Type == "imported_doc")
             {
-                sw.Stop();
-                await auditService.LogToolCallAsync(projectContext.UserId, "search",
-                    query, null, projectId, (int)sw.ElapsedMilliseconds, 0, null, ct: cancellationToken);
-                return ToolHelper.Success($"No results found for '{query}'.");
-            }
-
-            var window = results
-                .Skip(offsetValue)
-                .Take(maxResults)
-                .ToList();
-
-            if (window.Count == 0)
-            {
-                // Offset points past the end — the fetch came back short of the over-fetch
-                // budget, so results.Count is the true total.
-                sw.Stop();
-                await auditService.LogToolCallAsync(projectContext.UserId, "search",
-                    query, null, projectId, (int)sw.ElapsedMilliseconds, 0, null, ct: cancellationToken);
-                return ToolHelper.Success($"No results at offset {offsetValue} for '{query}' — only {results.Count} results exist.");
-            }
-
-            var text = $"# Search Results for '{query}'\n\n";
-            text += offsetValue > 0
-                ? $"**Showing {window.Count} results (offset {offsetValue})**\n\n"
-                : $"**{window.Count} results found**\n\n";
-
-            foreach (var r in window)
-            {
-                if (r.Type == "imported_doc")
+                // Host-imported document: identified by its path; fetch it with get_documentation(document: path).
+                text += $"- **[IMPORTED_DOC]** `{r.DocumentPath}` ({r.DocumentTitle})";
+                if (!string.IsNullOrEmpty(r.Description))
                 {
-                    // Host-imported document: identified by its path; fetch it with get_documentation(document: path).
-                    text += $"- **[IMPORTED_DOC]** `{r.DocumentPath}` ({r.DocumentTitle})";
-                    if (!string.IsNullOrEmpty(r.Description))
-                    {
-                        text += $" -- {r.Description}";
-                    }
-
-                    text += "\n";
-                    continue;
+                    text += $" -- {r.Description}";
                 }
 
-                var icon = r.Type switch
-                {
-                    "table" => "TABLE",
-                    "column" => "COLUMN",
-                    "documentation" => "DOC",
-                    _ => r.Type.ToUpper()
-                };
-
-                text += $"- **[{icon}]** `{r.DataSourceName}`.`{r.SchemaName}.{r.TableName}`";
-                if (r.Type == "column" && !string.IsNullOrEmpty(r.ColumnName))
-                    text += $".`{r.ColumnName}`";
-                if (!string.IsNullOrEmpty(r.Description))
-                    text += $" -- {r.Description}";
                 text += "\n";
+                continue;
             }
 
-            if (results.Count > offsetValue + maxResults)
+            var icon = r.Type switch
             {
-                text += $"\n_More results available — repeat with offset={offsetValue + maxResults}._\n";
-            }
+                "table" => "TABLE",
+                "column" => "COLUMN",
+                "documentation" => "DOC",
+                _ => r.Type.ToUpper()
+            };
 
-            sw.Stop();
-            await auditService.LogToolCallAsync(projectContext.UserId, "search",
-                query, null, projectId, (int)sw.ElapsedMilliseconds, window.Count, null, ct: cancellationToken);
-            return ToolHelper.Success(text);
+            text += $"- **[{icon}]** `{r.DataSourceName}`.`{r.SchemaName}.{r.TableName}`";
+            if (r.Type == "column" && !string.IsNullOrEmpty(r.ColumnName))
+                text += $".`{r.ColumnName}`";
+            if (!string.IsNullOrEmpty(r.Description))
+                text += $" -- {r.Description}";
+            text += "\n";
         }
-        catch (Exception ex)
+
+        if (results.Count > offsetValue + maxResults)
         {
-            sw.Stop();
-            await auditService.LogToolCallAsync(projectContext.UserId, "search",
-                query, null, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, ct: CancellationToken.None);
-            // §1.11 — ex.Message can quote user input; type only here, full detail is in the audit log.
-            logger.LogError("MCP tool {Tool} failed with {ExceptionType} (detail in MCP audit log)", "search", ex.GetType().Name);
-            return ToolHelper.Error(ToolHelper.CallerSafeMessage(ex, "search"));
+            text += $"\n_More results available — repeat with offset={offsetValue + maxResults}._\n";
         }
+
+        recorder.Succeed(window.Count);
+        return ToolHelper.Success(text);
     }
 }

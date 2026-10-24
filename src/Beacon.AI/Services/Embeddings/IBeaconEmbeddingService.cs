@@ -23,6 +23,13 @@ public interface IBeaconEmbeddingService
     /// </summary>
     bool IsAvailable { get; }
 
+    /// <summary>
+    /// Identifies the model behind the vectors (for the ONNX service a hash of the model and tokenizer files).
+    /// It goes into the content hash the indexer compares, so swapping the model re-embeds what was stored by
+    /// the old one. Empty (the default) means the vectors never change under the same name.
+    /// </summary>
+    string ModelFingerprint => string.Empty;
+
     /// <summary>Embeds a single text into an L2-normalized <see cref="Dimensions"/>-length vector.</summary>
     Task<float[]> EmbedAsync(string text, CancellationToken ct);
 

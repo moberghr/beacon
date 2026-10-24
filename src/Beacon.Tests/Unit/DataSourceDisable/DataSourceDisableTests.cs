@@ -82,7 +82,7 @@ public class DataSourceDisableTests
         var resolver = new DataSourceConnectionResolver(
             Mock.Of<IEncryptionService>(MockBehavior.Strict),
             new Microsoft.Extensions.Configuration.ConfigurationBuilder().Build(),
-            Mock.Of<IDataSourceTransportPolicy>(MockBehavior.Strict));
+            Mock.Of<IDataSourceTransportPolicy>(MockBehavior.Strict), new BeaconConfiguration(), TestTransport.Hasher());
         var source = Source(disabled: true, allowMigrationWrites: path == "write");
 
         Func<string> connect = path switch
@@ -781,6 +781,8 @@ public class DataSourceDisableTests
                 audit,
                 transport ?? TestTransport.Policy(),
                 TestEngineVerifier.Passing,
+                TestChangeApprovals.Submitter(),
+                TestTransport.Hasher(),
                 logger ?? NullLogger<DataSourceService>.Instance,
                 scheduler: scheduler);
         }
