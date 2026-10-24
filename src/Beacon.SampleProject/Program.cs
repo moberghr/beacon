@@ -23,6 +23,7 @@ using Beacon.Connector.AzureSynapse;
 using Beacon.Connector.Snowflake;
 using Beacon.Connector.Databricks;
 using Beacon.Connector.Api;
+using Beacon.Connector.Api.Services;
 using Beacon.Connector.BigQuery;
 using Beacon.MCP;
 using Beacon.MCP.Discovery;
@@ -77,8 +78,10 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOIN
         .ConfigureResource(x => x.AddService(serviceName: builder.Configuration["OTEL_SERVICE_NAME"] ?? "beacon"))
         .WithTracing(x => x
             .AddAspNetCoreInstrumentation(y => y.Filter = z => !z.Request.Path.StartsWithSegments("/beacon/api/health"))
-            // Notification calls are left out: their URLs carry the recipients' secrets (e.g. a Slack webhook path).
-            .AddHttpClientInstrumentation(y => y.FilterHttpRequestMessage = z => !NotificationRequests.IsNotificationRequest(z))
+            // Notification calls are left out: their URLs carry the recipients' secrets (e.g. a Slack webhook path). So are
+            // the API connector's: their paths and queries can carry identifiers or a credential.
+            .AddHttpClientInstrumentation(y => y.FilterHttpRequestMessage = z =>
+                !NotificationRequests.IsNotificationRequest(z) && !ApiConnectorRequests.IsApiConnectorRequest(z))
             .AddBeaconInstrumentation()
             .AddOtlpExporter())
         .WithMetrics(x => x

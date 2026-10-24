@@ -77,6 +77,31 @@ database qualifier is accepted. See [Database names in SQL](/security/authorizat
 If **Test connection** fails, check that the host can reach the server (firewall, VPN, private endpoint), that the
 credentials and database name are right, and that the login can read.
 
+### API (OpenAPI) requests
+
+An API data source's credentials go only to the API it names:
+
+- **API key location.** Send the API key in a header. A new or changed configuration with the key in the query string
+  (`ApiKeyLocation: Query`) is refused: a URL is written to server and proxy logs, and an API that echoes its URL hands
+  the key back. A stored one keeps working, with one Warning per data source per process; change it to a header.
+- **Masked answers.** The data source's bearer token, API key, Basic password and Basic header value are replaced with
+  `***` in what the API answers, before it becomes rows, also URL- or JSON-escaped.
+- **No redirects.** Beacon does not follow redirects: a `3xx` answer fails the query or the test and says so. Point the
+  **Base URL** and the **OpenAPI spec URL** at their final addresses.
+- **Paths stay under the base URL.** A query's path (after its path parameters are filled in) may not contain `.` or
+  `..` segments, also percent-encoded or behind a backslash, nor a `#` or a control character, and the request URL keeps
+  the base URL's scheme, host, port and path.
+- **Headers.** A query may add its own headers, but not `Host`, `Forwarded`, `X-Forwarded-*`, `Via`, `X-Real-IP`,
+  `X-Original-URL`, `X-Rewrite-URL`, the method overrides (`X-HTTP-Method`, `X-HTTP-Method-Override`,
+  `X-Method-Override`), `Content-Length`, `Transfer-Encoding`, `Connection`, `Upgrade`, `Expect`, `Authorization`,
+  `Cookie`, `Proxy-*`, nor the API key's own header. A header name must be an HTTP token and a value carries no control
+  character other than a tab.
+- **Test connection** fetches the OpenAPI spec URL with the credentials only when it has the base URL's scheme, host and
+  port; a description served elsewhere is fetched without them.
+- **Logs and traces.** The connector's HTTP client writes no request log, and neither the spec URL nor a query's path is
+  logged. Its requests are marked: leave them out of HTTP tracing with `ApiConnectorRequests.IsApiConnectorRequest`
+  (`Beacon.Connector.Api.Services`), as the sample host does.
+
 ### Transport security (TLS)
 
 Every data-source connection must encrypt its traffic and authenticate the server: the server's certificate must chain
