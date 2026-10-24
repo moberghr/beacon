@@ -59,7 +59,7 @@ These answer without a session. Everything else requires one, an API key or a be
 | `GET /beacon/api/auth/me` | The current session, if any | |
 | `GET /beacon/api/auth/sso` | Whether SSO is offered, for the login page | |
 | `GET /beacon/api/csrf` | Antiforgery token for the UI | `400` for callers authenticated by an `Authorization` header. |
-| `POST /beacon/api/auth/login` | Password sign-in | Mapped only while password sign-in is on or a break-glass account is configured. 10 attempts per minute per client IP, then `429` with `Retry-After`. |
+| `POST /beacon/api/auth/login` | Password sign-in | Mapped only while password sign-in is on or a break-glass account is configured. Needs the antiforgery token (`X-XSRF-TOKEN`), `400` without it. 10 attempts per minute per client IP, then `429` with `Retry-After`. |
 | `POST /beacon/api/auth/logout` | Sign out; `?everywhere=true` signs out every session of the user | |
 | `GET /beacon/api/auth/sso/challenge` | Start the OIDC sign-in | |
 | `GET /beacon/api/setup/status` | Whether first-run setup is open | Mapped when user management is on. |

@@ -57,7 +57,7 @@ builder.Services.AddHttpClient().ConfigureHttpClientDefaults(x => x.ConfigureHtt
 // Your job runner (here: Warp). See "Background jobs".
 builder.Services.AddBeaconWarp(builder.Configuration);
 
-// Claims transformation + SignalR user id provider.
+// Claims transformation (the SignalR user id provider comes with AddBeaconApiServices).
 builder.Services.AddBeaconHostInfrastructure<BeaconClaimsTransformation>();
 
 // 1. Beacon core, connectors, metadata database (UsePostgreSql ends the chain).
@@ -178,7 +178,7 @@ Only two parts of user management are also read from configuration: `Beacon:User
 
 | Call | What it does |
 |---|---|
-| `AddBeaconHostInfrastructure<TClaimsTransformation>()` | Registers your claims transformation and the SignalR user-id provider. |
+| `AddBeaconHostInfrastructure<TClaimsTransformation>()` | Registers your claims transformation. |
 | `AddBeaconCookieAuthentication(basePath)` | The `Beacon.Auth` cookie (HttpOnly, SameSite=Lax, Secure on HTTPS), server-side session revalidation, JSON 401/403 for API and MCP calls instead of redirects. **Pass `"/beacon"`**, so the login path is `/beacon/login`. |
 | `AddBeaconDataProtection(configuration, environment)` | Stores the Data Protection key ring in Beacon's database. Skip it if your host already configures Data Protection. |
 | `AddBeaconOidcAuthentication(configuration)` | OIDC sign-in from `Beacon:Authentication:Oidc` (does nothing unless `Enabled`). |
@@ -191,7 +191,7 @@ All options are on [Sign-in & identity](/integrate/authentication/).
 | Call | What it does |
 |---|---|
 | `AddBeaconApiAuthorization()` | Registers the `BeaconApi`, `BeaconApiAdmin` and Execute-scope policies plus one policy per functional permission. Required by `MapBeaconApi` and `MapBeaconMcp`. |
-| `AddBeaconApiServices()` | SignalR, the login and request rate limiters (`Beacon:RateLimits`), notifiers, and the request principal Beacon's core reads the caller from (`IBeaconRequestPrincipal`; `AddBeaconCookieAuthentication` and `AddBeaconMcp` register it too, and startup fails when Beacon's endpoints are mapped without it). Options: `Realtime` (default `true`), `ConfigureSignalR` (e.g. a Redis backplane), `ExternalLogin` (when your app owns sign-in). |
+| `AddBeaconApiServices()` | SignalR with Beacon's hub user-id provider, the login and request rate limiters (`Beacon:RateLimits`), notifiers, and the request principal Beacon's core reads the caller from (`IBeaconRequestPrincipal`; `AddBeaconCookieAuthentication` and `AddBeaconMcp` register it too, and startup fails when Beacon's endpoints are mapped without it). Options: `Realtime` (default `true`), `ConfigureSignalR` (e.g. a Redis backplane), `ExternalLogin` (when your app owns sign-in). |
 | `AddAntiforgery(...)` | The UI sends the antiforgery token in `X-XSRF-TOKEN`; it gets it from `GET /beacon/api/csrf`. API-key and bearer callers are exempt. |
 
 :::caution[Upgrading to 5.0: the request principal]
@@ -210,6 +210,8 @@ builder.Services.AddBeaconApiServices(x =>
 builder.Services.AddBeaconApiServices(x =>
     x.ExternalLogin = new ExternalLoginOptions { LoginUrl = "/account/login", ReturnUrlParameter = "returnUrl" });
 ```
+
+The hub addresses a signed-in session by its `NameIdentifier`, the user's `Users.ExternalId` (the `UserId` of `IBeaconActorAccessor`'s actor). Publish your own events with `IHubContext<BeaconHub>.Clients.User(actor.UserId)`. API keys and MCP callers get no hub user id. Register your own `IUserIdProvider` before `AddBeaconApiServices()` to replace Beacon's.
 
 ## The middleware pipeline
 

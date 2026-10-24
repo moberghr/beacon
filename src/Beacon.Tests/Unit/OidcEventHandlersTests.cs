@@ -823,6 +823,37 @@ public class OidcEventHandlersTests
         context.Response.Headers.Location.ToString().Should().Be("/beacon/login?ssoError=1");
     }
 
+    [Test]
+    public async Task HandleTokenValidatedAsync_TheSessionCookie_EndsWithTheBrowserSession_ByDefault()
+    {
+        var context = BuildContext(ProvisioningAs(Viewer("sub-alice")).Object, "sub-alice", "https://login.example.com/", "alice@example.com", "Alice", "alice", null);
+
+        await OidcEventHandlers.HandleTokenValidatedAsync(context);
+
+        context.Result.Should().BeNull();
+        context.Properties!.IsPersistent.Should().BeFalse();
+        context.Properties.AllowRefresh.Should().BeTrue();
+    }
+
+    [Test]
+    public async Task HandleTokenValidatedAsync_TheSessionCookie_IsPersistent_WhenConfigured()
+    {
+        var context = BuildContext(
+            ProvisioningAs(Viewer("sub-alice")).Object,
+            "sub-alice",
+            "https://login.example.com/",
+            "alice@example.com",
+            "Alice",
+            "alice",
+            null,
+            sessionLifetime: new SessionLifetimeOptions { PersistSsoCookie = true });
+
+        await OidcEventHandlers.HandleTokenValidatedAsync(context);
+
+        context.Result.Should().BeNull();
+        context.Properties!.IsPersistent.Should().BeTrue();
+    }
+
     private static RemoteFailureContext BuildRemoteFailureContext(Exception failure)
     {
         var services = new ServiceCollection();
@@ -881,7 +912,8 @@ public class OidcEventHandlersTests
         LogRecorder? logs = null,
         RoleMappingOptions? roleMapping = null,
         TimeProvider? timeProvider = null,
-        RecordingSecurityAudit? audit = null)
+        RecordingSecurityAudit? audit = null,
+        SessionLifetimeOptions? sessionLifetime = null)
     {
         var oidcOptions = new OidcAuthenticationOptions
         {
@@ -905,6 +937,11 @@ public class OidcEventHandlersTests
         if (timeProvider != null)
         {
             services.AddSingleton(timeProvider);
+        }
+
+        if (sessionLifetime != null)
+        {
+            services.AddSingleton(Options.Create(sessionLifetime));
         }
 
         if (logs == null)
