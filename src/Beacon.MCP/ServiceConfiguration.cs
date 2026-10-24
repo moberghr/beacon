@@ -83,6 +83,7 @@ public static class ServiceConfiguration
         // Audit & Learning
         services.TryAddTransient<McpAuditService>();
         services.TryAddScoped<McpAuditOutcome>();
+        services.TryAddScoped<McpToolCallRecorder>();
         services.TryAddTransient<McpSignalService>();
 
         // Approved saved queries as q_<name> tools (or search_saved_queries / run_saved_query past the limit), served
