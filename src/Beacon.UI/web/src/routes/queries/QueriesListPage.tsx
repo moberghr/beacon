@@ -1,60 +1,93 @@
+import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { AlertTriangle, Layers, Plus } from 'lucide-react';
+import { AlertTriangle, FolderInput, Layers, Plus } from 'lucide-react';
 import { Button, Input, PageHeader, Pill } from '@/components/beacon';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { useSearchFilter } from '@/lib/usePagedList';
 import { useQueriesList, type QueryListItem } from './queries';
+import { MoveQueryDialog } from '../query-folders/MoveQueryDialog';
 
-const COLUMNS: Column<QueryListItem>[] = [
-  {
-    key: 'name',
-    header: 'Name',
-    sortKey: 'name',
-    render: q => (
-      <div>
-        <div className="font-semibold text-text">{q.name}</div>
-        {q.description && (
-          <div className="text-xs text-text-muted mt-0.5">{q.description}</div>
-        )}
-      </div>
-    ),
-  },
-  {
-    key: 'source',
-    header: 'Source',
-    render: q => q.aiActorName ? (
-      <Pill tone="info" className="mono normal-case tracking-normal">{q.aiActorName}</Pill>
-    ) : (
-      <span className="text-text-muted">user-defined</span>
-    ),
-  },
-  {
-    key: 'steps',
-    header: 'Steps',
-    render: q => formatNumber(q.steps.length),
-  },
-  {
-    key: 'subs',
-    header: 'Subscriptions',
-    sortKey: 'subscriptionsCount',
-    align: 'right',
-    render: q => formatNumber(q.subscriptionsCount),
-  },
-  {
-    key: 'created',
-    header: 'Created',
-    sortKey: 'createdTime',
-    render: q => <span className="mono">{formatDateTime(q.createdTime)}</span>,
-  },
-];
+function buildColumns(onMove: (q: QueryListItem) => void): Column<QueryListItem>[] {
+  return [
+    {
+      key: 'name',
+      header: 'Name',
+      sortKey: 'name',
+      render: q => (
+        <div>
+          <div className="font-semibold text-text">{q.name}</div>
+          {q.description && <div className="text-xs text-text-muted mt-0.5">{q.description}</div>}
+        </div>
+      ),
+    },
+    {
+      key: 'source',
+      header: 'Source',
+      render: q =>
+        q.aiActorName ? (
+          <Pill tone="info" className="mono normal-case tracking-normal">
+            {q.aiActorName}
+          </Pill>
+        ) : (
+          <span className="text-text-muted">user-defined</span>
+        ),
+    },
+    {
+      key: 'steps',
+      header: 'Steps',
+      render: q => formatNumber(q.steps.length),
+    },
+    {
+      key: 'subs',
+      header: 'Subscriptions',
+      sortKey: 'subscriptionsCount',
+      align: 'right',
+      render: q => formatNumber(q.subscriptionsCount),
+    },
+    {
+      key: 'created',
+      header: 'Created',
+      sortKey: 'createdTime',
+      render: q => <span className="mono">{formatDateTime(q.createdTime)}</span>,
+    },
+    {
+      key: 'folder',
+      header: 'Folder',
+      render: q =>
+        q.folderPath ? (
+          <span className="mono text-xs">{q.folderPath}</span>
+        ) : (
+          <span className="text-text-muted">—</span>
+        ),
+    },
+    {
+      key: 'move',
+      header: '',
+      render: q => (
+        <Button
+          variant="ghost"
+          aria-label={`Move ${q.name} to a folder`}
+          title="Move to folder"
+          icon={<FolderInput />}
+          onClick={e => {
+            e.stopPropagation();
+            onMove(q);
+          }}
+        />
+      ),
+    },
+  ];
+}
 
 export default function QueriesListPage() {
   const navigate = useNavigate();
   const list = useQueriesList();
   const { data, items, isLoading, isError, error, refetch } = list;
   const [search, setSearch] = useSearchFilter(list.filters.searchTerm, value => list.setFilter('searchTerm', value));
+  const [moving, setMoving] = useState<QueryListItem | null>(null);
+  const columns = useMemo(() => buildColumns(setMoving), []);
 
   return (
     <div className="flex flex-col gap-5 p-7">
@@ -69,7 +102,9 @@ export default function QueriesListPage() {
         }
         actions={
           <Link to="/queries/new">
-            <Button variant="primary" icon={<Plus />}>New query</Button>
+            <Button variant="primary" icon={<Plus />}>
+              New query
+            </Button>
           </Link>
         }
       />
@@ -97,11 +132,11 @@ export default function QueriesListPage() {
         />
       ) : (
         <DataTable
-          columns={COLUMNS}
+          columns={columns}
           rows={items}
           rowKey={q => q.queryId}
           {...list.tableProps}
-          gridTemplate="2fr 1fr 0.6fr 0.8fr 1.2fr"
+          gridTemplate="2fr 1fr 0.6fr 0.8fr 1.2fr 1.2fr 60px"
           onRowClick={q => navigate(`/queries/${q.queryId}`)}
           ariaLabel="Saved queries"
           empty={
@@ -114,6 +149,7 @@ export default function QueriesListPage() {
         />
       )}
 
+      <MoveQueryDialog open={moving != null} query={moving} onClose={() => setMoving(null)} />
     </div>
   );
 }

@@ -24,6 +24,8 @@ const NewQueryPage = lazyWithRetry(routeChunks.NewQueryPage);
 const QueryVersionsPage = lazyWithRetry(routeChunks.QueryVersionsPage);
 const QueryVersionDetailPage = lazyWithRetry(routeChunks.QueryVersionDetailPage);
 const RecipientsListPage = lazyWithRetry(routeChunks.RecipientsListPage);
+const QueryFoldersPage = lazyWithRetry(routeChunks.QueryFoldersPage);
+const GlossaryPage = lazyWithRetry(routeChunks.GlossaryPage);
 const TasksListPage = lazyWithRetry(routeChunks.TasksListPage);
 const TaskDetailPage = lazyWithRetry(routeChunks.TaskDetailPage);
 const ApprovalsListPage = lazyWithRetry(routeChunks.ApprovalsListPage);
@@ -138,6 +140,8 @@ export default function App() {
                     <Route path="/queries/:id/edit" element={lazyRoute(QueryEditorPage)} />
                     <Route path="/queries/:id/versions" element={lazyRoute(QueryVersionsPage)} />
                     <Route path="/queries/:id/versions/:versionId" element={lazyRoute(QueryVersionDetailPage)} />
+                    <Route path="/query-folders" element={lazyRoute(QueryFoldersPage)} />
+                    <Route path="/glossary" element={lazyRoute(GlossaryPage)} />
                     <Route path="/recipients" element={lazyRoute(RecipientsListPage)} />
                     <Route path="/tasks" element={lazyRoute(TasksListPage)} />
                     <Route path="/tasks/:id" element={lazyRoute(TaskDetailPage)} />
