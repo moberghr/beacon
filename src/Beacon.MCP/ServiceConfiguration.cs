@@ -2,15 +2,18 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 using ModelContextProtocol;
 using ModelContextProtocol.AspNetCore;
-using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
+using Beacon.AI.Models.Configuration;
 using Beacon.AI.Services.Mcp;
+using Beacon.Core;
 using Beacon.Core.Authorization;
+using Beacon.Core.Configuration;
 using Beacon.Core.Services;
-using Beacon.Core.SavedQueries;
 using Beacon.MCP.Discovery;
+using Beacon.MCP.DynamicTools;
 using Beacon.MCP.SavedQueries;
 using Beacon.MCP.Services;
 using Beacon.MCP.Tools;
@@ -20,12 +23,43 @@ namespace Beacon.MCP;
 public static class ServiceConfiguration
 {
     /// <summary>
+    /// Adds Beacon's MCP server (the official ModelContextProtocol SDK), serving the built-in tools and the saved-query
+    /// tools <paramref name="configure"/> chooses (<see cref="BeaconMcpOptions"/>; all of them when it is null). Call it
+    /// after <c>.AddAI()</c>: the tools depend on Beacon's AI services, and without them it throws.
+    /// </summary>
+    public static BeaconBuilder AddMcp(this BeaconBuilder builder, Action<BeaconMcpOptions>? configure = null)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        if (!builder.AiAdded || !builder.Services.Any(x => x.ServiceType == typeof(LlmConfiguration)))
+        {
+            throw new InvalidOperationException("AddMcp() needs Beacon's AI services: call .AddAI() before it.");
+        }
+
+        if (builder.Services.Any(x => x.ServiceType == typeof(BeaconMcpOptions)))
+        {
+            throw new InvalidOperationException("Beacon's MCP server is already registered: call .AddMcp() once, and not beside AddBeaconMcp.");
+        }
+
+        builder.Services.AddBeaconMcpServices(configure ?? (_ => { }));
+        BeaconBuilder.MarkChain(builder.Services);
+
+        return builder;
+    }
+
+    /// <summary>
     /// Adds Beacon MCP server services using the official ModelContextProtocol SDK, with all eight built-in tools and the
     /// saved-query tools. Prerequisites: Beacon.Core and Beacon.AI services must be registered first.
     /// </summary>
+    /// <remarks>
+    /// The fluent chain is the preferred way to wire Beacon: <see cref="AddMcp"/> on the builder <c>services.AddBeacon(...)</c>
+    /// returns, after <c>.AddAI()</c>. This method stays supported and becomes obsolete in a later release.
+    /// </remarks>
     public static IServiceCollection AddBeaconMcp(this IServiceCollection services)
     {
-        return services.AddBeaconMcp(_ => { });
+        RefuseBesideChain(services);
+
+        return services.AddBeaconMcpServices(_ => { });
     }
 
     /// <summary>
@@ -33,7 +67,18 @@ public static class ServiceConfiguration
     /// saved-query tools <paramref name="configure"/> chooses (<see cref="BeaconMcpOptions"/>). Prerequisites:
     /// Beacon.Core and Beacon.AI services must be registered first.
     /// </summary>
+    /// <remarks>
+    /// The fluent chain is the preferred way to wire Beacon: <see cref="AddMcp"/> on the builder <c>services.AddBeacon(...)</c>
+    /// returns, after <c>.AddAI()</c>. This method stays supported and becomes obsolete in a later release.
+    /// </remarks>
     public static IServiceCollection AddBeaconMcp(this IServiceCollection services, Action<BeaconMcpOptions> configure)
+    {
+        RefuseBesideChain(services);
+
+        return services.AddBeaconMcpServices(configure);
+    }
+
+    internal static IServiceCollection AddBeaconMcpServices(this IServiceCollection services, Action<BeaconMcpOptions> configure)
     {
         var mcpOptions = new BeaconMcpOptions();
         configure(mcpOptions);
@@ -65,6 +110,12 @@ public static class ServiceConfiguration
 
         // MaxConcurrentQueriesPerKey: one in-process count per instance, shared by every request.
         services.TryAddSingleton<McpQueryConcurrencyLimiter>();
+        // Value-grounding probes that run beside an MCP call take further slots of the caller's count (Beacon.AI's default
+        // gives none). Beacon.AI registers first, so its default is replaced.
+        services.Replace(ServiceDescriptor.Scoped<Beacon.AI.Services.Knowledge.IProbeConcurrencyLeases, McpProbeConcurrencyLeases>());
+
+        // Requests per caller on the MCP route and questions per caller on the ask tool (Beacon:RateLimits).
+        services.TryAddSingleton<McpRateLimiter>();
 
         // Ask SQL pipeline executor seam: adapts IQueryExecutionService onto IAskSqlPipeline's execution
         // interface (§ Architecture ①) so ProjectAskTool never touches the pipeline's execution details.
@@ -76,14 +127,15 @@ public static class ServiceConfiguration
         // Audit & Learning
         services.TryAddTransient<McpAuditService>();
         services.TryAddScoped<McpAuditOutcome>();
+        services.TryAddScoped<McpToolCallRecorder>();
         services.TryAddTransient<McpSignalService>();
 
         // Approved saved queries as q_<name> tools (or search_saved_queries / run_saved_query past the limit), served
-        // through the SDK's list/call handlers next to the attribute tools; AddHostEndpointTools chains after these.
+        // through the SDK's list/call handlers next to the attribute tools, listed before the host endpoint tools.
         if (mcpOptions.SavedQueryTools)
         {
             services.TryAddTransient<SavedQueryToolService>();
-            services.Configure<McpServerOptions>(InstallSavedQueryToolHandlers);
+            services.AddMcpDynamicToolSource<SavedQueryDynamicToolSource>();
         }
 
         // MCP Server via official SDK
@@ -117,6 +169,18 @@ public static class ServiceConfiguration
                 options.SessionMode = HttpServerSessionMode.StatefulForInitializeClients;
                 options.IdleTimeout = TimeSpan.FromMinutes(30);
             });
+
+        // The idle-session cap comes from Beacon:RequestLimits; registered after the transport options above, and before any
+        // host Configure<HttpServerTransportOptions>, so a host's own value wins.
+        services.AddOptions<HttpServerTransportOptions>()
+            .Configure<IOptions<RequestLimitsOptions>>((transport, limits) =>
+            {
+                if (limits.Value.McpMaxIdleSessions > 0)
+                {
+                    transport.MaxIdleSessionCount = limits.Value.McpMaxIdleSessions;
+                }
+            });
+        services.TryAddSingleton<McpInitializeLimiter>();
 
         // Clients are told at initialize the name the discovery documents publish: the host's ResourceName when set.
         services.AddOptions<McpServerOptions>()
@@ -173,59 +237,12 @@ public static class ServiceConfiguration
             ["get_query_context"] = x => x.WithTools<GetQueryContextTool>()
         };
 
-    /// <summary>
-    /// Adds the saved-query tools through the SDK's list/call handlers, chaining any handler already installed. The
-    /// tools need Core's <see cref="ISavedQueryToolSource"/>; a host without it simply gets none.
-    /// </summary>
-    private static void InstallSavedQueryToolHandlers(McpServerOptions options)
+    private static void RefuseBesideChain(IServiceCollection services)
     {
-        var previousList = options.Handlers.ListToolsHandler;
-        var previousCall = options.Handlers.CallToolHandler;
-
-        options.Handlers.ListToolsHandler = async (request, cancellationToken) =>
+        if (BeaconBuilder.UsesChain(services))
         {
-            var result = previousList != null
-                ? await previousList(request, cancellationToken)
-                : new ListToolsResult();
-
-            var service = ResolveSavedQueryToolService(request.Services);
-            if (service == null)
-            {
-                return result;
-            }
-
-            var tools = await service.ListToolsAsync(cancellationToken);
-            if (tools.Count > 0)
-            {
-                result.Tools = [.. result.Tools ?? [], .. tools];
-            }
-
-            return result;
-        };
-
-        options.Handlers.CallToolHandler = async (request, cancellationToken) =>
-        {
-            var name = request.Params?.Name;
-            if (SavedQueryToolService.Handles(name))
-            {
-                var service = ResolveSavedQueryToolService(request.Services);
-                if (service != null)
-                {
-                    return await service.CallAsync(name!, request.Params?.Arguments, cancellationToken);
-                }
-            }
-
-            if (previousCall != null)
-            {
-                return await previousCall(request, cancellationToken);
-            }
-
-            throw new McpProtocolException($"Unknown tool: '{name}'", McpErrorCode.InvalidParams);
-        };
+            throw new InvalidOperationException(
+                "This host is wired with the chain (services.AddBeacon(...), .AddAI(), .AddMcp()): add the MCP server with .AddMcp() on its builder, not AddBeaconMcp.");
+        }
     }
-
-    private static SavedQueryToolService? ResolveSavedQueryToolService(IServiceProvider? services) =>
-        services?.GetService<ISavedQueryToolSource>() == null
-            ? null
-            : services.GetService<SavedQueryToolService>();
 }

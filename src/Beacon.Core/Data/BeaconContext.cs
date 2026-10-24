@@ -158,6 +158,9 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
     // Security audit trail (append-only)
     public DbSet<SecurityAuditEvent> SecurityAuditEvents => Set<SecurityAuditEvent>();
 
+    // Long work run as background jobs
+    public DbSet<BackgroundTask> BackgroundTasks => Set<BackgroundTask>();
+
     // Row security
     public DbSet<AttributeDefinition> AttributeDefinitions => Set<AttributeDefinition>();
     public DbSet<UserAttributeValue> UserAttributeValues => Set<UserAttributeValue>();
@@ -174,6 +177,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             modelBuilder.HasDefaultSchema(resolvedSchema);
         }
 
+        UtcBuckets.Register(modelBuilder, Database.ProviderName);
         SetSoftDeleteQueryFilter(modelBuilder);
         ConfigureMigrationEntities(modelBuilder);
         ConfigureMetadataEntities(modelBuilder);
@@ -202,6 +206,8 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
         ConfigureMcpEvalEntities(modelBuilder);
         ConfigureSecurityAuditEntities(modelBuilder);
         ConfigureRowSecurityEntities(modelBuilder);
+        ConfigureBackgroundTaskEntities(modelBuilder);
+        ConfigureEmbedEntities(modelBuilder);
         ConfigureAttributionColumns(modelBuilder);
         base.OnModelCreating(modelBuilder);
     }

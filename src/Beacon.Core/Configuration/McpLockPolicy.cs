@@ -1,32 +1,37 @@
-using Beacon.Core.Data.Entities;
 using Beacon.Core.Models;
 
 namespace Beacon.Core.Configuration;
 
 /// <summary>
-/// One deployment lock: which <c>Beacon:Mcp</c> option pins which <see cref="McpSettingsData"/> field, and what
-/// that means at resolution time (<see cref="Pin"/>), on a global write (<see cref="Contradicts"/>,
-/// <see cref="KeepStored"/>), on a project write (<see cref="HasOverride"/>, <see cref="KeepStoredOverride"/>) and for a
-/// stored project override (<see cref="OverrideContradicts"/>). A write under the lock keeps the stored value of the field
-/// it pins, globally and per project, so lifting the lock restores what was configured before.
+/// One deployment lock: which <c>Beacon:Mcp</c> option pins which boolean <see cref="McpSettingsData"/> field to which
+/// value, and what that means at resolution time (<see cref="Pin"/>), on a global write (<see cref="Contradicts"/>), on a
+/// project write (<see cref="HasOverride"/>) and for a stored project override (<see cref="OverrideContradicts"/>). A write
+/// under the lock does not write the field it pins (the handlers leave it out of <c>McpSettingFields.Store</c>), globally
+/// and per project, so lifting the lock restores what was configured before.
 /// </summary>
 internal sealed record McpLockRule(
     string FieldName,
     string LockName,
     Func<McpDeploymentOptions, bool> IsActive,
-    Action<McpSettingsData> Pin,
-    Func<McpSettingsData, bool> Contradicts,
-    Func<McpProjectSettingsData, bool> HasOverride,
-    Func<McpProjectSettingsData, bool> OverrideContradicts,
-    Action<McpSettingsData, McpSettings> KeepStored,
-    Action<McpProjectSettingsData, McpProjectSettings> KeepStoredOverride);
+    bool PinnedValue)
+{
+    private McpSettingField Field => McpSettingFields.Named(FieldName);
+
+    public void Pin(McpSettingsData settings) => Field.Set(settings, PinnedValue);
+
+    public bool Contradicts(McpSettingsData settings) => Field.Get(settings) is bool value && value != PinnedValue;
+
+    public bool HasOverride(McpProjectSettingsData overrides) => Field.GetOverride(overrides) != null;
+
+    public bool OverrideContradicts(McpProjectSettingsData overrides) => Field.GetOverride(overrides) is bool value && value != PinnedValue;
+}
 
 /// <summary>
 /// The single source of truth for deployment locks. <c>McpSettingsProvider.ApplyLocks</c>, <c>UpdateMcpSettingsHandler</c>
 /// and <c>UpdateMcpProjectSettingsHandler</c> all iterate <see cref="ActiveRules"/>, so adding a lockable field is one
 /// new entry here — never a new <c>if</c> in a handler. Ceilings are deliberately NOT modelled here: they are applied in
-/// <c>McpSettingsProvider.ApplyCeilings</c> and only the global write handler needs ceiling-aware echo detection
-/// (<c>KeepStoredWhenClamped</c>), because the global GET returns resolved values while project rows store raw overrides.
+/// <c>McpSettingsProvider.ApplyCeilings</c>, and a write stores a value above one as sent (the global GET returns the
+/// stored values next to the resolved ones, so the page edits what is stored).
 /// </summary>
 internal static class McpLockPolicy
 {
@@ -39,76 +44,41 @@ internal static class McpLockPolicy
             FieldName: nameof(McpSettingsData.EnforceReadOnly),
             LockName: nameof(McpDeploymentOptions.ForceReadOnly),
             IsActive: x => x.ForceReadOnly,
-            Pin: x => x.EnforceReadOnly = true,
-            Contradicts: x => !x.EnforceReadOnly,
-            HasOverride: x => x.EnforceReadOnly != null,
-            OverrideContradicts: x => x.EnforceReadOnly == false,
-            KeepStored: (incoming, stored) => incoming.EnforceReadOnly = stored.EnforceReadOnly,
-            KeepStoredOverride: (incoming, stored) => incoming.EnforceReadOnly = stored.EnforceReadOnly),
+            PinnedValue: true),
         new(
             FieldName: nameof(McpSettingsData.EnablePiiDetection),
             LockName: nameof(McpDeploymentOptions.ForcePiiDetection),
             IsActive: x => x.ForcePiiDetection,
-            Pin: x => x.EnablePiiDetection = true,
-            Contradicts: x => !x.EnablePiiDetection,
-            HasOverride: x => x.EnablePiiDetection != null,
-            OverrideContradicts: x => x.EnablePiiDetection == false,
-            KeepStored: (incoming, stored) => incoming.EnablePiiDetection = stored.EnablePiiDetection,
-            KeepStoredOverride: (incoming, stored) => incoming.EnablePiiDetection = stored.EnablePiiDetection),
+            PinnedValue: true),
         new(
             FieldName: nameof(McpSettingsData.RetainQueryContent),
             LockName: nameof(McpDeploymentOptions.ForceNoContentRetention),
             IsActive: x => x.ForceNoContentRetention,
-            Pin: x => x.RetainQueryContent = false,
-            Contradicts: x => x.RetainQueryContent,
-            HasOverride: x => x.RetainQueryContent != null,
-            OverrideContradicts: x => x.RetainQueryContent == true,
-            KeepStored: (incoming, stored) => incoming.RetainQueryContent = stored.RetainQueryContent,
-            KeepStoredOverride: (incoming, stored) => incoming.RetainQueryContent = stored.RetainQueryContent),
+            PinnedValue: false),
 
         // The audit's content can't be switched off unseen: pinned on, the opposite of the lock above (both on fails startup).
         new(
             FieldName: nameof(McpSettingsData.RetainQueryContent),
             LockName: RequireContentLockName,
             IsActive: x => x.Audit?.RequireContent == true,
-            Pin: x => x.RetainQueryContent = true,
-            Contradicts: x => !x.RetainQueryContent,
-            HasOverride: x => x.RetainQueryContent != null,
-            OverrideContradicts: x => x.RetainQueryContent == false,
-            KeepStored: (incoming, stored) => incoming.RetainQueryContent = stored.RetainQueryContent,
-            KeepStoredOverride: (incoming, stored) => incoming.RetainQueryContent = stored.RetainQueryContent),
+            PinnedValue: true),
 
         // One lock, three fields: every setting that sends row values read from a data source to the LLM provider.
         new(
             FieldName: nameof(McpSettingsData.EnableSampleValueCollection),
             LockName: nameof(McpDeploymentOptions.ForbidRowDataToLlm),
             IsActive: x => x.ForbidRowDataToLlm,
-            Pin: x => x.EnableSampleValueCollection = false,
-            Contradicts: x => x.EnableSampleValueCollection,
-            HasOverride: x => x.EnableSampleValueCollection != null,
-            OverrideContradicts: x => x.EnableSampleValueCollection == true,
-            KeepStored: (incoming, stored) => incoming.EnableSampleValueCollection = stored.EnableSampleValueCollection,
-            KeepStoredOverride: (incoming, stored) => incoming.EnableSampleValueCollection = stored.EnableSampleValueCollection),
+            PinnedValue: false),
         new(
             FieldName: nameof(McpSettingsData.EnableValueGrounding),
             LockName: nameof(McpDeploymentOptions.ForbidRowDataToLlm),
             IsActive: x => x.ForbidRowDataToLlm,
-            Pin: x => x.EnableValueGrounding = false,
-            Contradicts: x => x.EnableValueGrounding,
-            HasOverride: x => x.EnableValueGrounding != null,
-            OverrideContradicts: x => x.EnableValueGrounding == true,
-            KeepStored: (incoming, stored) => incoming.EnableValueGrounding = stored.EnableValueGrounding,
-            KeepStoredOverride: (incoming, stored) => incoming.EnableValueGrounding = stored.EnableValueGrounding),
+            PinnedValue: false),
         new(
             FieldName: nameof(McpSettingsData.EnableEvalJudge),
             LockName: nameof(McpDeploymentOptions.ForbidRowDataToLlm),
             IsActive: x => x.ForbidRowDataToLlm,
-            Pin: x => x.EnableEvalJudge = false,
-            Contradicts: x => x.EnableEvalJudge,
-            HasOverride: x => x.EnableEvalJudge != null,
-            OverrideContradicts: x => x.EnableEvalJudge == true,
-            KeepStored: (incoming, stored) => incoming.EnableEvalJudge = stored.EnableEvalJudge,
-            KeepStoredOverride: (incoming, stored) => incoming.EnableEvalJudge = stored.EnableEvalJudge)
+            PinnedValue: false)
     ];
 
     public static IReadOnlyList<McpLockRule> ActiveRules(McpDeploymentOptions options)

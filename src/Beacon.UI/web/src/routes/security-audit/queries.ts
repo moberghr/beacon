@@ -5,6 +5,7 @@ import { unwrap } from '@/lib/api';
 import { createSimpleMutation } from '@/lib/mutations';
 import { usePagedList } from '@/lib/usePagedList';
 import type { ListParams } from '@/lib/paging';
+import type { PagedListOfSecurityAuditEventItem } from '@/api/generated/beacon-api';
 import { actionsOf } from './catalogue';
 
 /** One event of the security audit trail as the server returns it (times as ISO strings). */
@@ -171,7 +172,27 @@ export function useSecurityAuditList(defaults: { from: string; to: string }) {
     enabled: auditWindow.error === undefined,
   });
 
-  return { ...list, auditWindow };
+  /** One page of the window as filtered, for the export download (not cached: every read is audited). */
+  const fetchExportPage = async (page: number, pageSize: number) => {
+    const params = auditListParams(list.filters);
+    return unwrap<PagedListOfSecurityAuditEventItem>(
+      await beaconApi().getSecurityAuditEvents(
+        auditWindow.from,
+        auditWindow.to,
+        (params.category as string) || undefined,
+        (params.action as string) || undefined,
+        params.actorUserId as number | undefined,
+        (params.resourceType as string) || undefined,
+        (params.resourceId as string) || undefined,
+        params.projectId as number | undefined,
+        page,
+        pageSize,
+        '-createdTime',
+      ),
+    );
+  };
+
+  return { ...list, auditWindow, fetchExportPage };
 }
 
 /**

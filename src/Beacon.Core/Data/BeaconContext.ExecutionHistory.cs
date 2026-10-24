@@ -32,5 +32,11 @@ public abstract partial class BeaconContext
             // Per-subscription history ordered by time (subscription detail, anomaly lookbacks).
             entity.HasIndex(e => new { e.SubscriptionId, e.CreatedTime });
         });
+
+        // Notification trends count per day over a SentAt window.
+        modelBuilder.Entity<Notification>(entity =>
+        {
+            entity.HasIndex(e => e.SentAt);
+        });
     }
 }

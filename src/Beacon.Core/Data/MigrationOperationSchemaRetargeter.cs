@@ -5,9 +5,9 @@ namespace Beacon.Core.Data;
 
 /// <summary>
 /// Retargets migration operations carrying the design-time literal schema ("beacon") or no
-/// schema (null) to the schema configured via <c>UseBeaconSchema</c>, so every committed
-/// migration stays byte-for-byte unchanged (CLAUDE.md §0.1/§5.9) while the SQL it generates
-/// still lands in the schema the running host is configured for. Shared by the SQL Server and
+/// schema (null) to the given schema (Beacon's providers pass the fixed <c>beacon</c>), so every
+/// committed migration stays byte-for-byte unchanged (CLAUDE.md §0.1/§5.9) while the SQL it
+/// generates is schema-qualified. Shared by the SQL Server and
 /// PostgreSQL <c>SchemaAwareMigrationsSqlGenerator</c> subclasses: every
 /// <see cref="MigrationOperation"/> subtype referenced here lives in
 /// Microsoft.EntityFrameworkCore.Relational, which Beacon.Core already references, so this type

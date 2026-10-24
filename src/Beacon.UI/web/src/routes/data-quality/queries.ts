@@ -150,11 +150,13 @@ export const evaluationHistoryKey = (id: number) => ['data-quality', 'contract',
 // file are stricter (most fields required). We cast at the boundary —
 // runtime shape is identical, only the TS types differ.
 
+/** The data source cards: server-paged by data source name (`overview*` in the URL). */
 export function useDataQualityOverview() {
-  return useQuery({
+  return usePagedList<DataQualityOverviewData>({
     queryKey: DATA_QUALITY_OVERVIEW_KEY,
-    queryFn: async () =>
-      unwrap<DataQualityOverviewData[]>(await beaconApi().getDataQualityOverview(undefined)),
+    path: '/beacon/api/data-quality/overview/paged',
+    pageSize: 12,
+    urlPrefix: 'overview',
   });
 }
 

@@ -22,6 +22,7 @@ public abstract partial class BeaconContext
             entity.HasKey(e => e.Id);
             entity.Property(e => e.EmbeddingBytes).IsRequired();
             entity.Property(e => e.Model).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.ContentHash).HasMaxLength(64);
 
             entity.HasIndex(e => e.DataSourceId);
             entity.HasIndex(e => new { e.DataSourceId, e.OwnerType, e.OwnerId }).IsUnique();

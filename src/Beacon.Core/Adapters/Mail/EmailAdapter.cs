@@ -1,11 +1,15 @@
-﻿using System.Reflection;
+using System.Reflection;
 using Beacon.Core.Adapters.Shared;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Notifications;
 
 namespace Beacon.Core.Adapters.Mail;
 
 internal class EmailAdapter(IEmailAdapter emailAdapter) : IAdapter
 {
+    /// <summary>The most addresses one message may be sent to (a destination may list several, separated by commas or semicolons).</summary>
+    public const int MaxRecipientsPerMessage = 50;
+
     public NotificationType NotificationType => NotificationType.Email;
 
     public async Task SendNotificationAsync(
@@ -16,14 +20,17 @@ internal class EmailAdapter(IEmailAdapter emailAdapter) : IAdapter
         cancellationToken.ThrowIfCancellationRequested();
 
         var to = recipientQueryResult.RecipientDestination;
+        if (EmailRecipientCounter.Count(to) > MaxRecipientsPerMessage)
+        {
+            throw new NotificationDeliveryException(NotificationFailureReasons.TooManyRecipients);
+        }
+
         var subject = $"{AdapterConstants.NotificationPrefix} {recipientQueryResult.QueryResult.DataSourceName} - {recipientQueryResult.QueryResult.SubscriptionName}";
 
         var htmlBody = Helpers.GenerateEmailContent(recipientQueryResult.QueryResult, recipientQueryResult.QueryResultFile);
 
-        // The IEmailAdapter contract doesn't currently flow a CancellationToken into
-        // the SMTP/Sendmail call — graceful shutdown is observed at this boundary.
         // A file too large even for its headers is not attached; the body says so.
         var attachment = recipientQueryResult.QueryResultFile is { Omitted: true } ? null : recipientQueryResult.QueryResultFile;
-        await emailAdapter.SendEmailAsync(to, subject, htmlBody, attachment);
+        await emailAdapter.SendEmailAsync(to, subject, htmlBody, attachment, cancellationToken);
     }
 }

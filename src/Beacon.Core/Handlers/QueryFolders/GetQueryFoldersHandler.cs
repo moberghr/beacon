@@ -1,13 +1,17 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Helpers;
 
 namespace Beacon.Core.Handlers.QueryFolders;
 
-internal sealed class GetQueryFoldersHandler(IDbContextFactory<BeaconContext> contextFactory, IProjectAccessEvaluator projectAccess)
+internal sealed class GetQueryFoldersHandler(IDbContextFactory<BeaconContext> contextFactory, IProjectAccessEvaluator projectAccess,
+    LegacyListTruncation? truncation = null,
+    ILogger<GetQueryFoldersHandler>? logger = null)
     : IRequestHandler<GetQueryFoldersQuery, GetQueryFoldersResult>
 {
     public async Task<GetQueryFoldersResult> Handle(GetQueryFoldersQuery request, CancellationToken cancellationToken)
@@ -20,6 +24,7 @@ internal sealed class GetQueryFoldersHandler(IDbContextFactory<BeaconContext> co
 
         var folders = await context.QueryFolders
             .OrderBy(f => f.SortOrder)
+            .Take(ListRequest.LegacyUnpagedCap + 1)
             .Select(f => new QueryFolderData
             {
                 Id = f.Id,
@@ -34,6 +39,7 @@ internal sealed class GetQueryFoldersHandler(IDbContextFactory<BeaconContext> co
                 ChildFolderCount = f.ChildFolders.Count
             })
             .ToListAsync(cancellationToken);
+        folders = LegacyListTruncation.Apply(folders, truncation, logger, "query folders");
 
         // Count queries at root level (no folder assigned)
         var rootLevelQueryCount = await context.Queries

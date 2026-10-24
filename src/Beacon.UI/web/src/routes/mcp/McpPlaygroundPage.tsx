@@ -14,6 +14,22 @@ interface ChatMessage {
   durationMs: number | null;
 }
 
+const MAX_ROWS_LIMIT = 1000;
+const MAX_RESULTS_LIMIT = 50;
+/** The chat keeps the latest messages only, and shows at most this many characters of one tool answer. */
+const MAX_MESSAGES = 100;
+const MAX_OUTPUT_CHARS = 100_000;
+
+function clampInt(value: number, min: number, max: number): number {
+  return Number.isFinite(value) ? Math.min(max, Math.max(min, Math.trunc(value))) : min;
+}
+
+function truncateOutput(text: string): string {
+  return text.length <= MAX_OUTPUT_CHARS
+    ? text
+    : `${text.slice(0, MAX_OUTPUT_CHARS)}\n… output cut at ${MAX_OUTPUT_CHARS.toLocaleString('en-US')} characters`;
+}
+
 export default function McpPlaygroundPage() {
   const soleProject = useSoleProject().data ?? null;
   const toolsQ = useMcpTools();
@@ -51,6 +67,13 @@ export default function McpPlaygroundPage() {
     }
   }, [projectId, soleProject]);
 
+  // Keep the latest messages only.
+  useEffect(() => {
+    if (messages.length > MAX_MESSAGES) {
+      setMessages(prev => prev.slice(-MAX_MESSAGES));
+    }
+  }, [messages.length]);
+
   // Auto-scroll on new message.
   useEffect(() => {
     if (chatRef.current) {
@@ -63,9 +86,9 @@ export default function McpPlaygroundPage() {
       case 'ask':
         return { question: text, execute: true };
       case 'search':
-        return { query: text, max_results: maxResults };
+        return { query: text, max_results: clampInt(maxResults, 1, MAX_RESULTS_LIMIT) };
       case 'query': {
-        const args: Record<string, unknown> = { sql: text, max_rows: maxRows };
+        const args: Record<string, unknown> = { sql: text, max_rows: clampInt(maxRows, 1, MAX_ROWS_LIMIT) };
         if (datasource.trim()) args.datasource_name = datasource.trim();
         return args;
       }
@@ -124,7 +147,7 @@ export default function McpPlaygroundPage() {
           const ms = Math.round(performance.now() - startedAt);
           setMessages(prev => [
             ...prev,
-            { id: messageIdRef.current++, isUser: false, text: r.text, toolName: tool, isError: r.isError, durationMs: ms },
+            { id: messageIdRef.current++, isUser: false, text: truncateOutput(r.text), toolName: tool, isError: r.isError, durationMs: ms },
           ]);
           // Don't wipe the SQL the user is iterating on. The `query` tool's textarea stays editable
           // during the run, so clearing it on success would discard in-progress edits.
@@ -248,9 +271,9 @@ export default function McpPlaygroundPage() {
             <Input
               type="number"
               min={1}
-              max={50}
+              max={MAX_RESULTS_LIMIT}
               value={maxResults}
-              onChange={e => setMaxResults(Number(e.target.value))}
+              onChange={e => setMaxResults(clampInt(Number(e.target.value), 1, MAX_RESULTS_LIMIT))}
               className="w-20"
             />
             <Button variant="primary" type="button" onClick={send} disabled={!canSend}>
@@ -270,9 +293,9 @@ export default function McpPlaygroundPage() {
               <Input
                 type="number"
                 min={1}
-                max={1000}
+                max={MAX_ROWS_LIMIT}
                 value={maxRows}
-                onChange={e => setMaxRows(Number(e.target.value))}
+                onChange={e => setMaxRows(clampInt(Number(e.target.value), 1, MAX_ROWS_LIMIT))}
                 className="w-24"
               />
               <Button variant="primary" type="button" onClick={send} disabled={!canSend}>
