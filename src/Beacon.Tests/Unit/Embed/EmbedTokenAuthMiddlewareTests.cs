@@ -12,7 +12,8 @@ namespace Beacon.Tests.Unit.Embed;
 /// The embed middleware, last in <c>UseBeaconAuthentication</c>: on an embed path it always replaces the caller (the host's
 /// default scheme, a Beacon cookie or API key never stand there), with the embed principal for a valid credential and an
 /// anonymous one otherwise; refusals are one generic 401 (403 for another origin), recorded with their reason and never
-/// logged with the credential; its limits answer 429; off embed paths, and while embedding is off, it does nothing.
+/// logged with the credential; its limits answer 429 (the client's refusal budget only on a refusal, never for a credential
+/// that verifies); off embed paths, and while embedding is off, it does nothing.
 /// </summary>
 [TestFixture]
 public class EmbedTokenAuthMiddlewareTests
@@ -205,7 +206,7 @@ public class EmbedTokenAuthMiddlewareTests
     }
 
     [Test]
-    public async Task PastItsRefusalBudget_AClientIsAnswered429_BeforeAnyLookup()
+    public async Task PastItsRefusalBudget_AClientsRefusalsAreAnswered429_AndNoLongerAudited()
     {
         var kit = new EmbedTestKit();
         kit.Options.RateLimits.RefusalsPerIpPerMinute = 2;
@@ -219,6 +220,78 @@ public class EmbedTokenAuthMiddlewareTests
 
         statuses.Should().Equal(HttpStatusCode.Unauthorized, HttpStatusCode.Unauthorized, (HttpStatusCode)429, (HttpStatusCode)429);
         host.Audit.Of(SecurityAuditActions.EmbedTokenRefused).Should().HaveCount(2);
+    }
+
+    [Test]
+    public async Task PastItsRefusalBudget_AClientsValidTokenAndSecret_AreStillServed()
+    {
+        var kit = new EmbedTestKit();
+        kit.Options.RateLimits.RefusalsPerIpPerMinute = 1;
+        var (grant, secret) = kit.Grant();
+        await using var host = await EmbedSurfaceHost.StartAsync(kit);
+        for (var i = 0; i < 3; i++)
+        {
+            await host.SendAsync(HttpMethod.Post, BeaconEmbedPaths.RenderPath, "BeaconEmbed not-a-token");
+        }
+
+        var render = await Render(host, kit, grant, await kit.TokenAsync(grant));
+        var exchange = await host.SendAsync(HttpMethod.Post, BeaconEmbedPaths.TokensPath, $"BeaconEmbedGrant {secret}");
+        var refused = await host.SendAsync(HttpMethod.Post, BeaconEmbedPaths.TokensPath, "BeaconEmbedGrant not-the-secret");
+
+        render.StatusCode.Should().Be(HttpStatusCode.OK, "only refusals count, and a verified credential is never refused for them");
+        exchange.StatusCode.Should().Be(HttpStatusCode.OK);
+        refused.StatusCode.Should().Be((HttpStatusCode)429);
+    }
+
+    [Test]
+    public async Task RefusalBudgets_AreKeptPerClientAddress()
+    {
+        var kit = new EmbedTestKit();
+        kit.Options.RateLimits.RefusalsPerIpPerMinute = 1;
+        await using var host = await EmbedSurfaceHost.StartAsync(kit);
+
+        var first = await host.SendAsync(HttpMethod.Post, BeaconEmbedPaths.RenderPath, "BeaconEmbed x", clientAddress: "203.0.113.5");
+        var second = await host.SendAsync(HttpMethod.Post, BeaconEmbedPaths.RenderPath, "BeaconEmbed x", clientAddress: "203.0.113.5");
+        var other = await host.SendAsync(HttpMethod.Post, BeaconEmbedPaths.RenderPath, "BeaconEmbed x", clientAddress: "198.51.100.7");
+        var sameNetwork = await host.SendAsync(HttpMethod.Post, BeaconEmbedPaths.RenderPath, "BeaconEmbed x", clientAddress: "2001:db8:1:2::1");
+        var sameNetworkAgain = await host.SendAsync(HttpMethod.Post, BeaconEmbedPaths.RenderPath, "BeaconEmbed x", clientAddress: "2001:db8:1:2::ffff");
+
+        first.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        second.StatusCode.Should().Be((HttpStatusCode)429);
+        other.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        sameNetwork.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        sameNetworkAgain.StatusCode.Should().Be((HttpStatusCode)429, "an IPv6 address counts by its /64 network");
+    }
+
+    [Test]
+    public async Task AnOriginRefusal_IsAuditedOnlyWhenACredentialWasPresented()
+    {
+        var kit = new EmbedTestKit();
+        var (grant, _) = kit.Grant();
+        await using var host = await EmbedSurfaceHost.StartAsync(kit);
+
+        var bare = await host.SendAsync(HttpMethod.Post, BeaconEmbedPaths.RenderPath, origin: "https://elsewhere.example.net");
+        var presented = await Render(host, kit, grant, await kit.TokenAsync(grant), origin: "https://elsewhere.example.net");
+
+        bare.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        presented.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        host.Audit.Of(SecurityAuditActions.EmbedTokenRefused).Should().ContainSingle()
+            .Which.DetailsJson.Should().Be("{\"reason\":\"origin\"}");
+    }
+
+    [Test]
+    public async Task AnOriginRefusalWithoutACredential_StillCountsAsTheClientsRefusal()
+    {
+        var kit = new EmbedTestKit();
+        kit.Options.RateLimits.RefusalsPerIpPerMinute = 1;
+        await using var host = await EmbedSurfaceHost.StartAsync(kit);
+
+        var first = await host.SendAsync(HttpMethod.Post, BeaconEmbedPaths.RenderPath, origin: "https://elsewhere.example.net");
+        var second = await host.SendAsync(HttpMethod.Post, BeaconEmbedPaths.RenderPath, origin: "https://elsewhere.example.net");
+
+        first.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        second.StatusCode.Should().Be((HttpStatusCode)429);
+        host.Audit.Of(SecurityAuditActions.EmbedTokenRefused).Should().BeEmpty();
     }
 
     [Test]

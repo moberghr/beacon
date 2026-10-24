@@ -779,6 +779,19 @@ acts for the grant's creator (their live access and row entitlement), always mas
 of the project's row limit and `MaxRows`. The embed page is served with a strict Content-Security-Policy whose
 `frame-ancestors` lists the grant's origins. An MCP gateway host serves no embed route. Validated at startup.
 
+The limits count per client address (an IPv6 address by its /64 network): the embed page per address and grant, refusals
+per address, and the exchange and render per verified grant. A refusal budget never refuses a request whose credential
+verifies; it only decides whether a refusal is answered 401/403/404 or 429 and whether it is audited. **Behind a reverse
+proxy or load balancer, run `UseForwardedHeaders` with the proxy's address in `KnownProxies` or `KnownNetworks` before
+`UseBeaconAuthentication`** (the sample host: `Beacon:ForwardedHeaders:Enabled` and `KnownProxies`), and set
+`Beacon:PublicBaseUrl` when TLS ends at the proxy. Without forwarded headers every viewer shares the proxy's address (one
+page and refusal budget for all of them), and the render's same-origin check compares the viewer's `https` origin with
+Beacon's `http` one and refuses every render.
+
+The embed routes are `AllowAnonymous`, but ASP.NET Core still authenticates a host's `FallbackPolicy` on them: a fallback
+policy that names `AuthenticationSchemes` replaces the embed caller and every exchange and render is refused (401). Leave
+the fallback policy without schemes, or exempt the embed paths from it.
+
 | Key | Type | Default | What it does |
 |---|---|---|---|
 | `Enabled` | bool | `false` | Maps the embed routes and allows grants to be created |
@@ -789,9 +802,11 @@ of the project's row limit and `MaxRows`. The embed page is served with a strict
 | `MaxRows` | int | `1000` | 1–100,000 |
 | `MaxOrigins` | int | `10` | Frame origins per grant; 1–50. Origins are exact `https://host[:port]` (`http://localhost` only in Development) |
 | `MaxConcurrentRenders` | int | `8` | Embed renders running at once in the process, over every grant; one more is answered 503 at once. 1–256 |
-| `RateLimits:ExchangePerGrantPerMinute` | int | `60` | 1–10,000 |
-| `RateLimits:RenderPerGrantPerMinute` | int | `120` | 1–10,000 |
-| `RateLimits:RefusalsPerIpPerMinute` | int | `30` | 1–10,000 |
+| `MaxConcurrentRendersPerGrant` | int | a quarter of `MaxConcurrentRenders`, at least 1 | Renders one grant may run at once, so one grant never holds every slot; one more is answered 503 at once. 1 to `MaxConcurrentRenders` |
+| `RateLimits:ExchangePerGrantPerMinute` | int | `60` | Exchanges per verified grant; 1–10,000 |
+| `RateLimits:RenderPerGrantPerMinute` | int | `120` | Renders per verified grant (a valid token); 1–10,000 |
+| `RateLimits:PagePerClientPerMinute` | int | `60` | Embed page loads per client address and grant; 1–10,000 |
+| `RateLimits:RefusalsPerIpPerMinute` | int | `30` | Refusals per client address; past it a refusal is answered 429 and not audited. 1–10,000 |
 
 ## Embed tokens (`Beacon:EmbedToken`, obsolete)
 

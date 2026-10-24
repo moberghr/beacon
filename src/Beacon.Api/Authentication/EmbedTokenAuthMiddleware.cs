@@ -17,8 +17,9 @@ internal sealed record EmbedRequestFeature(int GrantId, string GrantPublicId, in
 /// token exchange takes <c>Authorization: BeaconEmbedGrant &lt;secret&gt;</c>, the render <c>Authorization: BeaconEmbed
 /// &lt;token&gt;</c> (never <c>Bearer</c>, so the API-key and bearer middlewares never see either) plus the grant's frame
 /// marker (<see cref="FrameHeader"/>), and a render from another origin is refused. A refused credential is answered with
-/// one generic 401 (the reason goes to the log and <c>embed.token_refused</c>, never to the caller), a store that cannot be
-/// read with 503. The limits of <see cref="EmbedRateLimiter"/> answer 429. Never logs a token or a secret.
+/// one generic 401 (the reason goes to the log and, when a credential was presented, <c>embed.token_refused</c>; never to the
+/// caller), a store that cannot be read with 503. The limits of <see cref="EmbedRateLimiter"/> answer 429: a grant's budget
+/// once its credential verified, the client's refusal budget only on a refusal. Never logs a token or a secret.
 /// </summary>
 public sealed class EmbedTokenAuthMiddleware(RequestDelegate next)
 {
@@ -42,13 +43,6 @@ public sealed class EmbedTokenAuthMiddleware(RequestDelegate next)
         SetAnonymous(context);
         context.Features.Set<EmbedRequestFeature?>(null);
 
-        var limiter = context.RequestServices.GetRequiredService<EmbedRateLimiter>();
-        if (!limiter.HasRefusalsLeft(context, out var exhausted))
-        {
-            await TooManyAsync(context, exhausted);
-            return;
-        }
-
         // The page itself is anonymous: its endpoint reads only whether the grant is live and its origins.
         if (route == EmbedRoute.Frame)
         {
@@ -56,15 +50,18 @@ public sealed class EmbedTokenAuthMiddleware(RequestDelegate next)
             return;
         }
 
+        // The credential is checked before the client's refusal budget is looked at, so a request whose credential verifies
+        // is never refused for other requests' refusals from the same address.
+        var limiter = context.RequestServices.GetRequiredService<EmbedRateLimiter>();
         var logger = context.RequestServices.GetRequiredService<ILogger<EmbedTokenAuthMiddleware>>();
         var isRender = route == EmbedRoute.Render;
+        var credential = CredentialOf(context.Request, isRender ? TokenScheme : GrantScheme);
         if (isRender && !IsSameOrigin(context))
         {
-            await RefuseAsync(context, limiter, logger, EmbedRefusalCodes.Origin, null, presented: true, StatusCodes.Status403Forbidden);
+            await RefuseAsync(context, limiter, logger, EmbedRefusalCodes.Origin, null, presented: credential != null, StatusCodes.Status403Forbidden);
             return;
         }
 
-        var credential = CredentialOf(context.Request, isRender ? TokenScheme : GrantScheme);
         if (credential == null)
         {
             await RefuseAsync(context, limiter, logger, EmbedRefusalCodes.Unknown, null, presented: false, StatusCodes.Status401Unauthorized);

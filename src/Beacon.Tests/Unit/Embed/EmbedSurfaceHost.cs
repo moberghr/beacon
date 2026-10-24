@@ -39,6 +39,7 @@ internal sealed class EmbedSurfaceHost : IAsyncDisposable
 {
     public const string HostScheme = "Host";
     public const string HostUserHeader = "X-Host-User";
+    public const string ClientAddressHeader = "X-Test-Client-Address";
     public const string ApiKey = "sk-sem_embed-surface-key";
 
     private readonly WebApplication _app;
@@ -62,7 +63,8 @@ internal sealed class EmbedSurfaceHost : IAsyncDisposable
         IMediator? mediator = null,
         string? webRoot = null,
         bool gatewayMode = false,
-        string? pathBase = null)
+        string? pathBase = null,
+        Action<IServiceCollection>? services = null)
     {
         var configuration = new BeaconConfiguration();
         configuration.UserManagement.Enabled = true;
@@ -111,17 +113,29 @@ internal sealed class EmbedSurfaceHost : IAsyncDisposable
             builder.Services.AddSingleton(mediator);
         }
 
+        services?.Invoke(builder.Services);
+
         var app = builder.Build();
         if (pathBase != null)
         {
             app.UsePathBase(pathBase);
         }
 
+        // The test server has no client address; a test names one, as a host's forwarded-headers middleware would.
+        app.Use(async (context, next) =>
+        {
+            if (System.Net.IPAddress.TryParse(context.Request.Headers[ClientAddressHeader].ToString(), out var address))
+            {
+                context.Connection.RemoteIpAddress = address;
+            }
+
+            await next(context);
+        });
         app.UseRouting();
         app.UseBeaconAuthentication();
         app.UseAuthorization();
 
-        if (mediator != null)
+        if (mediator != null || services != null)
         {
             app.MapEmbedEndpoints();
         }
@@ -163,9 +177,15 @@ internal sealed class EmbedSurfaceHost : IAsyncDisposable
         string? frameMarker = null,
         string? origin = null,
         string? cookie = null,
-        bool hostUser = false)
+        bool hostUser = false,
+        string? clientAddress = null)
     {
         var request = new HttpRequestMessage(method, path);
+        if (clientAddress != null)
+        {
+            request.Headers.TryAddWithoutValidation(ClientAddressHeader, clientAddress);
+        }
+
         if (authorization != null)
         {
             request.Headers.TryAddWithoutValidation("Authorization", authorization);

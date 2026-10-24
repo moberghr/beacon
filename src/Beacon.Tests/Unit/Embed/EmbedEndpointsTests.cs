@@ -177,6 +177,43 @@ public class EmbedEndpointsTests
     }
 
     [Test]
+    public async Task ThePage_IsLimitedPerClientAndGrant_NeverPerGrantAlone()
+    {
+        var kit = new EmbedTestKit();
+        kit.Options.RateLimits.PagePerClientPerMinute = 1;
+        var (grant, _) = kit.Grant();
+        await using var host = await EmbedSurfaceHost.StartAsync(kit, Frame(available: true), _webRoot);
+        var path = BeaconEmbedPaths.FramePrefix + "/" + grant.PublicId;
+
+        var first = await host.SendAsync(HttpMethod.Get, path, clientAddress: "203.0.113.5");
+        var again = await host.SendAsync(HttpMethod.Get, path, clientAddress: "203.0.113.5");
+        var anotherViewer = await host.SendAsync(HttpMethod.Get, path, clientAddress: "198.51.100.7");
+
+        first.StatusCode.Should().Be(HttpStatusCode.OK);
+        again.StatusCode.Should().Be((HttpStatusCode)429);
+        again.Headers.RetryAfter.Should().NotBeNull();
+        anotherViewer.StatusCode.Should().Be(HttpStatusCode.OK, "one client's page loads never spend another viewer's");
+    }
+
+    [Test]
+    public async Task ThePage_OfALiveGrant_IsServed_PastTheClientsRefusalBudget()
+    {
+        var kit = new EmbedTestKit();
+        kit.Options.RateLimits.RefusalsPerIpPerMinute = 1;
+        var (grant, _) = kit.Grant();
+        await using var host = await EmbedSurfaceHost.StartAsync(kit, FrameOf(grant.PublicId), _webRoot);
+        var unknown = BeaconEmbedPaths.FramePrefix + "/" + EmbedGrantSecret.NewPublicId();
+
+        var firstUnknown = await host.SendAsync(HttpMethod.Get, unknown);
+        var secondUnknown = await host.SendAsync(HttpMethod.Get, unknown);
+        var live = await host.SendAsync(HttpMethod.Get, BeaconEmbedPaths.FramePrefix + "/" + grant.PublicId);
+
+        firstUnknown.StatusCode.Should().Be(HttpStatusCode.NotFound);
+        secondUnknown.StatusCode.Should().Be((HttpStatusCode)429);
+        live.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Test]
     public void TheFrameAncestors_ListOnlyOriginsAsTheGrantsRulesWriteThem()
     {
         EmbedFrameHeaders.ContentSecurityPolicy(["https://a.example.com", "https://b.example.com:8443; script-src *", "*"])
@@ -190,6 +227,17 @@ public class EmbedEndpointsTests
         mediator
             .Setup(x => x.Send(It.IsAny<GetEmbedFrameQuery>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(available ? new GetEmbedFrameResult(true, [EmbedTestKit.Origin]) : new GetEmbedFrameResult(false, []));
+
+        return mediator.Object;
+    }
+
+    private static IMediator FrameOf(string livePublicId)
+    {
+        var mediator = new Mock<IMediator>();
+        mediator
+            .Setup(x => x.Send(It.IsAny<GetEmbedFrameQuery>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync((GetEmbedFrameQuery x, CancellationToken _) =>
+                x.PublicId == livePublicId ? new GetEmbedFrameResult(true, [EmbedTestKit.Origin]) : new GetEmbedFrameResult(false, []));
 
         return mediator.Object;
     }

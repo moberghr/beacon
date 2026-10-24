@@ -39,6 +39,7 @@ internal sealed class EmbedTestKit
             ExternalId = CreatorExternalId,
             UserName = "ada",
             IsEnabled = true,
+            CreatedTime = Now.UtcDateTime.AddDays(-30),
             UserRoles = [new BeaconUserRole { UserId = CreatorId, Role = new BeaconRole { Name = "Editor", Level = RoleService.RoleLevels.Editor } }]
         };
         Data.Store.ListFor<BeaconUser>().Add(Creator);

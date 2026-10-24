@@ -238,17 +238,52 @@ public class RenderEmbedQueryHandlerTests
     }
 
     [Test]
-    public async Task WhileEveryRenderSlotIsTaken_ARenderIsRefusedAtOnce()
+    public async Task WhileEveryRenderSlotIsTaken_ARenderIsRefusedAtOnce_AndRecordedAsBusy()
     {
         var (grant, _) = _kit.Grant();
+        var (other, _) = _kit.Grant();
         _kit.Options.MaxConcurrentRenders = 1;
         var limiter = new EmbedRenderLimiter(_kit.EmbedOptions());
-        using var held = limiter.TryAcquire();
+        using var held = limiter.TryAcquire(other.Id);
 
         var act = () => Handler(grant, limiter: limiter).Handle(Command(grant), CancellationToken.None);
 
         await act.Should().ThrowAsync<EmbedBusyException>();
         _executed.Should().BeEmpty();
+        var busy = _audit.Of(SecurityAuditActions.EmbedQueryRendered).Should().ContainSingle().Subject;
+        busy.Outcome.Should().Be(SecurityAuditOutcomes.Failure);
+        busy.DetailsJson.Should().Contain("\"reason\":\"busy\"");
+    }
+
+    [Test]
+    public async Task AGrantAtItsOwnConcurrencyCap_IsBusy_WhileAnotherGrantStillRenders()
+    {
+        var (grant, _) = _kit.Grant();
+        var (other, _) = _kit.Grant();
+        _kit.Options.MaxConcurrentRenders = 8;
+        var limiter = new EmbedRenderLimiter(_kit.EmbedOptions());
+        using var first = limiter.TryAcquire(grant.Id);
+        using var second = limiter.TryAcquire(grant.Id);
+
+        var busy = () => Handler(grant, limiter: limiter).Handle(Command(grant), CancellationToken.None);
+
+        await busy.Should().ThrowAsync<EmbedBusyException>("a quarter of the slots is one grant's share");
+        (await Handler(other, limiter: limiter).Handle(Command(other), CancellationToken.None)).Rows.Should().HaveCount(2);
+    }
+
+    [Test]
+    public async Task ARenderWhoseExecutorThrows_IsRecordedAsFailed_AndRethrown()
+    {
+        var (grant, _) = _kit.Grant();
+        var limiter = new EmbedRenderLimiter(_kit.EmbedOptions());
+
+        var act = () => Handler(grant, limiter: limiter, runner: new ThrowingRunner()).Handle(Command(grant), CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        var failed = _audit.Of(SecurityAuditActions.EmbedQueryRendered).Should().ContainSingle().Subject;
+        failed.Outcome.Should().Be(SecurityAuditOutcomes.Failure);
+        failed.DetailsJson.Should().Contain("\"reason\":\"render_failed\"").And.NotContain("driver failure");
+        limiter.InFlight(grant.Id).Should().Be(0, "the slot is released");
     }
 
     private RenderEmbedQueryCommand Command(EmbedGrant grant, string branch = "7") =>
@@ -259,7 +294,8 @@ public class RenderEmbedQueryHandlerTests
         McpSettingsData? settings = null,
         IRowSecurityResolver? rowSecurity = null,
         BeaconActor? caller = null,
-        EmbedRenderLimiter? limiter = null)
+        EmbedRenderLimiter? limiter = null,
+        ISavedQueryRunner? runner = null)
     {
         var actor = caller ?? _kit.Actor(grant, EmbedCredential.Token);
         var factory = _kit.Data.Store.Factory().Object;
@@ -286,7 +322,7 @@ public class RenderEmbedQueryHandlerTests
         return new RenderEmbedQueryHandler(
             RecordingSecurityAudit.Accessor(actor),
             _kit.Resolver(),
-            executor,
+            runner ?? executor,
             limiter ?? new EmbedRenderLimiter(_kit.EmbedOptions()),
             _kit.EmbedOptions(),
             _audit,
@@ -295,4 +331,17 @@ public class RenderEmbedQueryHandlerTests
 
     private static Dictionary<string, object?> Row(int id, string email) =>
         new() { ["id"] = id, ["email"] = email };
+
+    private sealed class ThrowingRunner : ISavedQueryRunner
+    {
+        public Task<SavedQueryToolExecution> ExecuteAsync(
+            SavedQueryToolDefinition tool,
+            int projectId,
+            IReadOnlyDictionary<string, object?> arguments,
+            SavedQueryRunOptions options,
+            CancellationToken cancellationToken)
+        {
+            throw new InvalidOperationException("driver failure");
+        }
+    }
 }

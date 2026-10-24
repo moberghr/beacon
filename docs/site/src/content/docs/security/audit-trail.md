@@ -177,10 +177,11 @@ locked parameters and the days until it expires; never an origin or a parameter 
 Revoking a revoked grant records nothing. `embed.token_issued` (a grant secret exchanged for a token, with its lifetime
 in seconds), `embed.token_refused` (outcome `refused`, the `embed` actor never set: an embed credential that was presented
 and refused, with the reason `expired`, `invalid_signature`, `revoked`, `grant_expired`, `superseded`, `unknown` or
-`origin`, and the grant when the credential named one; at most 600 a minute are recorded, and a client past its refusal
-budget is answered 429 without one) and `embed.query_rendered` (each render of a grant's query, with the query and version
-ids, the row count and whether the rows were cut at the cap; outcome `failure` with the reason `render_failed` or
-`unrunnable`, or `refused` with `parameters`). None carries a token, a secret, an origin, a parameter value or SQL.
+`origin`, and the grant when the credential named one; a request from another origin that carries no credential is
+refused without an event; at most 600 a minute are recorded, and a client past its refusal budget is answered 429 without
+one) and `embed.query_rendered` (each render of a grant's query, with the query and version ids, the row count and whether
+the rows were cut at the cap; outcome `failure` with the reason `render_failed` (also when the run throws), `busy` (no
+render slot free) or `unrunnable`, or `refused` with `parameters`). None carries a token, a secret, an origin, a parameter value or SQL.
 
 **The audit itself** (`audit`): `audit.read` (every read of the trail, with the filters' shape and the page),
 `audit.verified` (every verification, with its counts; outcome `failure` when an event failed, `empty` when nothing was

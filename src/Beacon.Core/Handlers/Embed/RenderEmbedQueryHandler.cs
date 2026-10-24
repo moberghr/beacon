@@ -18,9 +18,11 @@ namespace Beacon.Core.Handlers.Embed;
 /// the grant's fixed values and the token's locked values bound as database parameters, the project's data sources
 /// re-checked right before the SQL. Rows are always PII-masked, whatever the project's detection setting, and capped at the
 /// smaller of the project's row limit and <c>Beacon:Embed:MaxRows</c>. At most <c>Beacon:Embed:MaxConcurrentRenders</c>
-/// renders run at once in the process; one more is refused at once (<see cref="EmbedBusyException"/>). Any failure is the
+/// renders run at once in the process, and at most <c>MaxConcurrentRendersPerGrant</c> for one grant; one more is refused at
+/// once (<see cref="EmbedBusyException"/>). Any failure is the
 /// one generic refusal (<see cref="EmbedUnavailableException"/>): no gate verdict, database error or table name reaches the
-/// viewer. Records <c>embed.query_rendered</c> (ids, outcome, row count).
+/// viewer. Records <c>embed.query_rendered</c> (ids, outcome, row count) for every render that reaches the grant, also when no
+/// slot is free (<see cref="Busy"/>) or the executor throws (<see cref="RenderFailed"/>).
 /// </summary>
 internal sealed class RenderEmbedQueryHandler(
     IBeaconActorAccessor actorAccessor,
@@ -35,6 +37,7 @@ internal sealed class RenderEmbedQueryHandler(
     public const string RenderFailed = "render_failed";
     public const string Unrunnable = "unrunnable";
     public const string ParametersRefused = "parameters";
+    public const string Busy = "busy";
 
     public async Task<RenderEmbedQueryResult> Handle(RenderEmbedQueryCommand request, CancellationToken cancellationToken)
     {
@@ -101,14 +104,34 @@ internal sealed class RenderEmbedQueryHandler(
                 .ToList(),
             [grant.ProjectId]);
 
-        using var lease = renderLimiter.TryAcquire() ?? throw new EmbedBusyException();
+        var slot = renderLimiter.TryAcquire(grant.Id);
+        if (slot == null)
+        {
+            await RecordAsync(grant, SecurityAuditOutcomes.Failure, Busy, 0, false, cancellationToken);
 
-        var execution = await runner.ExecuteAsync(
-            definition,
-            grant.ProjectId,
-            values,
-            new SavedQueryRunOptions(ForcePiiDetection: true, MaxRowsCeiling: options.MaxRows),
-            cancellationToken);
+            throw new EmbedBusyException();
+        }
+
+        using var lease = slot;
+
+        SavedQueryToolExecution execution;
+        try
+        {
+            execution = await runner.ExecuteAsync(
+                definition,
+                grant.ProjectId,
+                values,
+                new SavedQueryRunOptions(ForcePiiDetection: true, MaxRowsCeiling: options.MaxRows),
+                cancellationToken);
+        }
+        catch (Exception) when (!cancellationToken.IsCancellationRequested)
+        {
+            // A render that reached the executor always leaves its outcome in the trail; the endpoint answers the generic 503.
+            logger.LogWarning("Embed render of grant {GrantId} could not complete", grant.Id);
+            await RecordAsync(grant, SecurityAuditOutcomes.Failure, RenderFailed, 0, false, cancellationToken);
+
+            throw;
+        }
 
         if (!execution.Success)
         {

@@ -53,7 +53,8 @@ internal static class EmbedEndpoints
         return endpoints;
     }
 
-    // The page, with the grant's frame headers and its frame marker; a grant that is not live is 404 that no site may frame.
+    // The page, with the grant's frame headers and its frame marker; a grant that is not live is 404 that no site may frame
+    // (a refusal, counted in the client's refusal budget, 429 once that is spent).
     private static async Task GetFrameAsync(string publicId, HttpContext context, IMediator m, CancellationToken ct)
     {
         var limiter = context.RequestServices.GetRequiredService<EmbedRateLimiter>();
@@ -86,9 +87,11 @@ internal static class EmbedEndpoints
             return;
         }
 
-        if (!limiter.TryAcquireGrant(exchange: false, "page:" + publicId, out var grantRetryAfter))
+        // Limited per client and grant: the public id is in every host page's iframe, so a budget of the grant alone could be
+        // spent by anyone. The render keeps its per-grant budget behind a verified token.
+        if (!limiter.TryAcquirePage(context, publicId, out var pageRetryAfter))
         {
-            context.Response.Headers.RetryAfter = EmbedRateLimiter.RetryAfterSeconds(grantRetryAfter);
+            context.Response.Headers.RetryAfter = EmbedRateLimiter.RetryAfterSeconds(pageRetryAfter);
             await EmbedTokenAuthMiddleware.WriteUnavailableAsync(context, StatusCodes.Status429TooManyRequests);
             return;
         }

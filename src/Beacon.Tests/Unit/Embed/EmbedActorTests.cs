@@ -13,8 +13,8 @@ namespace Beacon.Tests.Unit.Embed;
 /// <summary>
 /// How the request's actor reads an embed principal: before anything takes it for a user or a session, as an embed caller
 /// for its grant that acts for the grant's creator (their live stored user, never an Admin, naming no user) in the grant's
-/// one project. A revoked or expired grant, a creator who is no longer active, and a principal that only claims to be embed
-/// get no user, which the evaluator gives nothing; the embed principal carries no NameIdentifier, name or role claim.
+/// one project. A revoked or expired grant, a creator who is no longer active (also when their external id now belongs to a
+/// user created after the grant), and a principal that only claims to be embed get no user, which the evaluator gives nothing; the embed principal carries no NameIdentifier, name or role claim.
 /// </summary>
 [TestFixture]
 public class EmbedActorTests
@@ -72,6 +72,30 @@ public class EmbedActorTests
         disabled.Kind.Should().Be(BeaconPrincipalKind.Embed);
 
         var scope = await TestProjectAccess.RealEvaluator(disabled, kit.Data.Store.Factory().Object).GetScopeAsync(disabled, CancellationToken.None);
+        scope.Allows(EmbedTestKit.ProjectId, ProjectAction.Read).Should().BeFalse();
+    }
+
+    [Test]
+    public async Task AnArchivedCreatorsGrant_StaysDead_WhenTheirExternalIdIsGivenToANewUser()
+    {
+        var kit = new EmbedTestKit();
+        var (grant, _) = kit.Grant();
+        kit.Creator.ArchivedTime = EmbedTestKit.Now.UtcDateTime.AddDays(1);
+        kit.Data.Store.ListFor<BeaconUser>().Add(new BeaconUser
+        {
+            Id = 40,
+            ExternalId = EmbedTestKit.CreatorExternalId,
+            UserName = "ada-again",
+            IsEnabled = true,
+            CreatedTime = EmbedTestKit.Now.UtcDateTime.AddDays(2),
+            UserRoles = [new BeaconUserRole { UserId = 40, Role = new BeaconRole { Name = "Editor", Level = RoleService.RoleLevels.Editor } }]
+        });
+
+        var actor = await Resolve(kit, EmbedPrincipal.Create(grant.Id, EmbedCredential.Token));
+
+        actor.Kind.Should().Be(BeaconPrincipalKind.Embed);
+        actor.BeaconUserId.Should().BeNull("the user now holding the id was created after the grant");
+        var scope = await TestProjectAccess.RealEvaluator(actor, kit.Data.Store.Factory().Object).GetScopeAsync(actor, CancellationToken.None);
         scope.Allows(EmbedTestKit.ProjectId, ProjectAction.Read).Should().BeFalse();
     }
 

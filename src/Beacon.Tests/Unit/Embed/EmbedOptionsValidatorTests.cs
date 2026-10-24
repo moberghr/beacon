@@ -127,6 +127,8 @@ public class EmbedOptionsValidatorTests
     [TestCase(nameof(EmbedOptions.MaxOrigins), 0)]
     [TestCase(nameof(EmbedOptions.MaxConcurrentRenders), 0)]
     [TestCase(nameof(EmbedOptions.MaxConcurrentRenders), 257)]
+    [TestCase(nameof(EmbedOptions.MaxConcurrentRendersPerGrant), 0)]
+    [TestCase(nameof(EmbedOptions.MaxConcurrentRendersPerGrant), 9)]
     public void ALimitOutOfRange_IsRefused_EvenWhileOff(string property, int value)
     {
         var options = new EmbedOptions();
@@ -136,6 +138,15 @@ public class EmbedOptionsValidatorTests
 
         result.Failed.Should().BeTrue();
         result.FailureMessage.Should().Contain($"Beacon:Embed:{property}");
+    }
+
+    [Test]
+    public void APageLimitOutOfRange_IsRefused()
+    {
+        var result = Validator.Validate(null, new EmbedOptions { RateLimits = new EmbedRateLimitOptions { PagePerClientPerMinute = 0 } });
+
+        result.Failed.Should().BeTrue();
+        result.FailureMessage.Should().Contain("Beacon:Embed:RateLimits:PagePerClientPerMinute");
     }
 
     [Test]

@@ -187,8 +187,9 @@ internal sealed class BeaconActorAccessor(
     }
 
     // An embed grant (its secret, or a token issued for it) acts for the grant's creator in the grant's one project, as the
-    // creator's live stored user: a revoked or expired grant, or a creator who is no longer an active user, is an embed
-    // caller without a user, which the project access evaluator gives nothing. It never names a user (no UserId), so no
+    // creator's live stored user: a revoked or expired grant, or a creator who is no longer an active user (or whose external
+    // id now belongs to a user created after the grant), is an embed caller without a user, which the project access
+    // evaluator gives nothing. It never names a user (no UserId), so no
     // owner rule takes it for the creator, and it is never an Admin.
     private static async Task<BeaconActor> ResolveEmbedAsync(
         int grantId,
@@ -214,7 +215,8 @@ internal sealed class BeaconActorAccessor(
                     x.ProjectId,
                     x.CreatedByUserId,
                     x.RevokedTime,
-                    x.ExpiresTime
+                    x.ExpiresTime,
+                    x.CreatedTime
                 })
             .FirstOrDefaultAsync(cancellationToken);
         if (grant == null
@@ -225,8 +227,10 @@ internal sealed class BeaconActorAccessor(
             return refused;
         }
 
+        // The creator is the user that held the external id when the grant was made: a user created after the grant (the
+        // id re-provisioned, or moved to another user) is not, so an archived creator's grant stays dead.
         var creator = await FindUserAsync(context, new BeaconUserLookup(null, null, grant.CreatedByUserId), cancellationToken);
-        if (creator is not { IsActive: true })
+        if (creator is not { IsActive: true } || creator.CreatedTime > grant.CreatedTime)
         {
             return refused with { AllowedProjectIds = [grant.ProjectId] };
         }
@@ -256,6 +260,7 @@ internal sealed class BeaconActorAccessor(
                 {
                     Id = x.Id,
                     ExternalId = x.ExternalId,
+                    CreatedTime = x.CreatedTime,
                     IsActive = x.IsEnabled && x.ArchivedTime == null,
                     SecurityStamp = x.SecurityStamp,
                     IsLiveAdmin = x.IsSuperAdmin || x.UserRoles.Any(y => y.Role.Name == RoleService.RoleNames.Admin),
@@ -345,6 +350,8 @@ internal sealed class BeaconActorAccessor(
         public int Id { get; init; }
 
         public string ExternalId { get; init; } = string.Empty;
+
+        public DateTime CreatedTime { get; init; }
 
         public bool IsActive { get; init; }
 
