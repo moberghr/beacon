@@ -105,7 +105,7 @@ internal sealed class UpdateMcpSettingsHandler(
         entity.EnableLearning = data.EnableLearning;
         entity.LearningAutoApproveThreshold = data.LearningAutoApproveThreshold;
         entity.LearningInjectionBudgetChars = data.LearningInjectionBudgetChars;
-        entity.LearningSignalRetentionDays = data.LearningSignalRetentionDays;
+        entity.LearningSignalRetentionDays = KeepStoredWhenClamped(entity.LearningSignalRetentionDays, data.LearningSignalRetentionDays, ceilings.LearningSignalRetentionDays);
 
         // Self-learning settings
         entity.EnableSelfConsistency = data.EnableSelfConsistency;

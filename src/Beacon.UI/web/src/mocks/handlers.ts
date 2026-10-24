@@ -363,6 +363,7 @@ const queriesHandlers = [
       pageCount: 1,
     })),
   http.get('/beacon/api/query-folders', () => HttpResponse.json({ folders: [] })),
+  http.get('/beacon/api/query-folders/paged', () => HttpResponse.json(paged([]))),
   // Detail for the two list fixtures above (QueryDetailsData, returned unwrapped).
   http.get('/beacon/api/queries/:id', ({ params }) => {
     const id = Number(params.id);
@@ -1393,6 +1394,10 @@ const mcpHandlers = [
       ]))),
   http.get('/beacon/api/eval/golden/candidates', () => HttpResponse.json(paged([]))),
   http.get('/beacon/api/eval/golden', () => HttpResponse.json([])),
+  http.get('/beacon/api/eval/golden/paged', () => HttpResponse.json(paged([]))),
+  http.get('/beacon/api/eval/runs/:runId/results/paged', () => HttpResponse.json(paged([]))),
+  http.get('/beacon/api/glossary/paged', () => HttpResponse.json(paged([]))),
+
   http.get('/beacon/api/eval/runs', () => HttpResponse.json([])),
   http.get('/beacon/api/eval/runs/:runId/results', () => HttpResponse.json([])),
   http.get('/beacon/api/eval/grounding/recheck', ({ request }) =>
@@ -1676,6 +1681,7 @@ const adminHandlers = [
 
   // Data quality (overview + contracts are top-level arrays).
   http.get('/beacon/api/data-quality/overview', () => HttpResponse.json([])),
+  http.get('/beacon/api/data-quality/overview/paged', () => HttpResponse.json(paged([]))),
   http.get('/beacon/api/data-quality/contracts', () => HttpResponse.json(paged([]))),
 ];
 
