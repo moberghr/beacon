@@ -28,6 +28,8 @@ app.UseForwardedHeaders(forwarded);
 - [ ] `Beacon:PublicBaseUrl` is the public origin (e.g. `https://beacon.example.com`), so MCP discovery documents do not echo the client's `Host` header. → [Connect AI clients](/mcp/connect/#public-url-and-discovery)
 - [ ] `options.BaseUrl` (or **Admin settings → Base URL**) is the public UI URL **including `/beacon`**, so notification links work.
 - [ ] HTTPS redirection applies to `/beacon/mcp` too, because API keys travel in headers.
+- [ ] HSTS is sent by the host (`app.UseHsts()`) or the proxy, and `AllowedHosts` lists your real host names.
+- [ ] The origin check knows your public origin (`Beacon:PublicBaseUrl` or `Beacon:Security:AllowedOrigins`); after a release without its `LogOnly` warnings, `Beacon:Security:OriginGuard` is `Enforce`. → [Security headers and the origin check](/integrate/host-setup/#security-headers-and-the-origin-check)
 - [ ] Proxy and Kestrel timeouts allow long requests (AI documentation, `ask`): the reference host uses 5 minutes.
 
 ## Sign-in and access
@@ -59,6 +61,7 @@ app.UseForwardedHeaders(forwarded);
 - [ ] Structured JSON console logs (`Logging:Console:FormatterName=json`, `IncludeScopes=true`) if your platform correlates by trace id.
 - [ ] OpenTelemetry: add `AddBeaconInstrumentation()` to your tracer and meter providers; you choose the exporter. Keep notification HTTP calls out of traces (their URLs carry secrets). `NotificationRequests.IsNotificationRequest` identifies them.
 - [ ] Health check `GET /beacon/api/health` (anonymous, checks the database within 5 s) wired to your load balancer. It answers before the first administrator exists too, so a brand-new deployment passes the probe while setup is still pending.
+- [ ] Regular expressions: every pattern Beacon runs on user, catalog or model text carries its own match timeout (250 ms to 1 s), so no setting is needed. For your own host code, you can add a process-wide backstop with `AppContext.SetData("REGEX_DEFAULT_MATCH_TIMEOUT", TimeSpan.FromSeconds(2))` (or the same name under `configProperties` in `runtimeconfig.json`) before the first regex is built; it applies only to patterns that set no timeout of their own.
 
 ## Scaling
 

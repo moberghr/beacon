@@ -169,7 +169,7 @@ Remove Beacon:Schema (or set it to 'beacon') and move any existing Beacon tables
 
 ### Forwarded headers
 
-The forwarded-headers keys are read by the **sample host** only. A host embedding the packages calls `UseForwardedHeaders` itself. Behind a proxy this matters: the login and setup throttles key on the client address, and `SameAsRequest` cookie security keys on the scheme.
+The forwarded-headers keys are read by the **sample host** only. A host embedding the packages calls `UseForwardedHeaders` itself. Behind a proxy this matters: the login and setup throttles key on the client address, and `SameAsRequest` cookie security keys on the scheme. Without forwarded headers the cookie is issued without the `Secure` flag behind a TLS-terminating proxy: honour the forwarded scheme, or set `Beacon:Authentication:Cookie:SecureAlways` to `true` (default `false`; the cookie is then never sent over plain HTTP, so sign-in needs HTTPS end to end or a proxy that terminates it). Outside Development, Beacon logs a Warning at startup when the server listens on a plain HTTP address and the option is off. Add HTTPS redirection and HSTS in the host.
 
 ```json
 {
@@ -260,7 +260,7 @@ UPDATE beacon.Users SET SecurityStamp = LOWER(REPLACE(CONVERT(nvarchar(36), NEWI
 
 ## Authentication
 
-Beacon's sessions use the `Beacon.Auth` cookie (`HttpOnly`, `SameSite=Lax`, `SecurePolicy=SameAsRequest`, sliding). There is no default account: [first-run setup](/security/user-management/#first-run-setup) creates the super admin. Register cookie authentication with the UI's base path:
+Beacon's sessions use the `Beacon.Auth` cookie (`HttpOnly`, `SameSite=Lax`, `SecurePolicy=SameAsRequest`, sliding; `Beacon:Authentication:Cookie:SecureAlways` set to `true` always issues it with the `Secure` flag; this covers the `Beacon.Auth` cookie only, not the antiforgery or OIDC cookies). There is no default account: [first-run setup](/security/user-management/#first-run-setup) creates the super admin. Register cookie authentication with the UI's base path:
 
 ```csharp
 builder.Services.AddBeaconCookieAuthentication("/beacon");   // login page /beacon/login
@@ -278,13 +278,23 @@ Beacon's API keys, bearer tokens and `Beacon.Auth` cookie authenticate Beacon's 
 { "Beacon": { "Authentication": { "AdditionalPaths": [ "/warp" ] } } }
 ```
 
-`app.UseBeaconAuthentication()` wires Beacon's authentication in the order it needs: `ApiKeyAuthMiddleware`, the bearer JWT middleware, the host's `UseAuthentication()`, then `BeaconCookieAuthMiddleware`. Call it in place of `UseAuthentication()`, before `UseAuthorization()`.
+`app.UseBeaconAuthentication()` wires Beacon's authentication in the order it needs: `ApiKeyAuthMiddleware`, the bearer JWT middleware, the host's `UseAuthentication()`, then `BeaconCookieAuthMiddleware`, followed by the origin check, with the security headers before them all unless the host added them earlier (`Beacon:Security`, below). Call it in place of `UseAuthentication()`, before `UseAuthorization()`.
 
 The cookie scheme (`Cookies`) applies the same scope itself. When it is the host's default authentication scheme (set as the default, or the only scheme registered), or a host policy names it, it authenticates nothing outside `/beacon` and `AdditionalPaths`: the session is refused there without a check against the user store, without renewal, and its cookie is left as it is. A host route that requires an authenticated user therefore needs the host's own scheme.
 
 :::caution[Upgrading]
 Beacon credentials no longer authenticate the host's own routes. A host route that relied on a Beacon session, API key or bearer token now sees an anonymous request: add its prefix to `Beacon:Authentication:AdditionalPaths`. A host that serves the Warp dashboard with Beacon's admin check (as the sample does) must list `/warp`, or the dashboard refuses every request. `/openapi/v1.json` and the `/.well-known` discovery documents are host routes and are no longer redirected to Beacon's login or setup page. Hosts that wired the four middlewares one by one keep working unchanged; `UseBeaconAuthentication()` is the shorter form.
 :::
+
+### Security headers and the origin check (`Beacon:Security`)
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `Csp` | `Enforce` \| `ReportOnly` \| `Off` | `Enforce` | The Content-Security-Policy on responses under `/beacon`. The other security headers are sent on all of Beacon's routes in every mode |
+| `OriginGuard` | `LogOnly` \| `Enforce` | `LogOnly` | Whether a state-changing, realtime-hub or anonymous Beacon request from a foreign origin is only logged or answered 403 |
+| `AllowedOrigins` | string[] | empty | The origins browsers reach Beacon from (`https://beacon.example.com`, with an optional port, no path). With `Beacon:PublicBaseUrl` they replace the default, the request's own origin. An invalid entry fails startup |
+
+`AddBeaconApiServices()` binds the section and `UseBeaconAuthentication()` applies it. See [Security headers and the origin check](/integrate/host-setup/#security-headers-and-the-origin-check).
 
 ### Session lifetime
 

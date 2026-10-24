@@ -46,7 +46,9 @@ public interface IBeaconToolMetadata
 /// handler class whose framework copies class attributes into the endpoint's metadata (a Moberg Warp handler with a
 /// <c>[WarpHttp*]</c> route); on an MVC controller class it is refused at startup, since it would mark every action.
 /// <c>ReadOnly</c> is mandatory: <c>true</c> is the host's declaration that the action changes nothing; <c>false</c>
-/// declares a write tool, which also needs <c>HostEndpointToolOptions.AllowWriteTools</c>.
+/// declares a write tool, which also needs <c>HostEndpointToolOptions.AllowWriteTools</c>. A read-only tool on a verb
+/// other than GET or HEAD (a POST read, as in the first example) is named in a startup warning, and is not exposed when
+/// the host sets <c>HostEndpointToolOptions.AllowReadOnlyPost</c> to false.
 /// </summary>
 /// <example><code>
 /// [HttpPost]

@@ -32,7 +32,7 @@ internal class UserManagementService(
     private const string NewPasswordRequired = "Your password was set by an administrator. Choose a new password to finish signing in.";
 
     // A well-formed credential no password matches: verifying against it costs what a real verification costs.
-    private static readonly string DummyPasswordHash = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+    private static readonly string DummyPasswordHash = PasswordHasher.UnmatchableHash();
     private static readonly string DummyPasswordSalt = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
 
     // "No super admin has EVER existed": an archived super admin counts, so archiving it never reopens first-run setup,
@@ -55,7 +55,18 @@ internal class UserManagementService(
 
     public async Task<BeaconUserData> CreateSuperAdminAsync(CreateSuperAdminRequest request, CancellationToken ct = default)
     {
+        var userName = UserAccountFields.Trimmed(request.UserName);
+        var email = UserAccountFields.TrimmedEmail(request.Email);
+        if (UserAccountFields.Problem(userName, email) is { } invalidAccount)
+        {
+            throw new BeaconException(invalidAccount);
+        }
+
         ValidatePassword(request.Password);
+        if (!string.Equals(request.Password, request.ConfirmPassword, StringComparison.Ordinal))
+        {
+            throw new BeaconException("Passwords do not match.");
+        }
 
         // Seeded on its own connection before the transaction below, so the serializable unit stays
         // read-super-admins-then-insert. Two concurrent first-run requests may both try to seed: the loser's unique
@@ -107,9 +118,9 @@ internal class UserManagementService(
             var user = new BeaconUser
             {
                 ExternalId = Guid.NewGuid().ToString(),
-                UserName = request.UserName,
-                Email = request.Email,
-                DisplayName = request.DisplayName ?? request.UserName,
+                UserName = userName,
+                Email = email,
+                DisplayName = request.DisplayName ?? userName,
                 IsInternalUser = true,
                 PasswordHash = hash,
                 PasswordSalt = salt,
@@ -389,6 +400,11 @@ internal class UserManagementService(
             return new BaseResponse { Success = false, Message = "Internal user creation is disabled." };
         }
 
+        if (UserAccountFields.Problem(request.UserName, request.Email) is { } invalidAccount)
+        {
+            return new BaseResponse { Success = false, Message = invalidAccount };
+        }
+
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
         // Check for duplicate username
@@ -629,6 +645,11 @@ internal class UserManagementService(
 
     public async Task<BaseResponse> CreateExternalUserAsync(CreateExternalUserRequest request, CancellationToken ct = default)
     {
+        if (UserAccountFields.Problem(request.UserName, request.Email) is { } invalidAccount)
+        {
+            return new BaseResponse { Success = false, Message = invalidAccount };
+        }
+
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
         // Check for duplicate external ID
@@ -683,6 +704,14 @@ internal class UserManagementService(
             if (user == null)
             {
                 return new GuardedChange(new BaseResponse { Success = false, Message = "User not found." });
+            }
+
+            // Only what changes: an account stored before these rules can be saved again as it is.
+            var invalidAccount = (user.UserName != request.UserName ? UserAccountFields.UserNameProblem(request.UserName) : null)
+                ?? (EmptyAsNull(user.Email) != EmptyAsNull(request.Email) ? UserAccountFields.EmailProblem(request.Email) : null);
+            if (invalidAccount != null)
+            {
+                return new GuardedChange(new BaseResponse { Success = false, Message = invalidAccount });
             }
 
             // Check for duplicate username (if changed)
@@ -1014,6 +1043,8 @@ internal class UserManagementService(
             return PasswordChangeNeeded(NewPasswordRequired, user.Id);
         }
 
+        await UpgradePasswordHashAsync(context, user, password, ct);
+
         user.LastLoginAt = DateTime.UtcNow;
         await context.SaveChangesAsync(ct);
 
@@ -1307,6 +1338,35 @@ internal class UserManagementService(
         passwordHasher.VerifyPassword(password, DummyPasswordHash, DummyPasswordSalt);
 
         return false;
+    }
+
+    // A hash written with weaker parameters is replaced by one of the password just verified, at the current parameters.
+    // The same password, so the user's sessions stay. Written only while the stored credential is still the one verified:
+    // a password changed in the meantime is never replaced by the old one.
+    private async Task UpgradePasswordHashAsync(BeaconContext context, BeaconUser user, string password, CancellationToken ct)
+    {
+        var verifiedHash = user.PasswordHash!;
+        var verifiedSalt = user.PasswordSalt!;
+        if (!passwordHasher.NeedsRehash(verifiedHash))
+        {
+            return;
+        }
+
+        var (hash, salt) = passwordHasher.HashPassword(password);
+        var upgraded = await context.Users
+            .Where(x => x.Id == user.Id)
+            .Where(x => x.PasswordHash == verifiedHash)
+            .Where(x => x.PasswordSalt == verifiedSalt)
+            .ExecuteUpdateAsync(
+                x => x
+                    .SetProperty(y => y.PasswordHash, hash)
+                    .SetProperty(y => y.PasswordSalt, salt),
+                ct);
+
+        if (upgraded > 0)
+        {
+            logger?.LogInformation("The password hash of user {UserId} was upgraded to the current parameters at sign-in", user.Id);
+        }
     }
 
     private void ValidatePassword(string password)
