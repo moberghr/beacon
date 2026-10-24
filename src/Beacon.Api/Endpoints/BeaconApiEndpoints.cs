@@ -69,6 +69,9 @@ public static class BeaconApiEndpoints
                 .RequireAuthenticatedUser()
                 .RequireAssertion(x => BeaconScopes.SatisfiesExecuteScope(x.User))
                 .Build());
+
+            // The SPA's pages (MapBeaconUi): signed-in callers only while the login form is on.
+            BeaconUiPagePolicies.AddTo(options);
         });
 
         // One policy per functional permission (and per pair a route admits): the Admin role, or the role each permission
