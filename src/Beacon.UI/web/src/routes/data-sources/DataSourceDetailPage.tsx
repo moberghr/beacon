@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { AlertTriangle, Ban, Database, GitFork, Hourglass, Key, KeyRound, Layers, RefreshCw, X } from 'lucide-react';
@@ -25,13 +26,16 @@ import { DataSourceEnabledControl } from './DataSourceEnabledControl';
 import { DataSourceStateBadges, DISABLED_HINT } from './DataSourceStateBadges';
 import { ReplaceConnectionDialog } from './ReplaceConnectionDialog';
 import { AwaitingApprovalBanner, DATA_SOURCE_HELD_HINT, DATA_SOURCE_HELD_NO_REQUEST_HINT, DATA_SOURCE_HELD_NO_REQUEST_TITLE, DATA_SOURCE_HELD_TITLE } from '@/routes/approvals/AwaitingApproval';
-import { ChangeApprovalKind } from '@/lib/enums';
+import { BackgroundTaskState, ChangeApprovalKind } from '@/lib/enums';
+import { isBackgroundTaskFinished } from '@/lib/useBackgroundTask';
+import type { BackgroundTaskStatus, BackgroundTaskTicket } from '@/api/generated/beacon-api';
 import { formatNumber } from '@/lib/format';
 import {
   useDataSourceQuery,
   useDataSourceMetadataQuery,
+  useDataSourceMetadataRefreshStatus,
   useDeleteDataSource,
-  useRefreshDataSourceMetadata,
+  useStartDataSourceMetadataRefresh,
   type ColumnMetadataDto,
   type DataSourceEntry,
   type TableMetadataDto,
@@ -47,7 +51,11 @@ export default function DataSourceDetailPage() {
   const listQuery = useDataSourceQuery(Number.isFinite(numericId) ? numericId : null);
   const metadataQuery = useDataSourceMetadataQuery(Number.isFinite(numericId) ? numericId : null);
   const deleteMutation = useDeleteDataSource();
-  const refreshMetadata = useRefreshDataSourceMetadata();
+  const startRefresh = useStartDataSourceMetadataRefresh();
+  // The refresh runs as a background task: the ticket is followed until it finishes, then the catalog is read again.
+  const [refreshTicket, setRefreshTicket] = useState<BackgroundTaskTicket | null>(null);
+  const refreshTask = useDataSourceMetadataRefreshStatus(numericId, refreshTicket);
+  const queryClient = useQueryClient();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [tab, setTab] = useState<TabKey>('overview');
   const [replacing, setReplacing] = useState(false);
@@ -55,6 +63,42 @@ export default function DataSourceDetailPage() {
   const canDelete = useAccess().hasPermission('DataSourceAdmin');
 
   const entry = listQuery.data ?? null;
+  const finishedStatus = isBackgroundTaskFinished(refreshTask.status?.state) ? refreshTask.status : null;
+  const refreshReadFailed = refreshTicket != null && refreshTask.error != null;
+
+  useEffect(() => {
+    if (refreshTicket == null || (finishedStatus == null && !refreshReadFailed)) {
+      return;
+    }
+    if (finishedStatus?.state === BackgroundTaskState.Succeeded) {
+      void queryClient.invalidateQueries({ queryKey: ['data-sources', numericId, 'metadata'] });
+      const skipped = finishedStatus.warningCount ?? 0;
+      if (skipped > 0) {
+        // Names with quote, bracket, semicolon or control characters are not stored; the server logs them.
+        toast.warning(
+          `Metadata refreshed from source; ${skipped} table or column ${skipped === 1 ? 'name was' : 'names were'} left out because ${skipped === 1 ? 'it carries' : 'they carry'} quote, bracket, semicolon or control characters (listed in the server log).`,
+        );
+      } else {
+        toast.success('Metadata refreshed from source');
+      }
+    } else if (finishedStatus?.state === BackgroundTaskState.Skipped && finishedStatus.failureCode === 'busy') {
+      // Another refresh of the source was running: its result is the current metadata.
+      void queryClient.invalidateQueries({ queryKey: ['data-sources', numericId, 'metadata'] });
+      toast.info('Another metadata refresh of this data source was already running; its result is shown.');
+    } else if (finishedStatus != null) {
+      toast.error(describeRefreshFailure(finishedStatus));
+    } else {
+      toast.error(describeError(refreshTask.error, 'Could not read the refresh progress'));
+    }
+    setRefreshTicket(null);
+  }, [refreshTicket, finishedStatus, refreshReadFailed, refreshTask.error, numericId, queryClient]);
+
+  const refreshing = refreshTicket != null || startRefresh.isPending;
+  const refreshLabel = !refreshing
+    ? 'Refresh metadata'
+    : refreshTask.state === BackgroundTaskState.Running
+      ? 'Refreshing metadata…'
+      : 'Refresh queued…';
 
   if (Number.isNaN(numericId)) {
     return (
@@ -163,16 +207,7 @@ export default function DataSourceDetailPage() {
               type="button"
               onClick={async () => {
                 try {
-                  const snapshot = await refreshMetadata.mutateAsync(entry.id);
-                  const skipped = snapshot.skippedNameCount ?? 0;
-                  if (skipped > 0) {
-                    // Names with quote, bracket, semicolon or control characters are not stored; the server logs them.
-                    toast.warning(
-                      `Metadata refreshed from source; ${skipped} table or column ${skipped === 1 ? 'name was' : 'names were'} left out because ${skipped === 1 ? 'it carries' : 'they carry'} quote, bracket, semicolon or control characters (listed in the server log).`,
-                    );
-                  } else {
-                    toast.success('Metadata refreshed from source');
-                  }
+                  setRefreshTicket(await startRefresh.mutateAsync(entry.id));
                 } catch (err) {
                   // 429: refreshed within the cooldown; the server says how long it is.
                   if (httpErrorInfo(err)?.status === 429) {
@@ -182,10 +217,11 @@ export default function DataSourceDetailPage() {
                   }
                 }
               }}
-              disabled={refreshMetadata.isPending || metadataQuery.isFetching}
-              icon={<RefreshCw />}
+              disabled={refreshing || metadataQuery.isFetching}
+              aria-busy={refreshing}
+              icon={<RefreshCw className={refreshing ? 'animate-spin' : undefined} />}
             >
-              Refresh metadata
+              {refreshLabel}
             </Button>}
             {canEdit && (
               <Button type="button" onClick={() => setReplacing(true)} icon={<KeyRound />}>
@@ -513,4 +549,26 @@ function ConnectionTab({ entry }: { entry: DataSourceEntry }) {
       </dl>
     </CardBody>
   );
+}
+
+// A failed background refresh says why by its code; the server log has the rest.
+function describeRefreshFailure(status: BackgroundTaskStatus): string {
+  switch (status.failureCode) {
+    case 'busy':
+      return 'Another metadata refresh of this data source was running; try again when it has finished.';
+    case 'data_source_disabled':
+      return 'This data source is disabled; enable it to refresh its metadata.';
+    case 'insecure_transport':
+      return "This data source's connection does not verify the server over TLS, so its metadata was not refreshed.";
+    case 'not_found':
+      return 'This data source was not found.';
+    case 'forbidden':
+      return 'You can no longer manage this data source, so its metadata was not refreshed.';
+    case 'abandoned':
+      return 'The metadata refresh stopped without finishing; try again.';
+    case 'cancelled':
+      return 'The metadata refresh was cancelled.';
+    default:
+      return 'Metadata refresh failed; the server log has the details.';
+  }
 }

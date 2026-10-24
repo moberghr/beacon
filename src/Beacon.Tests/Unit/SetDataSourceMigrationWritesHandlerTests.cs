@@ -38,6 +38,7 @@ public class SetDataSourceMigrationWritesHandlerTests
     private RecordingSecurityAudit _audit = null!;
     private MemoryCache _cache = null!;
     private Mock<ISchemaGraphService> _graphs = null!;
+    private Mock<ICatalogSnapshotCache> _snapshots = null!;
     private List<ColumnMetadata> _columns = null!;
 
     [SetUp]
@@ -55,6 +56,7 @@ public class SetDataSourceMigrationWritesHandlerTests
         _logs = new LogRecorder();
         _cache = new MemoryCache(new MemoryCacheOptions());
         _graphs = new Mock<ISchemaGraphService>();
+        _snapshots = new Mock<ICatalogSnapshotCache>();
     }
 
     [TearDown]
@@ -92,6 +94,7 @@ public class SetDataSourceMigrationWritesHandlerTests
         _audit.Ways.Should().Equal("staged");
         _cache.TryGetValue(DatabaseMetadataService.GetCacheKey(SourceId), out _).Should().BeFalse();
         _graphs.Verify(x => x.Invalidate(SourceId), Times.Once);
+        _snapshots.Verify(x => x.Invalidate(SourceId), Times.Once);
     }
 
     // Column values Beacon sampled through the source's old login go when it becomes a write target; another source's stay.
@@ -258,7 +261,8 @@ public class SetDataSourceMigrationWritesHandlerTests
             _graphs.Object,
             TimeProvider.System,
             _audit,
-            _logs.For<SetDataSourceMigrationWritesHandler>());
+            _logs.For<SetDataSourceMigrationWritesHandler>(),
+            _snapshots.Object);
 
         await handler.Handle(command, CancellationToken.None);
     }

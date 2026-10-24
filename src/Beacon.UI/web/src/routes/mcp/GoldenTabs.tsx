@@ -22,7 +22,8 @@ import {
   isChangedSinceReviewed,
   useDeactivateGoldenCase,
   useGoldenCandidatesList,
-  useGoldenCases,
+  useGoldenCase,
+  useGoldenCasesList,
   usePromoteCandidate,
   type GoldenCandidateItem,
   type GoldenCaseItem,
@@ -203,8 +204,8 @@ function PromotedCaseModal({
   notice: ReactNode;
   onClose: () => void;
 }) {
-  const cases = useGoldenCases(projectId);
-  const goldenCase = cases.data?.find(x => x.id === caseId) ?? null;
+  const cases = useGoldenCase(projectId, caseId);
+  const goldenCase = cases.data ?? null;
 
   return (
     <GoldenCaseModal
@@ -223,7 +224,7 @@ function PromotedCaseModal({
  */
 export function GoldenCasesTab() {
   const [project, setProject] = useState<{ id: number; name: string } | null>(null);
-  const cases = useGoldenCases(project?.id ?? null);
+  const cases = useGoldenCasesList(project?.id ?? null);
   const [viewing, setViewing] = useState<GoldenCaseItem | null>(null);
   const [deactivating, setDeactivating] = useState<GoldenCaseItem | null>(null);
   const deactivate = useDeactivateGoldenCase();
@@ -258,9 +259,10 @@ export function GoldenCasesTab() {
           title="Failed to load golden examples"
           description={cases.error instanceof Error ? cases.error.message : 'Unknown error'}
         />
-      ) : (cases.data ?? []).length === 0 ? (
+      ) : cases.items.length === 0 ? (
         <EmptyState title="No golden examples" description="An Admin promotes golden candidates into this project." />
       ) : (
+        <>
         <table className="w-full text-sm">
           <thead>
             <tr className="text-left text-2xs font-semibold uppercase tracking-eyebrow text-text-muted border-b border-border">
@@ -273,7 +275,7 @@ export function GoldenCasesTab() {
             </tr>
           </thead>
           <tbody>
-            {(cases.data ?? []).map(x => (
+            {cases.items.map(x => (
               <tr key={x.id} className="border-b border-border last:border-b-0">
                 <td className="px-2 py-2 max-w-[320px] truncate" title={showHiddenCharacters(x.question)}>
                   {showHiddenCharacters(x.question)}
@@ -313,6 +315,8 @@ export function GoldenCasesTab() {
             ))}
           </tbody>
         </table>
+        <Pager {...cases.tableProps.paging} />
+        </>
       )}
 
       {viewing && (

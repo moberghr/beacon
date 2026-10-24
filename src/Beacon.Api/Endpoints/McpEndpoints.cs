@@ -103,6 +103,7 @@ internal static class McpEndpoints
         // the MCP route and the REST SQL endpoints, so a Read-scoped key can't run SQL through it.
         mcp.MapPost("/tools/run", (RunMcpToolCommand body, IMediator m, CancellationToken ct) => m.Send(body, ct))
             .WithName("RunMcpTool")
+            .WithBeaconLongRunning()
             .RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName);
 
         mcp.MapGet("/learning-stats", ([FromQuery] int? projectId, IMediator m, CancellationToken ct) =>

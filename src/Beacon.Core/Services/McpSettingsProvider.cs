@@ -158,6 +158,7 @@ internal sealed class McpSettingsProvider(
         effective.StatementTimeoutSeconds = Clamp(effective.StatementTimeoutSeconds, ceilings.StatementTimeoutSeconds, nameof(effective.StatementTimeoutSeconds), clamped);
         effective.MaxResultBytes = Clamp(effective.MaxResultBytes, ceilings.MaxResultBytes, nameof(effective.MaxResultBytes), clamped);
         effective.MaxConcurrentQueriesPerKey = Clamp(effective.MaxConcurrentQueriesPerKey, ceilings.MaxConcurrentQueriesPerKey, nameof(effective.MaxConcurrentQueriesPerKey), clamped);
+        effective.LearningSignalRetentionDays = Clamp(effective.LearningSignalRetentionDays, ceilings.LearningSignalRetentionDays, nameof(effective.LearningSignalRetentionDays), clamped);
 
         // A null MaxExplainCost means "no limit", which is above any ceiling — the ceiling becomes the value.
         if (ceilings.MaxExplainCost is { } costCeiling && (effective.MaxExplainCost == null || effective.MaxExplainCost > costCeiling))

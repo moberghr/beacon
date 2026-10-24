@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { describeError, httpErrorInfo, unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import { usePagedList } from '@/lib/usePagedList';
+import { fetchPagedList } from '@/lib/paging';
 import { GroundingRecheckKind, McpDocPatchStatus, McpDocPatchTarget, McpPatternStatus, McpPatternType } from '@/lib/enums';
 import { createSimpleMutation } from '@/lib/mutations';
 
@@ -541,13 +542,29 @@ export function useGoldenCandidatesList(enabled: boolean) {
   });
 }
 
-/** A project's golden cases (Admin). Only read once a project is chosen. */
-export function useGoldenCases(projectId: number | null) {
-  return useQuery({
-    queryKey: [...GOLDEN_CASES_KEY, projectId],
-    queryFn: async () =>
-      unwrap<GoldenCaseItem[]>(await beaconApi().getGoldenCases(projectId as number, undefined)),
+/** A project's golden cases (Admin): server-paged, newest first. Only read once a project is chosen (`cases*` in the URL). */
+export function useGoldenCasesList(projectId: number | null) {
+  return usePagedList<GoldenCaseItem>({
+    queryKey: [...GOLDEN_CASES_KEY, 'list', projectId],
+    path: '/beacon/api/eval/golden/paged',
+    fixedParams: { projectId },
+    urlPrefix: 'cases',
     enabled: projectId !== null,
+  });
+}
+
+/** One golden case of a project (Admin), read by id: a promotion's case may be on no loaded page. */
+export function useGoldenCase(projectId: number, caseId: number) {
+  return useQuery({
+    queryKey: [...GOLDEN_CASES_KEY, 'one', projectId, caseId],
+    queryFn: async () => {
+      const page = await fetchPagedList<GoldenCaseItem>('/beacon/api/eval/golden/paged', {
+        projectId,
+        id: caseId,
+        pageSize: 1,
+      });
+      return page.items[0] ?? null;
+    },
   });
 }
 

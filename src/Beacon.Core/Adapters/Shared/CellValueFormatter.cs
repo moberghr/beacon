@@ -4,7 +4,7 @@ namespace Beacon.Core.Adapters.Shared;
 /// Provides consistent formatting for cell values across all notification adapters.
 /// Handles date/time types, booleans, and null values uniformly.
 /// </summary>
-internal static class CellValueFormatter
+internal static partial class CellValueFormatter
 {
     /// <summary>
     /// Formats a cell value for display in notifications.
@@ -44,6 +44,10 @@ internal static class CellValueFormatter
         }
 
         // Remove characters that would break table formatting
-        return System.Text.RegularExpressions.Regex.Replace(formatted, @"\t|\n|\r", " ").Trim();
+        return formatted
+            .Replace('\t', ' ')
+            .Replace('\n', ' ')
+            .Replace('\r', ' ')
+            .Trim();
     }
 }
