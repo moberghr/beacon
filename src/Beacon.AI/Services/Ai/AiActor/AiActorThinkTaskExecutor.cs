@@ -14,7 +14,8 @@ namespace Beacon.AI.Services.Ai.AiActor;
 /// user is still the actor's creator or an Admin, and the cycle itself re-checks that they may still work with the actor's
 /// data source before any LLM call or SQL; a task whose user may not is skipped
 /// (<see cref="BackgroundTaskFailureCodes.Forbidden"/>), never run as the system. The cycle keeps its own cooldown (a
-/// task inside it is skipped as <see cref="BackgroundTaskFailureCodes.Cooldown"/>) and its LLM calls go through the
+/// task inside it is skipped as <see cref="BackgroundTaskFailureCodes.Cooldown"/>; one for an actor paused or archived
+/// meanwhile as <see cref="BackgroundTaskFailureCodes.Inactive"/>) and its LLM calls go through the
 /// request queue like any other.
 /// </summary>
 internal sealed class AiActorThinkTaskExecutor(
@@ -42,6 +43,19 @@ internal sealed class AiActorThinkTaskExecutor(
         catch (InvalidOperationException)
         {
             return BackgroundTaskOutcome.Skipped(BackgroundTaskFailureCodes.NotFound);
+        }
+
+        await using (var context = await contextFactory.CreateDbContextAsync(cancellationToken))
+        {
+            var status = await context.AiActors
+                .Where(x => x.Id == task.SubjectId)
+                .Select(x => x.Status)
+                .FirstOrDefaultAsync(cancellationToken);
+
+            if (status != AiActorStatus.Active)
+            {
+                return BackgroundTaskOutcome.Skipped(BackgroundTaskFailureCodes.Inactive);
+            }
         }
 
         var result = await aiActorService.ExecuteThinkCycleAsync(task.SubjectId, null, cancellationToken);

@@ -115,7 +115,7 @@ total cost and the recent think cycles.
 - **On demand**: the actor's page has a **Think now** button, which starts the cycle as a background task:
   `POST /beacon/api/ai-actors/{id}/think-tasks` answers `202` with the task (its `jobId` correlates the `JobStatusChanged`
   events the user gets), and `GET .../think-tasks/{taskId}` reads its state (`Queued`, `Running`, `Succeeded`, `Failed`
-  or `Skipped`, with a `failureCode`: `cooldown`, `plan_pending`, `forbidden`, `not_found`, `abandoned`, `cancelled`,
+  or `Skipped`, with a `failureCode`: `cooldown`, `plan_pending`, `inactive` (the actor was paused or archived meanwhile), `forbidden`, `not_found`, `abandoned`, `cancelled`,
   `failed`; never the provider's message, the cycle's own reason is on its execution). Only the creator or an Admin may start
   one; a second start while one is queued or running answers `429`. The task runs as you and re-checks that you may
   still run the actor and reach its data source right before the LLM call; if not it is skipped, never run as the

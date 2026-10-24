@@ -43,7 +43,7 @@ public class AiActorThinkTaskTests
         _service
             .Setup(x => x.ExecuteThinkCycleAsync(ActorId, null, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new AiActorThinkResult { Success = true });
-        _actors = [new AiActor { Id = ActorId, Name = "watcher", Instructions = "watch", DataSourceId = 1, CreatedByUserId = "ext-ana" }];
+        _actors = [new AiActor { Id = ActorId, Name = "watcher", Instructions = "watch", DataSourceId = 1, CreatedByUserId = "ext-ana", Status = AiActorStatus.Active }];
         _users =
         [
             new BeaconUser { Id = 1, ExternalId = "ext-ana", UserName = "ana", IsEnabled = true },
@@ -117,6 +117,54 @@ public class AiActorThinkTaskTests
         var outcome = await Executor(Interactive("ext-ben", RoleService.RoleNames.Editor)).ExecuteAsync(new BackgroundTaskContext(1, ActorId, 2), CancellationToken.None);
 
         outcome.SkippedCode.Should().Be(BackgroundTaskFailureCodes.Forbidden);
+        _service.Verify(x => x.ExecuteThinkCycleAsync(It.IsAny<int>(), It.IsAny<int?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public async Task TheTask_RunAsAnAdminWhoIsNotTheCreator_RunsTheCycle()
+    {
+        var runAsAdmin = new BeaconActor("ext-admin", false)
+        {
+            Kind = BeaconPrincipalKind.Owner,
+            BeaconUserId = 5,
+            IsActiveUser = true,
+            IsLiveAdmin = true,
+            RoleLevel = 3
+        };
+
+        var outcome = await ExecutorFor(runAsAdmin).ExecuteAsync(new BackgroundTaskContext(1, ActorId, 5), CancellationToken.None);
+
+        outcome.SkippedCode.Should().BeNull();
+        _service.Verify(x => x.ExecuteThinkCycleAsync(ActorId, null, It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public async Task TheTask_RunAsAUserWhoIsNoLongerAnAdmin_IsSkippedAsForbidden()
+    {
+        var runAsFormerAdmin = new BeaconActor("ext-admin", false)
+        {
+            Kind = BeaconPrincipalKind.Owner,
+            BeaconUserId = 5,
+            IsActiveUser = true,
+            IsLiveAdmin = false,
+            RoleLevel = 1
+        };
+
+        var outcome = await ExecutorFor(runAsFormerAdmin).ExecuteAsync(new BackgroundTaskContext(1, ActorId, 5), CancellationToken.None);
+
+        outcome.SkippedCode.Should().Be(BackgroundTaskFailureCodes.Forbidden);
+        _service.Verify(x => x.ExecuteThinkCycleAsync(It.IsAny<int>(), It.IsAny<int?>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [TestCase(AiActorStatus.Paused)]
+    [TestCase(AiActorStatus.Archived)]
+    public async Task TheTask_ForAnActorPausedOrArchivedMeanwhile_IsSkippedAsInactive_WithoutThinking(AiActorStatus status)
+    {
+        _actors[0].Status = status;
+
+        var outcome = await Executor(Interactive("ext-ana")).ExecuteAsync(new BackgroundTaskContext(1, ActorId, 1), CancellationToken.None);
+
+        outcome.SkippedCode.Should().Be(BackgroundTaskFailureCodes.Inactive);
         _service.Verify(x => x.ExecuteThinkCycleAsync(It.IsAny<int>(), It.IsAny<int?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
@@ -205,6 +253,16 @@ public class AiActorThinkTaskTests
 
     private AiActorThinkTaskExecutor Executor(ClaimsPrincipal caller)
         => new(_service.Object, Actor(caller), Factory(), NullLogger<AiActorThinkTaskExecutor>.Instance);
+
+    private AiActorThinkTaskExecutor ExecutorFor(BeaconActor caller)
+    {
+        var accessor = new Mock<IBeaconActorAccessor>();
+        accessor
+            .Setup(x => x.GetCurrentAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(caller);
+
+        return new(_service.Object, accessor.Object, Factory(), NullLogger<AiActorThinkTaskExecutor>.Instance);
+    }
 
     private BeaconActorAccessor Actor(ClaimsPrincipal caller)
         => TestProjectAccess.ActorAccessor(TestRequestPrincipal.For(caller), Factory());
