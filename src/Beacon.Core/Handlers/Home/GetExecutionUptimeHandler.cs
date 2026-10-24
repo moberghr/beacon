@@ -37,15 +37,13 @@ internal sealed class GetExecutionUptimeHandler(IDbContextFactory<BeaconContext>
             .GroupBy(x =>
                 new
                 {
-                    x.CreatedTime.Date,
-                    x.CreatedTime.Hour,
+                    HourStart = UtcBuckets.Hour(x.CreatedTime),
                     x.NotificationStatus
                 })
             .Select(x =>
                 new
                 {
-                    x.Key.Date,
-                    x.Key.Hour,
+                    x.Key.HourStart,
                     x.Key.NotificationStatus
                 })
             .ToListAsync(cancellationToken);
@@ -58,7 +56,7 @@ internal sealed class GetExecutionUptimeHandler(IDbContextFactory<BeaconContext>
 
         foreach (var row in rows)
         {
-            var hourStart = row.Date.AddHours(row.Hour);
+            var hourStart = DateTime.SpecifyKind(row.HourStart, DateTimeKind.Utc);
             var hourIndex = (int)Math.Floor((hourStart - firstBucketStart).TotalHours);
             if (hourIndex < 0 || hourIndex >= hours)
             {

@@ -115,6 +115,59 @@ public class HomeAggregationTranslationTests
         indexed.Should().BeTrue("the window filter has an index on the sent time");
     }
 
+    [Test]
+    public void UtcDayBucket_ConvertsToUtcBeforeTruncating_OnPostgreSql()
+    {
+        using var context = Create(false);
+
+        var sql = context.QueryExecutionHistory
+            .GroupBy(x => UtcBuckets.Day(x.CreatedTime))
+            .Select(x => new { Date = x.Key, Count = x.Count() })
+            .ToQueryString();
+
+        sql.Should().Contain("date_trunc('day', timezone('UTC', ");
+    }
+
+    [Test]
+    public void UtcHourBucket_ConvertsToUtcBeforeTruncating_OnPostgreSql()
+    {
+        using var context = Create(false);
+
+        var sql = context.QueryExecutionHistory
+            .GroupBy(x => UtcBuckets.Hour(x.CreatedTime))
+            .Select(x => new { Hour = x.Key, Count = x.Count() })
+            .ToQueryString();
+
+        sql.Should().Contain("date_trunc('hour', timezone('UTC', ");
+    }
+
+    [Test]
+    public void UtcBuckets_OnSqlServer_TruncateTheZonelessColumn()
+    {
+        using var context = Create(true);
+
+        var sql = context.QueryExecutionHistory
+            .GroupBy(x => new { Day = UtcBuckets.Day(x.CreatedTime), Hour = UtcBuckets.Hour(x.CreatedTime) })
+            .Select(x => new { x.Key.Day, x.Key.Hour, Count = x.Count() })
+            .ToQueryString();
+
+        sql.Should().Contain("DATEADD(hour, DATEDIFF(hour, 0, ").And.Contain("CONVERT(date, ");
+    }
+
+    [TestCase(false)]
+    [TestCase(true)]
+    public void DurationHistogram_RoundsTheDurationBeforeGrouping(bool sqlServer)
+    {
+        using var context = Create(sqlServer);
+
+        var sql = context.QueryExecutionHistory
+            .GroupBy(x => new { Date = UtcBuckets.Day(x.CreatedTime), Ms = Math.Round(x.ExecutionTimeMs) })
+            .Select(x => new { x.Key.Date, x.Key.Ms, Count = x.Count(), TotalMs = x.Sum(y => y.ExecutionTimeMs) })
+            .ToQueryString();
+
+        sql.Should().ContainEquivalentOf("ROUND(").And.ContainEquivalentOf("GROUP BY");
+    }
+
     private static BeaconContext Create(bool sqlServer) =>
         sqlServer ? SqlServerTestContext.Create() : NpgsqlTestContext.Create();
 }

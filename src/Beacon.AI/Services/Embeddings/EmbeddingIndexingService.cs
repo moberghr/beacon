@@ -207,6 +207,7 @@ internal sealed class EmbeddingIndexingService(
 
         var existingByKey = existing.ToDictionary(x => (x.OwnerType, x.OwnerId));
         var dimensions = embeddingService.Dimensions;
+        var fingerprint = embeddingService.ModelFingerprint;
 
         var toAdd = new List<McpEmbedding>();
         // (Row, vector) pairs to push into the DB-managed pgvector column after SaveChanges assigns ids.
@@ -215,13 +216,13 @@ internal sealed class EmbeddingIndexingService(
         var hashes = new List<(McpEmbedding Row, string Hash)>();
         var unchanged = 0;
 
-        // Skip what is already indexed: same content hash, model, version and dimensions means the stored
+        // Skip what is already indexed: same content hash (which covers the model's fingerprint), model, version and dimensions means the stored
         // vector is still the right one. A model or version change (or a row from before hashes were
         // stored) still re-embeds.
         var changedInputs = new List<(EmbeddingInput Input, string Hash)>();
         foreach (var input in inputs)
         {
-            var hash = EmbeddingContentHash.Compute(input.Text);
+            var hash = EmbeddingContentHash.Compute(input.Text, fingerprint);
             if (existingByKey.TryGetValue((input.OwnerType, input.OwnerId), out var current)
                 && current.ContentHash == hash
                 && current.Model == EmbeddingModelName

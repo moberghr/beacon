@@ -534,6 +534,8 @@ public class EmbeddingIndexingServiceTests
 
         public bool IsAvailable => true;
 
+        public string ModelFingerprint { get; set; } = string.Empty;
+
         public Task<float[]> EmbedAsync(string text, CancellationToken ct)
         {
             Embedded.Add(text);
@@ -612,6 +614,26 @@ public class EmbeddingIndexingServiceTests
 
         embedder.Embedded.Should().HaveCount(2);
         added.Should().OnlyContain(x => x.EmbeddingVersion == 1 && x.ContentHash != null);
+    }
+
+    [Test]
+    public async Task ReindexDataSourceAsync_ADifferentModelFingerprintEmbedsEverythingAgain()
+    {
+        var embedder = new CountingEmbeddingService { ModelFingerprint = "model-a" };
+        var added = new List<McpEmbedding>();
+        await BuildService([OrdersTable("orders")], [], [], added, [], out _, embeddingService: embedder)
+            .ReindexDataSourceAsync(1, CancellationToken.None);
+
+        embedder.Embedded.Clear();
+        await BuildService([OrdersTable("orders")], [], added, [], [], out _, embeddingService: embedder)
+            .ReindexDataSourceAsync(1, CancellationToken.None);
+        embedder.Embedded.Should().BeEmpty("the same fingerprint skips unchanged rows");
+
+        embedder.ModelFingerprint = "model-b";
+        await BuildService([OrdersTable("orders")], [], added, [], [], out _, embeddingService: embedder)
+            .ReindexDataSourceAsync(1, CancellationToken.None);
+
+        embedder.Embedded.Should().HaveCount(2);
     }
 
     [Test]

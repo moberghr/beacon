@@ -1,3 +1,4 @@
+using System.Security.Cryptography;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Logging;
 using Microsoft.ML.OnnxRuntime;
@@ -26,12 +27,14 @@ internal sealed class OnnxEmbeddingService : IBeaconEmbeddingService, IDisposabl
     private readonly EmbeddingOptions _options;
     private readonly ILogger<OnnxEmbeddingService> _logger;
     private readonly Lazy<LoadedModel> _model;
+    private readonly Lazy<string> _fingerprint;
 
     public OnnxEmbeddingService(IConfiguration configuration, ILogger<OnnxEmbeddingService> logger)
     {
         _options = configuration.GetSection("Beacon:Embeddings").Get<EmbeddingOptions>() ?? new EmbeddingOptions();
         _logger = logger;
         _model = new Lazy<LoadedModel>(LoadModel, LazyThreadSafetyMode.ExecutionAndPublication);
+        _fingerprint = new Lazy<string>(ComputeFingerprint, LazyThreadSafetyMode.ExecutionAndPublication);
     }
 
     public int Dimensions => EmbeddingDimensions;
@@ -42,6 +45,9 @@ internal sealed class OnnxEmbeddingService : IBeaconEmbeddingService, IDisposabl
         && File.Exists(_options.ModelPath)
         && !string.IsNullOrWhiteSpace(_options.TokenizerPath)
         && File.Exists(_options.TokenizerPath);
+
+    // SHA-256 over the model and tokenizer files, computed once: a swapped or re-exported model changes it.
+    public string ModelFingerprint => IsAvailable ? _fingerprint.Value : string.Empty;
 
     public async Task<float[]> EmbedAsync(string text, CancellationToken ct)
     {
@@ -77,6 +83,23 @@ internal sealed class OnnxEmbeddingService : IBeaconEmbeddingService, IDisposabl
         {
             _model.Value.Session.Dispose();
         }
+    }
+
+    private string ComputeFingerprint()
+    {
+        using var hash = IncrementalHash.CreateHash(HashAlgorithmName.SHA256);
+        foreach (var path in new[] { _options.ModelPath!, _options.TokenizerPath! })
+        {
+            using var stream = File.OpenRead(path);
+            var buffer = new byte[81920];
+            int read;
+            while ((read = stream.Read(buffer, 0, buffer.Length)) > 0)
+            {
+                hash.AppendData(buffer, 0, read);
+            }
+        }
+
+        return Convert.ToHexString(hash.GetHashAndReset());
     }
 
     private LoadedModel LoadModel()
@@ -144,10 +167,11 @@ internal sealed class OnnxEmbeddingService : IBeaconEmbeddingService, IDisposabl
         // for CLS pooling: the sentence embedding is the [CLS] token's hidden state (position 0), not a mean
         // over tokens. Mean pooling would place the vector in a different region than the model was calibrated
         // for and degrade retrieval quality. Read token 0's row only (not the whole tensor), then L2-normalize.
+        // A sentence-embedding export is already pooled: rank 2, [1, EmbeddingDimensions].
         var pooled = new float[EmbeddingDimensions];
         for (var i = 0; i < EmbeddingDimensions; i++)
         {
-            pooled[i] = hidden[0, 0, i];
+            pooled[i] = hidden.Rank == 2 ? hidden[0, i] : hidden[0, 0, i];
         }
 
         Normalize(pooled);

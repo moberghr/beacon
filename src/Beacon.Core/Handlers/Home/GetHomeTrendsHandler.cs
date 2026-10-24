@@ -46,7 +46,7 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
         // Subscriptions created per day over the last 14 days (for sparkline)
         var subDaily14 = await subscriptions
             .Where(x => x.CreatedTime >= now.AddDays(-14))
-            .GroupBy(x => x.CreatedTime.Date)
+            .GroupBy(x => UtcBuckets.Day(x.CreatedTime))
             .Select(x =>
                 new
                 {
@@ -59,22 +59,24 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
             subDaily14.ToDictionary(x => x.Date, x => x.Count), 14, now);
 
         // ── Query executions ───────────────────────────────────────────
-        // One row per (day, duration) with its count: the counts, average, daily trend and percentiles below
-        // all derive from it, so the rows read stay bounded by the distinct durations instead of every run.
+        // One row per (day, duration rounded to a whole millisecond) with its count and exact total: the counts,
+        // average, daily trend and percentiles below all derive from it, so the rows read stay bounded by days x
+        // distinct whole-millisecond durations instead of every run; percentiles are exact to 1 ms.
         var execDistribution = await runs
             .Where(x => x.CreatedTime >= windowStart)
             .GroupBy(x =>
                 new
                 {
-                    x.CreatedTime.Date,
-                    x.ExecutionTimeMs
+                    Date = UtcBuckets.Day(x.CreatedTime),
+                    Ms = Math.Round(x.ExecutionTimeMs)
                 })
             .Select(x =>
                 new
                 {
                     x.Key.Date,
-                    Ms = x.Key.ExecutionTimeMs,
-                    Count = x.Count()
+                    x.Key.Ms,
+                    Count = x.Count(),
+                    TotalMs = x.Sum(y => y.ExecutionTimeMs)
                 })
             .ToListAsync(cancellationToken);
 
@@ -91,7 +93,7 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
         // Sparkline: daily counts over last 14 days, aggregated server-side
         var execDaily14 = await runs
             .Where(x => x.CreatedTime >= now.AddDays(-14))
-            .GroupBy(x => x.CreatedTime.Date)
+            .GroupBy(x => UtcBuckets.Day(x.CreatedTime))
             .Select(x =>
                 new
                 {
@@ -112,7 +114,7 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
 
         // ── Performance metrics ────────────────────────────────────────
         var avgExecutionMs = queryExecutions30d > 0
-            ? (decimal)(execDistribution.Sum(x => x.Ms * x.Count) / queryExecutions30d)
+            ? (decimal)(execDistribution.Sum(x => x.TotalMs) / queryExecutions30d)
             : 0m;
 
         var priorAverageMs = await runs
@@ -186,7 +188,7 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
         // Per-day counts aggregated server-side; the window total derives from them.
         var notifDaily = await notifications
             .Where(x => x.SentAt >= windowStart)
-            .GroupBy(x => x.SentAt.Date)
+            .GroupBy(x => UtcBuckets.Day(x.SentAt))
             .Select(x =>
                 new
                 {
@@ -205,7 +207,7 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
 
         var notifDaily14 = await notifications
             .Where(x => x.SentAt >= now.AddDays(-14))
-            .GroupBy(x => x.SentAt.Date)
+            .GroupBy(x => UtcBuckets.Day(x.SentAt))
             .Select(x =>
                 new
                 {
@@ -244,7 +246,7 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
 
         var anomaliesDaily14 = await anomalies
             .Where(x => x.DetectedTime >= now.AddDays(-14))
-            .GroupBy(x => x.DetectedTime.Date)
+            .GroupBy(x => UtcBuckets.Day(x.DetectedTime))
             .Select(x =>
                 new
                 {

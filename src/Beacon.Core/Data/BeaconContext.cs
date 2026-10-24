@@ -174,6 +174,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             modelBuilder.HasDefaultSchema(resolvedSchema);
         }
 
+        UtcBuckets.Register(modelBuilder, Database.ProviderName);
         SetSoftDeleteQueryFilter(modelBuilder);
         ConfigureMigrationEntities(modelBuilder);
         ConfigureMetadataEntities(modelBuilder);
