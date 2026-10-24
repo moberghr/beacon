@@ -24,7 +24,7 @@ into whatever it already uses (OTLP to an ADOT collector, Phoenix, or another ba
     "Mcp": {
       "Audit": {
         "Required": false,               // fail closed: withhold a result whose audit row could not be written
-        "RetentionDays": null,           // null = keep forever (default); > 0 = purge older rows daily
+        "RetentionDays": null,           // null or 0 = keep forever (default); 365 recommended; > 0 = purge older rows daily
         "RequestIdHeader": "X-Request-Id", // upstream correlation header; null/empty = read none
         "RequireContent": false          // pin content retention on, so audit content cannot be switched off at runtime
       }
@@ -38,11 +38,21 @@ into whatever it already uses (OTLP to an ADOT collector, Phoenix, or another ba
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `Beacon:Mcp:Audit:Required` | `false` | When `true`, a tool result whose audit row failed to write is replaced with an error instead of being returned. |
-| `Beacon:Mcp:Audit:RetentionDays` | `null` | Days audit rows are kept. `null` keeps them forever. Must be `> 0` when set; `0` or a negative value fails options validation at startup. |
+| `Beacon:Mcp:Audit:Required` | `false` | When `true`, a tool result whose audit row failed to write is replaced with an error instead of being returned. While it is `false` the host logs a Warning at startup: such a call is then recorded only by the `Beacon.Audit` 9100 event (`Persisted=false`) and the audit write failure metric. |
+| `Beacon:Mcp:Audit:RetentionDays` | `null` | Days audit rows are kept. `null` or `0` keeps them forever (`365` recommended); a negative value fails options validation at startup. Under `Beacon:Retention:Locked` it must be greater than 0. |
 | `Beacon:Mcp:Audit:RequestIdHeader` | `X-Request-Id` | The upstream header read into `UpstreamRequestId`. Must be a valid HTTP header token, or startup fails. Set to `null`/empty to read none. |
 | `Beacon:Mcp:Audit:RequireContent` | `false` | When `true`, pins `RetainQueryContent` on globally and for every project, so nobody, an Admin included, can switch the audit's question and SQL text off at runtime. See [Keeping audit content](#keeping-audit-content-the-requirecontent-lock). |
 | `Beacon:Telemetry:CaptureContent` | `false` | Puts the tool input on the current span as `beacon.tool.input`, only where the project's own content retention also allows content (double opt-in, never from this setting alone). |
+
+## Knowing the retention jobs run
+
+Beacon schedules no maintenance job itself: the audit purges and the security audit verification run only where the host
+schedules them (the sample host does, with Warp recurring jobs `mcp-audit-retention`, `security-audit-retention` and
+`security-audit-verify`). Each of those services records a heartbeat (`MaintenanceHeartbeats`, one row per job: its name and
+the time it last ran to its end) when it finishes. At startup the host looks the heartbeats up, bounded and best effort, and
+logs a Warning for each job that should be running and has no recorded run, or none within 36 hours (6 for the
+verification): a purge counts only while its `RetentionDays` is set. A first start has no heartbeat yet and warns once.
+`IRetentionScheduleCheck` runs the same check for a host that wants it on a schedule of its own.
 
 ## What's on an audit row
 
@@ -51,9 +61,10 @@ project's retention decision) parameters/error:
 
 | Column | Source |
 |---|---|
+| `CorrelationId` | Minted by Beacon for every audited call (32 hex characters) and never read from a request: the one identifier on the row, and on the 9100 event, that a caller cannot choose. `null` on rows written before it existed. |
 | `TraceId` / `SpanId` | `Activity.Current` (the MCP SDK's `tools/call` span) when one is current; otherwise `null`. |
 | `McpSessionId` | The `Mcp-Session-Id` transport header. `null` for stateless clients. |
-| `UpstreamRequestId` | The header named by `Beacon:Mcp:Audit:RequestIdHeader`, accepted only when it is at most 128 characters of `[A-Za-z0-9._:-]`; anything else is dropped, which blocks log injection. |
+| `UpstreamRequestId` | Supplied by the caller and not verified: use `CorrelationId` as the identifier Beacon vouches for. The header named by `Beacon:Mcp:Audit:RequestIdHeader`, accepted only when it is at most 128 characters of `[A-Za-z0-9._:-]`; anything else is dropped, which blocks log injection. |
 | `ApiKeyId` | The `api_key_id` claim of an API-key caller. No foreign key: the audit must outlive a deleted key. |
 | `CallerKind` / `CallerHash` | Set for a mapped [Entra ID caller](/mcp/entra-callers/); `null` for API keys and cookie sessions. |
 | `ContentHash` | A keyed hash of the call's parameters as received, written **whether or not** the parameters themselves are kept, so calls with the same input can be matched (and a disclosed input checked against the trail) without keeping it. See [Keyed hashes](#keyed-hashes). |
@@ -108,7 +119,7 @@ your log sink (CloudWatch, a SIEM) at this category to get the audit trail witho
 
 | EventId | Name | Level | When | Notable fields |
 |---|---|---|---|---|
-| 9100 | `McpToolAudited` | Information | Once per `McpAuditService.LogToolCallAsync` call, including when the row failed to save. | `Tool`, `AuditId` (null if not persisted), `Persisted`, `ProjectId`, `DataSourceId`, `UserId`, `ApiKeyId`, `CallerKind`, `CallerHash`, `DurationMs`, `Rows`, `ErrorClass`, `TraceId`, `McpSessionId`, `UpstreamRequestId` |
+| 9100 | `McpToolAudited` | Information | Once per `McpAuditService.LogToolCallAsync` call, including when the row failed to save. | `Tool`, `AuditId` (null if not persisted), `Persisted`, `ProjectId`, `DataSourceId`, `UserId`, `ApiKeyId`, `CallerKind`, `CallerHash`, `DurationMs`, `Rows`, `ErrorClass`, `CorrelationId`, `TraceId`, `McpSessionId`, `UpstreamRequestId` |
 | 9101 | `McpToolResultWithheld` | Warning | `Beacon:Mcp:Audit:Required = true` and the audit write for that call failed, or a successful result was not audited (MCP transport and Playground/REST tool runs). | `Tool`, `TraceId` |
 | 9102 | `McpAuditPurged` | Information | The retention purge runs with `RetentionDays` set. | Deleted count, cutoff |
 | 9103 | `McpAuditRead` | Information | `GET /beacon/api/mcp/audit` is called. | `RequestedByUserId`, `From`, `To`, `ProjectId`, `HasToolFilter` (bool: the admin-supplied `Tool` filter is free text, so only its presence is logged, never the value), `UserId`, `HasCallerHashFilter` (bool, same reasoning), `Page`, `PageSize`, `ReturnedCount` |
@@ -331,17 +342,29 @@ logged when either:
 - the audit row for that call failed to write, or
 - the tool returned a **successful** result and no audit row was written for it at all.
 
-An error result that was not audited (for example *Unknown tool*) passes through unchanged; it carries no data.
+An error result that was not audited passes through unchanged; it carries no data.
 With `Required = false` (the default), results are always returned unchanged regardless of the audit outcome.
 
 This is enforced **after execution**: the underlying query has already run by the time the filter withholds the
 result, and the audit and signal writes are never skipped. The guarantee is *no unaudited data leaves Beacon*, not
 *no unaudited execution*.
 
+The audit row itself is written synchronously, before the filter answers, never through a queue: a tool keeps its
+call on the request's `McpToolCallRecorder` (tool, caller, input, project, data source, rows or error, tables, and
+for `ask`, `query` and `dry_run` only, the learning signal), and the filter writes the row and then the signal after
+the tool returned or threw, never while it runs, so the row holds the call's final outcome. A tool that throws after
+starting its record is recorded as failed and answers the same caller-safe error the tools' own error handling gives
+(a database error's text through the database error redactor while PII detection is on); a protocol error is written
+first and then answered as the protocol error it is. A tool that wrote its own row is never given a second one (its
+signal still is), and one whose own write failed is written again. A tool that throws before any row was written,
+including a call to an unknown tool, still gets one (tool, caller and the error, the error's text only when the
+call's project is known and its content retention keeps it), its exception unchanged.
+
 The Playground and the "run tool" REST path (`POST /beacon/api/mcp/tools/run`, `RunMcpToolHandler` →
-`McpPlaygroundService`) call tools directly, not through the SDK's request pipeline, so they apply the same decision
-(`McpAuditCallToolFilter.ShouldWithhold`) against their own request scope: with `Required = true` they return the same
-withheld error, and log the same 9101 event, under the same conditions.
+`McpPlaygroundService`) call tools directly, not through the SDK's request pipeline, so they run them through the same
+audit path (`McpAuditCallToolFilter.InvokeAsync`) against their own request scope: the same rows, and with
+`Required = true` the same withheld error and 9101 event under the same conditions. A playground call refused before
+any tool ran is recorded through the same recorder.
 
 ## Keeping audit content: the RequireContent lock
 
@@ -372,9 +395,9 @@ The audit rows and their statements are **evidence, not sealed records**: they c
 
 ## Retention
 
-Audit rows are kept forever by default. Set `Beacon:Mcp:Audit:RetentionDays` to a positive number to purge rows
-older than that window. The purge itself is `IMcpAuditRetentionService.PurgeExpiredAsync`
-(`src/Beacon.Core/Services/Retention/McpAuditRetentionService.cs`), a no-op while `RetentionDays` is `null`,
+Audit rows are kept forever by default. Set `Beacon:Mcp:Audit:RetentionDays` to a positive number (`365` is
+recommended) to purge rows older than that window. The purge itself is `IMcpAuditRetentionService.PurgeExpiredAsync`
+(`src/Beacon.Core/Services/Retention/McpAuditRetentionService.cs`), a no-op while `RetentionDays` is `null` or `0`,
 otherwise one `ExecuteDeleteAsync` plus a `Beacon.Audit` 9102 event with the deleted count and cutoff. A row's statements
 are deleted with it.
 

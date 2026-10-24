@@ -228,9 +228,9 @@ internal sealed partial class McpDoctor(HttpClient http)
             ? array.Select(x => x?.GetValue<string>()).OfType<string>().ToList()
             : [];
 
-    [GeneratedRegex("resource_metadata=\"([^\"]+)\"")]
+    [GeneratedRegex("resource_metadata=\"([^\"]+)\"", RegexOptions.None, matchTimeoutMilliseconds: 1000)]
     private static partial Regex ResourceMetadata();
 
-    [GeneratedRegex("\"name\"\\s*:\\s*\"([^\"]+)\"")]
+    [GeneratedRegex("\"name\"\\s*:\\s*\"([^\"]+)\"", RegexOptions.None, matchTimeoutMilliseconds: 1000)]
     private static partial Regex ToolNames();
 }

@@ -84,4 +84,10 @@ public sealed record AskSqlOutcome(
     /// <see cref="AskSqlOutcome.Repairs"/>; a caller records them as it records a repaired failure.
     /// </summary>
     public IReadOnlyList<AskRepairStep> UnrepairedFailures { get; init; } = [];
+
+    /// <summary>
+    /// The tables the schema context selected as relevant to the question (from <c>SmartSchemaContext.RelevantTables</c>),
+    /// so a caller that needs them does not build the same context again.
+    /// </summary>
+    public IReadOnlyList<string> RelevantTables { get; init; } = [];
 }

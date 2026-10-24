@@ -120,10 +120,10 @@ public class ColumnValueScreeningTests
     }
 
     // The host hard-exclude hides a column from the MCP surface: a false positive costs a column, so it keeps its list.
-    [TestCase("encryption_key")]
     [TestCase("session_id")]
-    [TestCase("client_credential")]
     [TestCase("request_signature")]
+    [TestCase("dsn")]
+    [TestCase("cookie_value")]
     public void TheHostHardExclude_KeepsItsNarrowerList(string name)
     {
         SecretLikeColumnNames.IsSecretLike(name).Should().BeFalse();

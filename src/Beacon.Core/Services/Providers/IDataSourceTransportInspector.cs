@@ -1,3 +1,4 @@
+using Beacon.Core.ChangeApprovals;
 using Beacon.Core.Data.Enums;
 
 namespace Beacon.Core.Services.Providers;
@@ -21,7 +22,9 @@ public interface IDataSourceTransportInspector
 /// <summary>
 /// Whether a connection authenticates the server over TLS. When it does not, <see cref="Option"/> names the option to
 /// change and <see cref="Remedy"/> says what to set it to; both are fixed text of the inspector, never a value read from
-/// the connection data. <see cref="Target"/> is where the connection goes, when the inspector can tell.
+/// the connection data. <see cref="Target"/> is where the connection goes, when the inspector can tell, and
+/// <see cref="Definition"/> the whole connection as the driver's builder normalizes it, without its secrets, when the
+/// inspector gives one.
 /// </summary>
 public sealed record DataSourceTransportVerdict
 {
@@ -35,6 +38,13 @@ public sealed record DataSourceTransportVerdict
 
     /// <summary>The connection data could not be read at all (empty, or rejected by the connector's parser).</summary>
     public bool Unreadable { get; private init; }
+
+    /// <summary>
+    /// The connection's definition (canonical setting names, settings left at their default left out, secrets removed),
+    /// whatever the verdict; null when the inspector gives none or the connection data could not be read. It holds
+    /// identifiers and is never logged.
+    /// </summary>
+    public DataSourceConnectionDefinition? Definition { get; private init; }
 
     public static DataSourceTransportVerdict Pass(DataSourceTransportTarget? target = null)
     {
@@ -50,6 +60,18 @@ public sealed record DataSourceTransportVerdict
     public static DataSourceTransportVerdict NotReadable()
     {
         return Fail("connection string", "Enter a connection string the engine's driver can read") with { Unreadable = true };
+    }
+
+    /// <summary>This verdict with the connection's definition.</summary>
+    public DataSourceTransportVerdict WithDefinition(DataSourceConnectionDefinition? definition)
+    {
+        return this with { Definition = definition };
+    }
+
+    /// <summary>The verdict and the inspector's fixed text only: the target and the definition are never printed.</summary>
+    public override string ToString()
+    {
+        return $"{nameof(DataSourceTransportVerdict)} {{ Verified = {Verified}, Option = {Option}, Unreadable = {Unreadable} }}";
     }
 }
 

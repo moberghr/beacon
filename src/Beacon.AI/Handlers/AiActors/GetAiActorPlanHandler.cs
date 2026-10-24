@@ -1,7 +1,12 @@
 using System.Text.Json;
 using MediatR;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Beacon.Core;
+using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Configuration;
+using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.AI.Services.Ai.AiActor;
 using Beacon.AI.Services.Ai.AiActor.Models;
@@ -12,9 +17,16 @@ namespace Beacon.AI.Handlers.AiActors;
 internal sealed class GetAiActorPlanHandler(
     IAiActorServiceExtended aiActorService,
     IOptionsMonitor<AiActorOptions> options,
-    TimeProvider timeProvider)
+    TimeProvider timeProvider,
+    IBeaconActorAccessor actorAccessor,
+    IBeaconPermissionAccessor permissionAccessor,
+    IProjectAccessEvaluator projectAccess,
+    IDbContextFactory<BeaconContext> contextFactory,
+    BeaconConfiguration configuration)
     : IRequestHandler<GetAiActorPlanQuery, GetAiActorPlanResult?>
 {
+    private const string WriteRefusal = "Deciding on this plan takes write access to the AI actor's project.";
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true,
@@ -39,6 +51,10 @@ internal sealed class GetAiActorPlanHandler(
             : [];
 
         var expiresAt = options.CurrentValue.PlanExpiresAt(plan.ProposedAt);
+        var isExpired = plan.Status == AiActorPlanStatus.PendingApproval && timeProvider.GetUtcNow().UtcDateTime >= expiresAt;
+        var decision = plan.Status == AiActorPlanStatus.PendingApproval && !isExpired
+            ? await DecisionOfAsync(plan.Id, plan.AiActorId, plan.AiActor.CreatedByUserId, cancellationToken)
+            : (MayApprove: false, ApproveBlockedReason: (string?)null, MayRejectOrRevise: false);
 
         return new GetAiActorPlanResult
         {
@@ -52,7 +68,7 @@ internal sealed class GetAiActorPlanHandler(
             ProposedActions = proposedActions,
             ProposedAt = plan.ProposedAt,
             ExpiresAt = expiresAt,
-            IsExpired = plan.Status == AiActorPlanStatus.PendingApproval && timeProvider.GetUtcNow().UtcDateTime >= expiresAt,
+            IsExpired = isExpired,
             ReviewedAt = plan.ReviewedAt,
             ReviewedByUserId = plan.ReviewedByUserId,
             ReviewerComment = plan.ReviewerComment,
@@ -62,8 +78,39 @@ internal sealed class GetAiActorPlanHandler(
             EstimatedCost = plan.EstimatedCost,
             Model = plan.Model,
             Version = plan.Version,
-            ParentPlanId = plan.ParentPlanId
+            ParentPlanId = plan.ParentPlanId,
+            MayApprove = decision.MayApprove,
+            ApproveBlockedReason = decision.ApproveBlockedReason,
+            MayRejectOrRevise = decision.MayRejectOrRevise
         };
+    }
+
+    // What the caller may decide on a pending plan, by the rules its approve, reject and revise handlers enforce: deciding
+    // writes through the actor's data source, so it takes Write on it first.
+    private async Task<(bool MayApprove, string? ApproveBlockedReason, bool MayRejectOrRevise)> DecisionOfAsync(
+        int planId,
+        int actorId,
+        string? creatorUserId,
+        CancellationToken cancellationToken)
+    {
+        var writable = (await projectAccess.GetScopeAsync(cancellationToken)).For(ProjectAction.Write);
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var mayWrite = await context.AiActors
+            .Where(x => x.Id == actorId)
+            .WhereSourceAccessible(context, writable, x => x.DataSourceId)
+            .AnyAsync(cancellationToken);
+
+        if (!mayWrite)
+        {
+            return (false, WriteRefusal, false);
+        }
+
+        var caller = await actorAccessor.GetCurrentAsync(cancellationToken);
+        var permissions = await permissionAccessor.GetCurrentAsync(cancellationToken);
+        var blocked = await AiActorOwnership.PlanApproveBlockedReasonAsync(caller, permissions, context, configuration, planId, creatorUserId, cancellationToken);
+
+        return (blocked == null, blocked, caller.IsOwnerOrAdmin(creatorUserId));
     }
 }
 

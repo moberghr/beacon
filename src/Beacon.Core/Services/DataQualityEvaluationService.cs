@@ -263,7 +263,7 @@ internal class DataQualityEvaluationService(
                     ruleStopwatch.ElapsedMilliseconds,
                     timedOut);
 
-                return Failed(rule, timedOut ? TimedOutMessage : FailureMessage(contract.DataSource, exception: null), ruleStopwatch.Elapsed.TotalMilliseconds);
+                return Failed(rule, timedOut ? TimedOutMessage : FailureMessage(contract.DataSource, exception: null, result.ErrorMessage), ruleStopwatch.Elapsed.TotalMilliseconds);
             }
 
             try
@@ -431,12 +431,20 @@ internal class DataQualityEvaluationService(
     }
 
     // A disabled source says so, with the refusal's generic message (a provider that catches the refusal reports a failed
-    // result, so the source's own state is read too); any other failure keeps its generic message.
-    private static string FailureMessage(DataSource dataSource, Exception? exception)
+    // result, so the source's own state is read too); so does a source whose connection waits for approval, refused by the
+    // connection resolver (a provider that catches that refusal reports its fixed message, which holds no value, so the
+    // reported text is compared); any other failure keeps its generic message.
+    private static string FailureMessage(DataSource dataSource, Exception? exception, string? reported = null)
     {
         if (exception is DataSourceDisabledException || dataSource.DisabledTime != null)
         {
             return DataSourceDisabledException.RefusalMessage;
+        }
+
+        if (exception is DataSourceAwaitingApprovalException
+            || string.Equals(reported, DataSourceAwaitingApprovalException.RefusalMessage, StringComparison.Ordinal))
+        {
+            return DataSourceAwaitingApprovalException.RefusalMessage;
         }
 
         return dataSource.HostManagedKey == null ? ExecutionFailedMessage : DatabaseProvider.HostQueryFailedMessage;

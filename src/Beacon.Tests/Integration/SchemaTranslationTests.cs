@@ -58,7 +58,10 @@ public class SchemaTranslationTests
                 .UseNpgsql("Host=localhost;Database=test_does_not_exist")
                 .UseSnakeCaseNamingConvention();
 
+            // Obsolete (Beacon's schema is fixed to beacon) but still honoured by a context built with it until 6.0.
+#pragma warning disable CS0618
             builder.UseBeaconSchema(schema);
+#pragma warning restore CS0618
 
             return new SchemaConfiguredTestContext(builder.Options);
         }

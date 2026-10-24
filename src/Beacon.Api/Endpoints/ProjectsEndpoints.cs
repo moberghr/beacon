@@ -1,5 +1,6 @@
 using Beacon.Api.Authentication;
 using Beacon.Core.Authorization;
+using Beacon.Core.BackgroundTasks;
 using Beacon.Core.Handlers.Projects;
 using Beacon.Core.Handlers.Projects.Members;
 using MediatR;
@@ -10,6 +11,13 @@ namespace Beacon.Api.Endpoints;
 
 internal static class ProjectsEndpoints
 {
+    // The file is the reader's to open: it may not run anything, whatever the sections hold.
+    internal static void ApplyExportHeaders(HttpResponse response)
+    {
+        response.Headers["Content-Security-Policy"] = "sandbox";
+        response.Headers["X-Content-Type-Options"] = "nosniff";
+    }
+
     public static RouteGroupBuilder MapProjectsEndpoints(this RouteGroupBuilder group)
     {
         var projects = group.MapGroup("/projects").WithTags("Projects");
@@ -61,29 +69,66 @@ internal static class ProjectsEndpoints
             return TypedResults.NoContent();
         }).WithName("UpdateDocumentationSection");
 
+        // Kept for 5.0 callers: starts the same background task and answers with its job id.
         projects.MapPost("/{id:int}/generate-documentation", (int id, IMediator m, CancellationToken ct) =>
                 m.Send(new GenerateProjectDocumentationCommand(id, 0), ct))
-            .WithName("GenerateProjectDocumentation");
+            .WithName("GenerateProjectDocumentation")
+            .WithBeaconLongRunning();
+
+        // Starts the generation as a background task: 202 with the task (its job id correlates JobStatusChanged), read below.
+        projects.MapPost("/{id:int}/documentation-generations", async (int id, IMediator m, CancellationToken ct) =>
+            {
+                var ticket = await m.Send(new StartProjectDocumentationGenerationCommand(id), ct);
+                return TypedResults.Accepted($"/beacon/api/projects/{id}/documentation-generations/{ticket.TaskId}", ticket);
+            })
+            .WithName("StartProjectDocumentationGeneration");
+
+        projects.MapGet("/{id:int}/documentation-generations/{taskId:int}", async Task<Results<Ok<BackgroundTaskStatus>, NotFound>> (
+            int id, int taskId, IMediator m, CancellationToken ct) =>
+            {
+                var status = await m.Send(new GetProjectDocumentationGenerationQuery(id, taskId), ct);
+                return status is null ? TypedResults.NotFound() : TypedResults.Ok(status);
+            })
+            .WithName("GetProjectDocumentationGeneration");
 
         projects.MapGet("/documentation/{id:int}/export", async (
             int id,
             [FromQuery(Name = "asHtml")] bool asHtml,
+            HttpContext http,
             IMediator m,
             CancellationToken ct) =>
         {
             var result = await m.Send(new ExportProjectDocumentationCommand(id, asHtml), ct);
-            var bytes = System.Text.Encoding.UTF8.GetBytes(result.Content);
-            return Results.File(bytes, result.ContentType, result.FileName);
+            return ToDocumentationAttachment(http.Response, result);
         }).WithName("ExportProjectDocumentation");
 
         projects.MapPost("/documentation-sections/{id:int}/instruct", (
                 int id, InstructDocumentationRequest body, IMediator m, CancellationToken ct) =>
                 m.Send(new InstructDocumentationCommand(id, body.Instruction), ct))
-            .WithName("InstructDocumentation");
+            .WithName("InstructDocumentation")
+            .WithBeaconLongRunning();
 
+        // Scans in the request and answers with the outcome (kept for 5.0 callers; many repositories hold the request open).
         projects.MapPost("/{id:int}/scan", (int id, IMediator m, CancellationToken ct) =>
                 m.Send(new ScanAllRepositoriesCommand(id), ct))
-            .WithName("ScanAllRepositories");
+            .WithName("ScanAllRepositories")
+            .WithBeaconLongRunning();
+
+        // Starts the scan as a background task: 202 with the task (its job id correlates JobStatusChanged), read below; each
+        // repository's result is on the project's repositories.
+        projects.MapPost("/{id:int}/scans", async (int id, IMediator m, CancellationToken ct) =>
+            {
+                var ticket = await m.Send(new StartRepositoryScanCommand(id), ct);
+                return TypedResults.Accepted($"/beacon/api/projects/{id}/scans/{ticket.TaskId}", ticket);
+            })
+            .WithName("StartRepositoryScan");
+
+        projects.MapGet("/{id:int}/scans/{taskId:int}", async Task<Results<Ok<BackgroundTaskStatus>, NotFound>> (int id, int taskId, IMediator m, CancellationToken ct) =>
+            {
+                var status = await m.Send(new GetRepositoryScanQuery(id, taskId), ct);
+                return status is null ? TypedResults.NotFound() : TypedResults.Ok(status);
+            })
+            .WithName("GetRepositoryScan");
 
         projects.MapGet("/{id:int}/mcp-context", (int id, IMediator m, CancellationToken ct) =>
                 m.Send(new GetProjectMcpContextQuery(id), ct))
@@ -131,9 +176,25 @@ internal static class ProjectsEndpoints
 
         return group;
     }
+
+    internal static IResult ToDocumentationAttachment(HttpResponse response, ExportProjectDocumentationResult result)
+    {
+        response.Headers.XContentTypeOptions = "nosniff";
+        var bytes = System.Text.Encoding.UTF8.GetBytes(result.Content);
+        return Results.File(bytes, $"{result.ContentType}; charset=utf-8", result.FileName);
+    }
 }
 
-internal sealed record UpdateRepositoryTokenRequest(string? AccessToken);
+internal sealed record UpdateRepositoryTokenRequest(string? AccessToken)
+{
+    // The compiler-generated ToString prints every member; the secrets are printed redacted.
+    private bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"AccessToken = {Core.RedactedPrint.Of(AccessToken)}");
+
+        return true;
+    }
+}
 internal sealed record UpdateDocumentationSectionRequest(string Content);
 internal sealed record InstructDocumentationRequest(string Instruction);
 internal sealed record LinkProjectDataSourcesRequest(List<int> DataSourceIds);

@@ -148,7 +148,7 @@ Gold SQL, promoted or edited, and corrected SQL from feedback are stored as the 
 
 ### Injection
 
-The top `GoldenExemplarTopK` (default 4) cases matching the question are rendered into **Verified query examples (authoritative)**, ranked *above* mined learned patterns and capped by `GoldenExemplarBudgetChars` (default 2000). Retrieval hard-filters on the caller's project, so golden SQL never leaks across project boundaries on a shared data source. Gold SQL is rendered without its comments and the question on one line; a case whose comments cannot be removed, or whose SQL or question holds characters a reviewer cannot see, is left out, and its id is logged once per hour.
+The top `GoldenExemplarTopK` (default 4) cases matching the question are rendered into **Verified query examples (authoritative)**, ranked *above* mined learned patterns and capped by `GoldenExemplarBudgetChars` (default 2000). Retrieval hard-filters on the caller's project, so golden SQL never leaks across project boundaries on a shared data source: each golden case's vector carries its project, and the nearest-neighbour search takes the top cases of the caller's project only, so another project's cases on the same data source never take its slots. Vectors indexed before they carried a project are stamped with their case's project by the `BackfillGoldenCaseEmbeddingProjects` database migration, without re-embedding them, so golden examples keep matching after the upgrade. Gold SQL is rendered without its comments and the question on one line; a case whose comments cannot be removed, or whose SQL or question holds characters a reviewer cannot see, is left out, and its id is logged once per hour.
 
 ### Eval runs
 
@@ -234,7 +234,7 @@ On PostgreSQL, vectors are additionally written to a **pgvector** column with an
 Where a dense arm is available, its ranked results are merged with the keyword results using **reciprocal rank fusion**, with deterministic tie-breaks so paging stays stable. This drives:
 
 - The `search` MCP tool across tables, columns, and documentation.
-- Exemplar selection for golden examples and learned patterns (`ExemplarTopK`, default 4). A learned pattern is indexed only while its project links the data source and is not archived, its vector carries its own project, and selection filters on the caller's project, so a shared data source never surfaces another project's patterns.
+- Exemplar selection for golden examples and learned patterns (`ExemplarTopK`, default 4). A learned pattern is indexed only while its project links the data source and is not archived; its vector, like a golden case's, carries its own project, and selection filters on the caller's project, so a shared data source never surfaces another project's patterns or cases.
 - Documentation chunk retrieval (`DocChunkTopK`, default 6).
 
 Every dense path **fails open**: with no embedder configured, or with rows not yet indexed, retrieval falls back to the keyword/overlap path and returns results rather than failing.
@@ -261,13 +261,13 @@ These are the sample host's registrations (`Beacon.SampleProject/Program.cs`); a
 
 ## Settings reference
 
-These are the grounding, retrieval and learning settings of `McpSettingsData`; they round-trip through `GET`/`PUT /beacon/api/mcp/settings`. The guardrail settings (max row limit, read-only enforcement, PII detection and patterns, content retention) are described in [MCP Server → Configuration](/mcp/server/#configuration). The **MCP Settings** page (`/beacon/mcp-settings`) shows sample-value collection and value grounding (globally and per project) and the learning switch, auto-approve threshold, injection budget and signal retention. Everything else in this table is set through the API only; a save on the page sends every setting back as it read it, so the API-only ones keep their values.
+These are the grounding, retrieval and learning settings of `McpSettingsData`; they round-trip through `GET`/`PUT /beacon/api/mcp/settings`. The guardrail settings (max row limit, read-only enforcement, PII detection and patterns, content retention) are described in [MCP Server → Configuration](/mcp/server/#configuration). The **MCP Settings** page (`/beacon/mcp-settings`) shows sample-value collection and value grounding (globally and per project) and the learning switch, auto-approve threshold, injection budget and signal retention. Everything else in this table is set through the API only; a save on the page sends every setting back as it read it (the stored values, `stored` on the `GET`), so the API-only ones keep their values.
 
 | Setting | Default | Effect |
 |---|---|---|
 | `EnableSampleValueCollection` | `false` | Collect real sample values for the M-Schema block (and discover column values for documentation) |
 | `EnableValueGrounding` | `false` | Probe live values for the literal-looking words of a question and add the matches to the context |
-| `ValueGroundingMaxProbes` | `12` | Most value probes per question; on a shared data source the lowest value among the linking projects wins |
+| `ValueGroundingMaxProbes` | `12` | Most value probes per question; on a shared data source the lowest value among the linking projects wins. Each probe has 5 seconds from its start (a slower probe matches nothing; the others keep their matches), and all the probes of one question stop at 15 seconds. They run one at a time, or up to three at a time while the caller's credential has `MaxConcurrentQueriesPerKey` slots free: each probe beside the call counts as one more query of that credential |
 | `EnableLearning` | `true` | Master switch for signal mining |
 | `LearningAutoApproveThreshold` | `0.7` | Stored with the settings; promotion is decided by replay verification (`EnableReplayVerification`, `LearningReplayMinFlips`) |
 | `LearningInjectionBudgetChars` | `1500` | Character budget for the learned-patterns block |
@@ -299,6 +299,7 @@ The same holds for every grounding call that names a data source, and for every 
 - **Project material** (DataModel documentation, code references from the project's repositories, glossary terms, golden examples and learned patterns) comes from that project only, never from another project that links the same data source.
 - **A data source the project does not link** is not searched, described or catalogued: the table and column search finds nothing in it, the LLM context, table knowledge, lineage, data source overview and table schemas for it answer "not found", its schema catalog is empty (so every table in SQL against it fails the schema check), and value grounding probes nothing.
 - **Live value probes need Query.** Value grounding probes the live data only for a caller who may query the project; a caller who may only read it (`get_query_context` as a Viewer) is grounded with the stored sample values alone.
+- **The stored catalog is cached per project and data source.** `ask`, `get_query_context`, `query` and `dry_run` read a data source's stored tables and columns from a snapshot kept for up to 15 minutes, one per project. The project's link is checked on every call before the snapshot is read, and the stored sample values are screened under the project's settings on every call. A metadata refresh, a host model sync, an applied description patch, and a data source update, enable, disable, delete or migration-write mark drop the source's snapshots at once on the instance that made the change; another instance serves its own snapshot until it expires, including sample values that the change cleared (an archive, a change of target or a migration-write mark). The data source itself is refused on every instance at once when it is archived, disabled or marked as a write target.
 - **Code references** belong to the repository that holds them, and a repository to one project: a scan names its project.
 - An eval run needs a project (`400` without one).
 

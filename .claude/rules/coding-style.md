@@ -84,3 +84,7 @@ if (folder == null)
 §3.23 **`??` (null-coalescing) over `x != null ? x : fallback`.**
 
 §3.24 **`foreach` on a materialized variable** — never call `.ToList()` inside a `foreach` header.
+
+## Regular expressions
+
+§3.25 **Every `Regex` has a match timeout** — a `TimeSpan` argument, `matchTimeoutMilliseconds` on `[GeneratedRegex]`, or `RegexOptions.NonBacktracking` (`RegexTimeoutConventionTests` fails on an untimed one in `src/`). Where the match is a security decision, a `RegexMatchTimeoutException` refuses or masks (fail closed); elsewhere log a Warning with ids only and treat it as no match.

@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
 using Beacon.AI.Services.GitHub;
@@ -29,9 +30,10 @@ public class CodeReferenceProjectScopeTests
         var (factory, _) = Factory();
         var scanner = new GitHubScannerService(
             factory,
-            new GitHubApiClient(httpClients.Object),
+            new GitHubApiClient(httpClients.Object, Options.Create(new GitHubScanOptions())),
             [],
             Mock.Of<IEncryptionService>(),
+            Options.Create(new GitHubScanOptions()),
             NullLogger<GitHubScannerService>.Instance);
 
         var scan = () => scanner.ScanRepositoryAsync(ProjectId, OtherProjectsRepositoryId);

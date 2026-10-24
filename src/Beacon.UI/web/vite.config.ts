@@ -2,25 +2,11 @@
 import react from '@vitejs/plugin-react';
 import path from 'node:path';
 import fs from 'node:fs';
-import { execSync } from 'node:child_process';
 
 const backend = process.env.BEACON_BACKEND_URL ?? 'https://localhost:7187';
 
-// Build-time identity: short git SHA + ISO build timestamp.
-// Surfaced via `import.meta.env.BEACON_COMMIT_SHA` / `BEACON_BUILD_DATE`
-// so the UI can render a single source of truth for the build (Sidebar + login).
-function readGitSha(): string {
-  try {
-    return execSync('git rev-parse --short HEAD', { stdio: ['ignore', 'pipe', 'ignore'] })
-      .toString()
-      .trim();
-  } catch {
-    return 'unknown';
-  }
-}
-
-const commitSha = process.env.BEACON_COMMIT_SHA ?? readGitSha();
-const buildDate = process.env.BEACON_BUILD_DATE ?? new Date().toISOString();
+// No build identity (commit, build date) is written into the bundle: everything under /beacon/assets is served before
+// sign-in. The signed-in shell reads the running build from GET /beacon/api/auth/permissions instead.
 
 // MSW's service worker (public/mockServiceWorker.js) is dev-only tooling for
 // `npm run dev:mock` — Vite copies public/ into the build output, so strip it
@@ -45,10 +31,6 @@ export default defineConfig({
   // /beacon/queries/5 still resolves /beacon/assets/*, rather than /beacon/queries/assets/*.
   base: '/beacon/',
   plugins: [react(), stripMockServiceWorker()],
-  define: {
-    'import.meta.env.BEACON_COMMIT_SHA': JSON.stringify(commitSha),
-    'import.meta.env.BEACON_BUILD_DATE': JSON.stringify(buildDate),
-  },
   resolve: {
     alias: {
       '@': path.resolve(__dirname, './src'),
@@ -65,6 +47,15 @@ export default defineConfig({
     // served to anonymous callers, and the maps carry the full TSX sources. Set VITE_SOURCEMAP=1
     // for a local build that needs them ('hidden' omits the sourceMappingURL from the served JS).
     sourcemap: process.env.VITE_SOURCEMAP === '1' ? 'hidden' : false,
+    // Two pages: the app, and the embed view (embed.html → src/embed/main.tsx), which the embed route serves under a
+    // strict CSP. The embed entry imports none of the app (no sign-in, router or sidebar); shared modules such as React
+    // land in common chunks.
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+        embed: path.resolve(__dirname, 'embed.html'),
+      },
+    },
   },
   server: {
     port: 5173,

@@ -103,7 +103,7 @@ internal sealed class KnowledgeAnswerService(
             return "No documentation or knowledge base available for this project. Generate project documentation first.";
         }
 
-        var systemPrompt = """
+        var systemPrompt = $"""
             You are a knowledgeable assistant for a data project. Answer the user's question based on the provided project documentation, schema information, and knowledge base.
 
             Rules:
@@ -111,6 +111,7 @@ internal sealed class KnowledgeAnswerService(
             - Be clear and concise
             - Reference specific tables, schemas, or data sources when relevant
             - If the context doesn't contain enough information to fully answer, say what you do know and suggest what documentation or data the user might need
+            - {PromptData.Rule}
             """;
 
         var userMessage = "";
@@ -119,7 +120,8 @@ internal sealed class KnowledgeAnswerService(
             userMessage += $"INSTRUCTIONS:\n{settings.GlobalInstruction}\n\n";
         }
 
-        userMessage += $"CONTEXT:\n{context}\n\nQUESTION: {question}";
+        // The documentation, schema and search results are one data block; the question cannot write its markers.
+        userMessage += $"CONTEXT:\n{PromptData.Fence("project knowledge", context)}\n\nQUESTION: {PromptData.Neutralise(question)}";
 
         var request = new LlmRequest
         {

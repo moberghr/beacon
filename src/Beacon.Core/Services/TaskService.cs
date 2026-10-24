@@ -9,6 +9,7 @@ using Beacon.Core.Models;
 using Beacon.Core.Models.Tasks;
 using Beacon.Core.Notifications;
 using Beacon.Core.Authorization;
+using Beacon.Core.Handlers.Tasks;
 using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.SecurityAudit;
 
@@ -176,255 +177,48 @@ public class TaskService(
             : new BeaconException($"Task {taskId} not found");
     }
 
-    public async Task<PagedList<TaskData>> GetTasks(GetTasksRequest request, CancellationToken cancellationToken)
+    // The reads and the comment write below live in their handlers now; these forwarders keep the 5.0 surface for one
+    // release. A handler's Read/Add method touches only the context factory, so the caller-bound dependencies stay unset.
+
+    [Obsolete("Use GetTasksQuery; removed in 6.0.")]
+    public Task<PagedList<TaskData>> GetTasks(GetTasksRequest request, CancellationToken cancellationToken)
     {
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-        var query = context.QueryTasks
-            .WhereAllSourcesInOneProject(context, request.Readable, x => x.Subscription.Query.Steps.Select(y => y.DataSourceId), x => x.Subscription.Query.OwnerUserId);
-
-        // Apply filters
-        if (request.SubscriptionId.HasValue)
-            query = query.Where(t => t.SubscriptionId == request.SubscriptionId.Value);
-
-        if (request.Resolved.HasValue)
-            query = query.Where(t => t.Resolved == request.Resolved.Value);
-
-        // Project to DTO (EF Core automatically generates necessary JOINs)
-        return await query
-            .Select(t => new TaskData
-            {
-                Id = t.Id,
-                SubscriptionName = t.Subscription.Query.Name,
-                QueryName = t.Subscription.Query.Name,
-                LatestResultCount = t.LatestResultCount,
-                LastNotificationAt = t.LastNotificationAt,
-                NotificationCount = t.Notifications.Count,
-                CreatedAt = t.CreatedTime,
-                Resolved = t.Resolved,
-                ResolvedAt = t.ResolvedAt,
-                // Named by display name or "User {id}", never by user name.
-                ResolvedByUserName = t.ResolvedByUserId == null
-                    ? null
-                    : context.Users
-                        .Where(u => u.ExternalId == t.ResolvedByUserId)
-                        .Select(UserLabel.OfUser)
-                        .FirstOrDefault(),
-                AiActorId = t.Subscription.AiActorId,
-                AiActorName = t.Subscription.AiActor != null ? t.Subscription.AiActor.Name : null,
-                // Count executions since task creation
-                ExecutionCount = context.QueryExecutionHistory
-                    .Where(qeh => qeh.SubscriptionId == t.SubscriptionId)
-                    .Where(qeh => qeh.CreatedTime >= t.CreatedTime)
-                    .Count(),
-                // Count distinct result counts since task creation to show volatility
-                UniqueResultCounts = context.QueryExecutionHistory
-                    .Where(qeh => qeh.SubscriptionId == t.SubscriptionId)
-                    .Where(qeh => qeh.CreatedTime >= t.CreatedTime)
-                    .Select(qeh => qeh.ResultCount)
-                    .Distinct()
-                    .Count()
-            })
-            .ToPagedListAsync(request, cancellationToken, defaultSort: "-createdAt");
+        return new GetTasksHandler(contextFactory, null!).Read(request, cancellationToken);
     }
 
-    public async Task<TaskDetailsData?> GetTaskDetails(int taskId, string? currentUserId, CancellationToken cancellationToken)
+    [Obsolete("Use GetTaskDetailQuery; removed in 6.0.")]
+    public Task<TaskDetailsData?> GetTaskDetails(int taskId, string? currentUserId, CancellationToken cancellationToken)
     {
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-        var details = await context.QueryTasks
-            .Where(t => t.Id == taskId)
-            .Select(t => new TaskDetailsData
-            {
-                Id = t.Id,
-                Subscription = new SubscriptionSummary(
-                    t.Subscription.Id,
-                    t.Subscription.Query.Name,
-                    null
-                ),
-                LatestResultCount = t.LatestResultCount,
-                LastNotificationAt = t.LastNotificationAt,
-                NotificationCount = t.Notifications.Count,
-                // The notifications' stored result rows are not part of a task's detail.
-                Notifications = t.Notifications
-                    .OrderByDescending(n => n.SentAt)
-                    .Select(n => new NotificationSummary(
-                        n.Id,
-                        n.SentAt,
-                        n.QueryExecutionHistory.ResultCount
-                    ))
-                    .ToList(),
-                CreatedAt = t.CreatedTime,
-                Resolved = t.Resolved,
-                ResolvedAt = t.ResolvedAt,
-                ResolvedByUserId = t.ResolvedByUserId,
-                // Named by display name or "User {id}", never by user name.
-                ResolvedByUserName = t.ResolvedByUserId == null
-                    ? null
-                    : context.Users
-                        .Where(u => u.ExternalId == t.ResolvedByUserId)
-                        .Select(UserLabel.OfUser)
-                        .FirstOrDefault(),
-                ResolutionNotes = t.ResolutionNotes,
-                QueryId = t.Subscription.QueryId,
-                QueryName = t.Subscription.Query.Name,
-                AiActorId = t.Subscription.AiActorId,
-                AiActorName = t.Subscription.AiActor != null ? t.Subscription.AiActor.Name : null,
-                CronExpression = t.Subscription.CronExpression,
-                LastExecutionAt = context.QueryExecutionHistory
-                    .Where(qeh => qeh.SubscriptionId == t.SubscriptionId)
-                    .OrderByDescending(qeh => qeh.CreatedTime)
-                    .Select(qeh => (DateTime?)qeh.CreatedTime)
-                    .FirstOrDefault(),
-                Priority = t.Priority,
-                AssigneeUserId = t.AssigneeUserId,
-                AssigneeUserName = t.AssigneeUserId == null
-                    ? null
-                    : context.Users
-                        .Where(u => u.ExternalId == t.AssigneeUserId)
-                        .Select(UserLabel.OfUser)
-                        .FirstOrDefault(),
-                SnoozedUntil = t.SnoozedUntil,
-                SlaHours = t.Subscription.SlaHours,
-                WatcherCount = t.Watchers.Count,
-                IsWatching = currentUserId != null && t.Watchers.Any(w => w.UserId == currentUserId),
-                HasOwner = t.Subscription.AiActor != null && t.Subscription.AiActor.CreatedByUserId != null,
-                OwnerDisplayName = t.Subscription.AiActor != null && t.Subscription.AiActor.CreatedByUserId != null
-                    ? context.Users
-                        .Where(u => u.ExternalId == t.Subscription.AiActor!.CreatedByUserId)
-                        .Select(UserLabel.OfUser)
-                        .FirstOrDefault()
-                    : null
-            })
-            .FirstOrDefaultAsync(cancellationToken);
-
-        return details;
+        return new GetTaskDetailHandler(contextFactory, null!, null!).Read(taskId, currentUserId, cancellationToken);
     }
 
-    public async Task<List<QueryExecutionSummary>> GetTaskExecutionHistory(int taskId, StoredRunScope runScope, CancellationToken cancellationToken)
+    [Obsolete("Use GetTaskExecutionsQuery; removed in 6.0.")]
+    public Task<List<QueryExecutionSummary>> GetTaskExecutionHistory(int taskId, StoredRunScope runScope, CancellationToken cancellationToken)
     {
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-        // Get the subscription ID for this task
-        var subscriptionId = await context.QueryTasks
-            .Where(t => t.Id == taskId)
-            .Select(t => t.SubscriptionId)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (subscriptionId == 0)
-            return new List<QueryExecutionSummary>();
-
-        // The runs listed are the stored runs the caller may read (StoredRunAccess).
-        var executions = await context.QueryExecutionHistory
-            .Where(qeh => qeh.SubscriptionId == subscriptionId)
-            .WhereReadableWithin(context, runScope)
-            .OrderByDescending(qeh => qeh.CreatedTime)
-            .Take(50) // Limit to last 50 executions
-            .Select(qeh => new QueryExecutionSummary(
-                qeh.Id,
-                qeh.CreatedTime,
-                qeh.ExecutionTimeMs,
-                qeh.NotificationStatus,
-                qeh.ResultCount
-            ))
-            .ToListAsync(cancellationToken);
-
-        return executions;
+        return new GetTaskExecutionsHandler(contextFactory, null!).Read(taskId, runScope, cancellationToken);
     }
 
-    public async Task<List<RelatedTaskSummary>> GetRelatedTasks(int taskId, CancellationToken cancellationToken)
+    [Obsolete("Use GetTaskRelatedQuery; removed in 6.0.")]
+    public Task<List<RelatedTaskSummary>> GetRelatedTasks(int taskId, CancellationToken cancellationToken)
     {
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-        // Get the query ID for this task's subscription
-        var queryId = await context.QueryTasks
-            .Where(t => t.Id == taskId)
-            .Select(t => t.Subscription.QueryId)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (queryId == 0)
-            return new List<RelatedTaskSummary>();
-
-        // Find all tasks from subscriptions using the same query, excluding the current task
-        var relatedTasks = await context.QueryTasks
-            .IgnoreQueryFilters() // Include archived tasks
-            .Where(t => t.Subscription.QueryId == queryId && t.Id != taskId)
-            .OrderByDescending(t => t.CreatedTime)
-            .Take(20) // Limit to last 20 related tasks
-            .Select(t => new RelatedTaskSummary(
-                t.Id,
-                t.CreatedTime,
-                t.LatestResultCount,
-                t.Resolved,
-                t.ResolvedAt
-            ))
-            .ToListAsync(cancellationToken);
-
-        return relatedTasks;
+        return new GetTaskRelatedHandler(contextFactory).Read(taskId, cancellationToken);
     }
 
-    public async Task<List<ResultCountDataPoint>> GetResultCountHistory(int taskId, StoredRunScope runScope, CancellationToken cancellationToken)
+    [Obsolete("Use GetTaskResultHistoryQuery; removed in 6.0.")]
+    public Task<List<ResultCountDataPoint>> GetResultCountHistory(int taskId, StoredRunScope runScope, CancellationToken cancellationToken)
     {
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-        // Get the subscription ID for this task
-        var subscriptionId = await context.QueryTasks
-            .Where(t => t.Id == taskId)
-            .Select(t => t.SubscriptionId)
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (subscriptionId == 0)
-            return new List<ResultCountDataPoint>();
-
-        // Get the most recent 100 result counts of the stored runs the caller may read (StoredRunAccess), then
-        // re-order ascending for the chart
-        var resultHistory = await context.QueryExecutionHistory
-            .Where(qeh => qeh.SubscriptionId == subscriptionId)
-            .WhereReadableWithin(context, runScope)
-            .OrderByDescending(qeh => qeh.CreatedTime)
-            .Take(100)
-            .Select(qeh => new ResultCountDataPoint(qeh.CreatedTime, qeh.ResultCount))
-            .ToListAsync(cancellationToken);
-
-        resultHistory.Reverse();
-
-        return resultHistory;
+        return new GetTaskResultHistoryHandler(contextFactory, null!).Read(taskId, runScope, cancellationToken);
     }
 
-    public async Task<List<CommentData>> GetTaskComments(int taskId, CancellationToken cancellationToken)
+    [Obsolete("Use GetTaskCommentsQuery; removed in 6.0.")]
+    public Task<List<CommentData>> GetTaskComments(int taskId, CancellationToken cancellationToken)
     {
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-        var comments = await context.Comments
-            .Where(c => c.EntityType == EntityType.Task && c.EntityId == taskId)
-            .OrderByDescending(c => c.CreatedTime)
-            .Select(c => new CommentData(c.Id, c.Content, c.UserName, c.CreatedTime))
-            .ToListAsync(cancellationToken);
-
-        return comments;
+        return new GetTaskCommentsHandler(contextFactory).Read(taskId, cancellationToken);
     }
 
-    public async Task<int> AddTaskComment(int taskId, string content, string? userId, string? userName, CancellationToken cancellationToken)
+    [Obsolete("Use AddTaskCommentCommand; removed in 6.0.")]
+    public Task<int> AddTaskComment(int taskId, string content, string? userId, string? userName, CancellationToken cancellationToken)
     {
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-        // Verify task exists
-        var taskExists = await context.QueryTasks.AnyAsync(t => t.Id == taskId, cancellationToken);
-        if (!taskExists)
-            throw new BeaconException($"Task {taskId} not found");
-
-        var comment = new Comment
-        {
-            EntityType = EntityType.Task,
-            EntityId = taskId,
-            Content = content,
-            UserId = userId,
-            UserName = userName
-        };
-
-        context.Comments.Add(comment);
-        await context.SaveChangesAsync(cancellationToken);
-
-        return comment.Id;
+        return new AddTaskCommentHandler(contextFactory, null!).Add(taskId, content, userId, userName, cancellationToken);
     }
 }

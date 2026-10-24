@@ -1,11 +1,13 @@
-import { useMutation, useQueries, useQuery, useQueryClient } from '@tanstack/react-query';
+import { useMutation, useQueries, useQuery, useQueryClient, type QueryClient } from '@tanstack/react-query';
 import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import { fetchJson } from '@/lib/api';
 import { fetchPagedList } from '@/lib/paging';
 import { usePagedList } from '@/lib/usePagedList';
-import { DatabaseEngineType, type DataSourceType } from '@/lib/enums';
+import { DatabaseEngineType, type ChangeApprovalKind, type DataSourceType } from '@/lib/enums';
 import { createSimpleMutation } from '@/lib/mutations';
+import { useBackgroundTaskStatus } from '@/lib/useBackgroundTask';
+import type { BackgroundTaskStatus, BackgroundTaskTicket } from '@/api/generated/beacon-api';
 
 export const DATABASE_ENGINE_LABEL: Record<DatabaseEngineType, string> = {
   [DatabaseEngineType.PostgreSQL]: 'PostgreSQL',
@@ -50,6 +52,25 @@ export interface DataSourceEntry {
   transportVerified?: boolean | null;
   /** The stored settings an edit sends back unchanged, and whether the host manages the source. By-id read only. */
   editSettings?: DataSourceEditSettings | null;
+  /**
+   * Its connection change waiting for a second person's approval (it connects to nothing meanwhile): shown to an Approver
+   * and to whoever submitted it; null for everyone else and when nothing waits.
+   */
+  approval?: DataSourceApproval | null;
+  /**
+   * True while connections are covered by approval and the source awaits its first approval, a request pending or not (a
+   * rejected one leaves none). Visible to every reader; it connects to nothing until its connection is saved and approved.
+   */
+  awaitsFirstApproval?: boolean;
+}
+
+/** A data source's pending connection change. */
+export interface DataSourceApproval {
+  requestId: number;
+  kind: ChangeApprovalKind;
+  requestedTime: string;
+  /** A new source that was never approved; false for a change of a source approved before. */
+  awaitsFirstApproval: boolean;
 }
 
 /** A data source's stored metadata-loading options (never its connection), and whether the host application manages it. */
@@ -89,6 +110,18 @@ export function useDataSourceQuery(id: number | null | undefined) {
     queryKey: [...DATA_SOURCES_KEY, 'by-id', id],
     queryFn: () => fetchJson<DataSourceEntry>(`/beacon/api/data-sources/${id}`),
     enabled: typeof id === 'number' && id > 0,
+  });
+}
+
+/**
+ * The data source as the server holds it right now (past the cache), and the cache is primed with it. Read after a save
+ * to learn whether the change was held for approval, which the save's own answer (204) does not say.
+ */
+export function fetchDataSourceNow(qc: QueryClient, id: number) {
+  return qc.fetchQuery({
+    queryKey: [...DATA_SOURCES_KEY, 'by-id', id],
+    queryFn: () => fetchJson<DataSourceEntry>(`/beacon/api/data-sources/${id}`),
+    staleTime: 0,
   });
 }
 
@@ -172,6 +205,8 @@ export interface TestDataSourceConnectionPayload {
 export interface OperationResult {
   success: boolean;
   message: string | null;
+  /** The server saved the new source but holds it: it connects to nothing until a second person approves it. */
+  awaitingApproval?: boolean;
 }
 
 export function useCreateDataSource() {
@@ -181,7 +216,7 @@ export function useCreateDataSource() {
       qc,
       mutationFn: async (values) => {
         const r = await beaconApi().createDataSource(values as never);
-        return { success: r.success ?? false, message: r.message ?? null };
+        return { success: r.success ?? false, message: r.message ?? null, awaitingApproval: r.awaitingApproval === true };
       },
       invalidate: [DATA_SOURCES_KEY, ['projects']],
       errorFallback: 'Create data source failed',
@@ -302,17 +337,21 @@ export function useDataSourceMetadataQuery(dataSourceId: number | null | undefin
   });
 }
 
-export function useRefreshDataSourceMetadata() {
-  const qc = useQueryClient();
-  // Keeps `qc.setQueryData` semantics (cache write, not invalidate) — outside
-  // the createSimpleMutation factory which only invalidates.
+/**
+ * Starts a forced metadata refresh as a background task (202 with its ticket). Its progress is followed with
+ * useDataSourceMetadataRefreshStatus; the refresh in the request (refreshDataSourceMetadata) stays for API callers.
+ */
+export function useStartDataSourceMetadataRefresh() {
   return useMutation({
     mutationFn: async (dataSourceId: number) =>
-      unwrap<DatabaseMetadataSnapshot>(await beaconApi().refreshDataSourceMetadata(dataSourceId)),
-    onSuccess: (snapshot, dataSourceId) => {
-      qc.setQueryData(['data-sources', dataSourceId, 'metadata'] as const, snapshot);
-    },
+      unwrap<BackgroundTaskTicket>(await beaconApi().startDataSourceMetadataRefresh(dataSourceId)),
   });
+}
+
+export function useDataSourceMetadataRefreshStatus(dataSourceId: number, ticket: BackgroundTaskTicket | null) {
+  return useBackgroundTaskStatus(['data-sources', dataSourceId, 'metadata-refresh'] as const, ticket, async (taskId) =>
+    unwrap<BackgroundTaskStatus>(await beaconApi().getDataSourceMetadataRefresh(dataSourceId, taskId)),
+  );
 }
 
 export function useDeleteDataSource() {

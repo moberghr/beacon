@@ -1,5 +1,4 @@
 import { keepPreviousData, useQuery } from '@tanstack/react-query';
-import { beaconApi } from '@/api/client';
 import type { HealthStatus } from '@/lib/enums';
 import { usePagedList } from '@/lib/usePagedList';
 import {
@@ -72,16 +71,5 @@ export function useControlTowerSubscriptionDetail(
     queryFn: () =>
       fetchControlTowerSubscriptionDetail(subscriptionId as number, timeRangeDays),
     enabled: subscriptionId != null,
-  });
-}
-
-export function useQueryFolders() {
-  return useQuery({
-    queryKey: ['query-folders'],
-    queryFn: async () => {
-      const response = await beaconApi().getQueryFolders();
-      return response.folders ?? [];
-    },
-    staleTime: 60_000,
   });
 }

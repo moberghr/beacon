@@ -32,4 +32,10 @@ public class McpEmbedding : BaseEntity
     public required string Model { get; set; }
     public int Dimensions { get; set; }
     public int EmbeddingVersion { get; set; }
+
+    /// <summary>
+    /// SHA-256 (hex) of the text that produced the vector. A re-index whose text, model and version are
+    /// unchanged skips the row; null on rows indexed before it was stored, which are embedded once more.
+    /// </summary>
+    public string? ContentHash { get; set; }
 }

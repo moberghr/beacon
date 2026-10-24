@@ -1,8 +1,6 @@
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Beacon.AI.Services.Knowledge;
@@ -17,9 +15,8 @@ internal sealed class GetQueryContextTool(
     IKnowledgeGraphService knowledgeGraph,
     IDbContextFactory<BeaconContext> contextFactory,
     IProjectContext projectContext,
-    McpAuditService auditService,
-    ILlmRowDataEgress rowDataEgress,
-    ILogger<GetQueryContextTool> logger)
+    McpToolCallRecorder recorder,
+    ILlmRowDataEgress rowDataEgress)
 {
     private const int DefaultMaxChars = 12000;
     private const int MinMaxChars = 1000;
@@ -40,7 +37,8 @@ internal sealed class GetQueryContextTool(
         int? max_chars = null,
         CancellationToken cancellationToken = default)
     {
-        var sw = Stopwatch.StartNew();
+        // Written by McpAuditCallToolFilter after the tool returns or throws (§1.7).
+        recorder.Start("get_query_context", projectContext.UserId, question);
 
         // No McpSignalService call here: this tool reads the assembled grounding context without
         // generating or executing SQL, so it produces none of the SQL-learning-loop outcomes
@@ -50,14 +48,17 @@ internal sealed class GetQueryContextTool(
         // record signals: caller-authored SQL passing/failing the gates is exactly what the loop learns from.
         if (string.IsNullOrEmpty(question))
         {
-            return await FailAsync(sw, null, datasource_id, question, "Missing required parameter: question", cancellationToken);
+            return Fail(null, datasource_id, "Missing required parameter: question");
         }
 
         var resolveError = ToolHelper.ResolveProjectId(projectContext, "get_query_context", project_id, out var projectId);
         if (resolveError != null)
         {
-            return await FailAsync(sw, null, datasource_id, question, resolveError, cancellationToken);
+            return Fail(null, datasource_id, resolveError);
         }
+
+        // Recorded before the data source is resolved: a throw there is audited under this project's retention.
+        recorder.WithProject(projectId);
 
         int dataSourceId;
         if (datasource_id != null)
@@ -65,7 +66,7 @@ internal sealed class GetQueryContextTool(
             var projectError = await ToolHelper.ValidateDataSourceInProjectAsync(contextFactory, projectId, datasource_id.Value, cancellationToken);
             if (projectError != null)
             {
-                return await FailAsync(sw, projectId, datasource_id, question, projectError, cancellationToken);
+                return Fail(projectId, datasource_id, projectError);
             }
 
             dataSourceId = datasource_id.Value;
@@ -75,7 +76,7 @@ internal sealed class GetQueryContextTool(
             var (resolvedId, nameError) = await ToolHelper.ResolveDataSourceByNameAsync(contextFactory, projectId, datasource_name, cancellationToken);
             if (nameError != null)
             {
-                return await FailAsync(sw, projectId, null, question, nameError, cancellationToken);
+                return Fail(projectId, null, nameError);
             }
 
             dataSourceId = resolvedId;
@@ -85,93 +86,76 @@ internal sealed class GetQueryContextTool(
             var sourceIds = await ToolHelper.GetProjectDataSourceIdsAsync(contextFactory, projectId, cancellationToken);
             if (sourceIds.Count == 0)
             {
-                return await FailAsync(sw, projectId, null, question, "No data sources in this project.", cancellationToken);
+                return Fail(projectId, null, "No data sources in this project.");
             }
 
             if (sourceIds.Count > 1)
             {
                 var listing = await ListDataSourcesAsync(sourceIds, cancellationToken);
-                return await FailAsync(sw, projectId, null, question,
-                    $"This project has {sourceIds.Count} data sources: {listing}. Pass datasource_name or datasource_id to select one.",
-                    cancellationToken);
+                return Fail(projectId, null,
+                    $"This project has {sourceIds.Count} data sources: {listing}. Pass datasource_name or datasource_id to select one.");
             }
 
             dataSourceId = sourceIds[0];
         }
 
-        try
+        recorder.WithDataSource(dataSourceId);
+
+        var maxChars = Math.Clamp(max_chars ?? DefaultMaxChars, MinMaxChars, MaxMaxChars);
+
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        var dataSourceName = await context.DataSources
+            .Where(x => x.Id == dataSourceId)
+            .Select(x => x.Name)
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
+
+        // A caller that may read the project but not query it gets no live value probes: they would read column
+        // contents it may not query. Stored sample values still ground it.
+        var liveValueProbes = projectContext.QueryProjectIds?.Contains(projectId) == true;
+        var smartContext = await knowledgeGraph.GetSmartContextForAskAsync(dataSourceId, projectId, question, liveValueProbes, cancellationToken);
+
+        // The max_chars budget applies to the grounding context itself; the fixed header and the
+        // truncation note ride outside it, so raising max_chars is a pure context gain.
+        var dialect = smartContext.DatabaseDialect ?? "SQL";
+        var (contextText, truncated) = TrimToBudget(smartContext.FullContext, maxChars);
+
+        var text = $"# Query Context: {dataSourceName} ({dialect})\n" +
+            $"Write {dialect} SELECT statements. Validate with dry_run, execute with query. Sections marked (authoritative) are human-verified.\n\n" +
+            contextText;
+
+        if (truncated)
         {
-            var maxChars = Math.Clamp(max_chars ?? DefaultMaxChars, MinMaxChars, MaxMaxChars);
-
-            await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-            var dataSourceName = await context.DataSources
-                .Where(x => x.Id == dataSourceId)
-                .Select(x => x.Name)
-                .FirstOrDefaultAsync(cancellationToken)
-                ?? throw new InvalidOperationException($"Data source {dataSourceId} not found");
-
-            // A caller that may read the project but not query it gets no live value probes: they would read column
-            // contents it may not query. Stored sample values still ground it.
-            var liveValueProbes = projectContext.QueryProjectIds?.Contains(projectId) == true;
-            var smartContext = await knowledgeGraph.GetSmartContextForAskAsync(dataSourceId, projectId, question, liveValueProbes, cancellationToken);
-
-            // The max_chars budget applies to the grounding context itself; the fixed header and the
-            // truncation note ride outside it, so raising max_chars is a pure context gain.
-            var dialect = smartContext.DatabaseDialect ?? "SQL";
-            var (contextText, truncated) = TrimToBudget(smartContext.FullContext, maxChars);
-
-            var text = $"# Query Context: {dataSourceName} ({dialect})\n" +
-                $"Write {dialect} SELECT statements. Validate with dry_run, execute with query. Sections marked (authoritative) are human-verified.\n\n" +
-                contextText;
-
-            if (truncated)
-            {
-                text += $"\n\n_Truncated at {maxChars} chars. Raise max_chars (up to {MaxMaxChars}) for the full context._";
-            }
-
-            var structured = new JsonObject
-            {
-                ["data_source_id"] = dataSourceId,
-                ["data_source"] = dataSourceName,
-                ["dialect"] = smartContext.DatabaseDialect,
-                ["truncated"] = truncated
-            };
-
-            sw.Stop();
-            await auditService.LogToolCallAsync(projectContext.UserId, "get_query_context",
-                question, dataSourceId, projectId, (int)sw.ElapsedMilliseconds, null, null, ct: cancellationToken);
-
-            // Sample values and value matches go to the MCP client's own model: recorded like a prompt Beacon sends.
-            await rowDataEgress.RecordReturnedToMcpClientAsync(
-                new LlmRowDataScope(projectId, [dataSourceId], smartContext.RowDataCategories),
-                cancellationToken);
-            return ToolHelper.Success(text, structured);
+            text += $"\n\n_Truncated at {maxChars} chars. Raise max_chars (up to {MaxMaxChars}) for the full context._";
         }
-        catch (Exception ex)
+
+        var structured = new JsonObject
         {
-            sw.Stop();
-            await auditService.LogToolCallAsync(projectContext.UserId, "get_query_context",
-                question, dataSourceId, projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, ct: CancellationToken.None);
-            // §1.11 — ex.Message can quote user input; type only here, full detail is in the audit log.
-            logger.LogError("MCP tool {Tool} failed with {ExceptionType} (detail in MCP audit log)", "get_query_context", ex.GetType().Name);
-            return ToolHelper.Error(ToolHelper.CallerSafeMessage(ex, "get_query_context"));
-        }
+            ["data_source_id"] = dataSourceId,
+            ["data_source"] = dataSourceName,
+            ["dialect"] = smartContext.DatabaseDialect,
+            ["truncated"] = truncated
+        };
+
+        // Sample values and value matches go to the MCP client's own model: recorded like a prompt Beacon sends.
+        await rowDataEgress.RecordReturnedToMcpClientAsync(
+            new LlmRowDataScope(projectId, [dataSourceId], smartContext.RowDataCategories),
+            cancellationToken);
+
+        recorder.Succeed();
+        return ToolHelper.Success(text, structured);
     }
 
     // §1.7 — audit must be recorded on every outcome, including the early-exit failures before the
     // context assembly (missing question, project/data-source resolution, access denied). Audit-only,
     // no signal — see the rationale at the top of ExecuteAsync.
-    private async Task<CallToolResult> FailAsync(
-        Stopwatch sw,
-        int? projectId,
-        int? dataSourceId,
-        string question,
-        string error,
-        CancellationToken cancellationToken)
+    private CallToolResult Fail(int? projectId, int? dataSourceId, string error)
     {
-        sw.Stop();
-        await auditService.LogToolCallAsync(projectContext.UserId, "get_query_context",
-            question, dataSourceId, projectId, (int)sw.ElapsedMilliseconds, null, error, ct: cancellationToken);
+        recorder
+            .WithProject(projectId)
+            .WithDataSource(dataSourceId)
+            .Fail(error);
+
         return ToolHelper.Error(error);
     }
 
