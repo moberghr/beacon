@@ -24,7 +24,7 @@ namespace Beacon.Tests.Unit.ChangeGovernance;
 /// change requests' encrypted payload (nullable, unbounded), and a unique index on kind and resource that holds only
 /// pending LLM connection requests, so a second one cannot be submitted alongside the first. It runs no SQL and backfills
 /// nothing. Up is exactly the difference between the model before it and its target model, and Down is exactly the way
-/// back. Its target model differs from the next migration's only by that migration, and it sorts right after the row-security model.
+/// back. It sorts right after the row-security migration, and the next migration changes only what it adds.
 /// </summary>
 [TestFixture]
 public class ConnectionChangeApprovalMigrationTests
@@ -33,7 +33,7 @@ public class ConnectionChangeApprovalMigrationTests
 
     [TestCase(false)]
     [TestCase(true)]
-    public void TheMigration_AddsTheTwoColumnsAndTheIndex_AndIsTheSnapshot(bool sqlServer)
+    public void TheMigration_AddsTheTwoColumnsAndTheIndex_AndPrecedesTheNextOne(bool sqlServer)
     {
         using var provider = BuildProvider(sqlServer);
         using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
@@ -58,8 +58,8 @@ public class ConnectionChangeApprovalMigrationTests
             .Should().BeEquivalentTo(Signatures(differ.GetDifferences(before, target)), "Up is exactly the difference from the model before");
         Signatures(migration.DownOperations)
             .Should().BeEquivalentTo(Signatures(differ.GetDifferences(target, before)), "Down removes exactly what Up adds");
-        // The next migration's own content is pinned by BackgroundTasksMigrationTests.
-        var next = MigrationNamed(context, migrations, "_AddBackgroundTasks");
+        // The next migration's own content is pinned by SignInLockoutMigrationTests.
+        var next = MigrationNamed(context, migrations, "_AddUserSignInLockout");
         Signatures(differ.GetDifferences(target, Initialized(next.TargetModel!, initializer).GetRelationalModel()))
             .Should().BeEquivalentTo(
                 Signatures(next.UpOperations),

@@ -39,6 +39,7 @@ internal static class MigrationsEndpoints
         migrations.MapPost("/jobs/{id:int}/run", (int id, IMediator m, CancellationToken ct) =>
                 m.Send(new RunMigrationJobCommand(id), ct))
             .WithName("RunMigrationJob")
+            .WithBeaconLongRunning()
             .RequireBeaconPermission(BeaconPermissions.MigrationOperatorPolicy);
 
         // Starts the run as a background task: 202 with the task (its job id correlates JobStatusChanged), read below; the

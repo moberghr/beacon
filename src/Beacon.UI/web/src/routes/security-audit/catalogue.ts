@@ -24,6 +24,7 @@ export const SECURITY_AUDIT_CATEGORIES: readonly SecurityAuditCategory[] = [
       'auth.sso_signed_in',
       'auth.sso_refused',
       'auth.setup_token_refused',
+      'auth.user_locked_out',
     ],
   },
   {
@@ -126,6 +127,8 @@ export const SECURITY_AUDIT_CATEGORIES: readonly SecurityAuditCategory[] = [
       'approvals.ai_plan_rejected',
       'approvals.ai_plan_revision_requested',
       'approvals.ai_actor_created',
+      'approvals.ai_actor_think_started',
+      'approvals.ai_actor_archived',
     ],
   },
   {
@@ -181,6 +184,17 @@ export const SECURITY_AUDIT_CATEGORIES: readonly SecurityAuditCategory[] = [
     ],
   },
   {
+    code: 'embed',
+    label: 'Embedding',
+    actions: [
+      'embed.grant_created',
+      'embed.grant_revoked',
+      'embed.token_issued',
+      'embed.token_refused',
+      'embed.query_rendered',
+    ],
+  },
+  {
     code: 'row_security',
     label: 'Row security',
     actions: [
@@ -230,6 +244,7 @@ export const SECURITY_AUDIT_RESOURCE_TYPES: readonly string[] = [
   'attribute_definition',
   'row_policy',
   'table_classification',
+  'embed_grant',
 ];
 
 /** How the actor of an event was authenticated, as the page names it. */
@@ -239,6 +254,7 @@ export const SECURITY_AUDIT_ACTOR_KINDS: Readonly<Record<string, string>> = {
   api_key: 'API key',
   mcp_caller: 'MCP caller',
   system: 'System',
+  embed: 'Embed',
   anonymous: 'Anonymous',
 };
 

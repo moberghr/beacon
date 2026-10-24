@@ -44,7 +44,7 @@ public class BackgroundTasksMigrationTests
         var differ = context.GetService<IMigrationsModelDiffer>();
 
         var migration = MigrationNamed(context, migrations, Suffix);
-        var previous = MigrationNamed(context, migrations, "_AddConnectionChangeApproval");
+        var previous = MigrationNamed(context, migrations, "_AddUserSignInFailureTime");
         var before = Initialized(previous.TargetModel!, initializer).GetRelationalModel();
         var target = Initialized(migration.TargetModel!, initializer).GetRelationalModel();
 
@@ -60,16 +60,18 @@ public class BackgroundTasksMigrationTests
             .Should().BeEquivalentTo(Signatures(differ.GetDifferences(before, target)), "Up is exactly the difference from the model before");
         Signatures(migration.DownOperations)
             .Should().BeEquivalentTo(Signatures(differ.GetDifferences(target, before)), "Down removes exactly what Up adds");
-        var next = MigrationNamed(context, migrations, NextSuffix);
+        // The next migration's own content is pinned by EmbedGrantMigrationTests.
+        var next = MigrationNamed(context, migrations, "_AddEmbedGrants");
         Signatures(differ.GetDifferences(target, Initialized(next.TargetModel!, initializer).GetRelationalModel()))
-            .Should().BeEquivalentTo(Signatures(next.UpOperations), "this migration's target model differs from the next one's only by the next migration");
-        context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
+            .Should().BeEquivalentTo(
+                Signatures(next.UpOperations),
+                "this migration's target model differs from the next one's only by the next migration");
         migrations.Migrations.Keys
             .Order(StringComparer.Ordinal)
-            .TakeLast(2)
-            .Should().SatisfyRespectively(
-                x => x.Should().EndWith(Suffix, "it sorts after every earlier migration"),
-                x => x.Should().EndWith(NextSuffix));
+            .SkipWhile(x => !x.EndsWith("_AddUserSignInFailureTime", StringComparison.Ordinal))
+            .Skip(1)
+            .First()
+            .Should().EndWith(Suffix, "it sorts after every earlier migration");
     }
 
     [TestCase(false, "character varying(16)", "character varying(64)")]
@@ -83,7 +85,7 @@ public class BackgroundTasksMigrationTests
         var differ = context.GetService<IMigrationsModelDiffer>();
 
         var migration = MigrationNamed(context, migrations, NextSuffix);
-        var before = Initialized(MigrationNamed(context, migrations, Suffix).TargetModel!, initializer).GetRelationalModel();
+        var before = Initialized(MigrationNamed(context, migrations, "_AddEmbedGrants").TargetModel!, initializer).GetRelationalModel();
         var target = Initialized(migration.TargetModel!, initializer).GetRelationalModel();
 
         migration.UpOperations.Should().NotContain(x => x is SqlOperation, "nothing rewrites or backfills a stored row");
@@ -100,6 +102,11 @@ public class BackgroundTasksMigrationTests
             .Should().BeEquivalentTo(Signatures(differ.GetDifferences(target, before)), "Down removes exactly what Up adds");
         differ.GetDifferences(target, Initialized(migrations.ModelSnapshot!.Model, initializer).GetRelationalModel())
             .Should().BeEmpty("the migration's target model is the snapshot");
+        context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
+        migrations.Migrations.Keys
+            .Order(StringComparer.Ordinal)
+            .Last()
+            .Should().EndWith(NextSuffix, "it sorts after every earlier migration");
     }
 
     [TestCase(false, "integer", "character varying(64)")]

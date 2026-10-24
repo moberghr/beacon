@@ -18,6 +18,7 @@ public static class SecurityAuditCategories
     public const string DataQuality = "data_quality";
     public const string Migrations = "migrations";
     public const string RowSecurity = "row_security";
+    public const string Embed = "embed";
     public const string Audit = "audit";
 }
 
@@ -66,6 +67,7 @@ public static class SecurityAuditResources
     public const string AttributeDefinition = "attribute_definition";
     public const string RowPolicy = "row_policy";
     public const string TableClassification = "table_classification";
+    public const string EmbedGrant = "embed_grant";
 }
 
 /// <summary>How the actor of an event was authenticated.</summary>
@@ -84,6 +86,12 @@ public static class SecurityAuditActorKinds
 
     /// <summary>Work Beacon does for itself (a background job, a startup task).</summary>
     public const string System = "system";
+
+    /// <summary>
+    /// An embed grant's secret or an embed token, acting for the grant: named by the grant creator's user, the grant being
+    /// the event's resource.
+    /// </summary>
+    public const string Embed = "embed";
 
     /// <summary>No authenticated caller (a sign-in attempt, a refused request).</summary>
     public const string Anonymous = "anonymous";
@@ -106,6 +114,7 @@ public static class SecurityAuditActions
     public const string SsoSignedIn = "auth.sso_signed_in";
     public const string SsoRefused = "auth.sso_refused";
     public const string SetupTokenRefused = "auth.setup_token_refused";
+    public const string UserLockedOut = "auth.user_locked_out";
 
     // Identity
     public const string SuperAdminCreated = "identity.super_admin_created";
@@ -181,6 +190,8 @@ public static class SecurityAuditActions
     public const string AiPlanRejected = "approvals.ai_plan_rejected";
     public const string AiPlanRevisionRequested = "approvals.ai_plan_revision_requested";
     public const string AiActorCreated = "approvals.ai_actor_created";
+    public const string AiActorThinkStarted = "approvals.ai_actor_think_started";
+    public const string AiActorArchived = "approvals.ai_actor_archived";
 
     // Ownership
     public const string OwnerChanged = "ownership.owner_changed";
@@ -220,6 +231,13 @@ public static class SecurityAuditActions
     public const string MigrationJobRunRequested = "migrations.job_run_requested";
     public const string MigrationJobStarted = "migrations.job_started";
     public const string MigrationJobRunEnded = "migrations.job_run_ended";
+
+    // Embedding
+    public const string EmbedGrantCreated = "embed.grant_created";
+    public const string EmbedGrantRevoked = "embed.grant_revoked";
+    public const string EmbedTokenIssued = "embed.token_issued";
+    public const string EmbedTokenRefused = "embed.token_refused";
+    public const string EmbedQueryRendered = "embed.query_rendered";
 
     // Row security
     public const string AttributeDefined = "row_security.attribute_defined";

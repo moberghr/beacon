@@ -28,12 +28,12 @@ column has a foreign key: an event outlives the user, key or project it names.
 | `CreatedTime` | When the event was recorded (UTC, kept to the microsecond). |
 | `Category`, `Action` | The event family and what happened, named `{category}.{what happened}` in the past tense; see the [catalogue](#event-catalogue). |
 | `Outcome` | `success`, `failure` (the attempt did not succeed, such as a wrong password), `refused` (Beacon refused it by rule: local login off, a setup token that does not match, a purge of events that fail verification) or `empty` (there was nothing to act on: a verification that found no event to check, which is not a success). |
-| `ActorKind` | How the actor was authenticated: `user`, `session` (a signed-in session without a stored Beacon user), `api_key`, `mcp_caller`, `system` (Beacon's own background work) or `anonymous`. |
+| `ActorKind` | How the actor was authenticated: `user`, `session` (a signed-in session without a stored Beacon user), `api_key`, `mcp_caller`, `system` (Beacon's own background work), `embed` (an embed grant or token, recorded as the grant's creator) or `anonymous`. |
 | `ActorUserId` | The acting user's `Users.Id` (an API key's owner); `null` for a caller without a stored Beacon user. |
 | `ApiKeyId` | The API key the actor used. |
 | `CallerHash` | For a caller without a Beacon user (a single sign-on subject, a host session, an MCP caller, the name typed at a failed password sign-in): a keyed hash, never the subject or the name itself. For an MCP caller it is the same hash the MCP audit records. |
 | `ProjectId` | The project the action concerns, when it concerns one. |
-| `ResourceType`, `ResourceId` | What was acted on: `user`, `api_key`, `project`, `data_source`, `repository`, `query`, `subscription`, `recipient`, `data_contract`, `migration_job`, `ai_actor`, `ai_actor_plan`, `approval_request`, `change_approval_request`, `task`, `settings`, `learned_pattern`, `documentation_patch`, `eval_case`, `schema_relationship`, `glossary_term`, `documentation_section`, `mcp_audit` or `security_audit`. |
+| `ResourceType`, `ResourceId` | What was acted on: `user`, `api_key`, `project`, `data_source`, `repository`, `query`, `subscription`, `recipient`, `data_contract`, `migration_job`, `ai_actor`, `ai_actor_plan`, `approval_request`, `change_approval_request`, `task`, `settings`, `learned_pattern`, `documentation_patch`, `eval_case`, `schema_relationship`, `glossary_term`, `documentation_section`, `mcp_audit`, `embed_grant` or `security_audit`. |
 | `DetailsJson` | What else the event needs, as a small JSON object of identifiers, counts, flags, codes and keyed digests (below). |
 | `TraceId` | The W3C trace id of the request or job that recorded the event. |
 | `KeyId`, `Hmac` | The integrity key the event was signed with, and the signature; see [Integrity](#integrity-signatures-and-verification). |
@@ -81,7 +81,7 @@ Every action belongs to one category, the part of its name before the dot.
 |---|---|
 | `auth.password_sign_in_succeeded` | A password sign-in issued a session. |
 | `auth.password_sign_in_failed` | A password sign-in did not succeed (`failure`); names the user the sign-in name resolved to, when it did, and the attempt by a keyed hash of the name typed. |
-| `auth.password_sign_in_refused` | A password sign-in refused by rule (`refused`): local login is off and the account is no break-glass account (`local_login_off`), or the password was right but an administrator set it and the user must choose a new one first (`password_change_required`). |
+| `auth.password_sign_in_refused` | A password sign-in refused by rule (`refused`): local login is off and the account is no break-glass account (`local_login_off`), or the password was right but an administrator set it and the user must choose a new one first (`password_change_required`), or the user is locked out after too many wrong passwords, whatever password was sent (`locked_out`). |
 | `auth.break_glass_signed_in` | A break-glass account signed in with its password while local login is off. |
 | `auth.signed_out` | A session signed out. |
 | `auth.signed_out_everywhere` | Every session of a user was ended (**Sign out everywhere**, by the user or an administrator). |
@@ -89,6 +89,7 @@ Every action belongs to one category, the part of its name before the dot.
 | `auth.sso_signed_in` | A single sign-on was admitted. |
 | `auth.sso_refused` | A single sign-on was refused, with the reason; the subject only as its keyed hash. |
 | `auth.setup_token_refused` | First-run setup was attempted with a setup token that does not match. |
+| `auth.user_locked_out` | An internal user's password sign-in was locked after too many wrong passwords in a row (`Beacon:RateLimits:Lockout`); names the user, with the number of attempts, the lockout length in minutes and when it ends. |
 
 **Identity** (`identity`)
 
@@ -148,7 +149,9 @@ migration jobs, Custom SQL rules, recipients, data-source connections and the LL
 submission supersedes);
 `approvals.ai_plan_submitted`, `approvals.ai_plan_approved`, `approvals.ai_plan_rejected` and
 `approvals.ai_plan_revision_requested` (AI actor plans); `approvals.ai_actor_created` (an AI actor created, with its
-data source and whether its changes wait for approval).
+data source and whether its changes wait for approval); `approvals.ai_actor_think_started` (an on-demand think cycle
+accepted as a background task, with the task id); `approvals.ai_actor_archived` (an AI actor archived; archiving one
+already archived changes and records nothing).
 
 **Ownership** (`ownership`): `ownership.owner_changed`: the owner of a subscription, data contract or AI actor changed,
 with the previous and the new owner as `Users.Id`. Setting the owner a resource already has changes nothing and records
@@ -176,6 +179,10 @@ began (by the caller, or the `system` actor for a scheduled run), recorded befor
 execution id and the source and destination data sources) and `migrations.job_run_ended` (`success`, `failure` with the
 row counts, or `refused` before it started, with the reason: `not_approved`, `write_target_refused`, `run_in_progress`,
 or for a background run task, with its task id, `forbidden` or `abandoned`).
+
+**Embedding** (`embed`): `embed.grant_created` (with the project, query and version ids, the number of origins and
+locked parameters and the days until it expires; never an origin or a parameter value) and `embed.grant_revoked`.
+Revoking a revoked grant records nothing.
 
 **The audit itself** (`audit`): `audit.read` (every read of the trail, with the filters' shape and the page),
 `audit.verified` (every verification, with its counts; outcome `failure` when an event failed, `empty` when nothing was

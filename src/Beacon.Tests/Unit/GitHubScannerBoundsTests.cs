@@ -218,6 +218,48 @@ public class GitHubScannerBoundsTests
         refs.Select(x => (x.TableName, x.MethodName)).Should().BeEquivalentTo(new[] { ("orders", "First"), ("items", "Second") });
     }
 
+    // Characterizes the line numbers (1-based, '\n' separated, a CRLF file included) and the enclosing method of each
+    // reference, so the lookups can be replaced by indexed ones without changing a result.
+    [TestCase("\n")]
+    [TestCase("\r\n")]
+    public void AnalyzeFile_ReportsEachReferencesLineAndEnclosingMethod(string newline)
+    {
+        var content = string.Join(newline, new[]
+        {
+            "class A {",
+            " public DbSet<Order> Orders { get; set; }",
+            " public void First() {",
+            "  conn.Query(\"select * from orders\");",
+            " }",
+            "",
+            " public void Second() {",
+            "  conn.Query(\"select * from items\");",
+            " }",
+            "}"
+        });
+
+        var refs = new CSharpCodeAnalyzer().AnalyzeFile("A.cs", content);
+
+        refs.Select(x => (x.TableName, x.LineNumber, x.MethodName))
+            .Should()
+            .BeEquivalentTo(new (string?, int, string?)[] { ("Order", 2, null), ("orders", 4, "First"), ("items", 8, "Second") });
+    }
+
+    [Test]
+    public void AnalyzeFile_WithManyReferencesInOneFile_FinishesQuickly()
+    {
+        var body = string.Concat(Enumerable.Range(0, 4_000).Select(x => $" public void M{x}() {{\n  conn.Query(\"select * from t{x}\");\n }}\n"));
+        var content = "class A {\n" + body + "}";
+
+        var started = DateTime.UtcNow;
+        var refs = new CSharpCodeAnalyzer().AnalyzeFile("A.cs", content);
+
+        refs.Should().HaveCount(4_000);
+        refs[^1].LineNumber.Should().Be(1 + 4_000 * 3 - 1);
+        refs[^1].MethodName.Should().Be("M3999");
+        (DateTime.UtcNow - started).Should().BeLessThan(TimeSpan.FromSeconds(10));
+    }
+
     private static List<CodeReference> ExistingReferences() =>
     [
         new() { Id = 1, GitHubRepositoryId = RepositoryId, FilePath = "src/Old.cs", TableName = "orders" },

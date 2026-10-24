@@ -43,7 +43,8 @@ internal static class DataSourcesEndpoints
         // Refreshes in the request and answers with the catalog (kept for 5.0 callers; a large catalog holds the request open).
         ds.MapPost("/{id:int}/refresh-metadata", (int id, IMediator m, CancellationToken ct) =>
                 m.Send(new RefreshDataSourceMetadataCommand(id), ct))
-            .WithName("RefreshDataSourceMetadata");
+            .WithName("RefreshDataSourceMetadata")
+            .WithBeaconLongRunning();
 
         // Starts the refresh as a background task: 202 with the task (its job id correlates JobStatusChanged), read below.
         ds.MapPost("/{id:int}/metadata-refreshes", async (int id, IMediator m, CancellationToken ct) =>
