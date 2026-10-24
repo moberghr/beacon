@@ -17838,6 +17838,7 @@ export interface CurrentPermissionsResponse {
   permissions: string[];
   migrationsEnabled: boolean;
   gatewayMode?: boolean;
+  embedEnabled?: boolean;
 
   [key: string]: any;
 }

@@ -66,7 +66,8 @@ public class ProjectAuthorizationCoverageTests
         ["UpdateRepositoryToken"] = "SecurityAdmin: repository credential",
         ["SetProjectAccessMode"] = "UserAdmin: restricting or opening a project",
         ["UnlinkProjectDataSource"] = "Admin: unlinking a data source from a project",
-        ["SetQueryMcpTool"] = "SecurityAdmin: publishing a saved query as an MCP tool"
+        ["SetQueryMcpTool"] = "SecurityAdmin: publishing a saved query as an MCP tool",
+        ["RevokeEmbedGrant"] = "SecurityAdmin: revoking any embed grant (incident response)"
     };
 
     [Test]

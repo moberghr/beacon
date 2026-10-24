@@ -28,12 +28,12 @@ column has a foreign key: an event outlives the user, key or project it names.
 | `CreatedTime` | When the event was recorded (UTC, kept to the microsecond). |
 | `Category`, `Action` | The event family and what happened, named `{category}.{what happened}` in the past tense; see the [catalogue](#event-catalogue). |
 | `Outcome` | `success`, `failure` (the attempt did not succeed, such as a wrong password), `refused` (Beacon refused it by rule: local login off, a setup token that does not match, a purge of events that fail verification) or `empty` (there was nothing to act on: a verification that found no event to check, which is not a success). |
-| `ActorKind` | How the actor was authenticated: `user`, `session` (a signed-in session without a stored Beacon user), `api_key`, `mcp_caller`, `system` (Beacon's own background work) or `anonymous`. |
+| `ActorKind` | How the actor was authenticated: `user`, `session` (a signed-in session without a stored Beacon user), `api_key`, `mcp_caller`, `system` (Beacon's own background work), `embed` (an embed grant or token, recorded as the grant's creator) or `anonymous`. |
 | `ActorUserId` | The acting user's `Users.Id` (an API key's owner); `null` for a caller without a stored Beacon user. |
 | `ApiKeyId` | The API key the actor used. |
 | `CallerHash` | For a caller without a Beacon user (a single sign-on subject, a host session, an MCP caller, the name typed at a failed password sign-in): a keyed hash, never the subject or the name itself. For an MCP caller it is the same hash the MCP audit records. |
 | `ProjectId` | The project the action concerns, when it concerns one. |
-| `ResourceType`, `ResourceId` | What was acted on: `user`, `api_key`, `project`, `data_source`, `repository`, `query`, `subscription`, `recipient`, `data_contract`, `migration_job`, `ai_actor`, `ai_actor_plan`, `approval_request`, `change_approval_request`, `task`, `settings`, `learned_pattern`, `documentation_patch`, `eval_case`, `schema_relationship`, `glossary_term`, `documentation_section`, `mcp_audit` or `security_audit`. |
+| `ResourceType`, `ResourceId` | What was acted on: `user`, `api_key`, `project`, `data_source`, `repository`, `query`, `subscription`, `recipient`, `data_contract`, `migration_job`, `ai_actor`, `ai_actor_plan`, `approval_request`, `change_approval_request`, `task`, `settings`, `learned_pattern`, `documentation_patch`, `eval_case`, `schema_relationship`, `glossary_term`, `documentation_section`, `mcp_audit`, `embed_grant` or `security_audit`. |
 | `DetailsJson` | What else the event needs, as a small JSON object of identifiers, counts, flags, codes and keyed digests (below). |
 | `TraceId` | The W3C trace id of the request or job that recorded the event. |
 | `KeyId`, `Hmac` | The integrity key the event was signed with, and the signature; see [Integrity](#integrity-signatures-and-verification). |
@@ -171,6 +171,10 @@ evaluations are not recorded).
 began (by the caller, or the `system` actor for a scheduled run), recorded before it touches a data source, with the
 execution id and the source and destination data sources) and `migrations.job_run_ended` (`success`, `failure` with the
 row counts, or `refused` before it started, with the reason: `not_approved`, `write_target_refused`).
+
+**Embedding** (`embed`): `embed.grant_created` (with the project, query and version ids, the number of origins and
+locked parameters and the days until it expires; never an origin or a parameter value) and `embed.grant_revoked`.
+Revoking a revoked grant records nothing.
 
 **The audit itself** (`audit`): `audit.read` (every read of the trail, with the filters' shape and the page),
 `audit.verified` (every verification, with its counts; outcome `failure` when an event failed, `empty` when nothing was

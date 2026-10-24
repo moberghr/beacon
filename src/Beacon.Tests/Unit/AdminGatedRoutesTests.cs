@@ -64,6 +64,9 @@ public class AdminGatedRoutesTests
         ["PUT /beacon/api/recipients/{id:int}"] = BeaconPermissions.SecurityAdminPolicy,
         ["DELETE /beacon/api/recipients/{id:int}"] = BeaconPermissions.SecurityAdminPolicy,
         ["PUT /beacon/api/queries/{id:int}/mcp-tool"] = BeaconPermissions.SecurityAdminPolicy,
+        ["POST /beacon/api/embed-grants/"] = BeaconPermissions.SecurityAdminPolicy,
+        ["GET /beacon/api/embed-grants/"] = BeaconPermissions.SecurityAdminPolicy,
+        ["POST /beacon/api/embed-grants/{id:int}/revoke"] = BeaconPermissions.SecurityAdminPolicy,
         ["PUT /beacon/api/projects/repositories/{id:int}/token"] = BeaconPermissions.SecurityAdminPolicy,
 
         ["GET /beacon/api/users/"] = BeaconPermissions.UserAdminPolicy,

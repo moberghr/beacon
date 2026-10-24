@@ -24,7 +24,8 @@ namespace Beacon.Tests.Unit.ChangeGovernance;
 /// change requests' encrypted payload (nullable, unbounded), and a unique index on kind and resource that holds only
 /// pending LLM connection requests, so a second one cannot be submitted alongside the first. It runs no SQL and backfills
 /// nothing. Up is exactly the difference between the model before it and its target model, and Down is exactly the way
-/// back. Its target model is the snapshot, the model has no pending changes, and it sorts last.
+/// back. Its target model differs from the next migration's only by that migration, the model has no pending changes, and
+/// it sorts right after the row-security model migration.
 /// </summary>
 [TestFixture]
 public class ConnectionChangeApprovalMigrationTests
@@ -33,7 +34,7 @@ public class ConnectionChangeApprovalMigrationTests
 
     [TestCase(false)]
     [TestCase(true)]
-    public void TheMigration_AddsTheTwoColumnsAndTheIndex_AndIsTheSnapshot(bool sqlServer)
+    public void TheMigration_AddsTheTwoColumnsAndTheIndex_AndPrecedesTheNextOne(bool sqlServer)
     {
         using var provider = BuildProvider(sqlServer);
         using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
@@ -58,12 +59,18 @@ public class ConnectionChangeApprovalMigrationTests
             .Should().BeEquivalentTo(Signatures(differ.GetDifferences(before, target)), "Up is exactly the difference from the model before");
         Signatures(migration.DownOperations)
             .Should().BeEquivalentTo(Signatures(differ.GetDifferences(target, before)), "Down removes exactly what Up adds");
-        differ.GetDifferences(target, Initialized(migrations.ModelSnapshot!.Model, initializer).GetRelationalModel())
-            .Should().BeEmpty("the migration's target model is the snapshot");
+        // The next migration's own content is pinned by EmbedGrantMigrationTests.
+        var next = MigrationNamed(context, migrations, "_AddEmbedGrants");
+        Signatures(differ.GetDifferences(target, Initialized(next.TargetModel!, initializer).GetRelationalModel()))
+            .Should().BeEquivalentTo(
+                Signatures(next.UpOperations),
+                "this migration's target model differs from the next one's only by the next migration");
         context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
         migrations.Migrations.Keys
             .Order(StringComparer.Ordinal)
-            .Last()
+            .SkipWhile(x => !x.EndsWith("_AddRowSecurityModel", StringComparison.Ordinal))
+            .Skip(1)
+            .First()
             .Should().EndWith(Suffix, "it sorts after every earlier migration");
     }
 

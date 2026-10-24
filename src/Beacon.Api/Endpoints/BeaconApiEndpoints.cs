@@ -5,6 +5,7 @@ using Beacon.Core.Authorization;
 using Beacon.Core.Configuration;
 using Beacon.Core.Mcp;
 using Beacon.Core.Services;
+using Beacon.Core.Services.Embed;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Antiforgery;
@@ -194,6 +195,13 @@ public static class BeaconApiEndpoints
         if (endpoints.ServiceProvider.GetService<IOptions<MigrationOptions>>()?.Value.Enabled == true)
         {
             group.MapMigrationsEndpoints();
+        }
+
+        // Embedding saved queries is off unless the host turned it on (Beacon:Embed:Enabled): unmapped, every embed route
+        // answers 404.
+        if (endpoints.ServiceProvider.GetService<IOptions<EmbedOptions>>()?.Value.Enabled == true)
+        {
+            group.MapEmbedGrantsEndpoints();
         }
 
         group.MapRecipientsEndpoints();

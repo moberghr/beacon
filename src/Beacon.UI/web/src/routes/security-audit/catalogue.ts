@@ -174,6 +174,17 @@ export const SECURITY_AUDIT_CATEGORIES: readonly SecurityAuditCategory[] = [
     actions: ['migrations.job_created', 'migrations.job_deleted', 'migrations.job_started', 'migrations.job_run_ended'],
   },
   {
+    code: 'embed',
+    label: 'Embedding',
+    actions: [
+      'embed.grant_created',
+      'embed.grant_revoked',
+      'embed.token_issued',
+      'embed.token_refused',
+      'embed.query_rendered',
+    ],
+  },
+  {
     code: 'row_security',
     label: 'Row security',
     actions: [
@@ -223,6 +234,7 @@ export const SECURITY_AUDIT_RESOURCE_TYPES: readonly string[] = [
   'attribute_definition',
   'row_policy',
   'table_classification',
+  'embed_grant',
 ];
 
 /** How the actor of an event was authenticated, as the page names it. */
@@ -232,6 +244,7 @@ export const SECURITY_AUDIT_ACTOR_KINDS: Readonly<Record<string, string>> = {
   api_key: 'API key',
   mcp_caller: 'MCP caller',
   system: 'System',
+  embed: 'Embed',
   anonymous: 'Anonymous',
 };
 

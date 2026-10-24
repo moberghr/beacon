@@ -202,6 +202,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
         ConfigureMcpEvalEntities(modelBuilder);
         ConfigureSecurityAuditEntities(modelBuilder);
         ConfigureRowSecurityEntities(modelBuilder);
+        ConfigureEmbedEntities(modelBuilder);
         ConfigureAttributionColumns(modelBuilder);
         base.OnModelCreating(modelBuilder);
     }

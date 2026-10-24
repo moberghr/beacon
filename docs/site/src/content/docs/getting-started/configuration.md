@@ -764,9 +764,30 @@ Without the section, the authority published is `Beacon:Authentication:Oidc:Auth
 
 Other standard `OTEL_*` variables are read by the OpenTelemetry SDK itself. The Beacon libraries choose no exporter.
 
-## Embed tokens (`Beacon:EmbedToken`)
+## Embedding (`Beacon:Embed`)
 
-Read by `IEmbedTokenService`, a host-facing service that mints and validates HS256 tokens for embeddable integrations; no Beacon route uses it. Validated at first use.
+Off by default, and a deployment lock: while `Enabled` is false no embed route is mapped (each answers 404) and no key is
+needed. On, a SecurityAdmin creates embed grants at `POST /beacon/api/embed-grants` (listed at `GET`, revoked at
+`POST /beacon/api/embed-grants/{id}/revoke`): one project, one saved query and its approved version, the frame origins,
+an expiry, and every query parameter fixed or locked. A grant's secret is shown once; only its SHA-256 is stored.
+Validated at startup.
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `Enabled` | bool | `false` | Maps the embed routes and allows grants to be created |
+| `SigningKey` | string | Required when `Enabled` | Base64 of at least 32 random bytes (`openssl rand -base64 32`), checked like `Beacon:EncryptionKey`, and never the encryption key itself. Supply as a secret (`Beacon__Embed__SigningKey`) |
+| `TokenTtlSeconds` | int | `300` | 1 to `MaxTokenTtlSeconds` |
+| `MaxTokenTtlSeconds` | int | `900` | 1–900 |
+| `MaxGrantDays` | int | `90` | The longest a grant lives; 1–366 |
+| `MaxRows` | int | `1000` | 1–100,000 |
+| `MaxOrigins` | int | `10` | Frame origins per grant; 1–50. Origins are exact `https://host[:port]` (`http://localhost` only in Development) |
+| `RateLimits:ExchangePerGrantPerMinute` | int | `60` | 1–10,000 |
+| `RateLimits:RenderPerGrantPerMinute` | int | `120` | 1–10,000 |
+| `RateLimits:RefusalsPerIpPerMinute` | int | `30` | 1–10,000 |
+
+## Embed tokens (`Beacon:EmbedToken`, obsolete)
+
+Read by `IEmbedTokenService` (obsolete, removed in 6.0), a host-facing service that mints and validates HS256 tokens for embeddable integrations; no Beacon route uses it, and the embed routes never accept its tokens. Validated at first use.
 
 | Key | Type | Default | What it does |
 |---|---|---|---|

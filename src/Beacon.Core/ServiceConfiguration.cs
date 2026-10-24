@@ -474,9 +474,18 @@ public static class ServiceConfiguration
         // is refused.
         services.TryAddSingleton<ILlmProviderCatalog, AiDisabledLlmProviderCatalog>();
 
-        // Embed token service (HS256 mint/validate for embeddable Beacon integrations)
+        // Embed token service (HS256 mint/validate for embeddable Beacon integrations). Obsolete: the embed routes use
+        // Beacon:Embed and its own codec; kept registered for hosts that resolve it until 6.0.
         services.Configure<EmbedTokenOptions>(configuration.GetSection("Beacon:EmbedToken"));
         services.AddSingleton<IValidateOptions<EmbedTokenOptions>, EmbedTokenOptionsValidator>();
+
+        // Embedding saved queries (Beacon:Embed): off by default, a deployment lock. ValidateOnStart so an enabled host
+        // without a strong signing key (or with the encryption key as one) fails at boot; the message never holds a key.
+        services.AddOptions<EmbedOptions>()
+            .Bind(configuration.GetSection(EmbedOptions.SectionName))
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<EmbedOptions>>(new EmbedOptionsValidator(encryptionKey)));
+        services.TryAddSingleton<EmbedTokenCodec>();
 
         // Deployment-level MCP locks and ceilings (Beacon:Mcp). An absent section = no locks, no ceilings.
         // ValidateOnStart so a non-positive ceiling fails the host at boot, not on the first query.
@@ -554,7 +563,9 @@ public static class ServiceConfiguration
         services.TryAddScoped<Handlers.DataMigration.MigrationJobAccess>();
         services.TryAddScoped<Handlers.DataMigration.MigrationWritePolicy>();
         services.TryAddSingleton<TimeProvider>(TimeProvider.System);
+#pragma warning disable CS0618 // the obsolete embed token service stays registered until 6.0
         services.TryAddSingleton<IEmbedTokenService, EmbedTokenService>();
+#pragma warning restore CS0618
 
         return new BeaconBuilder(services, configuration);
     }

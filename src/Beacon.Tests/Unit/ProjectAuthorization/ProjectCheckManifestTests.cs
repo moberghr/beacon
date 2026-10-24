@@ -35,6 +35,7 @@ public class ProjectCheckManifestTests
         ["AssignTaskCommand"] = ["Task(TaskId):Write"],
         ["CreateAiActorCommand"] = ["DataSource(DataSourceId):Write"],
         ["CreateDataContractCommand"] = ["DataSource(DataSourceId):Write"],
+        ["CreateEmbedGrantCommand"] = ["Project(ProjectId):Run", "Query(QueryId):Read"],
         ["CreateProjectCommand"] = [],
         ["CreateSchemaRelationshipCommand"] = ["DataSource(DataSourceId):Write:linking"],
         ["CreateSubscriptionCommand"] = ["Query(QueryId):Write"],
