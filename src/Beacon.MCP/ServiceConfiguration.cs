@@ -221,6 +221,10 @@ public static class ServiceConfiguration
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, McpUserCallerStartupNote>());
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, McpAuditStartupWarning>());
 
+        // Checks the MCP audit seal once the host has started: the sealing interceptor, the seal columns, when sealing
+        // started, and whether the verification runs.
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, McpAuditSealingStartupCheck>());
+
         return services;
     }
 

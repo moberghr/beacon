@@ -801,6 +801,7 @@
           "Moberg.Beacon.Core": "[1.0.0, )",
           "Moberg.Beacon.Core.PostgreSql": "[1.0.0, )",
           "Moberg.Beacon.Core.SqlServer": "[1.0.0, )",
+          "Moberg.Beacon.Gateway": "[1.0.0, )",
           "Moberg.Beacon.MCP": "[1.0.0, )",
           "Moberg.Beacon.UI": "[1.0.0, )",
           "Moberg.Warp.Core": "[3.11.0, )",
