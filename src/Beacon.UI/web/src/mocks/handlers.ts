@@ -116,7 +116,10 @@ const authHandlers = [
       isAdmin: true,
       permissions: ['Approver', 'Auditor', 'SecurityAdmin', 'UserAdmin', 'DataSourceAdmin', 'MigrationOperator'],
       migrationsEnabled: true,
+      embedEnabled: true,
     })),
+  // No embed grants until one is created against a real server.
+  http.get('/beacon/api/embed-grants', () => HttpResponse.json({ totalCount: 0, pageCount: 0, items: [] })),
   http.get('/beacon/api/auth/sso', () => HttpResponse.json({ enabled: false, localLoginEnabled: true })),
   http.post('/beacon/api/auth/logout', () => new HttpResponse(null, { status: 204 })),
 ];

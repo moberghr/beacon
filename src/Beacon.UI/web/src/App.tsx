@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { RequireAuth } from './auth/RequireAuth';
 import { GATEWAY_LANDING_PATH, RequireFullBeacon } from './auth/RequireFullBeacon';
+import { RequireEmbed } from './auth/RequireEmbed';
 import { RequireMigrations } from './auth/RequireMigrations';
 import { useAccess } from './auth/useAuth';
 import { AppShell } from './components/layout/AppShell';
@@ -52,6 +53,7 @@ const McpLearningPage = lazyWithRetry(routeChunks.McpLearningPage);
 const McpSettingsPage = lazyWithRetry(routeChunks.McpSettingsPage);
 const McpAuditPage = lazyWithRetry(routeChunks.McpAuditPage);
 const SecurityAuditPage = lazyWithRetry(routeChunks.SecurityAuditPage);
+const EmbedsPage = lazyWithRetry(routeChunks.EmbedsPage);
 const AiActorsListPage = lazyWithRetry(routeChunks.AiActorsListPage);
 const AiActorDetailPage = lazyWithRetry(routeChunks.AiActorDetailPage);
 const MigrationJobsListPage = lazyWithRetry(routeChunks.MigrationJobsListPage);
@@ -133,6 +135,10 @@ export default function App() {
                       <Route path="/migration-jobs" element={lazyRoute(MigrationJobsListPage)} />
                       <Route path="/migration-jobs/new" element={lazyRoute(NewMigrationJobPage)} />
                       <Route path="/migration-jobs/:id" element={lazyRoute(MigrationJobDetailPage)} />
+                    </Route>
+                    {/* Embed grants exist only while the deployment serves embeds (Beacon:Embed:Enabled). */}
+                    <Route element={<RequireEmbed />}>
+                      <Route path="/embeds" element={lazyRoute(EmbedsPage)} />
                     </Route>
                     <Route path="/queries" element={lazyRoute(QueriesListPage)} />
                     <Route path="/queries/new" element={lazyRoute(NewQueryPage)} />
