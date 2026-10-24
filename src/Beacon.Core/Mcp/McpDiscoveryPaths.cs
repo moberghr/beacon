@@ -3,7 +3,7 @@ namespace Beacon.Core.Mcp;
 /// <summary>
 /// The MCP transport and discovery paths, and the exact set that is served anonymously.
 /// This lives in Core because two sibling projects need the same values and must not reference
-/// each other: Beacon.MCP maps the routes, and the auth middlewares in Beacon.Api allow-list them.
+/// each other: Beacon.MCP maps the routes (anonymous), and the first-run middleware in Beacon.Api allow-lists them.
 /// This type is the single source of truth — never re-declare these paths anywhere else.
 /// </summary>
 public static class McpDiscoveryPaths

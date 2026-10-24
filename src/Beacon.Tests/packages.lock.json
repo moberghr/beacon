@@ -637,7 +637,7 @@
       "Moberg.Beacon.AI.Bedrock": {
         "type": "Project",
         "dependencies": {
-          "AWSSDK.BedrockRuntime": "[4.0.101.8, )",
+          "AWSSDK.BedrockRuntime": "[4.0.101.13, )",
           "Moberg.Beacon.AI": "[1.0.0, )"
         }
       },
@@ -801,6 +801,7 @@
           "Moberg.Beacon.Core": "[1.0.0, )",
           "Moberg.Beacon.Core.PostgreSql": "[1.0.0, )",
           "Moberg.Beacon.Core.SqlServer": "[1.0.0, )",
+          "Moberg.Beacon.Gateway": "[1.0.0, )",
           "Moberg.Beacon.MCP": "[1.0.0, )",
           "Moberg.Beacon.UI": "[1.0.0, )",
           "Moberg.Warp.Core": "[3.11.0, )",
@@ -824,11 +825,11 @@
       },
       "AWSSDK.BedrockRuntime": {
         "type": "CentralTransitive",
-        "requested": "[4.0.101.8, )",
-        "resolved": "4.0.101.8",
-        "contentHash": "UmGGBapOEgH4086W+BYw8ZTxlt1rG8Ry/fAlNuVJo1tUMAZ61g5TKLhAhhmeH544T9y3O4B2DSU/LMdh7E/afw==",
+        "requested": "[4.0.101.13, )",
+        "resolved": "4.0.101.13",
+        "contentHash": "1fNkyD6LHG2AQXSOgSXeBN08mkHIUL8NTrH6FDPsmgSxpvqGKQna/HNVRil02dv7hfmtC8lhBs9kzX4VRJmm9A==",
         "dependencies": {
-          "AWSSDK.Core": "[4.0.102.8, 5.0.0)"
+          "AWSSDK.Core": "[4.0.102.13, 5.0.0)"
         }
       },
       "AWSSDK.CloudWatchLogs": {

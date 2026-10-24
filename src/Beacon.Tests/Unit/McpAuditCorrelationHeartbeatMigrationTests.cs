@@ -18,8 +18,8 @@ namespace Beacon.Tests.Unit;
 
 /// <summary>
 /// The MCP audit correlation and maintenance heartbeat migration, checked offline on both providers: it adds the nullable
-/// correlation id column to the MCP audit log and creates the heartbeat table with a unique job name, runs no SQL, its
-/// target model is the snapshot, and it sorts last.
+/// correlation id column to the MCP audit log and creates the heartbeat table with a unique job name, runs no SQL, and sorts
+/// right before the MCP audit seal migration, which changes only what it adds.
 /// </summary>
 [TestFixture]
 public class McpAuditCorrelationHeartbeatMigrationTests
