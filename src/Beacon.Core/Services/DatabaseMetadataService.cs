@@ -376,8 +376,8 @@ public class DatabaseMetadataService(
     }
 
     /// <summary>
-    /// Leaves out every table, and every column, whose name carries a quote, bracket, semicolon or control character
-    /// (<see cref="SqlIdentifierGuard.HasUnsafeCharacters"/>). Beacon builds SQL from catalog names (documentation enum
+    /// Leaves out every table, every column and every foreign-key target whose name carries a quote, bracket, semicolon or
+    /// control character (<see cref="SqlIdentifierGuard.HasUnsafeCharacters"/>). Beacon builds SQL from catalog names (documentation enum
     /// discovery, value probes, sampling), and such a name could end its quoting in some dialect, so it is never stored —
     /// nor its description, a curated one included. The names left out are logged (identifiers only, made safe for the log
     /// by <see cref="SqlIdentifierGuard.ForLog"/>, at most <see cref="MaxLoggedSkippedNames"/> of them) and counted.
@@ -387,6 +387,7 @@ public class DatabaseMetadataService(
         var kept = new List<TableMetadataDto>(tables.Count);
         var skippedTables = new List<string>();
         var skippedColumns = new List<string>();
+        var skippedForeignKeyTargets = new List<string>();
         foreach (var table in tables)
         {
             if (SqlIdentifierGuard.HasUnsafeCharacters(table.SchemaName) || SqlIdentifierGuard.HasUnsafeCharacters(table.TableName))
@@ -395,29 +396,42 @@ public class DatabaseMetadataService(
                 continue;
             }
 
-            var columns = table.Columns
+            var safeColumns = table.Columns
                 .Where(x => !SqlIdentifierGuard.HasUnsafeCharacters(x.ColumnName))
                 .ToList();
             skippedColumns.AddRange(table.Columns
                 .Where(x => SqlIdentifierGuard.HasUnsafeCharacters(x.ColumnName))
                 .Select(x => SqlIdentifierGuard.ForLog($"{table.SchemaName}.{table.TableName}.{x.ColumnName}")));
-            kept.Add(columns.Count == table.Columns.Count ? table : table with { Columns = columns });
+
+            var columns = new List<ColumnMetadataDto>(safeColumns.Count);
+            var columnsChanged = safeColumns.Count != table.Columns.Count;
+            foreach (var column in safeColumns)
+            {
+                var safeColumn = WithoutUnsafeForeignKeyTargets(column, out var skippedTargets);
+                skippedForeignKeyTargets.AddRange(skippedTargets.Select(x => SqlIdentifierGuard.ForLog($"{table.SchemaName}.{table.TableName}.{column.ColumnName} -> {x}")));
+                columnsChanged |= !ReferenceEquals(safeColumn, column);
+                columns.Add(safeColumn);
+            }
+
+            kept.Add(columnsChanged ? table with { Columns = columns } : table);
         }
 
-        if (skippedTables.Count > 0 || skippedColumns.Count > 0)
+        if (skippedTables.Count > 0 || skippedColumns.Count > 0 || skippedForeignKeyTargets.Count > 0)
         {
             logger.LogWarning(
-                "Metadata refresh of data source {DataSourceId} left out {TableCount} tables and {ColumnCount} columns whose names carry quote, bracket, semicolon or control characters: {SkippedNames}",
+                "Metadata refresh of data source {DataSourceId} left out {TableCount} tables, {ColumnCount} columns and {ForeignKeyTargetCount} foreign-key targets whose names carry quote, bracket, semicolon or control characters: {SkippedNames}",
                 dataSourceId,
                 skippedTables.Count,
                 skippedColumns.Count,
+                skippedForeignKeyTargets.Count,
                 skippedTables
                     .Concat(skippedColumns)
+                    .Concat(skippedForeignKeyTargets)
                     .Take(MaxLoggedSkippedNames)
                     .ToList());
         }
 
-        return (kept, skippedTables.Count + skippedColumns.Count);
+        return (kept, skippedTables.Count + skippedColumns.Count + skippedForeignKeyTargets.Count);
     }
 
     /// <summary>
@@ -525,6 +539,44 @@ public class DatabaseMetadataService(
             .Select(x =>
                 new SourceState(x.DisabledTime, x.AllowMigrationWrites, x.DatabaseEngineType, x.EncryptedConnectionData))
             .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// <paramref name="column"/> without the foreign keys whose target schema, table or column carries a quote, bracket,
+    /// semicolon or control character (<see cref="SqlIdentifierGuard.HasUnsafeCharacters"/>), which are named in
+    /// <paramref name="skipped"/>. The single-target fields then name the first foreign key left, or none; the same instance
+    /// comes back when nothing is left out.
+    /// </summary>
+    internal static ColumnMetadataDto WithoutUnsafeForeignKeyTargets(ColumnMetadataDto column, out IReadOnlyList<string> skipped)
+    {
+        var foreignKeys = ColumnForeignKeys.Of(column);
+        var unsafeTargets = foreignKeys
+            .Where(x => SqlIdentifierGuard.HasUnsafeCharacters(x.TargetSchema ?? string.Empty)
+                || SqlIdentifierGuard.HasUnsafeCharacters(x.TargetTable)
+                || SqlIdentifierGuard.HasUnsafeCharacters(x.TargetColumn))
+            .ToList();
+        skipped = unsafeTargets
+            .Select(x => $"{x.TargetSchema}.{x.TargetTable}.{x.TargetColumn}")
+            .ToList();
+        if (unsafeTargets.Count == 0)
+        {
+            return column;
+        }
+
+        var safe = foreignKeys
+            .Except(unsafeTargets)
+            .ToList();
+        var first = safe.FirstOrDefault();
+
+        return column with
+        {
+            IsForeignKey = first != null,
+            ForeignKeyTable = first?.TargetTable,
+            ForeignKeyColumn = first?.TargetColumn,
+            ForeignKeySchema = first?.TargetSchema,
+            ForeignKeyConstraintName = first?.ConstraintName,
+            ForeignKeys = column.ForeignKeys == null || safe.Count == 0 ? null : safe
+        };
     }
 
     private static DatabaseMetadataSnapshot EmptySnapshot(int dataSourceId, DatabaseEngineType? engine) =>

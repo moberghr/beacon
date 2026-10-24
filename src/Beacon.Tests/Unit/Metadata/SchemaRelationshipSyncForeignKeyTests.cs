@@ -1,6 +1,8 @@
 using Beacon.Core.Data;
+using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Metadata;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.HostData;
 using Beacon.Core.Models.Metadata;
 using Beacon.Core.Services.Metadata;
 using Beacon.Tests.Common;
@@ -126,6 +128,31 @@ public class SchemaRelationshipSyncForeignKeyTests
     }
 
     [Test]
+    public async Task HostMergeThatDropsAColumnsForeignKeysLeavesNoEdgeForThem()
+    {
+        await _service.SyncAsync(DataSourceId);
+        var dataSource = new DataSource { Id = DataSourceId, Name = "host", DataSourceType = DataSourceType.Database, EncryptedConnectionData = "encrypted" };
+        var exposed = new List<TableMetadataDto>
+        {
+            new("app", "tenants", [Dto("id", 1, pk: true)], [], null),
+            new("app", "x", [Dto("tenant_id", 1, pk: true), Dto("id", 2, pk: true)], [], null),
+            new("app", "orders", [Dto("tenant_id", 1), Dto("x_id", 2) with { IsForeignKey = true, ForeignKeyTable = "x", ForeignKeyColumn = "id", ForeignKeySchema = "app", ForeignKeyConstraintName = "fk_orders_x" }], [], null)
+        };
+
+        HostMetadataMerger.Merge(dataSource, _metadata, exposed, DateTime.UtcNow);
+        var result = await _service.SyncAsync(DataSourceId);
+
+        _metadata.Single(x => x.TableName == "orders").Columns.Should().OnlyContain(x => x.ForeignKeys == null);
+        result.ForeignKeyAdded.Should().Be(0);
+        result.ForeignKeyArchived.Should().Be(2);
+        _relationships
+            .Where(x => x.Origin == SchemaRelationshipOrigin.ForeignKey)
+            .Where(x => x.ArchivedTime == null)
+            .Select(x => (x.SourceColumn, x.TargetTable, x.TargetColumn))
+            .Should().Equal(("x_id", "x", "id"));
+    }
+
+    [Test]
     public void StoredFormKeepsTheListOnlyForAColumnInSeveralForeignKeysAndReadsItBack()
     {
         var several = new List<ColumnForeignKeyReference>
@@ -165,6 +192,11 @@ public class SchemaRelationshipSyncForeignKeyTests
         }
 
         return table;
+    }
+
+    private static ColumnMetadataDto Dto(string name, int ordinal, bool pk = false)
+    {
+        return new ColumnMetadataDto(name, "integer", false, pk, false, ordinal, null, null, null, null, null);
     }
 
     // The column as relationship sync reads it back from storage: the single-target columns hold the first foreign key in

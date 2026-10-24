@@ -10,8 +10,8 @@ public record DatabaseMetadataSnapshot(
 )
 {
     /// <summary>
-    /// The table and column names the refresh that read this snapshot left out because they carry a quote, bracket,
-    /// semicolon or control character (logged by name); 0 for a snapshot read from storage.
+    /// The table names, column names and foreign-key targets the refresh that read this snapshot left out because they carry
+    /// a quote, bracket, semicolon or control character (logged by name); 0 for a snapshot read from storage.
     /// </summary>
     public int SkippedNameCount { get; init; }
 }
