@@ -11,19 +11,21 @@ namespace Beacon.Core.SecurityAudit;
 /// <summary>
 /// What the host checks once it has started, for each sealed audit table beside the MCP audit (<see cref="AuditTableStores"/>):
 /// <list type="bullet">
-/// <item>an Error while the database lacks the table's seal columns: the Beacon migrations (migration
-/// <c>AddAuditTableSeal</c>) are not applied, and the table's rows cannot be written until they are;</item>
+/// <item>whether the database has the table's seal columns (<see cref="AuditTableSealSchema"/>, which logs one Warning while
+/// the migration <c>AddAuditTableSeal</c> is not applied; rows are written without their seal until it is);</item>
 /// <item>with the columns in place and the context sealing what it saves (<see cref="SecurityAuditInterceptor"/>), the
 /// table's sealing-started system event, recorded once: the highest row id written before sealing started (rows up to it
 /// may carry no seal), dated by the event, so the verification knows from when a row without a seal is a changed one.</item>
 /// </list>
-/// A context without the interceptor is reported by the MCP audit's startup check (<see cref="McpAuditSealingStartup"/>).
+/// Run by Beacon.Api once the host has started. A context without the interceptor is reported by the MCP audit's startup
+/// check (<see cref="McpAuditSealingStartup"/>).
 /// Identifiers and counts only (§1.11). Never throws for what it finds; the caller runs it off the startup thread.
 /// </summary>
 internal sealed class AuditTableSealingStartup(
     IDbContextFactory<BeaconContext> contextFactory,
     SecurityAuditIntegrity integrity,
     ISecurityAuditRecorder recorder,
+    AuditTableSealSchema sealSchema,
     ILogger<AuditTableSealingStartup> logger)
 {
     private const int RecentEventsRead = 20;
@@ -38,17 +40,16 @@ internal sealed class AuditTableSealingStartup(
         where T : BaseEntity, ISealedAuditRow
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        var missing = await SealColumnsMissingAsync(context, store, cancellationToken);
-        if (missing == true)
-        {
-            logger.LogError(
-                "The {Store} table has no seal columns: its rows cannot be written until the Beacon migrations are applied (migration AddAuditTableSeal)",
-                store.Name);
 
+        // While the seal columns are missing, the schema logs it once and rows are written without their seal.
+        if (await sealSchema.SealColumnsMissingAsync(context, typeof(T), cancellationToken))
+        {
             return;
         }
 
-        if (missing == null || !Sealing(context) || await SealingStartedAsync(context, store, cancellationToken))
+        if (await SealColumnsMissingAsync(context, store, cancellationToken) != false
+            || !Sealing(context)
+            || await SealingStartedAsync(context, store, cancellationToken))
         {
             return;
         }

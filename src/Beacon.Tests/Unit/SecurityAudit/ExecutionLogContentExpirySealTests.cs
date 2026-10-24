@@ -1,4 +1,5 @@
 using FluentAssertions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using NUnit.Framework;
 using Beacon.Core.Configuration;
@@ -51,6 +52,39 @@ public class ExecutionLogContentExpirySealTests
         AuditTableSeal.Verify(expected, AuditTableStores.ExecutionLog, SecurityAuditTestKit.Integrity).Should().Be(SecurityAuditVerdicts.Intact, "the cleared row verifies under its new seal");
         Set(capture.Commands[2]).Should().Contain("query_text").And.NotContain("hmac", "a row whose seal fails is not sealed again");
         Set(capture.Commands[3]).Should().Contain("query_text").And.NotContain("hmac", "a row without a seal stays without one");
+    }
+
+    // A seal this node cannot read (the next seal version during an upgrade, or a key it no longer holds) is never
+    // destroyed: the row is left whole for a node that can verify it.
+    [TestCase("version")]
+    [TestCase("key")]
+    public async Task ARowWhoseSealThisNodeCannotRead_IsLeftWhole(string unreadable)
+    {
+        var row = unreadable == "key"
+            ? SealedUnder(Row(1), new SecurityAuditIntegrity("a-key-this-node-does-not-hold-0123456789abcdef", []))
+            : Sealed(Row(1));
+        if (unreadable == "version")
+        {
+            row.SealVersion = AuditTableSeal.CurrentVersion + 1;
+        }
+
+        var columns = await SelectedColumnsAsync();
+        var capture = new SqlCapture().ThenRows(Values(columns, row));
+        await using var context = await capture.Factory().CreateDbContextAsync();
+        var logs = new LogRecorder();
+
+        var cleared = await ContentExpiry.ClearSealedAsync(
+            context.ManualQueryExecutionLogs,
+            AuditTableStores.ExecutionLog,
+            Cutoff,
+            SecurityAuditTestKit.Integrity,
+            CancellationToken.None,
+            LoggerFactory.Create(x => x.AddProvider(logs)).CreateLogger("test"));
+
+        cleared.Should().Be(0);
+        capture.Commands.Should().ContainSingle("the row is read, never updated");
+        logs.Entries.Should().ContainSingle(x => x.Level == LogLevel.Information)
+            .Which.Message.Should().Contain("cannot verify");
     }
 
     [Test]
@@ -115,7 +149,12 @@ public class ExecutionLogContentExpirySealTests
 
     private static ManualQueryExecutionLog Sealed(ManualQueryExecutionLog row)
     {
-        AuditTableSeal.Seal(row, AuditTableStores.ExecutionLog, SecurityAuditTestKit.Integrity);
+        return SealedUnder(row, SecurityAuditTestKit.Integrity);
+    }
+
+    private static ManualQueryExecutionLog SealedUnder(ManualQueryExecutionLog row, SecurityAuditIntegrity integrity)
+    {
+        AuditTableSeal.Seal(row, AuditTableStores.ExecutionLog, integrity);
 
         return row;
     }

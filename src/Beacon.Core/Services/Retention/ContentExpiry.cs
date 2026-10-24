@@ -1,6 +1,7 @@
 using System.Linq.Expressions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Query;
+using Microsoft.Extensions.Logging;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Base;
@@ -17,7 +18,9 @@ namespace Beacon.Core.Services.Retention;
 /// The execution log is sealed (<see cref="AuditTableSeal"/>): each of its rows is cleared on its own, and a row whose seal
 /// verifies intact is sealed again over what is left of it, in the same statement, which applies only while the row still
 /// carries the seal that was verified. A row whose seal does not verify is cleared without a new seal, so it keeps failing
-/// verification; a row without a seal stays without one.
+/// verification; a row without a seal stays without one. A row whose seal this node cannot read (a later seal version, or a
+/// key it does not hold) is left whole for a node that can. While the table lacks its seal columns (the seal migration not
+/// applied, <see cref="AuditTableSealSchema"/>) it is cleared like any other store.
 /// </summary>
 internal static class ContentExpiry
 {
@@ -51,12 +54,18 @@ internal static class ContentExpiry
         BeaconContext context,
         DateTime cutoff,
         CancellationToken cancellationToken,
-        SecurityAuditIntegrity? integrity = null)
+        SecurityAuditIntegrity? integrity = null,
+        AuditTableSealSchema? sealSchema = null,
+        ILogger? logger = null)
     {
         var cleared = new Dictionary<string, int>(StringComparer.Ordinal);
         foreach (var store in Stores)
         {
-            cleared[store.Entity.Name] = await store.Clear(context, cutoff, integrity, cancellationToken);
+            // A sealed table without its seal columns (the migration not applied) holds no seal to keep.
+            var sealing = integrity != null && (store.Sealed == false || sealSchema == null || !await sealSchema.SealColumnsMissingAsync(context, store.Entity, cancellationToken))
+                ? integrity
+                : null;
+            cleared[store.Entity.Name] = await store.Clear(context, cutoff, sealing, logger, cancellationToken);
         }
 
         return cleared;
@@ -141,7 +150,13 @@ internal static class ContentExpiry
     // One row at a time: read whole (its seal is verified over every field), cleared in process as the batch update clears
     // it, sealed again when its seal verified, then written by one update that applies only while the row still carries the
     // seal it was read with. The text read here never leaves this method.
-    internal static async Task<int> ClearSealedAsync<T>(DbSet<T> set, AuditTableStore<T> store, DateTime cutoff, SecurityAuditIntegrity integrity, CancellationToken cancellationToken)
+    internal static async Task<int> ClearSealedAsync<T>(
+        DbSet<T> set,
+        AuditTableStore<T> store,
+        DateTime cutoff,
+        SecurityAuditIntegrity integrity,
+        CancellationToken cancellationToken,
+        ILogger? logger = null)
         where T : BaseEntity, ISealedAuditRow
     {
         var properties = ContentProperties(typeof(T));
@@ -160,9 +175,20 @@ internal static class ContentExpiry
             }
 
             after = rows[^1].Id;
+            var left = 0;
             foreach (var row in rows)
             {
-                cleared += await ClearSealedRowAsync(set, store, row, properties, integrity, cancellationToken);
+                var (count, unreadable) = await ClearSealedRowAsync(set, store, row, properties, integrity, cancellationToken);
+                cleared += count;
+                left += unreadable ? 1 : 0;
+            }
+
+            if (left > 0)
+            {
+                logger?.LogInformation(
+                    "Content expiry left {Left} {Store} rows whose seal this node cannot verify (a later seal version or a key it does not hold): a node that can verify them clears them",
+                    left,
+                    store.Name);
             }
 
             if (rows.Count < RetentionBatches.BatchSize)
@@ -174,7 +200,7 @@ internal static class ContentExpiry
         return cleared;
     }
 
-    private static async Task<int> ClearSealedRowAsync<T>(
+    private static async Task<(int Cleared, bool Unreadable)> ClearSealedRowAsync<T>(
         DbSet<T> set,
         AuditTableStore<T> store,
         T row,
@@ -183,7 +209,15 @@ internal static class ContentExpiry
         CancellationToken cancellationToken)
         where T : BaseEntity, ISealedAuditRow
     {
-        var intact = AuditTableSeal.Verify(row, store, integrity) == SecurityAuditVerdicts.Intact;
+        var verdict = AuditTableSeal.Verify(row, store, integrity);
+        if (verdict is McpAuditVerdicts.UnknownVersion or SecurityAuditVerdicts.UnknownKey)
+        {
+            // A seal this node cannot read (a later seal version, or a key it does not hold) is never destroyed: the row
+            // is left for a node that can verify it, and cleared then.
+            return (0, true);
+        }
+
+        var intact = verdict == SecurityAuditVerdicts.Intact;
         var readHmac = row.Hmac;
         var values = new Dictionary<string, string?>(StringComparer.Ordinal);
         foreach (var property in properties)
@@ -201,7 +235,7 @@ internal static class ContentExpiry
             AuditTableSeal.Seal(row, store, integrity);
         }
 
-        return await set
+        var updated = await set
             .Where(x => x.Id == row.Id)
             .Where(x => EF.Property<string?>(x, nameof(ISealedAuditRow.Hmac)) == readHmac)
             .ExecuteUpdateAsync(
@@ -220,6 +254,8 @@ internal static class ContentExpiry
                     }
                 },
                 cancellationToken);
+
+        return (updated, false);
     }
 
     // The class is computed in process (McpContentRedactor.ErrorClassOf, as the interceptor does), then written with one
@@ -298,7 +334,7 @@ internal static class ContentExpiry
     private static ContentStore Store<T>(Func<BeaconContext, DbSet<T>> set)
         where T : BaseEntity
     {
-        return new ContentStore(typeof(T), (context, cutoff, _, cancellationToken) => ClearAsync(set(context), cutoff, null, cancellationToken));
+        return new ContentStore(typeof(T), false, (context, cutoff, _, _, cancellationToken) => ClearAsync(set(context), cutoff, null, cancellationToken));
     }
 
     private static ContentStore SealedStore<T>(Func<BeaconContext, DbSet<T>> set, AuditTableStore<T> store)
@@ -306,10 +342,11 @@ internal static class ContentExpiry
     {
         return new ContentStore(
             typeof(T),
-            (context, cutoff, integrity, cancellationToken) => integrity == null
+            true,
+            (context, cutoff, integrity, logger, cancellationToken) => integrity == null
                 ? ClearAsync(set(context), cutoff, null, cancellationToken)
-                : ClearSealedAsync(set(context), store, cutoff, integrity, cancellationToken));
+                : ClearSealedAsync(set(context), store, cutoff, integrity, cancellationToken, logger));
     }
 
-    private sealed record ContentStore(Type Entity, Func<BeaconContext, DateTime, SecurityAuditIntegrity?, CancellationToken, Task<int>> Clear);
+    private sealed record ContentStore(Type Entity, bool Sealed, Func<BeaconContext, DateTime, SecurityAuditIntegrity?, ILogger?, CancellationToken, Task<int>> Clear);
 }

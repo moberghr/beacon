@@ -513,16 +513,29 @@ while an upgrade rolls out; any other row without a seal is reported as modified
 table's verified action); every run writes a checkpoint per table to the log stream (9114). The execution log's retention is
 the data retention job's `execution-log` window (`Beacon:Retention:Targets:execution-log`, else `Beacon:Retention:Days`);
 nothing purges the settings history. A row the purge deletes past that window is never counted, so it never fails the
-verification; a counted row deleted inside it is reported as missing.
+verification; a counted row deleted inside it is reported as missing. An intact row older than the window (the
+retention job late, failing or not scheduled) is reported at Warning, never as a failure; a sealed row dated in the
+future is out of range and fails.
 
 The content expiry (`Beacon:Retention:ContentDays`) clears an execution log row's statement text and reduces its error
 to its class in place. A row whose seal verifies is sealed again over what is left, by the same update, which applies
 only while the row still carries the seal that was verified; the cleared row keeps verifying, and a later change to it
 is still found. A row whose seal does not verify is cleared without a new seal, so it keeps failing verification; a row
-without a seal stays unsealed.
+without a seal stays unsealed. A row whose seal the node cannot read (a later seal version during an upgrade, or a key
+it no longer holds) is left whole, logged at Information, until a node that can verify it clears it. During a rolling
+upgrade from a version without these seals, run the data retention job only on upgraded nodes: an older node clears
+sealed rows without sealing them again.
 
-Beacon does not migrate its schema at startup. While a table's seal columns are missing, the host logs an Error at
-startup, and rows of that table cannot be written: apply the migration `AddAuditTableSeal` before, or with, the upgrade.
+Beacon does not migrate its schema at startup. While a table's seal columns are missing (read once from the database's
+catalog and kept; a missing finding is read again every five minutes), Beacon logs one Warning per table and keeps
+working without the seal: rows are written without it (no row is lost), the settings history reads as before, the
+verification passes over the table (the job still completes) and the content expiry clears it as an unsealed store.
+Apply the migration `AddAuditTableSeal` with the upgrade; rows written before it are unsealed. Beacon.Api records each
+table's sealing start once the host has started, whether or not the host runs MCP.
+
+Two kinds of row are accepted without a seal by design: a row at or below the sealing-started row, and one dated
+within the upgrade grace before a run has seen a row sealed past it. Someone with write access to the database could
+strip the seal from such a row unnoticed; the append-only measures below close that.
 A data source deleted at the database, outside Beacon, sets `DataSourceId` to null on its execution log rows, which is
 reported as modified; Beacon itself only archives data sources.
 
@@ -600,8 +613,8 @@ lets a deployment pin the MCP audit's content on. See
   unsealed. Upgrade every node within a day: past that, a row without a seal is reported as modified.
 - **The execution log and the settings history are sealed.** The migration `AddAuditTableSeal` adds the same four columns
   to `ManualQueryExecutionLogs` and `AppSettingHistory` (nullable, no backfill) and a unique index on each `AuditGuid`.
-  Rows written before it are reported as unsealed. Apply it with the upgrade: until it is, settings saves and execution
-  log rows fail to write.
+  Rows written before it are reported as unsealed. Apply it with the upgrade: until it is, rows are written without their
+  seal and not verified (one Warning per table).
 - **Retention needs no action now.** Events are kept forever until you set `Beacon:Audit:RetentionDays` (365 to 36,500
   days). The purge verifies the events it is about to delete first and, while any fails verification, deletes nothing,
   records a refused `audit.purged` event and throws (its job fails): investigate the events it names.

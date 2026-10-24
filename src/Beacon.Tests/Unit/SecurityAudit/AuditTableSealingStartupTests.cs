@@ -100,6 +100,7 @@ public class AuditTableSealingStartupTests
                 factory.Object,
                 SecurityAuditTestKit.Integrity,
                 Audit,
+                FakeSealProbe.Schema(false),
                 NullLoggerFactory.Instance.CreateLogger<AuditTableSealingStartup>());
         }
     }

@@ -88,7 +88,16 @@ public sealed record AuditTableCheckpoint(
     /// <summary>The rows up to <see cref="MaxRowId"/> counted for the next run's comparison; null when none was counted.</summary>
     public int? RetainedRowCount { get; init; }
 
-    /// <summary>The failures: changed rows, unknown keys, rows out of range, rows missing and rows added.</summary>
+    /// <summary>
+    /// How many intact rows it read that are older than the table's retention allows: the purge has not deleted them yet
+    /// (the retention job is late or not scheduled). Reported at Warning, never as a failure.
+    /// </summary>
+    public int PastRetentionCount { get; init; }
+
+    /// <summary>True when the table lacks its seal columns (the seal migration is not applied): nothing was verified.</summary>
+    public bool SealColumnsMissing { get; init; }
+
+    /// <summary>The failures: changed rows, unknown keys, rows dated in the future, rows missing and rows added.</summary>
     public int FailedCount => ModifiedCount + UnknownKeyCount + OutOfRangeCount + MissingRowCount + AddedRowCount;
 }
 
@@ -129,6 +138,7 @@ internal sealed class AuditTableVerificationService(
     SecurityAuditIntegrity integrity,
     ISecurityAuditRecorder recorder,
     IAuditTableRetention retention,
+    AuditTableSealSchema sealSchema,
     TimeProvider timeProvider,
     ILoggerFactory loggerFactory) : IAuditTableVerificationService
 {
@@ -177,6 +187,15 @@ internal sealed class AuditTableVerificationService(
     internal async Task<AuditTableCheckpoint> VerifyStoreAsync<T>(AuditTableStore<T> store, CancellationToken cancellationToken)
         where T : BaseEntity, ISealedAuditRow
     {
+        await using (var context = await contextFactory.CreateDbContextAsync(cancellationToken))
+        {
+            // Before the seal migration the table has no seal to verify: passed over (the schema logs it once).
+            if (await sealSchema.SealColumnsMissingAsync(context, typeof(T), cancellationToken))
+            {
+                return new AuditTableCheckpoint(store.Name, 0, 0, null, 0, 0, 0, 0, 0, []) { SealColumnsMissing = true };
+            }
+        }
+
         var run = await VerifyAsync(store, cancellationToken);
         await ReportAsync(store, run, cancellationToken);
 
@@ -199,6 +218,7 @@ internal sealed class AuditTableVerificationService(
         var seen = new List<SecurityAuditVerificationService.SeenEvent>();
         var failed = new List<int>();
         var counts = new Dictionary<string, int>(StringComparer.Ordinal);
+        var pastRetention = 0;
         while (seen.Count < MaxRowsPerRun)
         {
             // By id alone: a row is never passed over for the time it carries.
@@ -211,9 +231,16 @@ internal sealed class AuditTableVerificationService(
             foreach (var row in batch)
             {
                 var verdict = VerdictOf(row, store, state);
-                if (verdict == SecurityAuditVerdicts.Intact && (row.CreatedTime < earliest || row.CreatedTime > latest))
+                if (verdict == SecurityAuditVerdicts.Intact && row.CreatedTime > latest)
                 {
                     verdict = SecurityAuditVerdicts.OutOfRange;
+                }
+
+                // Older than the retention allows: the purge has not reached it (the retention job is late or not
+                // scheduled). Its seal holds, so it is reported at Warning, never as a failure.
+                if (verdict == SecurityAuditVerdicts.Intact && row.CreatedTime < earliest)
+                {
+                    pastRetention++;
                 }
 
                 if (verdict == SecurityAuditVerdicts.Intact)
@@ -279,7 +306,8 @@ internal sealed class AuditTableVerificationService(
             GraceClosedAtRowId = state.GraceClosedAt,
             MissingRowCount = missing,
             AddedRowCount = added,
-            RetainedRowCount = retainedRowCount
+            RetainedRowCount = retainedRowCount,
+            PastRetentionCount = pastRetention
         };
 
         return new Run(result, state.SealedFrom?.Time, retainedFrom);
@@ -501,6 +529,16 @@ internal sealed class AuditTableVerificationService(
                 new KeyValuePair<string, object?>(BeaconTelemetry.SecurityAuditActionTag, store.VerifiedAction));
         }
 
+        if (checkpoint.PastRetentionCount > 0)
+        {
+            _auditLogger.LogWarning(
+                SecurityAuditLogEvents.AuditTableCheckpoint,
+                "Audit table {Store} verification read {PastRetentionCount} intact rows older than its retention of {RetentionDays} days: the data retention job has not purged them; check that it is scheduled and runs",
+                store.Name,
+                checkpoint.PastRetentionCount,
+                retention.RetentionDaysOf(store.Name));
+        }
+
         if (checkpoint.UnknownVersionCount > 0)
         {
             _auditLogger.LogWarning(
@@ -551,6 +589,7 @@ internal sealed class AuditTableVerificationService(
                     .Add("modifiedCount", checkpoint.ModifiedCount)
                     .Add("unknownKeyCount", checkpoint.UnknownKeyCount)
                     .Add("outOfRangeCount", checkpoint.OutOfRangeCount)
+                    .Add("pastRetentionCount", checkpoint.PastRetentionCount)
                     .Add("unsealedCount", checkpoint.UnsealedCount)
                     .Add("unknownVersionCount", checkpoint.UnknownVersionCount)
                     .Add("missingRowCount", checkpoint.MissingRowCount)

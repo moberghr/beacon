@@ -156,16 +156,35 @@ public class AuditTableVerificationTests
         checkpoint.FailedCount.Should().Be(missing);
     }
 
+    // The retention job late or not scheduled leaves rows past the window: their seals hold, so they are a Warning, not a
+    // failure. A sealed row dated in the future still fails.
     [Test]
-    public async Task UnderARetention_ASealedRowOlderThanTheRetention_IsOutOfRange()
+    public async Task UnderARetention_ASealedRowOlderThanTheRetention_IsAWarning_AndOneDatedInTheFutureIsOutOfRange()
     {
         var store = new Store();
         store.Logs.Add(SealedLog(1, Now.UtcDateTime.AddDays(-40)));
+        store.Logs.Add(SealedLog(2, Now.UtcDateTime.AddDays(3)));
+        var logs = new LogRecorder();
 
-        var checkpoint = (await Verification(store, new RecordingSecurityAudit(Core.Authorization.BeaconActor.OffRequest), new LogRecorder(), executionLogRetentionDays: 30).VerifyNewRowsAsync(CancellationToken.None))[0];
+        var checkpoint = (await Verification(store, new RecordingSecurityAudit(Core.Authorization.BeaconActor.OffRequest), logs, executionLogRetentionDays: 30).VerifyNewRowsAsync(CancellationToken.None))[0];
 
+        checkpoint.PastRetentionCount.Should().Be(1);
         checkpoint.OutOfRangeCount.Should().Be(1);
-        checkpoint.FailedRowIds.Should().Equal(1);
+        checkpoint.FailedRowIds.Should().Equal(2);
+        logs.Entries.Should().Contain(x => x.Level == LogLevel.Warning && x.Message.Contains("older than its retention"));
+    }
+
+    [Test]
+    public async Task ATableWithoutItsSealColumns_IsPassedOver_WithoutReadingItOrRecordingAnything()
+    {
+        var store = new Store();
+        store.Logs.Add(UnsealedLog(1, Now.UtcDateTime.AddHours(-1)));
+        var audit = new RecordingSecurityAudit(Core.Authorization.BeaconActor.OffRequest);
+
+        var checkpoints = await Verification(store, audit, new LogRecorder(), sealColumnsMissing: true).VerifyNewRowsAsync(CancellationToken.None);
+
+        checkpoints.Should().OnlyContain(x => x.SealColumnsMissing && x.CheckedCount == 0);
+        audit.Events.Should().BeEmpty();
     }
 
     [Test]
@@ -224,6 +243,7 @@ public class AuditTableVerificationTests
             SecurityAuditTestKit.Integrity,
             new RecordingSecurityAudit(Core.Authorization.BeaconActor.OffRequest),
             new Retention(null),
+            FakeSealProbe.Schema(false),
             new FakeTimeProvider(Now),
             NullLoggerFactory.Instance);
 
@@ -239,13 +259,14 @@ public class AuditTableVerificationTests
         scan[scan.IndexOf("WHERE", StringComparison.Ordinal)..].Should().NotContainAny(["created_time", "CreatedTime"], "a row is never selected by the time it carries");
     }
 
-    private static IAuditTableVerificationService Verification(Store store, RecordingSecurityAudit audit, LogRecorder logs, int? executionLogRetentionDays = null)
+    private static IAuditTableVerificationService Verification(Store store, RecordingSecurityAudit audit, LogRecorder logs, int? executionLogRetentionDays = null, bool sealColumnsMissing = false)
     {
         return new AuditTableVerificationService(
             store.Factory(),
             SecurityAuditTestKit.Integrity,
             audit,
             new Retention(executionLogRetentionDays),
+            FakeSealProbe.Schema(sealColumnsMissing),
             new FakeTimeProvider(Now),
             LoggerFactory.Create(x => x.AddProvider(logs)));
     }

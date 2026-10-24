@@ -182,7 +182,12 @@ public static class ServiceConfiguration
             .ValidateOnStart();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.SecurityAuditOptions>, Configuration.SecurityAuditOptionsValidator>());
         services.TryAddSingleton(SecurityAudit.SecurityAuditIntegrity.From(configuration, encryptionKey, previousEncryptionKeys));
-        services.TryAddSingleton<SecurityAuditInterceptor>();
+        services.TryAddSingleton<SecurityAudit.IAuditTableSealProbe, SecurityAudit.InformationSchemaSealProbe>();
+        services.TryAddSingleton<SecurityAudit.AuditTableSealSchema>();
+        services.TryAddSingleton(x => new SecurityAuditInterceptor(
+            x.GetRequiredService<SecurityAudit.SecurityAuditIntegrity>(),
+            x.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>(),
+            x.GetRequiredService<SecurityAudit.AuditTableSealSchema>()));
         services.TryAddScoped<SecurityAudit.ISecurityAuditRecorder, SecurityAudit.SecurityAuditRecorder>();
         services.TryAddTransient<SecurityAudit.ISecurityAuditRetentionService, SecurityAudit.SecurityAuditRetentionService>();
 
