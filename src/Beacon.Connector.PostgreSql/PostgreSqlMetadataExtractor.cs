@@ -102,6 +102,9 @@ public class PostgreSqlMetadataExtractor : IDatabaseMetadataExtractor
 
         var indexesData = await connection.QueryAsync(new CommandDefinition(indexesQuery, commandTimeout: 180, cancellationToken: cancellationToken));
 
+        // One pass over the index rows instead of a scan of all of them per table.
+        var indexesByTable = indexesData.ToLookup(i => ((string)i.table_schema, (string)i.table_name));
+
         var tables = columnsData
             .GroupBy(c => new { schema = (string)c.table_schema, table = (string)c.table_name })
             .Select(g =>
@@ -129,8 +132,7 @@ public class PostgreSqlMetadataExtractor : IDatabaseMetadataExtractor
                     );
                 }).ToList();
 
-                var indexes = indexesData
-                    .Where(i => (string)i.table_schema == g.Key.schema && (string)i.table_name == g.Key.table)
+                var indexes = indexesByTable[(g.Key.schema, g.Key.table)]
                     .Select(i =>
                     {
                         var indexDef = (string)i.indexdef;

@@ -265,6 +265,7 @@ public static class ServiceConfiguration
         services.TryAddSingleton<ContentRetentionInterceptor>();
 
         // API key service (always registered — used for stateless API authentication)
+        services.TryAddSingleton<Services.Security.ApiKeyLastUsedThrottle>();
         services.TryAddTransient<Services.Security.IApiKeyService, Services.Security.ApiKeyService>();
 
         // Query guardrail service (always registered — enforces read-only access and PII detection)
