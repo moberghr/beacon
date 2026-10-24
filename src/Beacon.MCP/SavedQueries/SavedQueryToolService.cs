@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using Beacon.Core;
@@ -10,6 +11,7 @@ using Beacon.Core.Models;
 using Beacon.Core.SavedQueries;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Retention;
+using Beacon.MCP.DynamicTools;
 using Beacon.MCP.Services;
 using Beacon.MCP.Tools;
 
@@ -80,7 +82,7 @@ internal sealed class SavedQueryToolService(
 
         if (tools.Count > NamedToolLimit)
         {
-            return [CatalogTool(SearchToolName, "Search saved queries", $"Search the {tools.Count} approved saved queries you can run. Returns each match's name, description and input schema; run one with {RunToolName}.", SearchInputSchema), CatalogTool(RunToolName, "Run a saved query", "Run one approved saved query found with search_saved_queries: pass its name and arguments matching its input schema. Runs read-only; results are row-capped and PII-masked.", RunInputSchema)];
+            return [McpCatalogTool.Create(SearchToolName, "Search saved queries", $"Search the {tools.Count} approved saved queries you can run. Returns each match's name, description and input schema; run one with {RunToolName}.", SearchInputSchema, McpCatalogTool.ReadOnlyAnnotations()), McpCatalogTool.Create(RunToolName, "Run a saved query", "Run one approved saved query found with search_saved_queries: pass its name and arguments matching its input schema. Runs read-only; results are row-capped and PII-masked.", RunInputSchema, McpCatalogTool.ReadOnlyAnnotations())];
         }
 
         return tools
@@ -388,20 +390,38 @@ internal sealed class SavedQueryToolService(
             tables: tables?.ToList(),
             ct: CancellationToken.None);
     }
+}
 
-    private static Tool CatalogTool(string name, string title, string description, JsonElement schema) =>
-        new()
-        {
-            Name = name,
-            Title = title,
-            Description = description,
-            InputSchema = schema,
-            Annotations = new ToolAnnotations
-            {
-                ReadOnlyHint = true,
-                DestructiveHint = false,
-                IdempotentHint = true,
-                OpenWorldHint = false
-            }
-        };
+/// <summary>
+/// The saved-query tools as a dynamic tool source (registered by <c>AddBeaconMcp</c>, so listed before the host
+/// endpoint tools). They need Core's <see cref="ISavedQueryToolSource"/>; a host without it gets none, claims no name,
+/// and their names fall through to the next handler. The tools come from the database, so with the source registered
+/// the whole <c>q_</c> prefix and both catalog names are claimed.
+/// </summary>
+internal sealed class SavedQueryDynamicToolSource : IMcpDynamicToolSource
+{
+    private const string SourceName = "the saved-query tools";
+
+    public McpDynamicToolNames ClaimedNames(IServiceProvider services) =>
+        services.GetService<IServiceProviderIsService>()?.IsService(typeof(ISavedQueryToolSource)) == true
+            ? new(SourceName, [SavedQueryToolService.SearchToolName, SavedQueryToolService.RunToolName], [SavedQueryToolRules.ToolNamePrefix])
+            : McpDynamicToolNames.None(SourceName);
+
+    public bool Handles(IServiceProvider requestServices, string toolName) =>
+        SavedQueryToolService.Handles(toolName) && requestServices.GetService<ISavedQueryToolSource>() != null;
+
+    public async Task<IReadOnlyList<Tool>> ListToolsAsync(IServiceProvider requestServices, CancellationToken cancellationToken)
+    {
+        var service = Resolve(requestServices);
+
+        return service == null ? [] : await service.ListToolsAsync(cancellationToken);
+    }
+
+    public Task<CallToolResult> CallAsync(IServiceProvider requestServices, string toolName, IDictionary<string, JsonElement>? arguments, CancellationToken cancellationToken) =>
+        requestServices.GetRequiredService<SavedQueryToolService>().CallAsync(toolName, arguments, cancellationToken);
+
+    private static SavedQueryToolService? Resolve(IServiceProvider services) =>
+        services.GetService<ISavedQueryToolSource>() == null
+            ? null
+            : services.GetService<SavedQueryToolService>();
 }

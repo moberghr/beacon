@@ -1,6 +1,7 @@
 using Beacon.Api.Authentication;
 using Microsoft.AspNetCore.Http.HttpResults;
 using Beacon.Core.Authorization;
+using Beacon.Core.BackgroundTasks;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.DataSources;
 using MediatR;
@@ -39,9 +40,26 @@ internal static class DataSourcesEndpoints
             .WithName("GetDataSourceMetadata")
             .RequiresExecuteScope();
 
+        // Refreshes in the request and answers with the catalog (kept for 5.0 callers; a large catalog holds the request open).
         ds.MapPost("/{id:int}/refresh-metadata", (int id, IMediator m, CancellationToken ct) =>
                 m.Send(new RefreshDataSourceMetadataCommand(id), ct))
-            .WithName("RefreshDataSourceMetadata");
+            .WithName("RefreshDataSourceMetadata")
+            .WithBeaconLongRunning();
+
+        // Starts the refresh as a background task: 202 with the task (its job id correlates JobStatusChanged), read below.
+        ds.MapPost("/{id:int}/metadata-refreshes", async (int id, IMediator m, CancellationToken ct) =>
+            {
+                var ticket = await m.Send(new StartDataSourceMetadataRefreshCommand(id), ct);
+                return TypedResults.Accepted($"/beacon/api/data-sources/{id}/metadata-refreshes/{ticket.TaskId}", ticket);
+            })
+            .WithName("StartDataSourceMetadataRefresh");
+
+        ds.MapGet("/{id:int}/metadata-refreshes/{taskId:int}", async Task<Results<Ok<BackgroundTaskStatus>, NotFound>> (int id, int taskId, IMediator m, CancellationToken ct) =>
+            {
+                var status = await m.Send(new GetDataSourceMetadataRefreshQuery(id, taskId), ct);
+                return status is null ? TypedResults.NotFound() : TypedResults.Ok(status);
+            })
+            .WithName("GetDataSourceMetadataRefresh");
 
         // Edits the source and replaces its connection (credential rotation). The stored connection is never sent: an omitted
         // connection keeps it. A connection that points somewhere else answers 409 unless the body confirms the change.

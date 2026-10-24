@@ -2,8 +2,9 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { fetchJson, unwrap } from '@/lib/api';
 import { usePagedList } from '@/lib/usePagedList';
 import { beaconApi } from '@/api/client';
-import type { MigrationStatus } from '@/lib/enums';
 import { createSimpleMutation } from '@/lib/mutations';
+import { useBackgroundTaskStatus } from '@/lib/useBackgroundTask';
+import type { BackgroundTaskStatus, BackgroundTaskTicket } from '@/api/generated/beacon-api';
 import type { ChangeApprovalOutcome } from '@/routes/approvals/queries';
 
 export interface MigrationJobListItem {
@@ -48,27 +49,19 @@ export function useMigrationJobQuery(id: number | null) {
   });
 }
 
-export interface RunMigrationJobResult {
-  executionId: number;
-  status: MigrationStatus;
-  sourceRowsRead: number;
-  destinationRowsWritten: number;
-  rowsFailed: number;
-  errorMessage: string | null;
+/**
+ * Starts a manual run of the job as a background task (202 with its ticket). Its progress is followed with
+ * useMigrationJobRunStatus; the run in the request (runMigrationJob) stays for API callers.
+ */
+export function useStartMigrationJobRun() {
+  return useMutation({
+    mutationFn: async (id: number) => unwrap<BackgroundTaskTicket>(await beaconApi().startMigrationJobRun(id)),
+  });
 }
 
-export function useRunMigrationJob() {
-  const qc = useQueryClient();
-  return useMutation(
-    createSimpleMutation<{ id: number }, RunMigrationJobResult>({
-      qc,
-      mutationFn: async ({ id }) =>
-        unwrap<RunMigrationJobResult>(await beaconApi().runMigrationJob(id)),
-      // Invalidate the prefix so both the job detail (['migration-executions', id])
-      // and the Migration History page (['migration-executions']) refresh.
-      invalidate: [MIGRATION_JOBS_KEY, ['migration-executions']],
-      errorFallback: 'Run migration job failed',
-    }),
+export function useMigrationJobRunStatus(id: number, ticket: BackgroundTaskTicket | null) {
+  return useBackgroundTaskStatus([...MIGRATION_JOBS_KEY, id, 'run'] as const, ticket, async (taskId) =>
+    unwrap<BackgroundTaskStatus>(await beaconApi().getMigrationJobRun(id, taskId)),
   );
 }
 

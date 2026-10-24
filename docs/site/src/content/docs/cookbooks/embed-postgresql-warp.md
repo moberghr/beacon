@@ -162,7 +162,7 @@ public sealed class BeaconScheduler(IRecurringJobPublisher recurring, WarpDbCont
 }
 ```
 
-Recurring jobs are keyed by the entity id, never by the name. Five of the other `IBeaconScheduler` members (`AddOrUpdateDataQualityJob`, `RemoveDataQualityJob`, `EnqueueProjectDocumentation`, `EnqueueAiActorThinkCycle`, `EnqueueMcpEval`) have default bodies that throw `NotImplementedException` until you implement them, and `EnqueueMetadataRefresh` defaults to doing nothing. Implement the ones for the features you use.
+Recurring jobs are keyed by the entity id, never by the name. Five of the other `IBeaconScheduler` members (`AddOrUpdateDataQualityJob`, `RemoveDataQualityJob`, `EnqueueProjectDocumentation`, `EnqueueAiActorThinkCycle`, `EnqueueMcpEval`) have default bodies that throw `NotImplementedException` until you implement them, and `EnqueueMetadataRefresh` and `EnqueueBackgroundTask` default to doing nothing (a background task then runs in the request that started it). Implement the ones for the features you use.
 
 Beacon also expects these recurring maintenance jobs. `mcp-learning-cleanup` is in the code above. Write one `IJob` plus handler for each of the others, in the same shape, and register each in `StartBeaconWarpAsync` with `recurring.AddOrUpdateRecurringJob(new XJob(), id, cron)` (`recurring` is the scope's `IRecurringJobPublisher`). The handler code is in [Background jobs](/integrate/background-jobs/#reference-implementation-moberg-warp).
 

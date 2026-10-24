@@ -13,10 +13,10 @@ public static class DocumentChunker
 {
     // Split at whitespace that follows a sentence terminator, keeping the terminator on the left
     // sentence via a look-behind. A single newline after a terminator (wrapped paragraph) also splits.
-    private static readonly Regex SentenceSplit = new(@"(?<=[.!?])\s+", RegexOptions.Compiled);
+    private static readonly Regex SentenceSplit = new(@"(?<=[.!?])\s+", RegexOptions.Compiled, TimeSpan.FromMilliseconds(1000));
 
     // Blank line / double newline = hard paragraph break. Line endings are normalized to \n first.
-    private static readonly Regex ParagraphSplit = new(@"\n\s*\n", RegexOptions.Compiled);
+    private static readonly Regex ParagraphSplit = new(@"\n\s*\n", RegexOptions.Compiled, TimeSpan.FromMilliseconds(1000));
 
     public static IReadOnlyList<string> Chunk(string content, int windowSentences, int overlapSentences)
     {
