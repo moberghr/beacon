@@ -37,9 +37,12 @@ public abstract partial class BeaconContext
             entity.Property(e => e.OldValue).HasMaxLength(2000);
             entity.Property(e => e.NewValue).HasMaxLength(2000);
             entity.Property(e => e.ChangedByUserId).HasMaxLength(200);
+            entity.Property(e => e.HmacKeyId).HasMaxLength(32);
+            entity.Property(e => e.Hmac).HasMaxLength(64);
 
             entity.HasIndex(e => e.SettingKey);
             entity.HasIndex(e => e.ChangedAt);
+            entity.HasIndex(e => e.AuditGuid).IsUnique();
         });
     }
 }

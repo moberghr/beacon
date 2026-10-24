@@ -4,6 +4,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Data.Entities.Base;
 using Beacon.Core.Helpers;
 using Beacon.Core.SecurityAudit;
 using Beacon.Core.Telemetry;
@@ -17,7 +18,9 @@ namespace Beacon.Core.Data.Interceptors;
 /// transaction it was saved in — a copy goes to the <c>Beacon.Audit</c> log stream (<see cref="SecurityAuditLogEvents.Recorded"/>);
 /// an event whose save or transaction failed is never copied. The MCP audit is kept the same way: a save that would change
 /// or delete a tracked <see cref="McpAuditLog"/> or <see cref="McpAuditStatement"/>, or add a statement to a row saved
-/// before, is refused, and every added row is sealed with its statements (<see cref="McpAuditSeal"/>). Bulk deletes
+/// before, is refused, and every added row is sealed with its statements (<see cref="McpAuditSeal"/>). So are the execution
+/// log (<see cref="ManualQueryExecutionLog"/>) and the settings history (<see cref="AppSettingHistory"/>): a change or delete
+/// of a tracked row is refused and every added row is sealed (<see cref="AuditTableSeal"/>). Bulk deletes
 /// (<c>ExecuteDelete</c>) do not pass through here: only the retention purges issue one. Registered on both providers
 /// after the content retention interceptor, so a row is sealed with what that lock leaves of it.
 /// </summary>
@@ -26,9 +29,21 @@ public sealed class SecurityAuditInterceptor(SecurityAuditIntegrity integrity, I
 {
     internal const string AppendOnlyMessage = "Security audit events are append-only: they cannot be changed or deleted.";
     internal const string McpAppendOnlyMessage = "MCP audit rows are append-only: a row and its statements cannot be changed or deleted, and a statement can only be saved with its row.";
+    internal const string AuditTableAppendOnlyMessage = "Execution log and settings history rows are append-only: they cannot be changed or deleted.";
 
     private readonly ILogger _auditLogger = loggerFactory.CreateLogger(BeaconTelemetry.AuditLogCategory);
     private readonly ConditionalWeakTable<DbContext, PendingEvents> _pending = new();
+    private readonly AuditTableSealSchema? _sealSchema;
+
+    /// <summary>
+    /// The interceptor as Beacon registers it: it also reads whether the sealed audit tables have their seal columns
+    /// (<paramref name="sealSchema"/>), and writes their rows without the seal while they do not.
+    /// </summary>
+    internal SecurityAuditInterceptor(SecurityAuditIntegrity integrity, ILoggerFactory loggerFactory, AuditTableSealSchema sealSchema)
+        : this(integrity, loggerFactory)
+    {
+        _sealSchema = sealSchema;
+    }
 
     public override InterceptionResult<int> SavingChanges(DbContextEventData eventData, InterceptionResult<int> result)
     {
@@ -50,29 +65,33 @@ public sealed class SecurityAuditInterceptor(SecurityAuditIntegrity integrity, I
     public override int SavedChanges(SaveChangesCompletedEventData eventData, int result)
     {
         Saved(eventData.Context);
+        WriteUnsealed(eventData.Context);
 
         return base.SavedChanges(eventData, result);
     }
 
-    public override ValueTask<int> SavedChangesAsync(
+    public override async ValueTask<int> SavedChangesAsync(
         SaveChangesCompletedEventData eventData,
         int result,
         CancellationToken cancellationToken = default)
     {
         Saved(eventData.Context);
+        await WriteUnsealedAsync(eventData.Context, cancellationToken);
 
-        return base.SavedChangesAsync(eventData, result, cancellationToken);
+        return await base.SavedChangesAsync(eventData, result, cancellationToken);
     }
 
     public override void SaveChangesFailed(DbContextErrorEventData eventData)
     {
         Discard(eventData.Context, saving: true);
+        RestoreUnsealed(eventData.Context);
         base.SaveChangesFailed(eventData);
     }
 
     public override Task SaveChangesFailedAsync(DbContextErrorEventData eventData, CancellationToken cancellationToken = default)
     {
         Discard(eventData.Context, saving: true);
+        RestoreUnsealed(eventData.Context);
 
         return base.SaveChangesFailedAsync(eventData, cancellationToken);
     }
@@ -158,6 +177,60 @@ public sealed class SecurityAuditInterceptor(SecurityAuditIntegrity integrity, I
 
         _pending.GetOrCreateValue(context).Saving = saving;
         SealMcpAudit(context);
+        SealAuditTable(context, AuditTableStores.ExecutionLog);
+        SealAuditTable(context, AuditTableStores.SettingHistory);
+    }
+
+    // The rows of the sealed audit tables a save kept out of EF's own insert (their table lacks the seal columns), written
+    // once the save succeeded, in the transaction it ran in when there is one.
+    private void WriteUnsealed(DbContext? context)
+    {
+        foreach (var row in TakeUnsealed(context))
+        {
+            var (sql, parameters) = AuditTableSealSchema.InsertWithoutSeal(context!, row);
+            row.Id = context!.Database.SqlQueryRaw<int>(sql, parameters).AsEnumerable().Single();
+        }
+    }
+
+    private async Task WriteUnsealedAsync(DbContext? context, CancellationToken cancellationToken)
+    {
+        foreach (var row in TakeUnsealed(context))
+        {
+            var (sql, parameters) = AuditTableSealSchema.InsertWithoutSeal(context!, row);
+            var ids = await context!.Database.SqlQueryRaw<int>(sql, parameters).ToListAsync(cancellationToken);
+            row.Id = ids.Single();
+        }
+    }
+
+    // The rows kept out of the save, each given its id once written (a caller reads it, as after EF's own insert).
+    private List<BaseEntity> TakeUnsealed(DbContext? context)
+    {
+        if (context == null || !_pending.TryGetValue(context, out var pending) || pending.Unsealed.Count == 0)
+        {
+            return [];
+        }
+
+        var rows = pending.Unsealed.ToList();
+        pending.Unsealed.Clear();
+
+        return rows;
+    }
+
+    // A failed save puts the rows it kept out back into the change tracker, as the caller added them, so a retried save
+    // writes them.
+    private void RestoreUnsealed(DbContext? context)
+    {
+        if (context == null || !_pending.TryGetValue(context, out var pending))
+        {
+            return;
+        }
+
+        foreach (var row in pending.Unsealed)
+        {
+            context.Add(row);
+        }
+
+        pending.Unsealed.Clear();
     }
 
     internal void Saved(DbContext? context)
@@ -241,6 +314,36 @@ public sealed class SecurityAuditInterceptor(SecurityAuditIntegrity integrity, I
         }
     }
 
+    // The rows of a sealed audit table added by this save, sealed; a change or delete of one through the change tracker is
+    // refused.
+    private void SealAuditTable<T>(DbContext context, AuditTableStore<T> store)
+        where T : BaseEntity, ISealedAuditRow
+    {
+        foreach (var entry in context.ChangeTracker.Entries<T>().ToList())
+        {
+            if (entry.State is EntityState.Modified or EntityState.Deleted)
+            {
+                throw new InvalidOperationException(AuditTableAppendOnlyMessage);
+            }
+
+            if (entry.State != EntityState.Added)
+            {
+                continue;
+            }
+
+            if (_sealSchema != null && _sealSchema.SealColumnsMissing(context, typeof(T)))
+            {
+                // No place for the seal yet: the row leaves EF's insert and is written without it after the save.
+                entry.State = EntityState.Detached;
+                _pending.GetOrCreateValue(context).Unsealed.Add(entry.Entity);
+
+                continue;
+            }
+
+            AuditTableSeal.Seal(entry.Entity, store, integrity);
+        }
+    }
+
     // The copy for the log stream must never fail the save it follows.
     private void Emit(IReadOnlyList<SecurityAuditEvent> events)
     {
@@ -262,5 +365,7 @@ public sealed class SecurityAuditInterceptor(SecurityAuditIntegrity integrity, I
         public List<SecurityAuditEvent> Saving { get; set; } = [];
 
         public List<SecurityAuditEvent> InTransaction { get; } = [];
+
+        public List<BaseEntity> Unsealed { get; } = [];
     }
 }

@@ -261,6 +261,10 @@ public static class SecurityAuditActions
     public const string McpAuditSealingStarted = "audit.mcp_audit_sealing_started";
     public const string ExecutionLogRead = "audit.execution_log_read";
     public const string ExecutionLogExported = "audit.execution_log_exported";
+    public const string ExecutionLogVerified = "audit.execution_log_verified";
+    public const string ExecutionLogSealingStarted = "audit.execution_log_sealing_started";
+    public const string SettingHistoryVerified = "audit.setting_history_verified";
+    public const string SettingHistorySealingStarted = "audit.setting_history_sealing_started";
 
     /// <summary>Every action in the catalogue.</summary>
     public static IReadOnlySet<string> All { get; } = typeof(SecurityAuditActions)

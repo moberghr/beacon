@@ -18,7 +18,8 @@ namespace Beacon.Core.SecurityAudit;
 /// current key, <c>Beacon:Audit:PreviousIntegrityKeys</c>, and the keys derived from the current secret and from each
 /// <c>Beacon:PreviousEncryptionKeys</c> entry, so events keep verifying after a key change. It finds an event whose fields
 /// were changed or that was written without the key; it cannot tell that an event was deleted. The rows of the other audit
-/// stores (the MCP audit, <see cref="McpAuditSeal"/>) are sealed with the same keys, each store under a key of its own
+/// stores (the MCP audit, <see cref="McpAuditSeal"/>; the execution log and the settings history,
+/// <see cref="AuditTableSeal"/>) are sealed with the same keys, each store under a key of its own
 /// derived from them.
 /// </summary>
 public sealed class SecurityAuditIntegrity

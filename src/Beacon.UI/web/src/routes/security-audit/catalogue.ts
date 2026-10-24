@@ -222,6 +222,10 @@ export const SECURITY_AUDIT_CATEGORIES: readonly SecurityAuditCategory[] = [
       'audit.mcp_audit_sealing_started',
       'audit.execution_log_read',
       'audit.execution_log_exported',
+      'audit.execution_log_verified',
+      'audit.execution_log_sealing_started',
+      'audit.setting_history_verified',
+      'audit.setting_history_sealing_started',
     ],
   },
 ];

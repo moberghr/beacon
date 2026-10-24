@@ -20,8 +20,9 @@ namespace Beacon.Tests.Unit.SecurityAudit;
 /// The MCP audit seal migration, checked offline on both providers (nothing connects, nothing is migrated): it adds the
 /// row's guid, seal version, key id and HMAC, all nullable without a default (every existing row stays unsealed, and is
 /// reported so), and a unique index on the guid. It runs no SQL and backfills nothing. Up is exactly the difference between
-/// the model before it and its target model, and Down is exactly the way back. Its target model is the snapshot, the model
-/// has no pending changes, and it sorts last.
+/// the model before it and its target model, and Down is exactly the way back. Its target model differs from the next
+/// migration's only by that migration, the model has no pending changes, and it sorts right after the documentation
+/// section edits migration.
 /// </summary>
 [TestFixture]
 public class McpAuditSealMigrationTests
@@ -30,7 +31,7 @@ public class McpAuditSealMigrationTests
 
     [TestCase(false)]
     [TestCase(true)]
-    public void TheMigration_AddsTheSealColumnsAndTheGuidIndex_AndIsTheSnapshot(bool sqlServer)
+    public void TheMigration_AddsTheSealColumnsAndTheGuidIndex_AndIsExactlyTheDifference(bool sqlServer)
     {
         using var provider = BuildProvider(sqlServer);
         using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
@@ -58,12 +59,18 @@ public class McpAuditSealMigrationTests
             .Should().BeEquivalentTo(Signatures(differ.GetDifferences(before, target)), "Up is exactly the difference from the model before");
         Signatures(migration.DownOperations)
             .Should().BeEquivalentTo(Signatures(differ.GetDifferences(target, before)), "Down removes exactly what Up adds");
-        differ.GetDifferences(target, Initialized(migrations.ModelSnapshot!.Model, initializer).GetRelationalModel())
-            .Should().BeEmpty("the migration's target model is the snapshot");
+        // The next migration's own content is pinned by AuditTableSealMigrationTests.
+        var next = MigrationNamed(context, migrations, "_AddAuditTableSeal");
+        Signatures(differ.GetDifferences(target, Initialized(next.TargetModel!, initializer).GetRelationalModel()))
+            .Should().BeEquivalentTo(
+                Signatures(next.UpOperations),
+                "this migration's target model differs from the next one's only by the next migration");
         context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
         migrations.Migrations.Keys
             .Order(StringComparer.Ordinal)
-            .Last()
+            .SkipWhile(x => !x.EndsWith("_AddDocumentationSectionEdits", StringComparison.Ordinal))
+            .Skip(1)
+            .First()
             .Should().EndWith(Suffix, "it sorts after every earlier migration");
     }
 

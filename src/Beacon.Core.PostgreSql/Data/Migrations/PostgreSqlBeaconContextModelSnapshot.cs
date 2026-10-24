@@ -723,6 +723,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<Guid?>("AuditGuid")
+                        .HasColumnType("uuid")
+                        .HasColumnName("audit_guid");
+
                     b.Property<DateTime>("ChangedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("changed_at");
@@ -736,6 +740,16 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_time");
 
+                    b.Property<string>("Hmac")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("hmac");
+
+                    b.Property<string>("HmacKeyId")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("hmac_key_id");
+
                     b.Property<string>("NewValue")
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)")
@@ -746,6 +760,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("character varying(2000)")
                         .HasColumnName("old_value");
 
+                    b.Property<int?>("SealVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("seal_version");
+
                     b.Property<string>("SettingKey")
                         .IsRequired()
                         .HasMaxLength(200)
@@ -754,6 +772,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_app_setting_history");
+
+                    b.HasIndex("AuditGuid")
+                        .IsUnique()
+                        .HasDatabaseName("ix_app_setting_history_audit_guid");
 
                     b.HasIndex("ChangedAt")
                         .HasDatabaseName("ix_app_setting_history_changed_at");
@@ -1889,39 +1911,6 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.ToTable("data_sources", "beacon");
                 });
 
-            modelBuilder.Entity("Beacon.Core.Data.Entities.MaintenanceHeartbeat", b =>
-                {
-                    b.Property<int>("Id")
-                        .ValueGeneratedOnAdd()
-                        .HasColumnType("integer")
-                        .HasColumnName("id");
-
-                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
-
-                    b.Property<DateTime>("CreatedTime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("created_time");
-
-                    b.Property<DateTime>("LastRunTime")
-                        .HasColumnType("timestamp with time zone")
-                        .HasColumnName("last_run_time");
-
-                    b.Property<string>("Name")
-                        .IsRequired()
-                        .HasMaxLength(64)
-                        .HasColumnType("character varying(64)")
-                        .HasColumnName("name");
-
-                    b.HasKey("Id")
-                        .HasName("pk_maintenance_heartbeats");
-
-                    b.HasIndex("Name")
-                        .IsUnique()
-                        .HasDatabaseName("ix_maintenance_heartbeats_name");
-
-                    b.ToTable("maintenance_heartbeats", "beacon");
-                });
-
             modelBuilder.Entity("Beacon.Core.Data.Entities.EmbedGrant", b =>
                 {
                     b.Property<int>("Id")
@@ -2038,6 +2027,39 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.ToTable("embed_grants", "beacon");
                 });
 
+            modelBuilder.Entity("Beacon.Core.Data.Entities.MaintenanceHeartbeat", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<DateTime>("LastRunTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_run_time");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("name");
+
+                    b.HasKey("Id")
+                        .HasName("pk_maintenance_heartbeats");
+
+                    b.HasIndex("Name")
+                        .IsUnique()
+                        .HasDatabaseName("ix_maintenance_heartbeats_name");
+
+                    b.ToTable("maintenance_heartbeats", "beacon");
+                });
+
             modelBuilder.Entity("Beacon.Core.Data.Entities.ManualQueryExecutionLog", b =>
                 {
                     b.Property<int>("Id")
@@ -2046,6 +2068,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnName("id");
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<Guid?>("AuditGuid")
+                        .HasColumnType("uuid")
+                        .HasColumnName("audit_guid");
 
                     b.Property<DateTime?>("CompletedTime")
                         .HasColumnType("timestamp with time zone")
@@ -2073,6 +2099,16 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("double precision")
                         .HasColumnName("execution_time_ms");
 
+                    b.Property<string>("Hmac")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("hmac");
+
+                    b.Property<string>("HmacKeyId")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("hmac_key_id");
+
                     b.Property<string>("QueryText")
                         .IsRequired()
                         .HasColumnType("text")
@@ -2081,6 +2117,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Property<int>("ResultCount")
                         .HasColumnType("integer")
                         .HasColumnName("result_count");
+
+                    b.Property<int?>("SealVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("seal_version");
 
                     b.Property<int?>("Status")
                         .HasColumnType("integer")
@@ -2101,6 +2141,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_manual_query_execution_logs");
+
+                    b.HasIndex("AuditGuid")
+                        .IsUnique()
+                        .HasDatabaseName("ix_manual_query_execution_logs_audit_guid");
 
                     b.HasIndex("CreatedTime")
                         .HasDatabaseName("ix_manual_query_execution_logs_created_time");
