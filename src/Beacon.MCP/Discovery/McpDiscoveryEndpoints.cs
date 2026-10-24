@@ -38,7 +38,7 @@ public static class McpDiscoveryEndpoints
     /// <summary>
     /// The exact anonymous discovery paths mapped by <see cref="MapMcpDiscovery"/>. Forwards to
     /// <see cref="McpDiscoveryPaths.AnonymousDiscoveryPaths"/> in Beacon.Core, which is the single
-    /// source of truth: the auth middlewares in Beacon.Api allow-list the same list, and Api must
+    /// source of truth: the first-run middleware in Beacon.Api allow-lists the same list, and Api must
     /// not reference MCP (§2.4). Allow-lists must cover ONLY these exact paths, never a
     /// <c>/.well-known</c> prefix — a prefix match would let <c>/.well-known/anything</c> reach the
     /// SPA fallback anonymously (R6-2).

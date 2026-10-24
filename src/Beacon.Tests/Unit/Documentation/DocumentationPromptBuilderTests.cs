@@ -1,6 +1,7 @@
 using System.Text;
 using System.Text.RegularExpressions;
 using Beacon.AI.Services.Documentation;
+using Beacon.AI.Services.Knowledge;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
 using FluentAssertions;
@@ -114,7 +115,7 @@ public class DocumentationPromptBuilderTests
             DataSourceName = "core",
             SchemaName = "public",
             TableName = $"table_{index:D4}",
-            Columns = Enumerable.Range(0, columns).Select(c => new Doc.ColumnDetail($"column_{c}_of_table_{index:D4}_with_a_long_name", "text", true, false, null, null, null, null)).ToList()
+            Columns = Enumerable.Range(0, columns).Select(c => new SchemaColumn($"column_{c}_of_table_{index:D4}_with_a_long_name", "text", false, true, null, null, null)).ToList()
         };
 
     [Test]
@@ -196,9 +197,9 @@ public class DocumentationPromptBuilderTests
             Description = "Customer orders",
             Columns =
             [
-                new("id", "integer", false, true, null, null, "Primary key", null),
-                new("customer_id", "integer", false, false, "public.customers", "id", null, null),
-                new("status", "text", true, false, null, null, null, 20)
+                new("id", "integer", true, false, null, null, "Primary key"),
+                new("customer_id", "integer", false, false, "public.customers", "id", null),
+                new("status", "text", false, true, null, null, null, 20)
             ],
             Indexes = [new("ix_orders_customer", "customer_id", false), new("ux_orders_ref", "ref", true)]
         };
@@ -208,7 +209,7 @@ public class DocumentationPromptBuilderTests
             DataSourceName = "core",
             SchemaName = "public",
             TableName = "customers",
-            Columns = [new("id", "integer", false, true, null, null, null, null)]
+            Columns = [new("id", "integer", true, false, null, null, null)]
         };
         var endpoint = new Doc.TableInfo
         {
@@ -217,7 +218,7 @@ public class DocumentationPromptBuilderTests
             SchemaName = "api",
             TableName = "GET /invoices",
             Description = "Invoices",
-            Columns = [new("number", "string", false, false, null, null, "Invoice number", null)]
+            Columns = [new("number", "string", false, false, null, null, "Invoice number")]
         };
 
         return new Doc.DocumentationContext

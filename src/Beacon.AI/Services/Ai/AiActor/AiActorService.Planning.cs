@@ -92,20 +92,9 @@ public partial class AiActorService
                 userPrompt += $"\n\n## Locked Queries (Cannot Be Modified)\nThe following query IDs are locked and should NOT be refined: {string.Join(", ", lockedQueryIds)}";
             }
 
-            var llmRequest = new LlmRequest
-            {
-                SystemPrompt = systemPrompt,
-                Messages = new List<ChatMessage>
-                {
-                    new(ConversationRole.User, userPrompt)
-                },
-                Temperature = 0.3m,
-                MaxTokens = 4096,
-                Operation = LlmOperations.ActorPlan
-            };
-
-            var llmResponse = await _llmProvider.CompleteAsync(llmRequest, cancellationToken);
-            var planResponse = ParseLlmResponse(llmResponse.Content);
+            var completion = await CompletePlanAsync(systemPrompt, userPrompt, LlmOperations.ActorPlan, LlmRequestPriority.Interactive, cancellationToken);
+            var llmResponse = completion.Response;
+            var planResponse = completion.Plan;
 
             // Convert actions to ProposedAction list with additional context
             var proposedActions = await ToProposedActionsAsync(context, planResponse.Actions, existingQueries, cancellationToken);
@@ -256,26 +245,7 @@ public partial class AiActorService
 
                 var action = await ExecuteActionAsync(actor, actionPlan, newlyCreatedQueries, cancellationToken, execution.Id, plan.Id, contributors);
                 executedActions.Add(action);
-
-                if (action.ActionType == AiActorActionType.CreateQuery &&
-                    action.Success && action.ResultEntityId.HasValue &&
-                    !string.IsNullOrEmpty(action.QueryName))
-                {
-                    newlyCreatedQueries[action.QueryName] = action.ResultEntityId.Value;
-                }
-
-                switch (action.ActionType)
-                {
-                    case AiActorActionType.CreateQuery when action.Success:
-                        execution.QueriesCreated++;
-                        break;
-                    case AiActorActionType.RefineQuery when action.Success:
-                        execution.QueriesRefined++;
-                        break;
-                    case AiActorActionType.CreateSubscription when action.Success:
-                        execution.SubscriptionsCreated++;
-                        break;
-                }
+                RecordActionOutcome(execution, action, newlyCreatedQueries);
             }
 
             execution.ActionsJson = JsonSerializer.Serialize(executedActions, JsonOptions);
