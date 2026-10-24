@@ -33,7 +33,7 @@ internal class WebhookAdapter(
             try
             {
                 var templateData = Shared.TemplateDataBuilder.BuildTemplateData(recipientQueryResult, lastNotificationResultCount, configuration.BaseUrl);
-                bodyContent = Shared.AdapterTemplateProcessor.ProcessTemplate(recipientQueryResult.BodyTemplate, templateData);
+                bodyContent = Shared.AdapterTemplateProcessor.ProcessTemplate(recipientQueryResult.BodyTemplate, templateData, escapeJsonStrings: true);
             }
             catch (Exception ex)
             {

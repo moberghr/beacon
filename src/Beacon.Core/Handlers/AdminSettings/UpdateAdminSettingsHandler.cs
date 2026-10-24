@@ -54,9 +54,10 @@ internal sealed class UpdateAdminSettingsHandler(
             throw AccessRefusal.Of(logger, actor, "LLM limits", null, LimitsAdminOnlyMessage);
         }
 
-        // The LLM connection is judged against the stored one while the approval workflow covers it, never this process's
-        // cached copy, which can predate a change another process stored; the credentials left as they are come from it too.
-        var connection = await llmConnections.BaselineAsync(current, cancellationToken);
+        // The LLM connection is judged against the stored one, never this process's cached copy, which can predate a change
+        // another process stored; the credentials left as they are come from it too, so a save never writes back a
+        // credential that was replaced elsewhere.
+        var connection = await llmConnections.StoredAsync(cancellationToken);
         var connectionRequest = new LlmConnectionRequest(
             request.LlmProvider,
             request.LlmRegion,
@@ -148,4 +149,12 @@ public record UpdateAdminSettingsCommand(
     /// the stored value, so a caller that does not know the setting never turns enforcement off.
     /// </summary>
     public bool? LlmRateLimitsEnabled { get; init; }
+
+    // The compiler-generated ToString prints every member; the secrets are printed redacted.
+    protected virtual bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"BaseUrl = {BaseUrl}, LlmProvider = {LlmProvider}, LlmModel = {LlmModel}, LlmFastModel = {LlmFastModel}, LlmRegion = {LlmRegion}, LlmBedrockAuthMode = {LlmBedrockAuthMode}, LlmApiKey = {RedactedPrint.Of(LlmApiKey)}, LlmEndpoint = {RedactedPrint.Of(LlmEndpoint)}, LlmSessionToken = {RedactedPrint.Of(LlmSessionToken)}, LlmAwsAccessKeyId = {RedactedPrint.Of(LlmAwsAccessKeyId)}, LlmAwsSecretAccessKey = {RedactedPrint.Of(LlmAwsSecretAccessKey)}, LlmMaxConcurrentRequests = {LlmMaxConcurrentRequests}, LlmTokensPerMinute = {LlmTokensPerMinute}, LlmRequestsPerMinute = {LlmRequestsPerMinute}, LlmMonthlyBudget = {LlmMonthlyBudget}, LlmRateLimitsEnabled = {LlmRateLimitsEnabled}");
+
+        return true;
+    }
 }

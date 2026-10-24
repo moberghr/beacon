@@ -6,6 +6,7 @@ using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Helpers;
+using Beacon.Core.Services.Retention;
 using Beacon.Core.Telemetry;
 
 namespace Beacon.Core.SecurityAudit;
@@ -35,7 +36,8 @@ internal sealed class SecurityAuditRetentionService(
     ISecurityAuditRecorder recorder,
     SecurityAuditIntegrity integrity,
     TimeProvider timeProvider,
-    ILoggerFactory loggerFactory) : ISecurityAuditRetentionService
+    ILoggerFactory loggerFactory,
+    IMaintenanceHeartbeat? heartbeat = null) : ISecurityAuditRetentionService
 {
     internal const int BatchSize = 1000;
     internal const int MaxReportedEvents = 100;
@@ -104,6 +106,11 @@ internal sealed class SecurityAuditRetentionService(
             cutoff,
             retentionDays.Value,
             purge.Left);
+
+        if (heartbeat != null)
+        {
+            await heartbeat.RecordAsync(MaintenanceJobNames.SecurityAuditRetention, cancellationToken);
+        }
 
         return purge.Deleted;
     }

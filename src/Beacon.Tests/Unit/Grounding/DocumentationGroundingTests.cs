@@ -134,6 +134,8 @@ public class DocumentationGroundingTests
             Mock.Of<ISharedSourceSettings>(),
             new QueryGuardrailService(),
             TestRowDataEgress.Discarding(),
+            new RecordingSecurityAudit(),
+            Microsoft.Extensions.Options.Options.Create(new Beacon.Core.Configuration.McpDeploymentOptions()),
             logs.For<ProjectDocumentationService>());
     }
 }

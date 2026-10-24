@@ -1,6 +1,8 @@
-import { Fragment, useState } from 'react';
+import { Fragment, Suspense, useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { Link, useParams } from 'react-router-dom';
-import { AlertTriangle, BookOpen, Bot, Database, Folder, GitBranch, Key, Layers, Link2, Lock, Shield, Unlink, Users } from 'lucide-react';
+import { AlertTriangle, BookOpen, Bot, Database, Folder, GitBranch, Key, Layers, Link2, Lock, RefreshCw, Shield, Unlink, Users } from 'lucide-react';
 import {
   Banner,
   Button,
@@ -21,14 +23,17 @@ import { EmptyState } from '@/components/data/EmptyState';
 import { Tabs, type TabDef } from '@/components/Tabs';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAccess } from '@/auth/useAuth';
-import { isNotFound, NOT_FOUND_DETAIL } from '@/lib/api';
-import { ProjectMembershipManagement, ProjectRole } from '@/lib/enums';
-import { formatNumber, formatRelativeTime, formatDateTime } from '@/lib/format';
+import { lazyWithRetry } from '@/lib/lazyWithRetry';
+import { describeError, isNotFound, NOT_FOUND_DETAIL } from '@/lib/api';
+import { isBackgroundTaskFinished } from '@/lib/useBackgroundTask';
+import type { BackgroundTaskStatus, BackgroundTaskTicket } from '@/api/generated/beacon-api';
+import { BackgroundTaskState, ProjectMembershipManagement, ProjectRole } from '@/lib/enums';
+import { formatNumber, formatRelativeTime } from '@/lib/format';
 import {
   PROJECT_ROLE_LABEL,
   useProjectDetailQuery,
-  useImportedDocumentsQuery,
-  useProjectDocumentationQuery,
+  useRepositoryScanStatus,
+  useStartRepositoryScan,
   useSetProjectAccess,
   useUnlinkProjectDataSource,
   type ProjectDetailEntry,
@@ -36,12 +41,8 @@ import {
   type SharedSourceProjectEntry,
   type ProjectRepositoryEntry,
   type ProjectDataSourceEntry,
-  type ProjectDocSectionEntry,
 } from './queries';
 import { SetRepositoryTokenDialog } from './SetRepositoryTokenDialog';
-import { EditDocumentationSectionDialog } from './EditDocumentationSectionDialog';
-import { DocSectionContent } from './DocSectionContent';
-import { ImportedDocumentsSection } from './ImportedDocumentsSection';
 import { LinkDataSourcesModal } from './LinkDataSourcesModal';
 import { MembersTab } from './MembersTab';
 import { RestrictedPill } from './RestrictedPill';
@@ -193,9 +194,18 @@ export default function ProjectDetailPage() {
 
         {tab === 'members' && showMembers && <MembersTab projectId={project.id} />}
         {tab === 'repositories' && (
-          <RepositoriesTab repositories={project.repositories} canSetToken={access.hasPermission('SecurityAdmin')} />
+          <RepositoriesTab
+            projectId={project.id}
+            repositories={project.repositories}
+            canSetToken={access.hasPermission('SecurityAdmin')}
+            canScan={(project.myRole ?? 0) >= ProjectRole.Editor}
+          />
         )}
-        {tab === 'documentation' && <DocumentationTab projectId={project.id} canCurateHere={!access.gatewayMode} />}
+        {tab === 'documentation' && (
+          <Suspense fallback={<CardBody><span className="text-text-muted">Loading documentation…</span></CardBody>}>
+            <DocumentationTab projectId={project.id} canCurateHere={!access.gatewayMode} />
+          </Suspense>
+        )}
         {tab === 'aiActors' && !access.gatewayMode && <AiActorsTab projectId={project.id} dataSources={project.dataSources} />}
       </Card>
 
@@ -518,9 +528,58 @@ function SharedSourceGuardrails({ project }: { project: ProjectDetailEntry }) {
 
 // --- Repositories tab -------------------------------------------------
 
-/** `canSetToken`: setting a repository's access token is a SecurityAdmin's (an Admin holds it). */
-function RepositoriesTab({ repositories, canSetToken }: { repositories: ProjectRepositoryEntry[]; canSetToken: boolean }) {
+/**
+ * `canSetToken`: setting a repository's access token is a SecurityAdmin's (an Admin holds it). `canScan`: scanning the
+ * repositories changes the project (an Editor's); the scan runs as a background task followed until it finishes.
+ */
+function RepositoriesTab({
+  projectId,
+  repositories,
+  canSetToken,
+  canScan,
+}: {
+  projectId: number;
+  repositories: ProjectRepositoryEntry[];
+  canSetToken: boolean;
+  canScan: boolean;
+}) {
   const [tokenTarget, setTokenTarget] = useState<{ id: number; name: string } | null>(null);
+  const startScan = useStartRepositoryScan();
+  const [scanTicket, setScanTicket] = useState<BackgroundTaskTicket | null>(null);
+  const scanTask = useRepositoryScanStatus(projectId, scanTicket);
+  const queryClient = useQueryClient();
+  const finishedScan = isBackgroundTaskFinished(scanTask.status?.state) ? scanTask.status : null;
+  const scanReadFailed = scanTicket != null && scanTask.error != null;
+
+  useEffect(() => {
+    if (scanTicket == null || (finishedScan == null && !scanReadFailed)) {
+      return;
+    }
+    // Each repository's own result (status, partial scan, references) is on the project.
+    void queryClient.invalidateQueries({ queryKey: ['projects', projectId] });
+    if (finishedScan?.state === BackgroundTaskState.Succeeded) {
+      const incomplete = finishedScan.warningCount ?? 0;
+      if (incomplete > 0) {
+        toast.warning(
+          `Repositories scanned; ${incomplete} ${incomplete === 1 ? 'repository' : 'repositories'} failed or ${incomplete === 1 ? 'was' : 'were'} only partly scanned.`,
+        );
+      } else {
+        toast.success('Repositories scanned');
+      }
+    } else if (finishedScan != null) {
+      toast.error(describeScanFailure(finishedScan));
+    } else {
+      toast.error(describeError(scanTask.error, 'Could not read the scan progress'));
+    }
+    setScanTicket(null);
+  }, [scanTicket, finishedScan, scanReadFailed, scanTask.error, projectId, queryClient]);
+
+  const scanning = scanTicket != null || startScan.isPending;
+  const scanLabel = !scanning
+    ? 'Scan repositories'
+    : scanTask.state === BackgroundTaskState.Running
+      ? 'Scanning…'
+      : 'Scan queued…';
 
   const columns: Column<ProjectRepositoryEntry>[] = [
     {
@@ -576,6 +635,29 @@ function RepositoriesTab({ repositories, canSetToken }: { repositories: ProjectR
 
   return (
     <>
+      {canScan && repositories.length > 0 && (
+        <CardBody>
+          <div className="flex justify-end">
+            <Button
+              size="sm"
+              type="button"
+              onClick={async () => {
+                try {
+                  setScanTicket(await startScan.mutateAsync(projectId));
+                } catch (err) {
+                  // 409: a scan of the project is already queued or running; the server says so.
+                  toast.error(describeError(err, 'Could not start the scan'));
+                }
+              }}
+              disabled={scanning}
+              aria-busy={scanning}
+              icon={<RefreshCw className={scanning ? 'animate-spin' : undefined} />}
+            >
+              {scanLabel}
+            </Button>
+          </div>
+        </CardBody>
+      )}
       {partial.length > 0 && (
         <CardBody>
           <Banner
@@ -618,107 +700,23 @@ function RepositoriesTab({ repositories, canSetToken }: { repositories: ProjectR
   );
 }
 
-// --- Documentation tab ------------------------------------------------
-
-function DocumentationTab({ projectId, canCurateHere }: { projectId: number; canCurateHere: boolean }) {
-  const { data, isLoading, isError, error } = useProjectDocumentationQuery(projectId);
-  // The documents the host imported (ExposeDocs) are the project's documentation too: the MCP gateway's only kind.
-  const imported = useImportedDocumentsQuery(projectId);
-  const [editing, setEditing] = useState<ProjectDocSectionEntry | null>(null);
-
-  if (isLoading || imported.isLoading) {
-    return <CardBody><span className="text-text-muted">Loading documentation…</span></CardBody>;
+// A scan that did not finish says why by its code; the server log has the rest.
+function describeScanFailure(status: BackgroundTaskStatus): string {
+  switch (status.failureCode) {
+    case 'forbidden':
+      return 'You can no longer change this project, so its repositories were not scanned.';
+    case 'abandoned':
+      return 'The repository scan stopped without finishing; try again.';
+    case 'cancelled':
+      return 'The repository scan was cancelled.';
+    default:
+      return 'The repository scan failed; the server log has the details.';
   }
-
-  const importedDocuments = imported.data ?? [];
-  const importedSection = (imported.isError || importedDocuments.length > 0) && (
-    <ImportedDocumentsSection projectId={projectId} documents={importedDocuments} isError={imported.isError} />
-  );
-
-  // A failed load of the generated documentation does not hide the imported documents.
-  if (isError) {
-    return (
-      <CardBody>
-        <EmptyState
-          icon={<AlertTriangle />}
-          title="Failed to load documentation"
-          description={error instanceof Error ? error.message : 'Unknown error'}
-        />
-        {importedSection}
-      </CardBody>
-    );
-  }
-
-  const latest = data?.latest;
-  if (!latest) {
-    return (
-      <CardBody>
-        {importedSection || (
-          <EmptyState
-            icon={<BookOpen />}
-            title="No documentation generated yet"
-            description="Documentation will appear here once generated for this project."
-          />
-        )}
-      </CardBody>
-    );
-  }
-
-  const sections = [...latest.sections].sort((a, b) => a.sortOrder - b.sortOrder);
-  // Editing a section or regenerating the documentation changes what every caller's prompts are grounded on: a project
-  // admin's (or an Admin's) to do.
-  const canCurate = canCurateHere && data?.canCurate === true;
-
-  return (
-    <>
-      <CardBody>
-        <div className="text-text-muted text-xs mb-4">
-          Generated <strong className="text-text">{formatRelativeTime(latest.generatedAt)}</strong>
-          {' '}by <span className="mono">{latest.generatedByModel}</span>
-          {' · '}
-          {formatNumber(latest.tablesAnalyzed)} tables · {formatNumber(latest.codeReferencesAnalyzed)} code refs
-          {' · '}
-          {formatNumber(latest.inputTokens + latest.outputTokens)} tokens
-          {' · '}
-          {formatDateTime(latest.generatedAt)}
-        </div>
-        {!canCurate && (
-          <p className="text-text-muted text-xs mb-4">
-            Only a project admin of this project (or an Admin) edits or regenerates its documentation.
-          </p>
-        )}
-
-        <div className="flex flex-col gap-6">
-          {sections.map(section => (
-            <section key={section.id}>
-              <header className="flex items-center justify-between mb-2">
-                <h3 className="m-0 text-sm font-semibold text-text">{section.title}</h3>
-                {canCurate && (
-                  <Button
-                    variant="ghost"
-                    onClick={() => setEditing(section)}
-                    aria-label={`Edit ${section.title}`}
-                  >
-                    Edit
-                  </Button>
-                )}
-              </header>
-              <DocSectionContent content={section.content} />
-            </section>
-          ))}
-          {importedSection}
-        </div>
-      </CardBody>
-
-      <EditDocumentationSectionDialog
-        open={editing !== null}
-        section={editing}
-        projectId={projectId}
-        onClose={() => setEditing(null)}
-      />
-    </>
-  );
 }
+
+// --- Documentation tab: lazy, so marked + dompurify load only when it opens ---
+
+const DocumentationTab = lazyWithRetry(() => import('./DocumentationTab'));
 
 // --- AI Actors tab ----------------------------------------------------
 

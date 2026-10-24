@@ -649,6 +649,23 @@ public class LlmConnectionApprovalTests
         (await harness.Settings().GetSettingsAsync(CancellationToken.None)).LlmApiKey.Should().Be("rotated-key-value");
     }
 
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task ASaveLeavingTheCredentialsAsTheyAre_AfterAnotherProcessReplacedThem_KeepsTheStoredOnes(bool covered)
+    {
+        var harness = new Harness();
+        harness.StoreConnection();
+        harness.Configuration.ApprovalWorkflow.CoversLlmConnection = covered;
+        (await harness.Settings().GetSettingsAsync(CancellationToken.None)).LlmApiKey.Should().Be(StoredKey);
+        harness.Store.Settings.Single(x => x.Key == "LLM.ApiKey").Value = Encryption.Encrypt("replaced-key-value");
+
+        await harness.Handler(Ben).Handle(Save(model: "gpt-next"), CancellationToken.None);
+
+        Encryption.Decrypt(harness.Store.Settings.Single(x => x.Key == "LLM.ApiKey").Value!).Should().Be("replaced-key-value");
+        harness.Store.Settings.Single(x => x.Key == "LLM.Model").Value.Should().Be("gpt-next");
+        harness.History().Should().NotContain(x => x.SettingKey == "LLM.ApiKey");
+    }
+
     private static ChangeApprovalScope LiveAdmin => ChangeApprovalScope.Approver with { IsLiveAdmin = true };
 
     // An Admin's save changing the provider and endpoint, with a new key and model.

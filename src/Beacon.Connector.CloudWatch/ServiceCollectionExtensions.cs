@@ -13,6 +13,7 @@ public static class ServiceCollectionExtensions
         ConnectorRegistry.RegisterDataSourceType(DataSourceType.CloudWatch, "AWS CloudWatch");
         builder.Services.AddTransient<IDataSourceProvider, CloudWatchProvider>();
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceTransportInspector, CloudWatchTransportInspector>());
+        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceConnectionOptionInspector, CloudWatchConnectionOptionInspector>());
         return builder;
     }
 }

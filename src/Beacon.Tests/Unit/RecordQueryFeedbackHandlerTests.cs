@@ -85,6 +85,49 @@ public class RecordQueryFeedbackHandlerTests
     }
 
     [Test]
+    public async Task Feedback_WithOversizedCorrectedSql_IsRefusedAndRecordsNothing()
+    {
+        var signal = NewSignal(1, ProjectId, DataSourceId, generatedSql: "SELECT id FROM orders");
+        var store = new Store(signal);
+        var tooLong = new string('x', InputLimits.FeedbackCorrectedSqlMaxLength + 1);
+
+        var act = () => Handler(store, TestGroundingSqlChecks.Real())
+            .Handle(new RecordQueryFeedbackCommand(1, McpUserVerdict.Correct, tooLong), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<BeaconValidationException>())
+            .WithMessage($"*{InputLimits.FeedbackCorrectedSqlMaxLength}*");
+        signal.UserVerdict.Should().Be(McpUserVerdict.Unset);
+    }
+
+    [Test]
+    public async Task Feedback_WithOversizedNote_IsRefusedAndRecordsNothing()
+    {
+        var signal = NewSignal(1, ProjectId, DataSourceId, generatedSql: "SELECT id FROM orders");
+        var store = new Store(signal);
+        var tooLong = new string('n', InputLimits.FeedbackNoteMaxLength + 1);
+
+        var act = () => Handler(store, TestGroundingSqlChecks.Real())
+            .Handle(new RecordQueryFeedbackCommand(1, McpUserVerdict.Correct, null, tooLong), CancellationToken.None);
+
+        (await act.Should().ThrowAsync<BeaconValidationException>())
+            .WithMessage($"*{InputLimits.FeedbackNoteMaxLength}*");
+        signal.UserVerdict.Should().Be(McpUserVerdict.Unset);
+    }
+
+    [Test]
+    public async Task Feedback_WithANoteAtTheLimit_IsRecorded()
+    {
+        var signal = NewSignal(1, ProjectId, DataSourceId, generatedSql: "SELECT id FROM orders");
+        var store = new Store(signal);
+        var note = new string('n', InputLimits.FeedbackNoteMaxLength);
+
+        await Handler(store, TestGroundingSqlChecks.Real())
+            .Handle(new RecordQueryFeedbackCommand(1, McpUserVerdict.Correct, null, note), CancellationToken.None);
+
+        signal.UserVerdict.Should().Be(McpUserVerdict.Correct);
+    }
+
+    [Test]
     public async Task ACorrectVerdict_OnASignalAlreadyPromoted_ChangesOnlyTheSignal()
     {
         var signal = NewSignal(1, ProjectId, DataSourceId, generatedSql: "SELECT id FROM orders");

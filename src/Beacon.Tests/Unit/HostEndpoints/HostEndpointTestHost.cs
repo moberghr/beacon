@@ -243,13 +243,15 @@ internal sealed class HostEndpointTestHost : IAsyncDisposable
         return new HostEndpointToolService(
             Registry,
             App.Services.GetRequiredService<HostEndpointDispatcher>(),
+            App.Services.GetRequiredService<HostEndpointCallLimiter>(),
             projectResolver ?? App.Services.GetRequiredService<IHostEndpointProjectResolver>(),
             principalFactory ?? App.Services.GetRequiredService<IMcpHostPrincipalFactory>(),
             projectContext,
             TestProjectAccess.Evaluator(TestProjectAccess.ReadableIn([.. contextProjects ?? [ProjectId]])),
             accessor,
             audit,
-            App.Services.GetRequiredService<HostEndpointToolOptions>());
+            App.Services.GetRequiredService<HostEndpointToolOptions>(),
+            NullLogger<HostEndpointToolService>.Instance);
     }
 
     public async ValueTask DisposeAsync()

@@ -98,4 +98,13 @@ public record CreateApiKeyCommand(
     int[]? AllowedProjectIds,
     DateTime? ExpiresAt) : IRequest<CreateApiKeyResult>;
 
-public record CreateApiKeyResult(string PlainTextKey);
+public record CreateApiKeyResult(string PlainTextKey)
+{
+    // The compiler-generated ToString prints every member; the secrets are printed redacted.
+    protected virtual bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"PlainTextKey = {RedactedPrint.Of(PlainTextKey)}");
+
+        return true;
+    }
+}

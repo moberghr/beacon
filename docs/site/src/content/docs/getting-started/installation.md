@@ -100,7 +100,7 @@ At startup the sample migrates Warp's own `warp` schema and registers its recurr
 | `mcp-embedding-reindex` | `0 */12 * * *` | Re-indexes metadata and examples for semantic search. |
 | `mcp-docchunk-reindex` | `0 */12 * * *` | Re-chunks and re-embeds project documentation. |
 
-While `Beacon:PreviousEncryptionKeys` lists a key, every start also enqueues one run of the re-encryption job, which moves stored values to the current key.
+Every start also enqueues one run of the re-encryption job, which moves stored values still under a key in `Beacon:PreviousEncryptionKeys`, or still in the legacy encryption format, to the current key and format. A run with nothing to move writes nothing.
 
 - Warp polls every second and runs at most `min(2 × CPU count, 20)` workers.
 - Failed jobs are not retried automatically. They stay failed for you to investigate.

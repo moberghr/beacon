@@ -29,6 +29,20 @@ public class SecurityAuditUiCatalogueTests
         missing.Should().BeEmpty("the security audit page offers every action, category and resource type the server records");
     }
 
+    [Test]
+    public void TheUiCatalogue_NamesEveryActorKind()
+    {
+        var catalogue = File.ReadAllText(Path.Combine(
+            RepositoryRoot(), "src", "Beacon.UI", "web", "src", "routes", "security-audit", "catalogue.ts"));
+
+        var missing = Constants(typeof(SecurityAuditActorKinds))
+            .Where(x => !catalogue.Contains($"  {x}: '", StringComparison.Ordinal))
+            .Order(StringComparer.Ordinal)
+            .ToList();
+
+        missing.Should().BeEmpty("the security audit page names every kind of actor the server records");
+    }
+
     private static IEnumerable<string> Constants(Type type)
     {
         return type

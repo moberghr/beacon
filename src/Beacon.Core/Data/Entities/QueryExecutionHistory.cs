@@ -31,6 +31,12 @@ public class QueryExecutionHistory : BaseEntity
     /// </summary>
     public int[]? DataSourceIds { get; set; }
 
+    /// <summary>
+    /// The <c>Users.Id</c> of the user the run was made for: the caller who asked for it (a test delivery), or the owner a
+    /// scheduled run runs as. Null when the owner has no stored user, and for runs recorded before Beacon kept it.
+    /// </summary>
+    public int? TriggeredByUserId { get; set; }
+
     public List<Notification> Notifications { get; set; } = new();
 
     public Subscription Subscription { get; set; } = null!;
