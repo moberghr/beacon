@@ -288,8 +288,8 @@
       },
       "Json.More.Net": {
         "type": "Transitive",
-        "resolved": "2.0.2",
-        "contentHash": "izscdjjk8EAHDBCjyz7V7n77SzkrSjh/hUGV6cyR6PlVdjYDh5ohc8yqvwSqJ9+6Uof8W6B24dIHlDKD+I1F8A=="
+        "resolved": "3.0.1",
+        "contentHash": "fRctF2J2SILYG6wqP21drmeEODmCVkVQ/b3MndDu2fT1swfySyUgq7ePCk+aENGlDcIm05fyfjh9vcuqDEfv3w=="
       },
       "K4os.Compression.LZ4": {
         "type": "Transitive",
@@ -771,7 +771,7 @@
       "Moberg.Beacon.Connector.Api": {
         "type": "Project",
         "dependencies": {
-          "JsonPath.Net": "[1.1.6, )",
+          "JsonPath.Net": "[3.0.2, )",
           "Microsoft.OpenApi": "[2.12.0, )",
           "Microsoft.OpenApi.YamlReader": "[2.12.0, )",
           "Moberg.Beacon.Core": "[1.0.0, )"
@@ -962,11 +962,11 @@
       },
       "JsonPath.Net": {
         "type": "CentralTransitive",
-        "requested": "[1.1.6, )",
-        "resolved": "1.1.6",
-        "contentHash": "FQLbFJdjIa70GdYGR3RpdGkLTMZwQCqcd8gC35yx6aGofVEP3QxMvSuXHn75N30jj9SS6yvsPPTDzJmPMt/Mdw==",
+        "requested": "[3.0.2, )",
+        "resolved": "3.0.2",
+        "contentHash": "Cmt2mvPYOLljjqSfM1xUYZYTPf8MPbwv2XpCpPxxq9u23/CGrz/fljgd1fJUNujd3+E1adNOyF1TLwppbyQwxg==",
         "dependencies": {
-          "Json.More.Net": "2.0.2"
+          "Json.More.Net": "3.0.1"
         }
       },
       "Markdig": {
