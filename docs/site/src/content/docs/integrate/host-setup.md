@@ -187,7 +187,7 @@ All options are on [Sign-in & identity](/integrate/authentication/).
 
 | Call | What it does |
 |---|---|
-| `AddBeaconApiAuthorization()` | Registers the `BeaconApi`, `BeaconApiAdmin` and Execute-scope policies plus one policy per functional permission. Required by `MapBeaconApi` and `MapBeaconMcp`. |
+| `AddBeaconApiAuthorization()` | Registers the `BeaconApi`, `BeaconApiAdmin` and Execute-scope policies plus one policy per functional permission, and the UI's page policies `BeaconUiPage` and `BeaconUiSetupPage`. Required by `MapBeaconApi`, `MapBeaconMcp` and `MapBeaconUi`. |
 | `AddBeaconApiServices()` | SignalR, the login rate limiter, notifiers, and the request principal Beacon's core reads the caller from (`IBeaconRequestPrincipal`; `AddBeaconCookieAuthentication` and `AddBeaconMcp` register it too, and startup fails when Beacon's endpoints are mapped without it). Options: `Realtime` (default `true`), `ConfigureSignalR` (e.g. a Redis backplane), `ExternalLogin` (when your app owns sign-in). |
 | `AddAntiforgery(...)` | The UI sends the antiforgery token in `X-XSRF-TOKEN`; it gets it from `GET /beacon/api/csrf`. API-key and bearer callers are exempt. |
 
@@ -222,7 +222,7 @@ The order is load-bearing. Each step depends on the ones before it:
 | 6 | `UseAuthentication` (`UseBeaconAuthentication` wires steps 6 and 7) | Your own schemes. |
 | 7 | Beacon's authentication | One step: a presented API key (`Authorization: Bearer sk-sem_…`) or bearer JWT (Entra and other OIDC access tokens, when enabled), else the `Beacon.Auth` cookie, fills `HttpContext.User` **before** authorization evaluates policies. A presented key or token wins over any session, so the key's scope and projects apply and an MCP client is never redirected to a login page. |
 | 8 | `UseAuthorization` | Endpoint policies. |
-| 9 | `LoginFormAuthMiddleware` | Redirects signed-out browsers to `/beacon/login` (only when `EnableLoginForm`). |
+| 9 | `LoginFormAuthMiddleware` | Redirects signed-out browsers to `/beacon/login` (only when `EnableLoginForm`) from Beacon routes whose endpoint neither allows anonymous callers nor carries its own authorization. |
 | 10 | `FirstRunSetupMiddleware` | Until the first admin exists, redirects Beacon's requests to `/beacon/setup`, except the health check `/beacon/api/health` and the MCP discovery documents (only with user management). |
 | 11 | `UseAntiforgery` | After authentication, so tokens are issued for the signed-in user. |
 
@@ -245,7 +245,7 @@ Beacon's authentication records its result as the request's authentication resul
 | `MapSetupEndpoints("/beacon")` | `GET /beacon/api/setup/status`, `POST /beacon/api/setup/superadmin`, `GET /beacon/api/setup/roles`. Extension on `WebApplication`. Map it only with user management on. |
 | `MapBeaconMcp()` | `/beacon/mcp` with the Execute-scope policy. Never map MCP yourself with `MapMcp(...)` and a bare `RequireAuthorization()`. |
 | `MapMcpDiscovery()` | Anonymous `/.well-known/oauth-protected-resource`, `/.well-known/oauth-protected-resource/beacon/mcp`, `/.well-known/mcp/server-card.json`. |
-| `MapBeaconUi()` | The React app at `/beacon` and its client routes. Your app keeps `/`. |
+| `MapBeaconUi()` | The React app at `/beacon` and its client routes. Your app keeps `/`. With the login form on, its pages admit signed-in callers only and send others to the login page, also without `LoginFormAuthMiddleware`; the login, logout and error pages are anonymous, and the setup page is while user management is on. |
 | `MapOpenApi()` | Your OpenAPI document, which includes Beacon's endpoints. Optional. |
 
 The full route list is on [Routes & endpoints](/reference/routes/).

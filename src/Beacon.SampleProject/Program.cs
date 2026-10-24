@@ -339,7 +339,7 @@ app.MapBeaconMcp();
 
 // MCP discovery documents (tier 3, anonymous by design): RFC 9728 protected-resource metadata at
 // /.well-known/oauth-protected-resource (+ /beacon/mcp path-inserted variant) and the SEP-2127
-// (draft) server card at /.well-known/mcp/server-card.json. Allow-listed in LoginFormAuthMiddleware.
+// (draft) server card at /.well-known/mcp/server-card.json. Mapped anonymous, at their exact paths only.
 app.MapMcpDiscovery();
 
 // Warp Dashboard - available at /warp — Admin-only (§7.4).
