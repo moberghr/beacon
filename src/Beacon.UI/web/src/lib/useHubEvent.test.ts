@@ -43,6 +43,8 @@ describe('useHubEvent realtime gate', () => {
 
     renderHook(() => useHubEvent('ApprovalUpdated', () => undefined));
 
+    // The hub module loads on demand, so let any pending import settle before asserting nothing connected.
+    await vi.dynamicImportSettled();
     expect(connectBeaconHub).not.toHaveBeenCalled();
   });
 
@@ -52,7 +54,7 @@ describe('useHubEvent realtime gate', () => {
 
     renderHook(() => useHubEvent('ApprovalUpdated', () => undefined));
 
-    expect(connectBeaconHub).toHaveBeenCalled();
+    await vi.waitFor(() => expect(connectBeaconHub).toHaveBeenCalled());
   });
 
   it('connects while /auth/me is still loading, so the common case pays no delay', async () => {
@@ -62,7 +64,7 @@ describe('useHubEvent realtime gate', () => {
 
     renderHook(() => useHubEvent('ApprovalUpdated', () => undefined));
 
-    expect(connectBeaconHub).toHaveBeenCalled();
+    await vi.waitFor(() => expect(connectBeaconHub).toHaveBeenCalled());
   });
 
   it('gates useHubReconnected on the same flag', async () => {
@@ -71,6 +73,8 @@ describe('useHubEvent realtime gate', () => {
 
     renderHook(() => useHubReconnected(() => undefined));
 
+    // The hub module loads on demand, so let any pending import settle before asserting nothing connected.
+    await vi.dynamicImportSettled();
     expect(connectBeaconHub).not.toHaveBeenCalled();
   });
 });

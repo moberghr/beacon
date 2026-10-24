@@ -218,6 +218,58 @@ When you upgrade:
 - [ ] **Hosts or scripts that create queries through the API:** send `{name}` placeholders. A bare word, a quoted or
       spaced placeholder is refused with the parameter's name.
 
+### Stronger password hashes, checked user names
+
+Internal users' passwords are hashed at 600,000 PBKDF2 iterations, and the count is stored in the hash. Existing
+hashes keep working and are upgraded at each user's next successful password sign-in
+([Password hashes](/security/user-management/#password-hashes)). Creating a user, and first-run setup, now trim the user
+name and e-mail address and refuse a user name outside 3 to 100 characters or with control characters, an e-mail address
+that is not one plain address, and (setup) a password confirmation that differs. Editing a user keeps a value sent back
+exactly as stored, and trims and checks only the fields that change.
+
+When you upgrade:
+
+- [ ] **Rollback:** an earlier version cannot read an upgraded hash. After a rollback, reset the passwords of internal
+      users who signed in on this version.
+- [ ] **Scripts that create users through the API:** send a user name of at least 3 characters and a plain e-mail
+      address (or none).
+
+### Security headers and an origin check on Beacon's routes
+
+Beacon's responses now carry `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin` and a
+`Permissions-Policy`, and responses under `/beacon` a Content-Security-Policy that allows scripts, styles and workers from
+Beacon's own origin only and no framing. A new origin check looks at state-changing, realtime-hub and anonymous Beacon
+requests and, in this release, only logs the ones from a foreign origin. `UseBeaconAuthentication()` adds both; your own
+routes are untouched. See [Security headers and the origin check](/integrate/host-setup/#security-headers-and-the-origin-check).
+
+When you upgrade:
+
+- [ ] **Hosts that frame Beacon or load it into another page's content:** `frame-ancestors 'none'` and `X-Frame-Options:
+      DENY` now refuse it. Send your own policy on those responses, or set `Beacon:Security:Csp` to `ReportOnly`.
+- [ ] **Behind a proxy:** set `Beacon:PublicBaseUrl` (or `Beacon:Security:AllowedOrigins`), watch the log for the origin
+      check's warnings, then set `Beacon:Security:OriginGuard` to `Enforce`. A later release is planned to make `Enforce` the default.
+- [ ] **Optional:** call `app.UseBeaconSecurityHeaders()` before `UseStaticFiles()` so the UI's files carry the headers too.
+
+### Retention by default
+
+A new data retention job can keep run history and logs bounded (see [Data retention](/getting-started/configuration/#data-retention-beaconretention)):
+with `Beacon:Retention:Days` set it deletes rows of subscription runs, notifications, anomaly baselines and events, AI
+actor runs and plans, migration runs, MCP eval runs and the execution log older than the window (90 days recommended; the MCP audit's own window, 365 days
+recommended). `Beacon:Retention:ContentDays` (30 recommended for regulated deployments) clears the SQL text, result
+snapshots and model output of older rows, and `Beacon:Retention:Locked` refuses any window that keeps data forever.
+Every window defaults to keep forever. The content lock
+(`RetainQueryContent` off globally, `Beacon:Mcp:ForceNoContentRetention`) now also covers those stores outside MCP.
+
+When you upgrade:
+
+- [ ] **Nothing is deleted on upgrade.** Retention is off until you set a window; while none is set the host logs one
+      Information at startup (`RetentionUnconfigured`). Set the recommended windows to start purging.
+- [ ] **Schedule the job.** Hosts with their own scheduler call `IDataRetentionService.RunAsync` daily; the sample host
+      runs it as the Warp job `data-retention`.
+- [ ] **Content lock wider.** With `RetainQueryContent` off globally or `ForceNoContentRetention` on, subscription
+      result snapshots, the SQL text of runs and of the execution log, AI actor output and migration statements are no
+      longer stored, and result snapshots stored before are cleared by the retention job.
+
 ### Every declared foreign key becomes a relationship
 
 A column that takes part in more than one foreign key (for example `tenant_id`, referencing `tenants` on its own and

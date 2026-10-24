@@ -1326,6 +1326,131 @@ export class BeaconApiClient {
   }
 
   /**
+   * @return Accepted
+   */
+  startProjectDocumentationGeneration(
+    id: number,
+  ): Promise<BackgroundTaskTicket> {
+    let url_ =
+      this.baseUrl + "/beacon/api/projects/{id}/documentation-generations";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processStartProjectDocumentationGeneration(_response);
+    });
+  }
+
+  protected processStartProjectDocumentationGeneration(
+    response: Response,
+  ): Promise<BackgroundTaskTicket> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 202) {
+      return response.text().then((_responseText) => {
+        let result202: any = null;
+        result202 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as BackgroundTaskTicket);
+        return result202;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<BackgroundTaskTicket>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  getProjectDocumentationGeneration(
+    id: number,
+    taskId: number,
+  ): Promise<BackgroundTaskStatus> {
+    let url_ =
+      this.baseUrl +
+      "/beacon/api/projects/{id}/documentation-generations/{taskId}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    if (taskId === undefined || taskId === null)
+      throw new Error("The parameter 'taskId' must be defined.");
+    url_ = url_.replace("{taskId}", encodeURIComponent("" + taskId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetProjectDocumentationGeneration(_response);
+    });
+  }
+
+  protected processGetProjectDocumentationGeneration(
+    response: Response,
+  ): Promise<BackgroundTaskStatus> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as BackgroundTaskStatus);
+        return result200;
+      });
+    } else if (status === 404) {
+      return response.text().then((_responseText) => {
+        return throwException("Not Found", status, _responseText, _headers);
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<BackgroundTaskStatus>(null as any);
+  }
+
+  /**
    * @return OK
    */
   exportProjectDocumentation(id: number, asHtml: boolean): Promise<void> {
@@ -1492,6 +1617,123 @@ export class BeaconApiClient {
       });
     }
     return Promise.resolve<ScanAllRepositoriesResult>(null as any);
+  }
+
+  /**
+   * @return Accepted
+   */
+  startRepositoryScan(id: number): Promise<BackgroundTaskTicket> {
+    let url_ = this.baseUrl + "/beacon/api/projects/{id}/scans";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processStartRepositoryScan(_response);
+    });
+  }
+
+  protected processStartRepositoryScan(
+    response: Response,
+  ): Promise<BackgroundTaskTicket> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 202) {
+      return response.text().then((_responseText) => {
+        let result202: any = null;
+        result202 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as BackgroundTaskTicket);
+        return result202;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<BackgroundTaskTicket>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  getRepositoryScan(id: number, taskId: number): Promise<BackgroundTaskStatus> {
+    let url_ = this.baseUrl + "/beacon/api/projects/{id}/scans/{taskId}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    if (taskId === undefined || taskId === null)
+      throw new Error("The parameter 'taskId' must be defined.");
+    url_ = url_.replace("{taskId}", encodeURIComponent("" + taskId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetRepositoryScan(_response);
+    });
+  }
+
+  protected processGetRepositoryScan(
+    response: Response,
+  ): Promise<BackgroundTaskStatus> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as BackgroundTaskStatus);
+        return result200;
+      });
+    } else if (status === 404) {
+      return response.text().then((_responseText) => {
+        return throwException("Not Found", status, _responseText, _headers);
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<BackgroundTaskStatus>(null as any);
   }
 
   /**
@@ -4336,7 +4578,7 @@ export class BeaconApiClient {
   /**
    * @return OK
    */
-  getMcpSettings(): Promise<McpSettingsData> {
+  getMcpSettings(): Promise<GetMcpSettingsResult> {
     let url_ = this.baseUrl + "/beacon/api/mcp/settings";
     url_ = url_.replace(/[?&]$/, "");
 
@@ -4354,7 +4596,7 @@ export class BeaconApiClient {
 
   protected processGetMcpSettings(
     response: Response,
-  ): Promise<McpSettingsData> {
+  ): Promise<GetMcpSettingsResult> {
     const status = response.status;
     let _headers: any = {};
     if (response.headers && response.headers.forEach) {
@@ -4369,7 +4611,7 @@ export class BeaconApiClient {
             : (JSON.parse(
                 _responseText,
                 this.jsonParseReviver,
-              ) as McpSettingsData);
+              ) as GetMcpSettingsResult);
         return result200;
       });
     } else if (status !== 200 && status !== 204) {
@@ -4382,7 +4624,7 @@ export class BeaconApiClient {
         );
       });
     }
-    return Promise.resolve<McpSettingsData>(null as any);
+    return Promise.resolve<GetMcpSettingsResult>(null as any);
   }
 
   /**
@@ -6247,6 +6489,126 @@ export class BeaconApiClient {
   }
 
   /**
+   * @return Accepted
+   */
+  startAiActorThink(id: number): Promise<BackgroundTaskTicket> {
+    let url_ = this.baseUrl + "/beacon/api/ai-actors/{id}/think-tasks";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processStartAiActorThink(_response);
+    });
+  }
+
+  protected processStartAiActorThink(
+    response: Response,
+  ): Promise<BackgroundTaskTicket> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 202) {
+      return response.text().then((_responseText) => {
+        let result202: any = null;
+        result202 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as BackgroundTaskTicket);
+        return result202;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<BackgroundTaskTicket>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  getAiActorThinkTask(
+    id: number,
+    taskId: number,
+  ): Promise<BackgroundTaskStatus> {
+    let url_ = this.baseUrl + "/beacon/api/ai-actors/{id}/think-tasks/{taskId}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    if (taskId === undefined || taskId === null)
+      throw new Error("The parameter 'taskId' must be defined.");
+    url_ = url_.replace("{taskId}", encodeURIComponent("" + taskId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetAiActorThinkTask(_response);
+    });
+  }
+
+  protected processGetAiActorThinkTask(
+    response: Response,
+  ): Promise<BackgroundTaskStatus> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as BackgroundTaskStatus);
+        return result200;
+      });
+    } else if (status === 404) {
+      return response.text().then((_responseText) => {
+        return throwException("Not Found", status, _responseText, _headers);
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<BackgroundTaskStatus>(null as any);
+  }
+
+  /**
    * @return OK
    */
   pauseAiActor(id: number): Promise<PauseAiActorResult> {
@@ -6519,6 +6881,58 @@ export class BeaconApiClient {
       });
     }
     return Promise.resolve<GetPendingPlansResult>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  getPendingPlanCount(): Promise<GetPendingPlanCountResult> {
+    let url_ = this.baseUrl + "/beacon/api/ai-actors/pending-plans/count";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetPendingPlanCount(_response);
+    });
+  }
+
+  protected processGetPendingPlanCount(
+    response: Response,
+  ): Promise<GetPendingPlanCountResult> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as GetPendingPlanCountResult);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<GetPendingPlanCountResult>(null as any);
   }
 
   /**
@@ -7483,6 +7897,126 @@ export class BeaconApiClient {
       });
     }
     return Promise.resolve<RunMigrationJobResult>(null as any);
+  }
+
+  /**
+   * @return Accepted
+   */
+  startMigrationJobRun(id: number): Promise<BackgroundTaskTicket> {
+    let url_ = this.baseUrl + "/beacon/api/migrations/jobs/{id}/runs";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processStartMigrationJobRun(_response);
+    });
+  }
+
+  protected processStartMigrationJobRun(
+    response: Response,
+  ): Promise<BackgroundTaskTicket> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 202) {
+      return response.text().then((_responseText) => {
+        let result202: any = null;
+        result202 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as BackgroundTaskTicket);
+        return result202;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<BackgroundTaskTicket>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  getMigrationJobRun(
+    id: number,
+    taskId: number,
+  ): Promise<BackgroundTaskStatus> {
+    let url_ = this.baseUrl + "/beacon/api/migrations/jobs/{id}/runs/{taskId}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    if (taskId === undefined || taskId === null)
+      throw new Error("The parameter 'taskId' must be defined.");
+    url_ = url_.replace("{taskId}", encodeURIComponent("" + taskId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetMigrationJobRun(_response);
+    });
+  }
+
+  protected processGetMigrationJobRun(
+    response: Response,
+  ): Promise<BackgroundTaskStatus> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as BackgroundTaskStatus);
+        return result200;
+      });
+    } else if (status === 404) {
+      return response.text().then((_responseText) => {
+        return throwException("Not Found", status, _responseText, _headers);
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<BackgroundTaskStatus>(null as any);
   }
 
   /**
@@ -8854,6 +9388,129 @@ export class BeaconApiClient {
       });
     }
     return Promise.resolve<DatabaseMetadataSnapshot>(null as any);
+  }
+
+  /**
+   * @return Accepted
+   */
+  startDataSourceMetadataRefresh(id: number): Promise<BackgroundTaskTicket> {
+    let url_ =
+      this.baseUrl + "/beacon/api/data-sources/{id}/metadata-refreshes";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processStartDataSourceMetadataRefresh(_response);
+    });
+  }
+
+  protected processStartDataSourceMetadataRefresh(
+    response: Response,
+  ): Promise<BackgroundTaskTicket> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 202) {
+      return response.text().then((_responseText) => {
+        let result202: any = null;
+        result202 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as BackgroundTaskTicket);
+        return result202;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<BackgroundTaskTicket>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  getDataSourceMetadataRefresh(
+    id: number,
+    taskId: number,
+  ): Promise<BackgroundTaskStatus> {
+    let url_ =
+      this.baseUrl +
+      "/beacon/api/data-sources/{id}/metadata-refreshes/{taskId}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    if (taskId === undefined || taskId === null)
+      throw new Error("The parameter 'taskId' must be defined.");
+    url_ = url_.replace("{taskId}", encodeURIComponent("" + taskId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetDataSourceMetadataRefresh(_response);
+    });
+  }
+
+  protected processGetDataSourceMetadataRefresh(
+    response: Response,
+  ): Promise<BackgroundTaskStatus> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as BackgroundTaskStatus);
+        return result200;
+      });
+    } else if (status === 404) {
+      return response.text().then((_responseText) => {
+        return throwException("Not Found", status, _responseText, _headers);
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<BackgroundTaskStatus>(null as any);
   }
 
   /**
@@ -17288,6 +17945,35 @@ export enum BackgroundServiceLogSource {
   User = 2,
 }
 
+export enum BackgroundTaskState {
+  Queued = 0,
+  Running = 1,
+  Succeeded = 2,
+  Failed = 3,
+  Skipped = 4,
+}
+
+export interface BackgroundTaskStatus {
+  taskId: number;
+  jobId: string | null;
+  state: BackgroundTaskState;
+  createdTime: Date;
+  startedTime: Date | null;
+  finishedTime: Date | null;
+  failureCode: string | null;
+  warningCount: number | null;
+
+  [key: string]: any;
+}
+
+export interface BackgroundTaskTicket {
+  taskId: number;
+  jobId: string | null;
+  state: BackgroundTaskState;
+
+  [key: string]: any;
+}
+
 export enum BedrockAuthMode {
   IamRole = 0,
   AccessKey = 1,
@@ -17848,6 +18534,7 @@ export interface CurrentPermissionsResponse {
   permissions: string[];
   migrationsEnabled: boolean;
   gatewayMode?: boolean;
+  embedEnabled?: boolean;
 
   [key: string]: any;
 }
@@ -18341,6 +19028,9 @@ export interface GetAiActorPlanResult {
   model?: string | null;
   version?: number;
   parentPlanId?: number | null;
+  mayApprove?: boolean;
+  approveBlockedReason?: string | null;
+  mayRejectOrRevise?: boolean;
 
   [key: string]: any;
 }
@@ -18469,6 +19159,55 @@ export interface GetMcpProjectSettingsResult {
   [key: string]: any;
 }
 
+export interface GetMcpSettingsResult {
+  stored?: McpSettingsData;
+  lockedFields?: string[];
+  clampedFields?: string[];
+  askSystemPrompt?: string | null;
+  globalInstruction?: string | null;
+  getContextDescription?: string | null;
+  queryDescription?: string | null;
+  getDocumentationDescription?: string | null;
+  askDescription?: string | null;
+  searchDescription?: string | null;
+  maxRowLimit?: number;
+  enforceReadOnly?: boolean;
+  enablePiiDetection?: boolean;
+  customPiiPatterns?: string[];
+  enableSampleValueCollection?: boolean;
+  enableLearning?: boolean;
+  learningAutoApproveThreshold?: number;
+  learningInjectionBudgetChars?: number;
+  learningSignalRetentionDays?: number;
+  enableSelfConsistency?: boolean;
+  selfConsistencyCandidateCount?: number;
+  enableEvalJudge?: boolean;
+  enableSemanticRetrieval?: boolean;
+  exemplarTopK?: number;
+  enableReplayVerification?: boolean;
+  learningReplayMinFlips?: number;
+  enableContextualRetrieval?: boolean;
+  docChunkWindowSentences?: number;
+  docChunkOverlapSentences?: number;
+  glossaryTopK?: number;
+  docChunkTopK?: number;
+  enableGoldenExemplars?: boolean;
+  goldenExemplarTopK?: number;
+  goldenExemplarBudgetChars?: number;
+  enableValueGrounding?: boolean;
+  valueGroundingMaxProbes?: number;
+  enableSemanticLint?: boolean;
+  selfConsistencyMinTables?: number;
+  retainQueryContent?: boolean;
+  statementTimeoutSeconds?: number;
+  maxResultBytes?: number;
+  maxExplainCost?: number | null;
+  maxConcurrentQueriesPerKey?: number;
+  allowExplicitFeedbackContent?: boolean;
+
+  [key: string]: any;
+}
+
 export interface GetMcpToolsResult {
   toolNames: string[];
 
@@ -18477,6 +19216,12 @@ export interface GetMcpToolsResult {
 
 export interface GetNotificationDetailResult {
   entry: NotificationDetailEntry | null;
+
+  [key: string]: any;
+}
+
+export interface GetPendingPlanCountResult {
+  count?: number;
 
   [key: string]: any;
 }
