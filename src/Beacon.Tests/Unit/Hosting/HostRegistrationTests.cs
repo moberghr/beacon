@@ -85,15 +85,19 @@ public class HostRegistrationTests
     }
 
     [Test]
-    public void AHostsOwnCodeAnalyzer_RegisteredFirst_Wins()
+    public void AHostsOwnCodeAnalyzer_RegisteredFirst_KeepsBothAnalyzers()
     {
         var services = Core(new ServiceCollection());
         services.AddTransient<ICodeAnalyzer, HostAnalyzer>();
         services.AddBeaconAI(Configuration());
+        services.AddBeaconAI(Configuration());
 
-        Count<ICodeAnalyzer>(services).Should().Be(1);
+        Count<ICodeAnalyzer>(services).Should().Be(2);
         using var provider = services.BuildServiceProvider();
-        provider.GetRequiredService<ICodeAnalyzer>().Should().BeOfType<HostAnalyzer>();
+        provider.GetServices<ICodeAnalyzer>()
+            .Select(x => x.GetType())
+            .Should()
+            .BeEquivalentTo([typeof(HostAnalyzer), typeof(CSharpCodeAnalyzer)]);
     }
 
     [Test]
