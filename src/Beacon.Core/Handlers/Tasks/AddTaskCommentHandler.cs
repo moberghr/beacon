@@ -1,11 +1,15 @@
+using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Authorization;
-using Beacon.Core.Services;
+using Beacon.Core.Data;
+using Beacon.Core.Data.Entities;
+using Beacon.Core.Data.Enums;
+using Beacon.Core.Models;
 using MediatR;
 
 namespace Beacon.Core.Handlers.Tasks;
 
 internal sealed class AddTaskCommentHandler(
-    ITaskService taskService,
+    IDbContextFactory<BeaconContext> contextFactory,
     IBeaconUserContext userContext)
     : IRequestHandler<AddTaskCommentCommand, AddTaskCommentResult>
 {
@@ -22,9 +26,37 @@ internal sealed class AddTaskCommentHandler(
             ? (userContext.DisplayName ?? userContext.UserName)
             : null;
 
-        var commentId = await taskService.AddTaskComment(request.TaskId, content, userId, userName, cancellationToken);
+        var commentId = await Add(request.TaskId, content, userId, userName, cancellationToken);
 
         return new AddTaskCommentResult(commentId);
+    }
+
+    internal async Task<int> Add(int taskId, string content, string? userId, string? userName, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var taskExists = await context.QueryTasks
+            .Where(x => x.Id == taskId)
+            .AnyAsync(cancellationToken);
+
+        if (!taskExists)
+        {
+            throw new BeaconException($"Task {taskId} not found");
+        }
+
+        var comment = new Comment
+        {
+            EntityType = EntityType.Task,
+            EntityId = taskId,
+            Content = content,
+            UserId = userId,
+            UserName = userName
+        };
+
+        context.Comments.Add(comment);
+        await context.SaveChangesAsync(cancellationToken);
+
+        return comment.Id;
     }
 }
 

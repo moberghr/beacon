@@ -1,4 +1,5 @@
 using Beacon.Core.Helpers;
+using Beacon.Core.Services;
 using Beacon.Core.Services.Validation;
 using Dapper;
 using FluentAssertions;
@@ -154,7 +155,7 @@ public class SqlPageRewriterTests
             _ => "a`; DROP TABLE x --",
         };
 
-        SqlPageRewriter.Quote(column, dialect).Should().Be(expected);
+        SqlIdentifierGuard.Quote(column, dialect).Should().Be(expected);
     }
 
     [TestCase("SELECT id FROM t -- trailing note")]

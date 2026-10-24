@@ -180,8 +180,8 @@ public class AttachmentSizeCapTests
         string? sentBody = null;
         var attached = true;
         mail
-            .Setup(x => x.SendEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<QueryResultFile?>()))
-            .Callback<string, string, string, QueryResultFile?>((_, _, body, attachment) =>
+            .Setup(x => x.SendEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<QueryResultFile?>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, string, QueryResultFile?, CancellationToken>((_, _, body, attachment, _) =>
             {
                 sentBody = body;
                 attached = attachment != null;
@@ -239,8 +239,8 @@ public class AttachmentSizeCapTests
         string? sentBody = null;
         QueryResultFile? sentFile = null;
         mail
-            .Setup(x => x.SendEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<QueryResultFile?>()))
-            .Callback<string, string, string, QueryResultFile?>((_, _, body, attachment) =>
+            .Setup(x => x.SendEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<QueryResultFile?>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, string, QueryResultFile?, CancellationToken>((_, _, body, attachment, _) =>
             {
                 sentBody = body;
                 sentFile = attachment;

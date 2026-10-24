@@ -27,7 +27,7 @@ flowchart TB
 
 ## 1. Identity
 
-- **Sign-in paths:** Beacon's login form (PBKDF2-SHA256 passwords, 10 attempts per minute per IP), OIDC/SSO with tenant allow-list, guest blocking, required groups or app roles and optional MFA, bearer access tokens, API keys, or your own host's sign-in. → [Sign-in & identity](/integrate/authentication/)
+- **Sign-in paths:** Beacon's login form (PBKDF2-SHA256 passwords, 10 attempts per minute per IP, a 15-minute lockout after 5 wrong passwords), OIDC/SSO with tenant allow-list, guest blocking, required groups or app roles and optional MFA, bearer access tokens, API keys, or your own host's sign-in. → [Sign-in & identity](/integrate/authentication/)
 - **First run** needs a setup token; until an administrator exists nobody else can be provisioned.
 - **Break-glass:** with password sign-in off, at most three named accounts may still use a password; each use is logged as a warning (7119).
 - **MFA** (`RequireMfa`) covers the interactive SSO sign-in. Bearer tokens, API keys, MCP callers and break-glass passwords are not MFA-protected. Protect them with short lifetimes, project lists and alerting.
@@ -162,6 +162,7 @@ Beacon's guarantees assume the host does its share:
 - read-only logins on every data source;
 - secrets in a secret store, Data Protection keys encrypted at rest;
 - `UseForwardedHeaders` with known proxies, and `Beacon:PublicBaseUrl` set, behind a reverse proxy;
+- HSTS and `AllowedHosts` set by the host, and Beacon's origin check switched to `Enforce` once its warnings are gone;
 - the middleware order from [Host wiring](/integrate/host-setup/#the-middleware-pipeline);
 - every job scope marked as system work;
 - security log events and the `Beacon.Audit` category (including the security audit trail's copies and verification checkpoints, 9104 to 9110) shipped to a monitored log store;

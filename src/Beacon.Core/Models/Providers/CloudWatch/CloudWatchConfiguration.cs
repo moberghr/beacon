@@ -1,5 +1,6 @@
 namespace Beacon.Core.Models.Providers.CloudWatch;
 
+[Obsolete("The CloudWatch connector reads its own configuration type; this one is unused and removed in 6.0.")]
 public class CloudWatchConfiguration
 {
     public string? AccessKeyId { get; set; }
