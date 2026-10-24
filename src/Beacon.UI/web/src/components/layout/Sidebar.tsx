@@ -33,6 +33,7 @@ import { cn } from '@/lib/utils';
 import { useAccess, useAuth, type Access, type BeaconPermission } from '@/auth/useAuth';
 import { beaconApi } from '@/api/client';
 import { BuildBadge } from '@/components/beacon';
+import { usePendingPlanCount } from '@/routes/ai-actors/queries';
 
 interface NavItem {
   name: string;
@@ -138,6 +139,13 @@ export function Sidebar() {
   const queryClient = useQueryClient();
   const { data: user } = useAuth();
   const access = useAccess();
+  // The AI actor plans waiting for this user's decision: a badge on AI Actors (the gateway serves no actors).
+  const pendingPlans = usePendingPlanCount(!access.isLoading && !access.gatewayMode && readsProjectData(access));
+  const attention: Record<string, { count: number; label: string } | undefined> = {
+    'ai-actors': pendingPlans.data
+      ? { count: pendingPlans.data, label: `${pendingPlans.data} AI actor ${pendingPlans.data === 1 ? 'plan waits' : 'plans wait'} for approval` }
+      : undefined,
+  };
   const sections = SECTIONS
     .map(section => ({ ...section, items: section.items.filter(item => (!access.gatewayMode || GATEWAY_SLUGS.includes(item.slug)) && (item.visible ?? readsProjectData)(access)) }))
     .filter(section => section.items.length > 0);
@@ -246,7 +254,16 @@ export function Sidebar() {
                       {item.badge}
                     </span>
                   )}
-                  {item.count != null && !item.badge && (
+                  {attention[item.slug] && !item.badge && (
+                    <span
+                      aria-label={attention[item.slug]!.label}
+                      title={attention[item.slug]!.label}
+                      className="text-2xs mono font-semibold px-1.5 py-0.5 rounded-xs bg-warn-bg text-warn"
+                    >
+                      {attention[item.slug]!.count}
+                    </span>
+                  )}
+                  {item.count != null && !item.badge && !attention[item.slug] && (
                     <span className="text-2xs mono text-text-subtle">{item.count}</span>
                   )}
                 </Link>

@@ -56,6 +56,7 @@ public class ProjectListScopeShapeTests
         [typeof(GetDataQualityOverviewQuery)] = new GetDataQualityOverviewQuery(),
         [typeof(GetDataContractsQuery)] = new GetDataContractsQuery(),
         [typeof(GetAiActorListQuery)] = new GetAiActorListQuery(),
+        [typeof(GetPendingPlanCountQuery)] = new GetPendingPlanCountQuery(),
         [typeof(GetLearnedPatternsQuery)] = new GetLearnedPatternsQuery(),
         [typeof(GetDocumentationPatchesQuery)] = new GetDocumentationPatchesQuery(),
         [typeof(GetLearningStatsQuery)] = new GetLearningStatsQuery()

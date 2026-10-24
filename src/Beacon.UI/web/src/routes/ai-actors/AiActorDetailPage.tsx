@@ -7,6 +7,7 @@ import { isNotFound, NOT_FOUND_DETAIL } from '@/lib/api';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { useAccess } from '@/auth/useAuth';
 import { SetOwnerDialog } from '../users/SetOwnerDialog';
+import { PendingPlansPanel } from './PendingPlansPanel';
 import {
   useAiActorDetailsQuery,
   useSetAiActorOwner,
@@ -88,6 +89,8 @@ export default function AiActorDetailPage() {
               value={data.lastThinkTime ? formatDateTime(data.lastThinkTime) : '—'}
             />
           </KPIGrid>
+
+          <PendingPlansPanel actorId={data.actorId} requiresApproval={data.requiresApproval} />
 
           <Card>
             <CardBody>

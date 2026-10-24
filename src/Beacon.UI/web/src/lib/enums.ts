@@ -6,7 +6,9 @@
  * and import it from '@/lib/enums' in route code.
  */
 export {
+  AiActorActionType,
   AiActorExecutionPhase,
+  AiActorPlanStatus,
   AiActorStatus,
   AiProvider,
   AnomalyDetectionMethod,

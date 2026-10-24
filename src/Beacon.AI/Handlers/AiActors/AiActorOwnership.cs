@@ -142,10 +142,41 @@ internal static class AiActorOwnership
             throw new InvalidOperationException($"AI actor plan {planId} not found.");
         }
 
-        if (caller.UserId == null
-            || (!configuration.ApprovalWorkflow.AllowSelfApproval && caller.IsRecordedAs(plan.CreatedByUserId)))
+        var blocked = await PlanApproveBlockedReasonAsync(caller, permissions, context, configuration, planId, plan.CreatedByUserId, cancellationToken);
+        if (blocked != null)
         {
-            throw AccessRefusal.Of(logger, caller, "AI actor", plan.AiActorId, PlanSelfApprovalRefusal);
+            throw AccessRefusal.Of(logger, caller, "AI actor", plan.AiActorId, blocked);
+        }
+    }
+
+    /// <summary>
+    /// Why <paramref name="caller"/> may not approve the plan under the rules of <see cref="EnsureMayApprovePlanAsync"/>
+    /// (the plan's project check aside), or null when they may: what a reviewer is shown before they decide.
+    /// <paramref name="creatorUserId"/> is the creator the plan's actor records.
+    /// </summary>
+    public static async Task<string?> PlanApproveBlockedReasonAsync(
+        BeaconActor caller,
+        BeaconPermissionSet permissions,
+        BeaconContext context,
+        BeaconConfiguration configuration,
+        int planId,
+        string? creatorUserId,
+        CancellationToken cancellationToken)
+    {
+        if (!configuration.ApprovalWorkflow.Enabled)
+        {
+            return caller.IsOwnerOrAdmin(creatorUserId) ? null : Refusal;
+        }
+
+        if (!permissions.Holds(BeaconPermissions.Approver))
+        {
+            return PlanApproverRefusal;
+        }
+
+        if (caller.UserId == null
+            || (!configuration.ApprovalWorkflow.AllowSelfApproval && caller.IsRecordedAs(creatorUserId)))
+        {
+            return PlanSelfApprovalRefusal;
         }
 
         // Whoever asked for a revision of the plan shaped it with their feedback: they do not approve it either.
@@ -154,9 +185,11 @@ internal static class AiActorOwnership
             var revisionRequesters = await AiActorPlanChain.RevisionRequestersAsync(context, planId, cancellationToken);
             if (revisionRequesters.Any(caller.IsRecordedAs))
             {
-                throw AccessRefusal.Of(logger, caller, "AI actor", plan.AiActorId, PlanRevisionRequesterRefusal);
+                return PlanRevisionRequesterRefusal;
             }
         }
+
+        return null;
     }
 
     private static BeaconForbiddenException Refuse(ILogger logger, BeaconActor caller, int? actorId)
