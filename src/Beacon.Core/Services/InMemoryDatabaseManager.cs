@@ -539,7 +539,7 @@ public class InMemoryDatabaseManager : IDisposable
             throw new InvalidOperationException("A table or column name containing a NUL character cannot be loaded into the in-memory join store.");
         }
 
-        return "\"" + name.Replace("\"", "\"\"") + "\"";
+        return SqlIdentifierGuard.Quote(name, "SQLite");
     }
 
     private static string PositionalParameter(int index) =>

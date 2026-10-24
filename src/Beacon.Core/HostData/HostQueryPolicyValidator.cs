@@ -6,6 +6,7 @@ using System.Reflection;
 using System.Text;
 using System.Text.RegularExpressions;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Services;
 using Beacon.Core.Services.Validation;
 using SqlParser;
 using SqlParser.Ast;
@@ -1417,12 +1418,7 @@ internal static class HostQueryPolicyValidator
                 return $"{table.Schema}.{table.Name}";
             }
 
-            return $"{QuotePostgres(table.Schema)}.{QuotePostgres(table.Name)}";
-        }
-
-        private static string QuotePostgres(string name)
-        {
-            return name.All(x => char.IsAsciiLetterLower(x) || char.IsAsciiDigit(x) || x == '_') ? name : $"\"{name}\"";
+            return $"{SqlIdentifierGuard.QuotePostgresIfNeeded(table.Schema)}.{SqlIdentifierGuard.QuotePostgresIfNeeded(table.Name)}";
         }
 
         private bool IsVariable(Ident ident)

@@ -54,8 +54,9 @@ public static partial class SqlIdentifierGuard
     /// <summary>
     /// <paramref name="identifier"/> as a quoted identifier of <paramref name="dialect"/> (the data source's dialect name),
     /// its own quote character doubled so no part of it is read as SQL: <c>[name]</c> with <c>]]</c> on SQL Server and
-    /// Synapse, <c>`name`</c> with doubled backticks on MySQL and Databricks, <c>"name"</c> with <c>""</c> everywhere
-    /// else (PostgreSQL, Snowflake, SQLite).
+    /// Synapse, <c>`name`</c> with doubled backticks on MySQL and Databricks, <c>`name`</c> with backslash-escaped
+    /// backticks and backslashes on BigQuery (which reads a double-quoted name as a string), <c>"name"</c> with
+    /// <c>""</c> everywhere else (PostgreSQL, Snowflake, SQLite).
     /// </summary>
     public static string Quote(string identifier, string? dialect)
     {
@@ -70,7 +71,22 @@ public static partial class SqlIdentifierGuard
             return $"`{EscapeQuote(identifier, '`')}`";
         }
 
+        if (engine is "bigquery")
+        {
+            return $"`{identifier.Replace("\\", "\\\\").Replace("`", "\\`")}`";
+        }
+
         return $"\"{EscapeQuote(identifier, '"')}\"";
+    }
+
+    /// <summary>
+    /// <paramref name="name"/> as PostgreSQL would need it written: unchanged when it is only lower-case letters, digits
+    /// and underscores (PostgreSQL folds an unquoted name to lower case), otherwise quoted with <see cref="Quote"/>.
+    /// For text shown to people, such as a suggested table name; SQL Beacon runs always quotes.
+    /// </summary>
+    public static string QuotePostgresIfNeeded(string name)
+    {
+        return name.All(x => char.IsAsciiLetterLower(x) || char.IsAsciiDigit(x) || x == '_') ? name : Quote(name, "PostgreSQL");
     }
 
     /// <summary>
