@@ -127,6 +127,9 @@ public static class BeaconApiEndpoints
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, SecurityAuditStartupNote>());
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, RetentionStartupNote>());
 
+        // Reports at startup the security settings weaker than the regulated profile requires (Beacon:Profile).
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, DeploymentProfileStartupReport>());
+
         // Applies the stored Admin settings (base URL, LLM provider configuration) once the host has started.
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, StoredSettingsStartupApplier>());
 

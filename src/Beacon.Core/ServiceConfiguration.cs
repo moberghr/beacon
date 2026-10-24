@@ -564,6 +564,22 @@ public static class ServiceConfiguration
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<Configuration.McpDeploymentOptions>, Configuration.McpDeploymentOptionsValidator>();
 
+        // The deployment profile (Beacon:Profile; unset = no preset). Under Regulated it fills the MCP settings the host left
+        // unset, turns the retention lock on when unset, and fails the host at boot, with the full list, on any setting the
+        // host set weaker than the profile requires (RegulatedProfile). An unknown profile name fails too.
+        services.AddOptions<Configuration.McpDeploymentOptions>()
+            .PostConfigure(x => Configuration.RegulatedProfile.ApplyDefaults(x, configuration));
+        services.AddOptions<Configuration.DeploymentProfileOptions>()
+            .Configure(x =>
+            {
+                var profile = Configuration.DeploymentProfileOptions.From(configuration);
+                x.Profile = profile.Profile;
+                x.AppliedDefaults = profile.AppliedDefaults;
+                x.UnknownValue = profile.UnknownValue;
+            })
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.DeploymentProfileOptions>, Configuration.DeploymentProfileOptionsValidator>());
+
         // MCP audit retention purge (Beacon:Mcp:Audit:RetentionDays); a null window is a no-op. Scheduled by
         // the host as a Warp recurring job (Beacon.SampleProject/Warp/Jobs/McpMaintenanceJobs.cs).
         services.TryAddTransient<IMcpAuditRetentionService, McpAuditRetentionService>();
@@ -574,6 +590,7 @@ public static class ServiceConfiguration
         // one more TryAddEnumerable target. Scheduled by the host (the sample's Warp job data-retention).
         services.AddOptions<Configuration.RetentionOptions>()
             .Bind(configuration.GetSection(Configuration.RetentionOptions.SectionName))
+            .PostConfigure(x => Configuration.RegulatedProfile.ApplyDefaults(x, configuration))
             .ValidateOnStart();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.RetentionOptions>, Configuration.RetentionOptionsValidator>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IRetentionTarget, SubscriptionRunsRetentionTarget>());
@@ -589,12 +606,16 @@ public static class ServiceConfiguration
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IRetentionTarget, ExecutionLogRetentionTarget>());
         services.TryAddTransient<IDataRetentionService, DataRetentionService>();
 
-        // Under the retention lock the learning-signal window Admins edit at runtime resolves to at most Retention:Days.
+        // Under the retention lock (also the regulated profile's default) the learning-signal window Admins edit at runtime
+        // resolves to at most Retention:Days.
         // Bound from the section directly: the retention validator reads the MCP options, so IOptions here would loop.
         services.AddOptions<Configuration.McpDeploymentOptions>()
-            .PostConfigure(x => Configuration.RetentionLock.CapLearningSignals(
-                x,
-                configuration.GetSection(Configuration.RetentionOptions.SectionName).Get<Configuration.RetentionOptions>() ?? new Configuration.RetentionOptions()));
+            .PostConfigure(x =>
+            {
+                var retention = configuration.GetSection(Configuration.RetentionOptions.SectionName).Get<Configuration.RetentionOptions>() ?? new Configuration.RetentionOptions();
+                Configuration.RegulatedProfile.ApplyDefaults(retention, configuration);
+                Configuration.RetentionLock.CapLearningSignals(x, retention);
+            });
 
         // Telemetry (Beacon:Telemetry). An absent section = no content on spans.
         services.AddOptions<Configuration.BeaconTelemetryOptions>()
