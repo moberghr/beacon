@@ -630,7 +630,7 @@
       "Moberg.Beacon.AI": {
         "type": "Project",
         "dependencies": {
-          "Markdig": "[0.45.0, )",
+          "Markdig": "[1.5.0, )",
           "Moberg.Beacon.Core": "[1.0.0, )"
         }
       },
@@ -893,9 +893,9 @@
       },
       "Markdig": {
         "type": "CentralTransitive",
-        "requested": "[0.45.0, )",
-        "resolved": "0.45.0",
-        "contentHash": "ObNLcA1b+0lpNNoEg256g9faMeJZi35wZW0AnKJ4nGPJe+5qkwnV26kUvQTHuanFnSX9SdvPzOO41BVJ6XarAg=="
+        "requested": "[1.5.0, )",
+        "resolved": "1.5.0",
+        "contentHash": "oEm6N4PYFPUZiJ5e89993AE6hfC8EWRGD5M8nyoSJbwD4GgW818mjlQCk++SdTV4godaN50Ybcmm4j2Dp76oIQ=="
       },
       "Microsoft.AspNetCore.DataProtection.EntityFrameworkCore": {
         "type": "CentralTransitive",
