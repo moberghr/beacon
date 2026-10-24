@@ -16,4 +16,14 @@ public sealed class GitHubScanOptions
 
     /// <summary>The most bytes read from the repository tree response.</summary>
     public int MaxTreeResponseBytes { get; set; } = 32 * 1024 * 1024;
+
+    /// <summary>The longest one background scan of a project's repositories may run.</summary>
+    public const int MaxTaskDeadlineHours = 24;
+
+    /// <summary>
+    /// How long a background scan of a project's repositories may run: no repository's scan starts after it (each one that
+    /// started stops at <see cref="ScanTimeout"/>), and the ones left are counted as not scanned. At most
+    /// <see cref="MaxTaskDeadlineHours"/> hours.
+    /// </summary>
+    public TimeSpan TaskDeadline { get; set; } = TimeSpan.FromHours(3);
 }

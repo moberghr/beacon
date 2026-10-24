@@ -158,6 +158,9 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
     // Security audit trail (append-only)
     public DbSet<SecurityAuditEvent> SecurityAuditEvents => Set<SecurityAuditEvent>();
 
+    // Long work run as background jobs
+    public DbSet<BackgroundTask> BackgroundTasks => Set<BackgroundTask>();
+
     // Row security
     public DbSet<AttributeDefinition> AttributeDefinitions => Set<AttributeDefinition>();
     public DbSet<UserAttributeValue> UserAttributeValues => Set<UserAttributeValue>();
@@ -174,6 +177,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             modelBuilder.HasDefaultSchema(resolvedSchema);
         }
 
+        UtcBuckets.Register(modelBuilder, Database.ProviderName);
         SetSoftDeleteQueryFilter(modelBuilder);
         ConfigureMigrationEntities(modelBuilder);
         ConfigureMetadataEntities(modelBuilder);
@@ -202,6 +206,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
         ConfigureMcpEvalEntities(modelBuilder);
         ConfigureSecurityAuditEntities(modelBuilder);
         ConfigureRowSecurityEntities(modelBuilder);
+        ConfigureBackgroundTaskEntities(modelBuilder);
         ConfigureEmbedEntities(modelBuilder);
         ConfigureAttributionColumns(modelBuilder);
         base.OnModelCreating(modelBuilder);
@@ -452,6 +457,12 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
 
             // Per-subscription history ordered by time (subscription detail, anomaly lookbacks).
             entity.HasIndex(e => new { e.SubscriptionId, e.CreatedTime });
+        });
+
+        // Notification trends count per day over a SentAt window.
+        modelBuilder.Entity<Notification>(entity =>
+        {
+            entity.HasIndex(e => e.SentAt);
         });
     }
 
@@ -1491,6 +1502,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.HasKey(e => e.Id);
             entity.Property(e => e.EmbeddingBytes).IsRequired();
             entity.Property(e => e.Model).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.ContentHash).HasMaxLength(64);
 
             entity.HasIndex(e => e.DataSourceId);
             entity.HasIndex(e => new { e.DataSourceId, e.OwnerType, e.OwnerId }).IsUnique();
@@ -1722,6 +1734,27 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
 
             entity.HasIndex(e => e.EvalRunId);
             entity.HasIndex(e => e.EvalCaseId);
+        });
+    }
+
+    // One task of a kind per subject is queued or running at a time: a second start fails on this index. Filter column names
+    // differ per provider (SQL Server keeps PascalCase, PostgreSQL uses snake_case via the naming convention).
+    protected void ConfigureBackgroundTaskEntities(ModelBuilder modelBuilder)
+    {
+        var unfinishedFilter = Database.ProviderName == HostModelReader.SqlServerProviderName
+            ? $"[State] IN ({(int)BackgroundTaskState.Queued}, {(int)BackgroundTaskState.Running})"
+            : $"state IN ({(int)BackgroundTaskState.Queued}, {(int)BackgroundTaskState.Running})";
+        modelBuilder.Entity<BackgroundTask>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.JobId).HasMaxLength(64);
+            entity.Property(e => e.FailureCode).HasMaxLength(64);
+            entity.Property(e => e.PermissionSource).HasMaxLength(16);
+            entity.Property(e => e.RequesterStampHash).HasMaxLength(64);
+
+            entity.HasIndex(e => new { e.Kind, e.SubjectId })
+                .IsUnique()
+                .HasFilter(unfinishedFilter);
         });
     }
 

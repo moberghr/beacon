@@ -81,7 +81,7 @@ Every action belongs to one category, the part of its name before the dot.
 |---|---|
 | `auth.password_sign_in_succeeded` | A password sign-in issued a session. |
 | `auth.password_sign_in_failed` | A password sign-in did not succeed (`failure`); names the user the sign-in name resolved to, when it did, and the attempt by a keyed hash of the name typed. |
-| `auth.password_sign_in_refused` | A password sign-in refused by rule (`refused`): local login is off and the account is no break-glass account (`local_login_off`), or the password was right but an administrator set it and the user must choose a new one first (`password_change_required`). |
+| `auth.password_sign_in_refused` | A password sign-in refused by rule (`refused`): local login is off and the account is no break-glass account (`local_login_off`), or the password was right but an administrator set it and the user must choose a new one first (`password_change_required`), or the user is locked out after too many wrong passwords, whatever password was sent (`locked_out`). |
 | `auth.break_glass_signed_in` | A break-glass account signed in with its password while local login is off. |
 | `auth.signed_out` | A session signed out. |
 | `auth.signed_out_everywhere` | Every session of a user was ended (**Sign out everywhere**, by the user or an administrator). |
@@ -89,6 +89,7 @@ Every action belongs to one category, the part of its name before the dot.
 | `auth.sso_signed_in` | A single sign-on was admitted. |
 | `auth.sso_refused` | A single sign-on was refused, with the reason; the subject only as its keyed hash. |
 | `auth.setup_token_refused` | First-run setup was attempted with a setup token that does not match. |
+| `auth.user_locked_out` | An internal user's password sign-in was locked after too many wrong passwords in a row (`Beacon:RateLimits:Lockout`); names the user, with the number of attempts, the lockout length in minutes and when it ends. |
 
 **Identity** (`identity`)
 
@@ -111,7 +112,9 @@ Every action belongs to one category, the part of its name before the dot.
 **Project access** (`access`): `access.project_created`, `access.member_added`, `access.member_role_changed`,
 `access.member_removed`, `access.access_mode_changed` (a project opened or restricted), `access.data_sources_linked`,
 `access.data_source_unlinked`, `access.repository_token_changed` (whether a token is now set, never the token),
-`access.repository_scan_requested`. Events recorded before dashboards were removed keep their
+`access.repository_scan_requested`, `access.repository_scan_ran` (a background scan ended: its task, the ids of the
+repositories it scanned and how many failed, were partial or were not scanned; `refused` with the reason when the task
+was skipped). Events recorded before dashboards were removed keep their
 `access.dashboard_shared` and `access.dashboard_share_revoked` actions and the `dashboard` resource type, and the page
 still filters by them. The project-access log events (`ProjectAccessEvents`, 7101 onwards) are still written
 as before; refused and hidden reads of a project (7108, 7109) and skipped scheduled work (7111) stay on the log only, for
@@ -146,7 +149,9 @@ migration jobs, Custom SQL rules, recipients, data-source connections and the LL
 submission supersedes);
 `approvals.ai_plan_submitted`, `approvals.ai_plan_approved`, `approvals.ai_plan_rejected` and
 `approvals.ai_plan_revision_requested` (AI actor plans); `approvals.ai_actor_created` (an AI actor created, with its
-data source and whether its changes wait for approval).
+data source and whether its changes wait for approval); `approvals.ai_actor_think_started` (an on-demand think cycle
+accepted as a background task, with the task id); `approvals.ai_actor_archived` (an AI actor archived; archiving one
+already archived changes and records nothing).
 
 **Ownership** (`ownership`): `ownership.owner_changed`: the owner of a subscription, data contract or AI actor changed,
 with the previous and the new owner as `Users.Id`. Setting the owner a resource already has changes nothing and records
@@ -161,16 +166,20 @@ nothing.
 `curation.relationship_unverified`, `curation.relationship_edited`, `curation.relationship_deleted`,
 `curation.grounding_rechecked` (a run of the grounding recheck, with what it checked and refused),
 `curation.glossary_term_created`, `curation.glossary_term_updated`, `curation.glossary_term_deleted` and
-`curation.documentation_section_edited`.
+`curation.documentation_section_edited` and `curation.documentation_generation_started` (a documentation regeneration someone
+started, with its task id).
 
 **Data quality** (`data_quality`): `data_quality.contract_created`, `data_quality.contract_updated`,
 `data_quality.contract_archived` and `data_quality.contract_evaluated` (an evaluation someone started; scheduled
 evaluations are not recorded).
 
-**Data migrations** (`migrations`): `migrations.job_created`, `migrations.job_deleted`, `migrations.job_started` (a run
+**Data migrations** (`migrations`): `migrations.job_created`, `migrations.job_deleted`, `migrations.job_run_requested`
+(a run started as a background task, with its task id and where the caller's MigrationOperator permission came from:
+`role` or `idp`), `migrations.job_started` (a run
 began (by the caller, or the `system` actor for a scheduled run), recorded before it touches a data source, with the
 execution id and the source and destination data sources) and `migrations.job_run_ended` (`success`, `failure` with the
-row counts, or `refused` before it started, with the reason: `not_approved`, `write_target_refused`).
+row counts, or `refused` before it started, with the reason: `not_approved`, `write_target_refused`, `run_in_progress`,
+or for a background run task, with its task id, `forbidden` or `abandoned`).
 
 **Embedding** (`embed`): `embed.grant_created` (with the project, query and version ids, the number of origins and
 locked parameters and the days until it expires; never an origin or a parameter value) and `embed.grant_revoked`.

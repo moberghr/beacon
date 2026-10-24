@@ -93,6 +93,8 @@ public class AdminGatedRoutesTests
         ["GET /beacon/api/migrations/jobs/{id:int}"] = BeaconPermissions.MigrationOperatorPolicy,
         ["POST /beacon/api/migrations/jobs"] = BeaconPermissions.MigrationOperatorPolicy,
         ["POST /beacon/api/migrations/jobs/{id:int}/run"] = BeaconPermissions.MigrationOperatorPolicy,
+        ["POST /beacon/api/migrations/jobs/{id:int}/runs"] = BeaconPermissions.MigrationOperatorPolicy,
+        ["GET /beacon/api/migrations/jobs/{id:int}/runs/{taskId:int}"] = BeaconPermissions.MigrationOperatorPolicy,
         ["DELETE /beacon/api/migrations/jobs/{id:int}"] = BeaconPermissions.MigrationOperatorPolicy,
         ["GET /beacon/api/migrations/executions"] = BeaconPermissions.MigrationOperatorPolicy
     };

@@ -9,6 +9,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.AiActors;
 using Beacon.Core.Handlers.Home;
 using Beacon.Core.Handlers.Subscriptions;
+using Beacon.Core.Handlers.Tasks;
 using Beacon.Core.Models.ControlTower;
 using Beacon.Core.Models.Subscriptions;
 using Beacon.Core.Notifications;
@@ -47,9 +48,9 @@ public class ScheduledWorkVisibilityTests
                 [8, created, "Daily orders", DBNull.Value, false, false, DBNull.Value, DBNull.Value, 3, 3, 0, 0],
                 [9, created, "Refunds", DBNull.Value, false, false, DBNull.Value, DBNull.Value, 3, 2, 0, 0])
             .ThenRows(
-                [7, (int)NotificationStatus.Skipped, DateTime.UtcNow.AddHours(-1), 0, NotificationFailureReasons.OwnerNotAuthorized],
-                [8, (int)NotificationStatus.NotificationSent, DateTime.UtcNow.AddHours(-1), 4, DBNull.Value],
-                [9, (int)NotificationStatus.Skipped, DateTime.UtcNow.AddHours(-1), 0, NotificationFailureReasons.NotApproved]);
+                [7, (int)NotificationStatus.Skipped, DateTime.UtcNow.AddHours(-1), 0, NotificationFailureReasons.OwnerNotAuthorized, 1],
+                [8, (int)NotificationStatus.NotificationSent, DateTime.UtcNow.AddHours(-1), 4, DBNull.Value, 1],
+                [9, (int)NotificationStatus.Skipped, DateTime.UtcNow.AddHours(-1), 0, NotificationFailureReasons.NotApproved, 1]);
         var service = new ControlTowerService(capture.Factory(), new MemoryCache(new MemoryCacheOptions()));
 
         var page = await service.GetSubscriptionHealthOverview(new GetControlTowerDataRequest { Readable = ProjectSet.All }, CancellationToken.None);
@@ -138,7 +139,7 @@ public class ScheduledWorkVisibilityTests
     {
         var capture = new SqlCapture().ThenNoRows();
 
-        await new TaskService(capture.Factory(), NullLogger<TaskService>.Instance, new RecordingSecurityAudit()).GetTaskDetails(3, null, CancellationToken.None);
+        await new GetTaskDetailHandler(capture.Factory(), null!, null!).Read(3, null, CancellationToken.None);
 
         var sql = capture.Commands.Should().ContainSingle().Subject;
         sql.Should().MatchRegex(@"a\d*\.created_by_user_id IS NOT NULL AS c\d+", "only whether the actor has a creator is read");

@@ -28,9 +28,10 @@ export interface EmbedRender {
   maxRows: number;
 }
 
+/** What a render call answered: rows, a refused credential (401), or anything else that showed nothing. */
 export type RenderOutcome =
   | { kind: 'ok'; data: EmbedRender }
-  | { kind: 'expired' }
+  | { kind: 'refused' }
   | { kind: 'unavailable' };
 
 /**
@@ -57,8 +58,8 @@ export function readFrameMarker(doc: Document = document): string | null {
 }
 
 /**
- * When the token expires (its `exp` claim), or null when it cannot be read. Only to tell "expired" from "unavailable":
- * Beacon verifies the token, the page never trusts what it reads here.
+ * When the token expires (its `exp` claim), or null when it cannot be read. Only to word a refusal Beacon already gave:
+ * the page never decides on its own clock that a token has expired, Beacon verifies it.
  */
 export function tokenExpiry(token: string): Date | null {
   const payload = token.split('.')[1];
@@ -83,7 +84,32 @@ export function isExpired(token: string, now: Date = new Date()): boolean {
   return expiry != null && expiry.getTime() <= now.getTime();
 }
 
-/** Renders the grant's query. Every refusal is the same generic answer; an expired token is told apart by its claim. */
+/**
+ * How the view reads a refusal (Beacon gives every refusal the same answer): as expiry when the token's `exp` has passed,
+ * or when the same token rendered before (it was valid, so it has run out or its grant ended); otherwise unavailable.
+ */
+export function refusalMeansExpired(token: string, renderedBefore: boolean, now: Date = new Date()): boolean {
+  return renderedBefore || isExpired(token, now);
+}
+
+/**
+ * Tells the framing page, at most once per page load, that the token has expired, so a host that mints a new one on
+ * the message cannot be driven into a loop. The message carries nothing but its type, so any framing origin may read it.
+ */
+export function expiryNotifier(host: Pick<Window, 'postMessage'> | null): () => void {
+  let sent = false;
+
+  return () => {
+    if (sent || host == null) {
+      return;
+    }
+
+    sent = true;
+    host.postMessage(EXPIRED_MESSAGE, '*');
+  };
+}
+
+/** Renders the grant's query. Every refusal of the credential is the same generic 401, answered as `refused`. */
 export async function renderEmbed(token: string, frameMarker: string, signal?: AbortSignal): Promise<RenderOutcome> {
   let response: Response;
   try {
@@ -107,8 +133,8 @@ export async function renderEmbed(token: string, frameMarker: string, signal?: A
     return { kind: 'unavailable' };
   }
 
-  if (response.status === 401 && isExpired(token)) {
-    return { kind: 'expired' };
+  if (response.status === 401) {
+    return { kind: 'refused' };
   }
 
   if (!response.ok) {

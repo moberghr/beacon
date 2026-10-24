@@ -8,6 +8,7 @@ SELECT q.id AS "Id", q.name AS "Name", q.description AS "Description", q.parent_
 FROM beacon.query_folders AS q
 WHERE q.archived_time IS NULL
 ORDER BY q.sort_order
+LIMIT @p
 ;
 SELECT count(*)::int
 FROM beacon.queries AS q

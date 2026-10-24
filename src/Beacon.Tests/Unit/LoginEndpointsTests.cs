@@ -118,6 +118,7 @@ public class LoginEndpointsTests
         throttled.StatusCode.Should().Be(HttpStatusCode.TooManyRequests);
         throttled.Headers.RetryAfter.Should().NotBeNull();
         throttled.Headers.RetryAfter!.Delta!.Value.TotalSeconds.Should().BeInRange(1, 60);
+        throttled.Content.Headers.ContentType!.MediaType.Should().Be("application/problem+json");
     }
 
     [Test]

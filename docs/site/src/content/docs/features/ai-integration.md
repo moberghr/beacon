@@ -102,21 +102,29 @@ Local embeddings for semantic search do not use the LLM provider: they run in-pr
 ## Project documentation
 
 Beacon generates documentation per **project**, from the metadata of the data sources the project links and the code
-references found in its repositories. Generation runs as a background job. The result has these sections:
+references found in its repositories. Generation runs as a background task that follows its requester (see below). The result has these sections:
 Project Overview, Business Domains, Data Model, Data Flows, Code Lineage, Data Quality, API Documentation (for API
 data sources) and Glossary.
 
 | Action | Route | Needs |
 |---|---|---|
 | Read the latest documentation and its history | `GET /beacon/api/projects/{id}/documentation` | Read in the project |
-| Generate or regenerate | `POST /beacon/api/projects/{id}/generate-documentation` | Curate in the project |
+| Generate or regenerate (background task, `202` with `{ taskId, jobId, state }`) | `POST /beacon/api/projects/{id}/documentation-generations` | Curate in the project |
+| Read a generation's progress (`state`: `0` queued, `1` running, `2` succeeded, `3` failed, `4` skipped; `failureCode` says why) | `GET /beacon/api/projects/{id}/documentation-generations/{taskId}` | Read in the project |
+| Generate or regenerate (5.0 route, kept; answers with the job id) | `POST /beacon/api/projects/{id}/generate-documentation` | Curate in the project |
 | Edit a section | `PUT /beacon/api/projects/documentation-sections/{id}` | Curate in the project |
 | Ask the LLM to rewrite a section (returns the new text, saves nothing) | `POST /beacon/api/projects/documentation-sections/{id}/instruct` | Query in the project |
 | Export as Markdown, or HTML with `asHtml=true` | `GET /beacon/api/projects/documentation/{id}/export` | Read in the project |
 
 Curate is held by project admin members and Admins (see [Who curates grounding](/mcp/knowledge-base/#who-curates-grounding)).
-In the UI, the **Documentation** tab of a project (`/beacon/projects/{id}`) shows the latest documentation and lets a
-curator edit its sections.
+In the UI, the **Documentation** tab of a project (`/beacon/projects/{id}`) shows the latest documentation, lets anyone
+who may read it download it as Markdown or HTML, and lets a curator generate it, edit its sections, or ask the LLM to
+change a section (the proposed text is shown and saved only after a confirmation).
+
+A generation runs as the user who started it: right before the first LLM call it checks again that they may still curate
+the project and query its data sources (a live Admin may), and is skipped (`forbidden`) if not. Only one generation of a
+project is queued or running at a time (`429` otherwise). A host whose scheduler implements `EnqueueBackgroundTask` runs it
+in its job runner; without one it runs in the request.
 
 The documentation is also grounding: it is chunked, optionally embedded, and retrieved when an agent asks a question
 over MCP, so a better table description improves generated SQL (see
