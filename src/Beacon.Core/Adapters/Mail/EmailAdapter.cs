@@ -54,11 +54,18 @@ internal class EmailAdapter(IEmailAdapter emailAdapter) : IAdapter
                 continue;
             }
 
+            // Direction overrides and zero-width characters can make a name read as another one.
+            if (char.GetUnicodeCategory(x) == UnicodeCategory.Format)
+            {
+                continue;
+            }
+
             line.Append(x);
         }
 
         var result = line.ToString().Trim();
 
-        return result.Length > MaxSubjectLength ? result[..MaxSubjectLength] : result;
+        // A cut never leaves one half of a surrogate pair behind.
+        return ChannelText.Cut(result, MaxSubjectLength).TrimEnd();
     }
 }

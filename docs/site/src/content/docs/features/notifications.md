@@ -325,11 +325,13 @@ Placeholders are written `{{Name}}`, case-insensitive: `{{Timestamp}}`, `{{Sourc
 
 - `{{Records}}` becomes compact JSON; add `_Pretty` to a placeholder (`{{Records_Pretty}}`) for indented JSON.
 - Dates are ISO 8601, booleans `true`/`false`, decimals two places; a missing value is empty.
-- Text values are inserted as they are, without JSON escaping: quote string placeholders yourself, and prefer
-  `{{Records}}` for row data.
 - The template is read once: a value that itself contains `{{...}}` is inserted as text, never expanded again. Text values are
   escaped for JSON (quotes, backslashes, control characters), so write `"{{SubscriptionName}}"` inside quotes; `{{Records}}` and
   `_Pretty` placeholders stay raw JSON. An expansion over 1 MB fails and the default message is sent.
+- In a **Slack** template, text values (also every string inside `{{Records}}`) are escaped the way Slack documents it: `&`, `<`
+  and `>` become `&amp;`, `&lt;` and `&gt;`, so a value cannot form a mention, link or command. In a **Teams** template, `*`,
+  `_`, `` ` ``, `~`, `[`, `]`, `<` and `\` in a value are backslash-escaped so it cannot form emphasis, links or tags.
+  Direction-override, zero-width and control characters are removed from values.
 - An unknown placeholder is left as `{{UNKNOWN:Name}}`. If the template cannot be processed, Beacon sends the default
   body.
 
@@ -412,3 +414,11 @@ page.
 - [Configuration → Notification Destinations](/getting-started/configuration/#notification-destinations-optional): the
   `Beacon:Notifications` settings
 - [Data Quality](/features/data-quality/): contract alerts use the same recipients
+
+## What the default Slack, Teams and email messages do with values
+
+Row values, column names, SQL, names and anomaly text are encoded for the channel (Slack `& < >` escaping and no way to close
+a code fence; Teams markdown escaping; HTML encoding in email), and direction-override, zero-width and other invisible format
+characters are removed. Messages stay within the channel's limits: a Slack section is kept under 3,000 characters, a Slack
+header under 150, and a Teams card under about 24 KB; what does not fit is cut and marked `(truncated)`, and rows that do not
+fit are left out. The email subject is one line of at most 200 characters.

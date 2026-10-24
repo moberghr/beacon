@@ -394,6 +394,10 @@ public static class ServiceConfiguration
             .ValidateOnStart();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.QueryExecutionOptions>, Configuration.QueryExecutionOptionsValidator>());
 
+        // How exported reports are written (Beacon:Reports).
+        services.AddOptions<Configuration.ReportOptions>()
+            .Bind(configuration.GetSection(Configuration.ReportOptions.SectionName));
+
         // Subscription limits (Beacon:Subscriptions): the shortest schedule interval a save accepts and the largest file a
         // delivery attaches. ValidateOnStart so a limit out of range fails the host at boot.
         services.AddOptions<Configuration.SubscriptionOptions>()

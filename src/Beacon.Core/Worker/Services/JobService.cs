@@ -47,7 +47,8 @@ internal class JobService(
     IEmbeddingIndexingService? embeddingIndexingService = null,
     IDocChunkIndexingService? docChunkIndexingService = null,
     IMcpEvalService? mcpEvalService = null,
-    IOptions<SubscriptionOptions>? subscriptionOptions = null)
+    IOptions<SubscriptionOptions>? subscriptionOptions = null,
+    IOptions<ReportOptions>? reportOptions = null)
     : IJobService
 {
     // AI Actor service is optional - only available if Beacon.AI is added
@@ -259,7 +260,7 @@ internal class JobService(
             // Within Beacon:Subscriptions:MaxAttachmentBytes: a larger export keeps its first rows that fit, and the message
             // says so.
             var maxAttachmentBytes = (subscriptionOptions?.Value ?? new SubscriptionOptions()).MaxAttachmentBytes;
-            resultFile = await ExportProvider.GetReport(subscription.ResultAttachmentType.Value, queryResult.AllRecords, maxAttachmentBytes, cancellationToken);
+            resultFile = await ExportProvider.GetReport(subscription.ResultAttachmentType.Value, queryResult.AllRecords, maxAttachmentBytes, cancellationToken, (reportOptions?.Value ?? new ReportOptions()).NeutralizeFormulas);
             if (resultFile.Omitted)
             {
                 logger.LogWarning(
