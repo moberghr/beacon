@@ -36,7 +36,7 @@ Framework details in `.claude/skills/tech-stack-dotnet/SKILL.md`.
 
 ## Project Profile
 
-- **Framework:** .NET 10 (`net10.0` across all projects). Package versions are centrally managed in `Directory.Packages.props` — add/bump versions there, never in a `.csproj`.
+- **Framework:** .NET 10 (`net10.0` across all projects). Package versions are centrally managed in `Directory.Packages.props` — add/bump versions there, never in a `.csproj`. Every project commits a `packages.lock.json` (`RestorePackagesWithLockFile`); CI restores in locked mode, so after any version bump or package reference change run `dotnet restore --force-evaluate` and commit the regenerated lock files. Only nuget.org is a package source (`nuget.config` source mapping).
 - **Solution:** `Beacon.slnx` (XML solution format; the old `Beacon.sln` was removed) — 18 projects after Phase 3 cutover (`Beacon.Web` deleted; `Beacon.UI` remains as a Razor Class Library that serves the React static assets), all references converge on `Beacon.Core`
 - **Composition root:** `Beacon.SampleProject` (host + UI shell). It is a **sample only and is never shipped** — no product code belongs in it. Auth middleware and the auth/host DI helpers live in `src/Beacon.Api/Authentication/`; the sample keeps only `WarpDashboardAuthFilter` (Warp-dashboard specific), its `Warp/` wiring, `Services/Sample*`, and `Program.cs`.
 - **Data layer:** EF Core 10 (PostgreSQL + SQL Server, dual migrations) + Dapper for hot paths. PostgreSQL additionally uses **pgvector** (`mcp_embeddings.embedding vector(384)` + HNSW index, DB-managed and invisible to the EF model).
