@@ -105,7 +105,8 @@ public static class ServiceConfiguration
                 $"{GitHubScanOptions.SectionName}:TaskDeadline must be more than zero and at most {GitHubScanOptions.MaxTaskDeadlineHours} hours.")
             .ValidateOnStart();
         services.TryAddTransient<GitHubApiClient>();
-        services.AddTransient<ICodeAnalyzer, CSharpCodeAnalyzer>();
+        // Analyzers are a collection (the scanner takes every one): a host's own analyzer is added alongside this one.
+        services.TryAddEnumerable(ServiceDescriptor.Transient<ICodeAnalyzer, CSharpCodeAnalyzer>());
         services.TryAddTransient<IGitHubScannerService, GitHubScannerService>();
         services.TryAddEnumerable(ServiceDescriptor.Transient<Beacon.Core.BackgroundTasks.IBackgroundTaskExecutor, Handlers.Projects.RepositoryScanTaskExecutor>());
 
