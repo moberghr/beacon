@@ -21,18 +21,19 @@ const STATS = {
 };
 
 function run(overrides: Record<string, unknown>) {
+  const merged = { totalCases: 10, passedCases: 8, ...overrides } as { totalCases: number; passedCases: number; executionAccuracy?: number };
   return {
+    executionAccuracy: merged.totalCases > 0 ? merged.passedCases / merged.totalCases : 0,
     id: 1,
     projectId: 1,
     triggeredByUserId: 1,
     totalCases: 10,
     passedCases: 8,
-    executionAccuracy: 0.8,
     status: 'Completed',
     judgeEnabled: false,
     createdTime: '2026-10-20T08:00:00Z',
     ...overrides,
-  };
+  } as Record<string, unknown>;
 }
 
 function serve(runs: unknown[]) {
@@ -158,6 +159,42 @@ describe('Eval runs tab (Admin)', () => {
     const rows = within(screen.getByRole('table', { name: 'Results of run 5' })).getAllByRole('row');
     expect(rows).toHaveLength(201);
   });
+});
+
+describe('accuracy of a run with harness errors', () => {
+  it('shows the server execution accuracy, which leaves not-evaluated cases out', async () => {
+    serve([run({ id: 7, totalCases: 10, passedCases: 8, executionAccuracy: 1 })]);
+
+    await openTab();
+
+    const table = within(await screen.findByRole('table', { name: 'Eval runs' }));
+    expect(within(table.getByText('#7').closest('tr') as HTMLElement).getByText('100%')).toBeInTheDocument();
+  });
+});
+
+describe('results of a run that is going', () => {
+  it('are read again when the run completes', async () => {
+    let status = 'Running';
+    mswServer.use(
+      permissionsHandler({ isAdmin: true }),
+      http.get('*/beacon/api/mcp/learning-stats', () => HttpResponse.json(STATS)),
+      http.get('*/beacon/api/mcp/learned-patterns', () => HttpResponse.json({ items: [], totalCount: 0, pageCount: 0 })),
+      http.get('*/beacon/api/mcp/documentation-patches', () => HttpResponse.json({ items: [], totalCount: 0, pageCount: 0 })),
+      http.get('*/beacon/api/eval/runs', () => HttpResponse.json([run({ id: 8, status })])),
+      http.get('*/beacon/api/eval/runs/8/results', () =>
+        HttpResponse.json(status === 'Running' ? [] : [
+          { id: 1, evalRunId: 8, evalCaseId: 21, generatedSql: 'SELECT 1', passed: true, failureTag: McpEvalFailureTag.None, executionError: null, judgeUsed: false, judgeVerdict: null, resultRowCount: 1, executionTimeMs: 5 },
+        ])),
+    );
+
+    await openTab();
+    fireEvent.click(await screen.findByRole('button', { name: 'Show results of run 8' }));
+    expect(await screen.findByText('No results yet')).toBeInTheDocument();
+
+    status = 'Completed';
+
+    expect(await screen.findByText('#21', undefined, { timeout: 8000 })).toBeInTheDocument();
+  }, 15000);
 });
 
 describe('accuracyTrend', () => {

@@ -40,11 +40,13 @@ export function useEvalRuns(projectId: number | null) {
 }
 
 /** The per-case results of one run (Admin), in case order. Read when a run is opened. */
-export function useEvalResults(runId: number | null) {
+export function useEvalResults(runId: number | null, runRunning = false) {
   return useQuery({
     queryKey: [...EVAL_RESULTS_KEY, runId],
     queryFn: async () => unwrap<EvalResultItem[]>(await beaconApi().getEvalResults(runId as number)),
     enabled: runId !== null,
+    // The server writes a run's results when it ends, so a run still going has none yet.
+    refetchInterval: runRunning ? 3000 : false,
   });
 }
 
@@ -55,17 +57,19 @@ export function useStartEvalRun() {
     createSimpleMutation<number, RunEvalResult>({
       qc,
       mutationFn: async projectId => unwrap<RunEvalResult>(await beaconApi().runEval({ projectId })),
-      invalidate: [EVAL_RUNS_KEY],
+      invalidate: [EVAL_RUNS_KEY, EVAL_RESULTS_KEY],
       successMsg: (_, result) => `Eval run #${result.runId} started.`,
       errorFallback: 'Starting the eval run failed',
     }),
   );
 }
 
-/** Accuracy in whole percent from the run's own counts; null for a run with no cases. */
-export function accuracyPercent(run: { totalCases?: number; passedCases?: number }): number | null {
-  const total = run.totalCases ?? 0;
-  return total > 0 ? Math.round(((run.passedCases ?? 0) / total) * 100) : null;
+/**
+ * The server's execution accuracy (0 to 1: passed over the cases actually evaluated, harness errors left out so an
+ * outage does not read as a regression) in whole percent; null for a run with no cases.
+ */
+export function accuracyPercent(run: { totalCases?: number; executionAccuracy?: number }): number | null {
+  return (run.totalCases ?? 0) > 0 ? Math.round((run.executionAccuracy ?? 0) * 100) : null;
 }
 
 /**

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { Button, Card, CardBody, CardHead, CardSub, CardTitle, Pill } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
@@ -97,7 +97,7 @@ export function EvalRunsTab() {
       )}
       {running && <p className="mt-2 text-2xs text-text-muted">A run is in progress; this list refreshes by itself.</p>}
 
-      {openRun !== null && <RunResults runId={openRun} />}
+      {openRun !== null && <RunResults runId={openRun} running={items.some(x => x.id === openRun && x.status === EVAL_STATUS_RUNNING)} />}
 
       <ConfirmDialog
         open={confirming}
@@ -139,8 +139,15 @@ function RunRow({ run, change, open, onToggle }: { run: EvalRunListItem; change:
   );
 }
 
-function RunResults({ runId }: { runId: number }) {
-  const results = useEvalResults(runId);
+function RunResults({ runId, running }: { runId: number; running: boolean }) {
+  const results = useEvalResults(runId, running);
+  const wasRunning = useRef(running);
+  const { refetch } = results;
+  useEffect(() => {
+    // The run just ended: its results were written then, so read them now rather than at the next poll.
+    if (wasRunning.current && !running) void refetch();
+    wasRunning.current = running;
+  }, [running, refetch]);
   const all = results.data ?? [];
   const shown = all.slice(0, EVAL_RESULTS_RENDER_CAP);
 
@@ -156,7 +163,7 @@ function RunResults({ runId }: { runId: number }) {
         {results.isError ? (
           <EmptyState title="The results could not be read" description={results.error instanceof Error ? results.error.message : 'Unknown error'} />
         ) : !results.isLoading && all.length === 0 ? (
-          <EmptyState title="No results yet" description="A run records its cases as it goes; a run just started has none." />
+          <EmptyState title="No results yet" description="A run records its cases when it ends; this refreshes by itself until then." />
         ) : (
           <table className="w-full text-sm" aria-label={`Results of run ${runId}`}>
             <thead>

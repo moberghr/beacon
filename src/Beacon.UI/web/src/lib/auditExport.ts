@@ -16,17 +16,19 @@ export interface AuditExportResult<T> {
 }
 
 /**
- * Reads a window page by page (1-based pages, as both audit endpoints take) until it is whole or the cap is reached.
+ * Reads a window page by page, from `firstPage` (the endpoint's own first page: 0 for the security audit, 1 for the MCP
+ * audit), until it is whole or the cap is reached.
  * Every page read is itself recorded by the server, so the export is as visible as reading the list.
  */
 export async function collectAuditExport<T>(
   fetchPage: (page: number, pageSize: number) => Promise<AuditExportPage<T>>,
+  firstPage: number,
   maxRows: number = AUDIT_EXPORT_MAX_ROWS,
   pageSize: number = AUDIT_EXPORT_PAGE_SIZE,
 ): Promise<AuditExportResult<T>> {
   const rows: T[] = [];
   let totalCount = 0;
-  for (let page = 1; rows.length < maxRows; page++) {
+  for (let page = firstPage; rows.length < maxRows; page++) {
     const result = await fetchPage(page, pageSize);
     totalCount = result.totalCount;
     rows.push(...result.items);

@@ -150,6 +150,8 @@ function McpAuditView() {
             <AuditExportButton
               fileName={`mcp-audit-${filters.from}_${filters.to}.json`}
               fetchPage={list.fetchExportPage}
+              firstPage={1}
+              confirmMessage="Downloads the columns shown here (time, tool, project, caller, user, duration, rows, outcome) for every call of the window as filtered (up to 5000) as an unencrypted JSON file. Parameters and SQL are not included. Each page read is recorded in the audit."
               disabled={auditWindow.error !== undefined || list.totalCount === 0}
             />
           </CardActions>

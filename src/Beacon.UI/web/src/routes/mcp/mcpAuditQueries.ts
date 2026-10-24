@@ -16,6 +16,21 @@ export interface McpAuditFilters extends Record<string, string> {
   callerHash: string;
 }
 
+/** The columns the page shows; the export carries no more (no parameters, no statement SQL, no trace ids). */
+export function toExportRow(x: McpAuditLogItem) {
+  return {
+    createdTime: x.createdTime,
+    tool: x.tool,
+    projectId: x.projectId,
+    callerKind: x.callerKind,
+    callerHash: x.callerHash,
+    userId: x.userId,
+    executionTimeMs: x.executionTimeMs,
+    resultRowCount: x.resultRowCount,
+    errorMessage: x.errorMessage,
+  };
+}
+
 const KEY = ['mcp-audit'] as const;
 const PAGE_SIZE = 50;
 
@@ -62,8 +77,8 @@ export function useMcpAuditList(defaults: { from: string; to: string }) {
   const totalCount = query.data?.totalCount ?? 0;
 
   /** One page of the window as filtered, for the export download (not cached: every read is audited). */
-  const fetchExportPage = async (exportPage: number, exportPageSize: number) =>
-    unwrap<GetMcpAuditLogsResult>(
+  const fetchExportPage = async (exportPage: number, exportPageSize: number) => {
+    const result = await unwrap<GetMcpAuditLogsResult>(
       await beaconApi().getMcpAuditLogs(
         auditWindow.from!,
         auditWindow.to!,
@@ -75,6 +90,8 @@ export function useMcpAuditList(defaults: { from: string; to: string }) {
         exportPageSize,
       ),
     );
+    return { totalCount: result.totalCount, items: result.items.map(toExportRow) };
+  };
 
   return {
     filters,

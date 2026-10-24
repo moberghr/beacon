@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
-import { fireEvent, screen, waitFor } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { renderWithProviders } from '@/test/render';
 import { permissionsHandler } from '@/test/permissions';
 import { mswServer } from '../../../vitest.setup';
@@ -25,6 +25,10 @@ function row(id: number) {
   };
 }
 
+function renderMcp() {
+  return renderWithProviders(<McpAuditPage />);
+}
+
 describe('MCP audit export', () => {
   beforeEach(() => {
     vi.mocked(downloadJson).mockClear();
@@ -45,17 +49,39 @@ describe('MCP audit export', () => {
       }),
     );
 
-    renderWithProviders(<McpAuditPage />);
+    renderMcp();
     const button = await screen.findByRole('button', { name: 'Export JSON' });
     await waitFor(() => expect(button).toBeEnabled());
     pages.length = 0;
     fireEvent.click(button);
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Download' }));
 
     await waitFor(() => expect(downloadJson).toHaveBeenCalledTimes(1));
     const [fileName, rows] = vi.mocked(downloadJson).mock.calls[0];
     expect(fileName).toMatch(/^mcp-audit-\d{4}-\d{2}-\d{2}_\d{4}-\d{2}-\d{2}\.json$/);
     expect(rows).toHaveLength(130);
     expect(pages).toEqual(['1x100', '2x100']);
+  });
+
+  it('asks first, and exports only the columns the page shows', async () => {
+    mswServer.use(
+      permissionsHandler({ permissions: ['Auditor'] }),
+      http.get('*/beacon/api/mcp/audit', () =>
+        HttpResponse.json({ items: [{ ...row(1), parameters: '{"q":"x"}', statements: [{ id: 1, sql: 'SELECT 1' }], traceId: 't' }], totalCount: 1, page: 1, pageSize: 100 })),
+    );
+
+    renderMcp();
+    const button = await screen.findByRole('button', { name: 'Export JSON' });
+    await waitFor(() => expect(button).toBeEnabled());
+    fireEvent.click(button);
+
+    expect(downloadJson).not.toHaveBeenCalled();
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Download' }));
+    await waitFor(() => expect(downloadJson).toHaveBeenCalledTimes(1));
+    const rows = vi.mocked(downloadJson).mock.calls[0][1] as Record<string, unknown>[];
+    expect(Object.keys(rows[0]).sort()).toEqual([
+      'callerHash', 'callerKind', 'createdTime', 'errorMessage', 'executionTimeMs', 'projectId', 'resultRowCount', 'tool', 'userId',
+    ]);
   });
 
   it('is not offered without the Auditor permission', async () => {

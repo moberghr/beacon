@@ -270,6 +270,8 @@ function SecurityAuditView() {
             <AuditExportButton
               fileName={`security-audit-${filters.from}_${filters.to}.json`}
               fetchPage={list.fetchExportPage}
+              firstPage={0}
+              confirmMessage="Downloads every event of the window as filtered (up to 5000) as an unencrypted JSON file. Each page read is recorded in the audit."
               disabled={auditWindow.error !== undefined || (list.data?.totalCount ?? 0) === 0}
             />
             <Button
