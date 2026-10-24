@@ -11,6 +11,13 @@ namespace Beacon.Api.Endpoints;
 
 internal static class ProjectsEndpoints
 {
+    // The file is the reader's to open: it may not run anything, whatever the sections hold.
+    internal static void ApplyExportHeaders(HttpResponse response)
+    {
+        response.Headers["Content-Security-Policy"] = "sandbox";
+        response.Headers["X-Content-Type-Options"] = "nosniff";
+    }
+
     public static RouteGroupBuilder MapProjectsEndpoints(this RouteGroupBuilder group)
     {
         var projects = group.MapGroup("/projects").WithTags("Projects");
@@ -62,10 +69,27 @@ internal static class ProjectsEndpoints
             return TypedResults.NoContent();
         }).WithName("UpdateDocumentationSection");
 
+        // Kept for 5.0 callers: starts the same background task and answers with its job id.
         projects.MapPost("/{id:int}/generate-documentation", (int id, IMediator m, CancellationToken ct) =>
                 m.Send(new GenerateProjectDocumentationCommand(id, 0), ct))
             .WithName("GenerateProjectDocumentation")
             .WithBeaconLongRunning();
+
+        // Starts the generation as a background task: 202 with the task (its job id correlates JobStatusChanged), read below.
+        projects.MapPost("/{id:int}/documentation-generations", async (int id, IMediator m, CancellationToken ct) =>
+            {
+                var ticket = await m.Send(new StartProjectDocumentationGenerationCommand(id), ct);
+                return TypedResults.Accepted($"/beacon/api/projects/{id}/documentation-generations/{ticket.TaskId}", ticket);
+            })
+            .WithName("StartProjectDocumentationGeneration");
+
+        projects.MapGet("/{id:int}/documentation-generations/{taskId:int}", async Task<Results<Ok<BackgroundTaskStatus>, NotFound>> (
+            int id, int taskId, IMediator m, CancellationToken ct) =>
+            {
+                var status = await m.Send(new GetProjectDocumentationGenerationQuery(id, taskId), ct);
+                return status is null ? TypedResults.NotFound() : TypedResults.Ok(status);
+            })
+            .WithName("GetProjectDocumentationGeneration");
 
         projects.MapGet("/documentation/{id:int}/export", async (
             int id,

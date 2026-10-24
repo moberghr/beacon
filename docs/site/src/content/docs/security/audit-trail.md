@@ -166,7 +166,8 @@ nothing.
 `curation.relationship_unverified`, `curation.relationship_edited`, `curation.relationship_deleted`,
 `curation.grounding_rechecked` (a run of the grounding recheck, with what it checked and refused),
 `curation.glossary_term_created`, `curation.glossary_term_updated`, `curation.glossary_term_deleted` and
-`curation.documentation_section_edited`.
+`curation.documentation_section_edited` and `curation.documentation_generation_started` (a documentation regeneration someone
+started, with its task id).
 
 **Data quality** (`data_quality`): `data_quality.contract_created`, `data_quality.contract_updated`,
 `data_quality.contract_archived` and `data_quality.contract_evaluated` (an evaluation someone started; scheduled

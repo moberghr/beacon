@@ -5,6 +5,8 @@ import { EmptyState } from '@/components/data/EmptyState';
 import { formatNumber, formatRelativeTime, formatDateTime } from '@/lib/format';
 import { useImportedDocumentsQuery, useProjectDocumentationQuery, type ProjectDocSectionEntry } from './queries';
 import { EditDocumentationSectionDialog } from './EditDocumentationSectionDialog';
+import { DocumentationToolbar } from './DocumentationToolbar';
+import { InstructDocumentationDialog } from './InstructDocumentationDialog';
 import { DocSectionContent } from './DocSectionContent';
 import { ImportedDocumentsSection } from './ImportedDocumentsSection';
 
@@ -13,6 +15,7 @@ export default function DocumentationTab({ projectId, canCurateHere }: { project
   // The documents the host imported (ExposeDocs) are the project's documentation too: the MCP gateway's only kind.
   const imported = useImportedDocumentsQuery(projectId);
   const [editing, setEditing] = useState<ProjectDocSectionEntry | null>(null);
+  const [instructing, setInstructing] = useState<ProjectDocSectionEntry | null>(null);
 
   if (isLoading || imported.isLoading) {
     return <CardBody><span className="text-text-muted">Loading documentation…</span></CardBody>;
@@ -41,6 +44,7 @@ export default function DocumentationTab({ projectId, canCurateHere }: { project
   if (!latest) {
     return (
       <CardBody>
+        <DocumentationToolbar projectId={projectId} latestId={null} canGenerate={canCurateHere && data?.canCurate === true} />
         {importedSection || (
           <EmptyState
             icon={<BookOpen />}
@@ -60,6 +64,7 @@ export default function DocumentationTab({ projectId, canCurateHere }: { project
   return (
     <>
       <CardBody>
+        <DocumentationToolbar projectId={projectId} latestId={latest.id} canGenerate={canCurate} />
         <div className="text-text-muted text-xs mb-4">
           Generated <strong className="text-text">{formatRelativeTime(latest.generatedAt)}</strong>
           {' '}by <span className="mono">{latest.generatedByModel}</span>
@@ -82,13 +87,22 @@ export default function DocumentationTab({ projectId, canCurateHere }: { project
               <header className="flex items-center justify-between mb-2">
                 <h3 className="m-0 text-sm font-semibold text-text">{section.title}</h3>
                 {canCurate && (
-                  <Button
-                    variant="ghost"
-                    onClick={() => setEditing(section)}
-                    aria-label={`Edit ${section.title}`}
-                  >
-                    Edit
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      onClick={() => setInstructing(section)}
+                      aria-label={`Change ${section.title} with an instruction`}
+                    >
+                      Instruct
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      onClick={() => setEditing(section)}
+                      aria-label={`Edit ${section.title}`}
+                    >
+                      Edit
+                    </Button>
+                  </div>
                 )}
               </header>
               <DocSectionContent content={section.content} />
@@ -103,6 +117,12 @@ export default function DocumentationTab({ projectId, canCurateHere }: { project
         section={editing}
         projectId={projectId}
         onClose={() => setEditing(null)}
+      />
+      <InstructDocumentationDialog
+        open={instructing !== null}
+        section={instructing}
+        projectId={projectId}
+        onClose={() => setInstructing(null)}
       />
     </>
   );

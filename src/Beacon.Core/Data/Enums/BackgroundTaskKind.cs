@@ -13,5 +13,8 @@ public enum BackgroundTaskKind
     MigrationRun = 3,
 
     /// <summary>A scan of every repository of a project for code references; the subject is the project.</summary>
-    RepositoryScan = 4
+    RepositoryScan = 4,
+
+    /// <summary>A regeneration of a project's documentation; the subject is the project.</summary>
+    DocumentationGeneration = 5
 }
