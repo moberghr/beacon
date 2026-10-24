@@ -14,7 +14,7 @@ internal class ControlTowerService(
     IDbContextFactory<BeaconContext> contextFactory,
     IMemoryCache memoryCache) : IControlTowerService
 {
-    private const string StatisticsCacheKeyPrefix = "ControlTower_Statistics";
+    private static readonly string StatisticsCacheKeyPrefix = BeaconCacheEntries.Key("control-tower-statistics");
     private static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(30);
     private const double GreenThreshold = 90;
     private const double AmberThreshold = 70;
@@ -218,7 +218,7 @@ internal class ControlTowerService(
             OwnerNotAuthorizedContracts = ownerNotAuthorizedContracts
         };
 
-        memoryCache.Set(cacheKey, statistics, CacheDuration);
+        memoryCache.Set(cacheKey, statistics, BeaconCacheEntries.For(CacheDuration));
         return statistics;
     }
 

@@ -150,7 +150,9 @@ logged as a Warning by type, and never fails the request). See
 
 The MCP SDK already opens one span per `tools/call` (activity source `Experimental.ModelContextProtocol`, tagged
 `gen_ai.tool.name`, `mcp.method.name`, `mcp.session.id`, `error.type`, `jsonrpc.request.id`) and records
-`mcp.server.operation.duration`. Beacon does not open a duplicate span; it tags the SDK's own current activity:
+`mcp.server.operation.duration`. Beacon does not open a duplicate span; it tags the SDK's own current activity. The
+SDK's spans are exported only when the host adds them with `AddBeaconMcpSdkTracing()` (see
+[Turning tracing on](#turning-tracing-on)):
 
 | Tag | Meaning |
 |---|---|
@@ -246,12 +248,18 @@ A completion made outside a request queue's provider (the admin connection test)
 
 Log events and metrics never carry content, regardless of either setting.
 
+The MCP SDK writes an error result's content, or an exception's message, into its span's status description.
+`AddBeaconMcpSdkTracing()` clears every such description when the span ends, before the provider's processors and
+exporters see it; the status code (`Error`) and `error.type` stay. Keep the SDK's `ModelContextProtocol` log category
+above `Trace` in production: at `Trace` the SDK logs whole requests and responses.
+
 ## Turning tracing on
 
 Beacon.Api exposes `BeaconTelemetryBuilderExtensions.AddBeaconInstrumentation()` for both `TracerProviderBuilder` and
-`MeterProviderBuilder`. It only depends on `OpenTelemetry.Api`; it adds the `"Beacon"` source/meter plus the MCP
-SDK's own `Experimental.ModelContextProtocol` source/meter to whatever provider the host builds. **Beacon never picks
-an exporter.** The sample host (`Beacon.SampleProject/Program.cs`) enables OpenTelemetry only when
+`MeterProviderBuilder`. It only depends on `OpenTelemetry.Api`; it adds the `"Beacon"` source to the tracer provider
+and the `"Beacon"` meter plus the MCP SDK's own `Experimental.ModelContextProtocol` meter to the meter provider.
+`AddBeaconMcpSdkTracing()` adds the SDK's `tools/call` spans (the spans Beacon tags) with their status descriptions
+cleared; without it those spans, and Beacon's tags on them, are not exported. **Beacon never picks an exporter.** The sample host (`Beacon.SampleProject/Program.cs`) enables OpenTelemetry only when
 `OTEL_EXPORTER_OTLP_ENDPOINT` is set:
 
 ```csharp
@@ -263,6 +271,7 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOIN
             .AddAspNetCoreInstrumentation(y => y.Filter = z => !z.Request.Path.StartsWithSegments("/beacon/api/health"))
             .AddHttpClientInstrumentation()
             .AddBeaconInstrumentation()
+            .AddBeaconMcpSdkTracing()
             .AddOtlpExporter())
         .WithMetrics(x => x
             .AddAspNetCoreInstrumentation()
@@ -276,8 +285,8 @@ With no `OTEL_EXPORTER_OTLP_ENDPOINT`, none of this runs: there is no OpenTeleme
 itself: `OTEL_SERVICE_NAME`, `OTEL_TRACES_SAMPLER`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`, and
 so on. No endpoint, header or credential is ever hardcoded in Beacon.
 
-A host that embeds Beacon (rather than running the sample host) calls `.AddBeaconInstrumentation()` from its own
-tracing/metrics configuration the same way, after adding whichever OpenTelemetry SDK and exporter packages it needs.
+A host that embeds Beacon (rather than running the sample host) calls `.AddBeaconInstrumentation()` (and, for the
+SDK's spans, `.AddBeaconMcpSdkTracing()`) from its own tracing/metrics configuration the same way, after adding whichever OpenTelemetry SDK and exporter packages it needs.
 
 ### Trace continuity into host endpoint dispatch
 

@@ -43,7 +43,7 @@ public class DatabaseMetadataService(
     {
     }
 
-    private const string CacheKeyPrefix = "DbMetadata_";
+    private static readonly string CacheKeyPrefix = BeaconCacheEntries.Key("db-metadata:");
     private const int MaxLoggedSkippedNames = 50;
     private static readonly TimeSpan CacheExpiration = TimeSpan.FromHours(1);
 
@@ -143,7 +143,7 @@ public class DatabaseMetadataService(
                 && current.DatabaseEngineType == scannedEngine;
             if (unchanged)
             {
-                cache.Set(GetCacheKey(dataSourceId), snapshot, CacheExpiration);
+                cache.Set(GetCacheKey(dataSourceId), snapshot, BeaconCacheEntries.For(CacheExpiration));
             }
 
             if (current is not { Readable: true })
@@ -302,7 +302,7 @@ public class DatabaseMetadataService(
             )).ToList();
 
             var snapshot = new DatabaseMetadataSnapshot(dataSourceId, dataSource.DatabaseEngineType.Value, tables, metadata.Max(m => m.LastRefreshed));
-            cache.Set(GetCacheKey(dataSourceId), snapshot, CacheExpiration);
+            cache.Set(GetCacheKey(dataSourceId), snapshot, BeaconCacheEntries.For(CacheExpiration));
 
             return snapshot;
         }
@@ -548,7 +548,7 @@ public class DatabaseMetadataService(
 
         var refreshedAt = metadata.Count > 0 ? metadata.Max(m => m.LastRefreshed) : DateTime.UtcNow;
         var snapshot = new DatabaseMetadataSnapshot(dataSourceId, null, tables, refreshedAt);
-        cache.Set(GetCacheKey(dataSourceId), snapshot, CacheExpiration);
+        cache.Set(GetCacheKey(dataSourceId), snapshot, BeaconCacheEntries.For(CacheExpiration));
         return snapshot;
     }
 

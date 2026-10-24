@@ -1,3 +1,6 @@
+using Microsoft.Extensions.Caching.Memory;
+using Beacon.Core.Models.Settings;
+using Beacon.Core;
 using Beacon.Core.ChangeApprovals;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
@@ -117,6 +120,19 @@ internal sealed class ChangeApprovalStore
             .ReturnsAsync(() => new RecordingBeaconContext(sets, Saved, Offline, OnSave));
 
         return factory.Object;
+    }
+
+    /// <summary>Stores <paramref name="settings"/> as the admin settings, written as Beacon's settings service writes them.</summary>
+    public void StoreSettings(AppSettingsData settings)
+    {
+        var service = new AppSettingsService(
+            Factory(),
+            new MemoryCache(new MemoryCacheOptions()),
+            new EncryptionService(TestEncryptionKey.Value),
+            new BeaconConfiguration(),
+            new RecordingSecurityAudit());
+
+        service.SaveSettingsAsync(settings).GetAwaiter().GetResult();
     }
 
     /// <summary>Moves what was saved into the lists, as a commit makes it visible to the next unit of work.</summary>

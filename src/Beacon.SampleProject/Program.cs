@@ -83,6 +83,8 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOIN
             .AddHttpClientInstrumentation(y => y.FilterHttpRequestMessage = z =>
                 !NotificationRequests.IsNotificationRequest(z) && !ApiConnectorRequests.IsApiConnectorRequest(z))
             .AddBeaconInstrumentation()
+            // The MCP SDK's tools/call spans, which Beacon tags; their status descriptions are cleared.
+            .AddBeaconMcpSdkTracing()
             .AddOtlpExporter())
         .WithMetrics(x => x
             .AddAspNetCoreInstrumentation()

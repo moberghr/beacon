@@ -282,6 +282,7 @@ public static class ServiceConfiguration
         services.TryAddTransient<IAppSettingsStager, AppSettingsService>();
         // Applies the stored base URL and LLM configuration once the host has started (Beacon.Api's StoredSettingsStartupApplier).
         services.TryAddTransient<StoredSettingsApplier>();
+        services.TryAddSingleton<StoredSettingsConvergence>();
         services.TryAddTransient<IQueryVersionService, QueryVersionService>();
 
         // Saved queries exposed as MCP tools: callable-tool lookup (project-scoped) and the read-only executor.

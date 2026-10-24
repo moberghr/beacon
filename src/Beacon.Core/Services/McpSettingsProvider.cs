@@ -38,9 +38,10 @@ internal sealed class McpSettingsProvider(
     IDbContextFactory<BeaconContext> contextFactory,
     IMemoryCache cache,
     IOptions<McpDeploymentOptions> deploymentOptions,
-    ILogger<McpSettingsProvider> logger) : IMcpSettingsProvider
+    ILogger<McpSettingsProvider> logger,
+    StoredSettingsConvergence? convergence = null) : IMcpSettingsProvider
 {
-    private const string GlobalCacheKey = "McpSettings";
+    internal static readonly string GlobalCacheKey = BeaconCacheEntries.Key("mcp-settings");
     private static readonly TimeSpan CacheDuration = TimeSpan.FromMinutes(5);
 
     // One reset token for every cache entry this provider creates. STATIC because the provider is registered
@@ -87,6 +88,12 @@ internal sealed class McpSettingsProvider(
     }
 
     public void InvalidateCache()
+    {
+        ResetCache();
+    }
+
+    /// <summary>Drops every cached MCP settings entry of this process (the global row and every project's).</summary>
+    internal static void ResetCache()
     {
         CancellationTokenSource previous;
         lock (ResetLock)
@@ -198,6 +205,12 @@ internal sealed class McpSettingsProvider(
 
     private async Task<McpSettingsData> GetGlobalRawAsync(CancellationToken ct)
     {
+        // Settings another replica saved replace the cached ones within the convergence's check interval.
+        if (convergence != null)
+        {
+            await convergence.EnsureCurrentAsync(ct);
+        }
+
         return await cache.GetOrCreateAsync(GlobalCacheKey, async entry =>
         {
             ConfigureEntry(entry);
@@ -213,6 +226,11 @@ internal sealed class McpSettingsProvider(
 
     private async Task<McpProjectSettingsData?> GetProjectRawAsync(int projectId, CancellationToken ct)
     {
+        if (convergence != null)
+        {
+            await convergence.EnsureCurrentAsync(ct);
+        }
+
         return await cache.GetOrCreateAsync($"{GlobalCacheKey}:{projectId}", async entry =>
         {
             ConfigureEntry(entry);
@@ -230,6 +248,7 @@ internal sealed class McpSettingsProvider(
     private static void ConfigureEntry(ICacheEntry entry)
     {
         entry.AbsoluteExpirationRelativeToNow = CacheDuration;
+        entry.Size = 1;
         entry.AddExpirationToken(new CancellationChangeToken(_resetSource.Token));
     }
 
