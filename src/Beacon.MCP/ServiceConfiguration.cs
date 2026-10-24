@@ -65,6 +65,9 @@ public static class ServiceConfiguration
 
         // MaxConcurrentQueriesPerKey: one in-process count per instance, shared by every request.
         services.TryAddSingleton<McpQueryConcurrencyLimiter>();
+        // Value-grounding probes that run beside an MCP call take further slots of the caller's count (Beacon.AI's default
+        // gives none). Beacon.AI registers first, so its default is replaced.
+        services.Replace(ServiceDescriptor.Scoped<Beacon.AI.Services.Knowledge.IProbeConcurrencyLeases, McpProbeConcurrencyLeases>());
 
         // Ask SQL pipeline executor seam: adapts IQueryExecutionService onto IAskSqlPipeline's execution
         // interface (§ Architecture ①) so ProjectAskTool never touches the pipeline's execution details.

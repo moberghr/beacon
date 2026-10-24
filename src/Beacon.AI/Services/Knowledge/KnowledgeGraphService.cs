@@ -3063,8 +3063,36 @@ internal sealed class KnowledgeGraphService(
                 projectId,
                 dataSourceId,
                 x => LoadStoredCatalogAsync(context, dataSourceId, x),
-                x => x.Tables.Count + x.Tables.Sum(y => y.Columns.Count),
+                ApproximateBytes,
                 ct);
+    }
+
+    // What a stored catalog takes in memory, roughly: its strings (two bytes a character) and a fixed overhead per table
+    // and column. Stored sample values dominate on a sampled source.
+    internal static long ApproximateBytes(StoredCatalog catalog)
+    {
+        const int TableOverhead = 96;
+        const int ColumnOverhead = 160;
+        long bytes = 0;
+        foreach (var table in catalog.Tables)
+        {
+            bytes += TableOverhead + Chars(table.SchemaName) + Chars(table.TableName) + Chars(table.TableDescription);
+            foreach (var column in table.Columns)
+            {
+                bytes += ColumnOverhead
+                    + Chars(column.ColumnName)
+                    + Chars(column.DataType)
+                    + Chars(column.Description)
+                    + Chars(column.SampleValuesJson)
+                    + Chars(column.ForeignKeySchema)
+                    + Chars(column.ForeignKeyTable)
+                    + Chars(column.ForeignKeyColumn);
+            }
+        }
+
+        return bytes;
+
+        static long Chars(string? value) => 2L * (value?.Length ?? 0);
     }
 
     // All tables and columns of the data source in one query, as stored (samples not screened).

@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Microsoft.Extensions.Time.Testing;
 using NUnit.Framework;
+using Beacon.AI.Services.Knowledge;
 using Beacon.Core.Services.Metadata;
 
 namespace Beacon.Tests.Unit.Metadata;
@@ -105,17 +106,32 @@ public class CatalogSnapshotCacheTests
     }
 
     [Test]
-    public async Task ASnapshotLargerThanTheLimit_IsReturned_ButNotCached()
+    public async Task ASnapshotLargerThanTheEntryLimit_IsReturned_ButNotCached()
     {
         using var cache = new CatalogSnapshotCache();
         var loads = 0;
 
-        var first = await cache.GetOrLoadAsync(ProjectId, DataSourceId, _ => Load(ref loads, "huge"), _ => CatalogSnapshotCache.SizeLimit + 1, CancellationToken.None);
-        var second = await cache.GetOrLoadAsync(ProjectId, DataSourceId, _ => Load(ref loads, "huge again"), _ => CatalogSnapshotCache.SizeLimit + 1, CancellationToken.None);
+        var first = await cache.GetOrLoadAsync(ProjectId, DataSourceId, _ => Load(ref loads, "huge"), _ => CatalogSnapshotCache.MaxEntrySize + 1, CancellationToken.None);
+        var second = await cache.GetOrLoadAsync(ProjectId, DataSourceId, _ => Load(ref loads, "huge again"), _ => CatalogSnapshotCache.MaxEntrySize + 1, CancellationToken.None);
 
         first.Value.Should().Be("huge");
         second.Value.Should().Be("huge again");
         loads.Should().Be(2);
+    }
+
+    // The cache is held to approximate bytes: a column's stored sample values count by their length.
+    [Test]
+    public void AStoredCatalog_IsSizedByItsTextIncludingStoredSamples()
+    {
+        var column = new SchemaColumn("status", "varchar", false, true, null, null, null);
+        var bare = new StoredCatalog([new CatalogTable("sales", "orders", null, [column])]);
+        var sampled = new StoredCatalog([new CatalogTable("sales", "orders", null, [column with { SampleValuesJson = new string('x', 10_000) }])]);
+
+        var bareBytes = KnowledgeGraphService.ApproximateBytes(bare);
+        var sampledBytes = KnowledgeGraphService.ApproximateBytes(sampled);
+
+        bareBytes.Should().BeGreaterThan(0);
+        (sampledBytes - bareBytes).Should().Be(20_000);
     }
 
     private static Task<Snapshot> Load(ref int loads, string value)

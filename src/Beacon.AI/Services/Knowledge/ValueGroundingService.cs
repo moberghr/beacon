@@ -32,20 +32,27 @@ internal sealed class ValueGroundingService(
     IRowSecurityResolver rowSecurityResolver,
     IQueryGuardrailService guardrail,
     IMcpStatementLog statementLog,
-    ILogger<ValueGroundingService> logger) : IValueGroundingService
+    ILogger<ValueGroundingService> logger,
+    IProbeConcurrencyLeases? probeLeases = null) : IValueGroundingService
 {
     private const int MaxLiterals = 4;
     private const int MinLiteralLength = 2;
     private const int MaxLiteralLength = 64;
     private const int MaxDomainCandidateLength = 100;
     private const int ProbeResultLimit = 3;
-    private static readonly TimeSpan ProbeTimeout = TimeSpan.FromSeconds(5);
 
-    // At most this many probes of one ask run at once, and never more than the per-key query concurrency.
+    /// <summary>How long one probe may run, counted from when it starts; a probe that times out matches nothing.</summary>
+    internal static readonly TimeSpan DefaultProbeTimeout = TimeSpan.FromSeconds(5);
+
+    // At most this many probes of one ask run at once: the one the call runs in, plus the per-key query slots it can take
+    // (IProbeConcurrencyLeases). Without free slots the probes run one after another, as one call's statements always did.
     private const int MaxParallelProbes = 3;
 
-    /// <summary>The time all the probes of one ask may take together; a probe still running then is cut and matches nothing.</summary>
-    internal static readonly TimeSpan DefaultProbeDeadline = TimeSpan.FromMilliseconds(2500);
+    /// <summary>
+    /// A safety net over all the probes of one ask: a probe still running then is cut, and one not started matches nothing.
+    /// Each probe keeps its own <see cref="DefaultProbeTimeout"/>; the net only bounds a question whose probes all run slow.
+    /// </summary>
+    internal static readonly TimeSpan DefaultProbeSafetyCap = TimeSpan.FromSeconds(15);
 
     // Sentence-starting question words are excluded from the capitalised-token rule even when they are
     // capitalised (they are how the question is phrased, not a value in the data) — spec item 5 step 1.
@@ -73,7 +80,9 @@ internal sealed class ValueGroundingService(
     private static readonly Regex DateLikeRegex = new(@"^\d{1,4}[-/]\d{1,2}[-/]\d{1,4}$", RegexOptions.Compiled);
     private static readonly Regex AllowedCharsetRegex = new(@"^[\p{L}\p{N} .\-_/&']+$", RegexOptions.Compiled);
 
-    internal TimeSpan ProbeDeadline { get; init; } = DefaultProbeDeadline;
+    internal TimeSpan ProbeTimeout { get; init; } = DefaultProbeTimeout;
+
+    internal TimeSpan ProbeSafetyCap { get; init; } = DefaultProbeSafetyCap;
 
     public async Task<string> BuildValueMatchesBlockAsync(
         int dataSourceId, int projectId, string question, IReadOnlyList<ValueGroundingTable> tables, McpSettingsData settings, CancellationToken ct)
@@ -379,9 +388,10 @@ internal sealed class ValueGroundingService(
             .ToList();
     }
 
-    // The probes of one ask, at most MaxParallelProbes (and the per-key query concurrency) at a time, all within
-    // ProbeDeadline. A probe the deadline cuts, or that has not started by then, matches nothing; the cut probes are logged
-    // as one count. The caller's cancellation still cancels.
+    // The probes of one ask: one at a time in the call's own slot, plus one more for each per-key query slot the call can
+    // take now (at most MaxParallelProbes together), held until every probe is done. Each probe has its own ProbeTimeout,
+    // counted from its start, as before; ProbeSafetyCap bounds them all, and a probe it cuts, or that has not started by
+    // then, matches nothing (logged as one count). The caller's cancellation still cancels.
     private async Task<IReadOnlyList<string>?[]> RunProbesAsync(
         IDataSourceProvider provider, DataSource dataSource, string? dialect, string? configuredDatabase, RowSecurityContext rowSecurity,
         List<(CandidateColumn Candidate, string Literal)> probes, McpSettingsData settings, CancellationToken ct)
@@ -391,9 +401,38 @@ internal sealed class ValueGroundingService(
             return [];
         }
 
+        var leases = new List<IDisposable>();
+        try
+        {
+            while (probeLeases != null && leases.Count + 1 < Math.Min(MaxParallelProbes, probes.Count))
+            {
+                var lease = probeLeases.TryAcquire(settings.MaxConcurrentQueriesPerKey);
+                if (lease == null)
+                {
+                    break;
+                }
+
+                leases.Add(lease);
+            }
+
+            return await RunProbesInSlotsAsync(provider, dataSource, dialect, configuredDatabase, rowSecurity, probes, settings, 1 + leases.Count, ct);
+        }
+        finally
+        {
+            foreach (var lease in leases)
+            {
+                lease.Dispose();
+            }
+        }
+    }
+
+    private async Task<IReadOnlyList<string>?[]> RunProbesInSlotsAsync(
+        IDataSourceProvider provider, DataSource dataSource, string? dialect, string? configuredDatabase, RowSecurityContext rowSecurity,
+        List<(CandidateColumn Candidate, string Literal)> probes, McpSettingsData settings, int slotCount, CancellationToken ct)
+    {
         using var deadline = CancellationTokenSource.CreateLinkedTokenSource(ct);
-        deadline.CancelAfter(ProbeDeadline);
-        using var slots = new SemaphoreSlim(Math.Clamp(settings.MaxConcurrentQueriesPerKey, 1, MaxParallelProbes));
+        deadline.CancelAfter(ProbeSafetyCap);
+        using var slots = new SemaphoreSlim(slotCount);
         var cut = 0;
 
         async Task<IReadOnlyList<string>?> ProbeAsync(CandidateColumn candidate, string literal)
@@ -432,9 +471,9 @@ internal sealed class ValueGroundingService(
         {
             // §1.11 — counts only, never a literal, column or probe SQL.
             logger.LogWarning(
-                "Value-grounding probes for data source {DataSourceId} reached their deadline of {DeadlineMs} ms: {CutProbes} of {Probes} probe(s) matched nothing",
+                "Value-grounding probes for data source {DataSourceId} reached their safety cap of {DeadlineMs} ms: {CutProbes} of {Probes} probe(s) matched nothing",
                 dataSource.Id,
-                (int)ProbeDeadline.TotalMilliseconds,
+                (int)ProbeSafetyCap.TotalMilliseconds,
                 cut,
                 probes.Count);
         }
@@ -489,8 +528,8 @@ internal sealed class ValueGroundingService(
         }
         catch (OperationCanceledException) when (!ct.IsCancellationRequested)
         {
-            // The probe's own 5s timeout or the ask's probe deadline fired, not the caller's cancellation — treat as no
-            // match. A deadline cut is counted by the caller.
+            // The probe's own timeout or the ask's safety cap fired, not the caller's cancellation — treat as no match. A
+            // cut by the cap is counted by the caller.
             if (deadline.IsCancellationRequested)
             {
                 return null;

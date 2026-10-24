@@ -374,6 +374,27 @@ public class MetadataRefreshTests
         world.Snapshots.Verify(x => x.Invalidate(DataSourceId), Times.Once);
     }
 
+    // The stored catalog changed: what was built from it is dropped even when a later step of the refresh fails.
+    [Test]
+    public async Task Refresh_ThatFailsAfterStoringTheCatalog_StillInvalidatesTheCatalogSnapshots()
+    {
+        var world = new MetadataWorld();
+        world.Extracted = [Extracted("sales", "orders", null, ("id", null))];
+        world.BeforeContext = () =>
+        {
+            if (world.Saved.Count > 0)
+            {
+                throw new InvalidOperationException("database unavailable");
+            }
+        };
+
+        var refresh = () => world.Service().RefreshMetadataAsync(DataSourceId, forceRefresh: true);
+
+        await refresh.Should().ThrowAsync<InvalidOperationException>();
+        world.Snapshots.Verify(x => x.Invalidate(DataSourceId), Times.Once);
+        world.Graph.Verify(x => x.Invalidate(DataSourceId), Times.Once);
+    }
+
     // A disabled source keeps its stored tables and sampled values for when it is enabled, but none of them is served.
     [TestCase(false)]
     [TestCase(true)]
@@ -707,6 +728,9 @@ public class MetadataRefreshTests
 
         public IReadOnlyList<TableMetadataDto> Extracted { get; set; } = [];
 
+        /// <summary>Runs before every context the service opens.</summary>
+        public Action? BeforeContext { get; set; }
+
         /// <summary>Runs as the scan starts, before the extracted tables are returned.</summary>
         public Func<Task>? BeforeExtract { get; set; }
 
@@ -780,7 +804,12 @@ public class MetadataRefreshTests
             var factory = new Mock<IDbContextFactory<BeaconContext>>();
             factory
                 .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
-                .ReturnsAsync(() => new RecordingBeaconContext(sets, Saved));
+                .ReturnsAsync(() =>
+                {
+                    BeforeContext?.Invoke();
+
+                    return new RecordingBeaconContext(sets, Saved);
+                });
 
             return factory.Object;
         }

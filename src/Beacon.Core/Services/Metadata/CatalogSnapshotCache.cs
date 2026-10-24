@@ -30,12 +30,19 @@ internal sealed class NoCatalogSnapshotCache : ICatalogSnapshotCache
 /// source and may read it (a removed link, a disabled source or a write target is refused before the cache is reached).
 /// What depends on the project's settings (the stored-sample screen, the probe budget) is applied to the snapshot on every
 /// read, never cached. An entry expires after <see cref="Expiration"/>, which bounds how long another process serves a
-/// snapshot this process invalidated. The cache is held to <see cref="SizeLimit"/> units (one per table and column); a
-/// snapshot larger than that is not cached.
+/// snapshot this process invalidated, including stored samples another process cleared (an archive, a change of target, a
+/// migration-write mark): there is no cross-process signal, and the link check that runs before every read refuses an
+/// archived, disabled or write-target source on every process at once. The cache is held to <see cref="SizeLimit"/>
+/// approximate bytes (the caller's estimate of each snapshot: its names, descriptions and stored sample values); a snapshot
+/// larger than <see cref="MaxEntrySize"/> is not cached.
 /// </summary>
 internal sealed class CatalogSnapshotCache : ICatalogSnapshotCache, IDisposable
 {
-    internal const long SizeLimit = 200_000;
+    /// <summary>What every cached snapshot together may take, in approximate bytes (64 MiB).</summary>
+    internal const long SizeLimit = 64L * 1024 * 1024;
+
+    /// <summary>The largest snapshot cached, in approximate bytes: a quarter of <see cref="SizeLimit"/>.</summary>
+    internal const long MaxEntrySize = SizeLimit / 4;
     internal static readonly TimeSpan Expiration = TimeSpan.FromMinutes(15);
 
     private readonly MemoryCache _cache;
@@ -57,6 +64,7 @@ internal sealed class CatalogSnapshotCache : ICatalogSnapshotCache, IDisposable
     /// <summary>
     /// The cached snapshot of <paramref name="dataSourceId"/> for <paramref name="projectId"/>, or the one
     /// <paramref name="load"/> reads, which is cached. The caller has checked the project's access to the source first.
+    /// <paramref name="sizeOf"/> estimates a snapshot's size in bytes.
     /// </summary>
     internal async Task<T> GetOrLoadAsync<T>(
         int projectId,
@@ -80,7 +88,7 @@ internal sealed class CatalogSnapshotCache : ICatalogSnapshotCache, IDisposable
 
         var loaded = await load(cancellationToken);
         var size = Math.Max(1, sizeOf(loaded));
-        if (size <= SizeLimit)
+        if (size <= MaxEntrySize)
         {
             _cache.Set(key, new Entry(loaded, generation), new MemoryCacheEntryOptions
             {
