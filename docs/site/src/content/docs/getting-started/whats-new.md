@@ -218,6 +218,38 @@ When you upgrade:
 - [ ] **Hosts or scripts that create queries through the API:** send `{name}` placeholders. A bare word, a quoted or
       spaced placeholder is refused with the parameter's name.
 
+### Stronger password hashes, checked user names
+
+Internal users' passwords are hashed at 600,000 PBKDF2 iterations, and the count is stored in the hash. Existing
+hashes keep working and are upgraded at each user's next successful password sign-in
+([Password hashes](/security/user-management/#password-hashes)). Creating a user, and first-run setup, now trim the user
+name and e-mail address and refuse a user name outside 3 to 100 characters or with control characters, an e-mail address
+that is not one plain address, and (setup) a password confirmation that differs. Editing a user keeps a value sent back
+exactly as stored, and trims and checks only the fields that change.
+
+When you upgrade:
+
+- [ ] **Rollback:** an earlier version cannot read an upgraded hash. After a rollback, reset the passwords of internal
+      users who signed in on this version.
+- [ ] **Scripts that create users through the API:** send a user name of at least 3 characters and a plain e-mail
+      address (or none).
+
+### Security headers and an origin check on Beacon's routes
+
+Beacon's responses now carry `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin` and a
+`Permissions-Policy`, and responses under `/beacon` a Content-Security-Policy that allows scripts, styles and workers from
+Beacon's own origin only and no framing. A new origin check looks at state-changing, realtime-hub and anonymous Beacon
+requests and, in this release, only logs the ones from a foreign origin. `UseBeaconAuthentication()` adds both; your own
+routes are untouched. See [Security headers and the origin check](/integrate/host-setup/#security-headers-and-the-origin-check).
+
+When you upgrade:
+
+- [ ] **Hosts that frame Beacon or load it into another page's content:** `frame-ancestors 'none'` and `X-Frame-Options:
+      DENY` now refuse it. Send your own policy on those responses, or set `Beacon:Security:Csp` to `ReportOnly`.
+- [ ] **Behind a proxy:** set `Beacon:PublicBaseUrl` (or `Beacon:Security:AllowedOrigins`), watch the log for the origin
+      check's warnings, then set `Beacon:Security:OriginGuard` to `Enforce`. A later release is planned to make `Enforce` the default.
+- [ ] **Optional:** call `app.UseBeaconSecurityHeaders()` before `UseStaticFiles()` so the UI's files carry the headers too.
+
 ### Retention by default
 
 A new data retention job can keep run history and logs bounded (see [Data retention](/getting-started/configuration/#data-retention-beaconretention)):

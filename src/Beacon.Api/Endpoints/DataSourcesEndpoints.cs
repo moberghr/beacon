@@ -41,7 +41,8 @@ internal static class DataSourcesEndpoints
 
         ds.MapPost("/{id:int}/refresh-metadata", (int id, IMediator m, CancellationToken ct) =>
                 m.Send(new RefreshDataSourceMetadataCommand(id), ct))
-            .WithName("RefreshDataSourceMetadata");
+            .WithName("RefreshDataSourceMetadata")
+            .WithBeaconLongRunning();
 
         // Edits the source and replaces its connection (credential rotation). The stored connection is never sent: an omitted
         // connection keeps it. A connection that points somewhere else answers 409 unless the body confirms the change.

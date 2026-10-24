@@ -10,17 +10,17 @@ namespace Beacon.AI.Services.Embeddings;
 /// </summary>
 public static class EmbeddingMaskingHelper
 {
-    private static readonly Regex SingleQuoted = new("'[^']*'", RegexOptions.Compiled);
-    private static readonly Regex DoubleQuoted = new("\"[^\"]*\"", RegexOptions.Compiled);
+    private static readonly Regex SingleQuoted = new("'[^']*'", RegexOptions.Compiled, TimeSpan.FromMilliseconds(1000));
+    private static readonly Regex DoubleQuoted = new("\"[^\"]*\"", RegexOptions.Compiled, TimeSpan.FromMilliseconds(1000));
 
     // ISO (2023-05-01, 2023/5/1) and slash dates (05/01/2023, 5/1/23) — masked before numbers so the
     // digit groups inside a date are not individually turned into <num>.
     private static readonly Regex DateLike = new(
         @"\b\d{4}[-/]\d{1,2}[-/]\d{1,2}\b|\b\d{1,2}[-/]\d{1,2}[-/]\d{2,4}\b",
-        RegexOptions.Compiled);
+        RegexOptions.Compiled, TimeSpan.FromMilliseconds(1000));
 
-    private static readonly Regex Number = new(@"\d+(?:[.,]\d+)*", RegexOptions.Compiled);
-    private static readonly Regex Whitespace = new(@"\s+", RegexOptions.Compiled);
+    private static readonly Regex Number = new(@"\d+(?:[.,]\d+)*", RegexOptions.Compiled, TimeSpan.FromMilliseconds(1000));
+    private static readonly Regex Whitespace = new(@"\s+", RegexOptions.Compiled, TimeSpan.FromMilliseconds(1000));
 
     public static string Mask(string question)
     {

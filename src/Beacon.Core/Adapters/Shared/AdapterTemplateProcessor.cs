@@ -8,7 +8,7 @@ namespace Beacon.Core.Adapters.Shared;
 /// </summary>
 internal static partial class AdapterTemplateProcessor
 {
-    [GeneratedRegex(@"\{\{([^}]+)\}\}", RegexOptions.Compiled)]
+    [GeneratedRegex(@"\{\{([^}]+)\}\}", RegexOptions.Compiled, matchTimeoutMilliseconds: 1000)]
     private static partial Regex PlaceholderRegex();
 
     /// <summary>

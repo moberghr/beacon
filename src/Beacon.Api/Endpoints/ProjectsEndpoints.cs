@@ -63,27 +63,30 @@ internal static class ProjectsEndpoints
 
         projects.MapPost("/{id:int}/generate-documentation", (int id, IMediator m, CancellationToken ct) =>
                 m.Send(new GenerateProjectDocumentationCommand(id, 0), ct))
-            .WithName("GenerateProjectDocumentation");
+            .WithName("GenerateProjectDocumentation")
+            .WithBeaconLongRunning();
 
         projects.MapGet("/documentation/{id:int}/export", async (
             int id,
             [FromQuery(Name = "asHtml")] bool asHtml,
+            HttpContext http,
             IMediator m,
             CancellationToken ct) =>
         {
             var result = await m.Send(new ExportProjectDocumentationCommand(id, asHtml), ct);
-            var bytes = System.Text.Encoding.UTF8.GetBytes(result.Content);
-            return Results.File(bytes, result.ContentType, result.FileName);
+            return ToDocumentationAttachment(http.Response, result);
         }).WithName("ExportProjectDocumentation");
 
         projects.MapPost("/documentation-sections/{id:int}/instruct", (
                 int id, InstructDocumentationRequest body, IMediator m, CancellationToken ct) =>
                 m.Send(new InstructDocumentationCommand(id, body.Instruction), ct))
-            .WithName("InstructDocumentation");
+            .WithName("InstructDocumentation")
+            .WithBeaconLongRunning();
 
         projects.MapPost("/{id:int}/scan", (int id, IMediator m, CancellationToken ct) =>
                 m.Send(new ScanAllRepositoriesCommand(id), ct))
-            .WithName("ScanAllRepositories");
+            .WithName("ScanAllRepositories")
+            .WithBeaconLongRunning();
 
         projects.MapGet("/{id:int}/mcp-context", (int id, IMediator m, CancellationToken ct) =>
                 m.Send(new GetProjectMcpContextQuery(id), ct))
@@ -130,6 +133,13 @@ internal static class ProjectsEndpoints
             .RequireBeaconPermission(BeaconPermissions.UserAdminPolicy);
 
         return group;
+    }
+
+    internal static IResult ToDocumentationAttachment(HttpResponse response, ExportProjectDocumentationResult result)
+    {
+        response.Headers.XContentTypeOptions = "nosniff";
+        var bytes = System.Text.Encoding.UTF8.GetBytes(result.Content);
+        return Results.File(bytes, $"{result.ContentType}; charset=utf-8", result.FileName);
     }
 }
 

@@ -1,55 +1,47 @@
-using System.Globalization;
-using System.Threading.RateLimiting;
 using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
+using Beacon.Core.Configuration;
+using Beacon.Core.Services.Security;
+using Beacon.Shared.Http;
 
 namespace Beacon.Api.Authentication;
 
 /// <summary>
-/// Self-contained login throttle: 10 attempts per 60 seconds per remote IP. It does not depend on
-/// <c>AddRateLimiter</c> / <c>UseRateLimiter</c>, so every host that maps the login endpoints is
-/// throttled and a host's own rate-limiter configuration (with or without a "login" policy) cannot
-/// break login. Behind a reverse proxy the host must run <c>UseForwardedHeaders</c> with known
-/// proxies, otherwise every user shares the proxy's partition.
+/// Self-contained login throttle: <c>Beacon:RateLimits:Login</c> attempts (default 10 per 60 seconds) per remote IP. It
+/// does not depend on <c>AddRateLimiter</c> / <c>UseRateLimiter</c>, so every host that maps the login endpoints is
+/// throttled and a host's own rate-limiter configuration (with or without a "login" policy) cannot break login. Behind a
+/// reverse proxy the host must run <c>UseForwardedHeaders</c> with known proxies, otherwise every user shares the proxy's
+/// partition.
 /// </summary>
 internal sealed class LoginRateLimiter : IDisposable
 {
-    private const int PermitLimit = 10;
-    private static readonly TimeSpan Window = TimeSpan.FromSeconds(60);
+    private readonly FixedWindowPartitions _limiter;
 
-    private static readonly Lazy<LoginRateLimiter> DefaultInstance = new(() => new LoginRateLimiter());
+    public LoginRateLimiter()
+        : this(Options.Create(new RateLimitOptions()))
+    {
+    }
 
-    private readonly PartitionedRateLimiter<string> _limiter = PartitionedRateLimiter.Create<string, string>(
-        x =>
-            RateLimitPartition.GetFixedWindowLimiter(
-                x,
-                _ =>
-                    new FixedWindowRateLimiterOptions
-                    {
-                        PermitLimit = PermitLimit,
-                        Window = Window,
-                        QueueLimit = 0,
-                        QueueProcessingOrder = QueueProcessingOrder.OldestFirst,
-                        AutoReplenishment = true
-                    }));
+    public LoginRateLimiter(IOptions<RateLimitOptions> options)
+    {
+        _limiter = new FixedWindowPartitions(options.Value.Login, options.Value.MaxPartitions);
+    }
 
     /// <summary>
-    /// Process-wide fallback for hosts that call <c>MapBeaconApi()</c> without <c>AddBeaconApiServices()</c>, where no
-    /// <see cref="LoginRateLimiter"/> is registered.
+    /// The registered limiter, or for hosts that call <c>MapBeaconApi()</c> without <c>AddBeaconApiServices()</c> (where
+    /// none is registered) one stand-in per application built from the <c>Beacon:RateLimits</c> options the host registered,
+    /// or the defaults.
     /// </summary>
-    internal static LoginRateLimiter Default => DefaultInstance.Value;
+    internal static LoginRateLimiter For(IServiceProvider? services)
+    {
+        return services?.GetService<LoginRateLimiter>()
+            ?? UnregisteredLimiter<LoginRateLimiter>.For(services, x => new LoginRateLimiter(x));
+    }
 
     public bool TryAcquire(string partitionKey, out TimeSpan retryAfter)
     {
-        using var lease = _limiter.AttemptAcquire(partitionKey);
-        if (lease.IsAcquired)
-        {
-            retryAfter = TimeSpan.Zero;
-            return true;
-        }
-
-        retryAfter = lease.TryGetMetadata(MetadataName.RetryAfter, out var value) ? value : Window;
-        return false;
+        return _limiter.TryAcquire(partitionKey, out retryAfter);
     }
 
     public void Dispose() => _limiter.Dispose();
@@ -84,17 +76,39 @@ internal static class PerIpThrottle
         string partitionPrefix)
     {
         var httpContext = context.HttpContext;
-        var limiter = httpContext.RequestServices.GetService<LoginRateLimiter>() ?? LoginRateLimiter.Default;
-        var remoteIp = httpContext.Connection.RemoteIpAddress?.ToString() ?? "unknown";
+        var limiter = LoginRateLimiter.For(httpContext.RequestServices);
+        var partition = partitionPrefix + RateLimitPartitions.OfAddress(httpContext.Connection.RemoteIpAddress);
 
-        if (limiter.TryAcquire(partitionPrefix + remoteIp, out var retryAfter))
+        if (limiter.TryAcquire(partition, out var retryAfter))
         {
             return await next(context);
         }
 
-        var seconds = Math.Max(1, (int)Math.Ceiling(retryAfter.TotalSeconds));
-        httpContext.Response.Headers.RetryAfter = seconds.ToString(CultureInfo.InvariantCulture);
+        return RateLimitRefusal.Result(httpContext, retryAfter);
+    }
+}
 
-        return Results.StatusCode(StatusCodes.Status429TooManyRequests);
+/// <summary>
+/// The answer to a request over one of Beacon's request limits: 429 as <c>application/problem+json</c> with a
+/// <c>Retry-After</c> header in whole seconds.
+/// </summary>
+internal static class RateLimitRefusal
+{
+    public const string Title = "Too Many Requests";
+
+    public static IResult Result(HttpContext context, TimeSpan retryAfter)
+    {
+        var seconds = RateLimitPartitions.RetryAfterSeconds(retryAfter);
+        context.Response.Headers.RetryAfter = seconds;
+
+        return Results.Problem(
+            title: Title,
+            detail: $"Too many requests; retry in {seconds} seconds.",
+            statusCode: StatusCodes.Status429TooManyRequests);
+    }
+
+    public static Task WriteAsync(HttpContext context, TimeSpan retryAfter)
+    {
+        return Result(context, retryAfter).ExecuteAsync(context);
     }
 }

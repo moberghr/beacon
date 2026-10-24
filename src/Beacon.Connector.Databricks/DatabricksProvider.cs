@@ -8,6 +8,7 @@ using Microsoft.Extensions.Logging;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.HostData;
+using Beacon.Core.Http;
 using Beacon.Core.Exceptions;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
@@ -327,7 +328,7 @@ public class DatabricksProvider(
 
     private HttpClient CreateHttpClient(DatabricksConfiguration config)
     {
-        var client = httpClientFactory.CreateClient();
+        var client = httpClientFactory.CreateClient(BeaconHttpClients.Databricks);
         client.DefaultRequestHeaders.Authorization = new AuthenticationHeaderValue("Bearer", config.Token);
         client.Timeout = TimeSpan.FromSeconds(DataSourceQueryTimeout.Clamp(config.QueryTimeoutSeconds) + 30);
         return client;
