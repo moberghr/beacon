@@ -23,10 +23,7 @@ internal sealed class ScanAllRepositoriesHandler(
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        var repoIds = await context.GitHubRepositories
-            .Where(r => r.ProjectId == request.ProjectId)
-            .Select(r => r.Id)
-            .ToListAsync(cancellationToken);
+        var repoIds = await RepositoryScans.RepositoryIdsAsync(context, request.ProjectId, cancellationToken);
 
         // A scan reads the project's code with its stored credentials: logged as a security event, ids only.
         var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
@@ -43,23 +40,6 @@ internal sealed class ScanAllRepositoriesHandler(
                 .With(new SecurityAuditDetails().Add("repositoryIds", repoIds)),
             cancellationToken);
 
-        var errors = new List<string>();
-        var scanned = 0;
-
-        foreach (var repoId in repoIds)
-        {
-            try
-            {
-                await scanner.ScanRepositoryAsync(request.ProjectId, repoId, cancellationToken);
-                scanned++;
-            }
-            catch (Exception ex)
-            {
-                logger.LogError(ex, "Failed to scan repository {RepositoryId}", repoId);
-                errors.Add($"Repository {repoId}: {ex.Message}");
-            }
-        }
-
-        return new ScanAllRepositoriesResult(scanned, errors);
+        return await RepositoryScans.ScanAsync(context, scanner, logger, request.ProjectId, repoIds, cancellationToken);
     }
 }

@@ -15,6 +15,7 @@ public static class ServiceCollectionExtensions
         builder.Services.AddTransient<IDataSourceProvider, ApiProvider>();
         builder.Services.AddApiConnectorHttpClient();
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceTransportInspector, ApiTransportInspector>());
+        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceConnectionOptionInspector, ApiConnectionOptionInspector>());
         builder.Services.AddTransient<OpenApiImportService>();
         builder.Services.AddTransient<JsonResponseTabularizer>();
         return builder;

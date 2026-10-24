@@ -61,7 +61,7 @@ export default function DataSourcesListPage() {
             ? <span className="mono text-text-muted">{r.databaseEngineType}</span>
             : <span className="text-text-muted">—</span>}
           <ReadOnlyEnforcementBadge enforced={r.databaseReadOnlyEnforced} writeTarget={r.allowMigrationWrites} />
-          <DataSourceStateBadges disabled={r.disabled} transportVerified={r.transportVerified} />
+          <DataSourceStateBadges disabled={r.disabled} transportVerified={r.transportVerified} approval={r.approval} awaitsFirstApproval={r.awaitsFirstApproval} />
         </span>
       ),
     },

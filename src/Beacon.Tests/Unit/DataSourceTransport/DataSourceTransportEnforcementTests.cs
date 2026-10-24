@@ -200,8 +200,8 @@ public class DataSourceTransportEnforcementTests
         var hostSource = Stored(9, new HostConnectionReference("BeaconReadOnly").ToJson());
         hostSource.HostManagedKey = "host-context";
 
-        var warned = new DataSourceConnectionResolver(Encryption, configuration, TestTransport.Policy(logger: log.For<DataSourceTransportPolicy>()));
-        var enforced = new DataSourceConnectionResolver(Encryption, configuration, TestTransport.Policy(enforceOnExisting: true));
+        var warned = new DataSourceConnectionResolver(Encryption, configuration, TestTransport.Policy(logger: log.For<DataSourceTransportPolicy>()), new BeaconConfiguration(), TestTransport.Hasher());
+        var enforced = new DataSourceConnectionResolver(Encryption, configuration, TestTransport.Policy(enforceOnExisting: true), new BeaconConfiguration(), TestTransport.Hasher());
 
         warned.GetConnectionString(hostSource).Should().Be(Insecure);
         log.Entries.Should().ContainSingle(x => x.Level == LogLevel.Warning).Which.Message.Should().Contain("Data source 9");
@@ -457,7 +457,7 @@ public class DataSourceTransportEnforcementTests
 
     private static DataSourceConnectionResolver Resolver(IDataSourceTransportPolicy policy)
     {
-        return new DataSourceConnectionResolver(Encryption, new ConfigurationBuilder().Build(), policy);
+        return new DataSourceConnectionResolver(Encryption, new ConfigurationBuilder().Build(), policy, new BeaconConfiguration(), TestTransport.Hasher());
     }
 
     private static IDbContextFactory<BeaconContext> Factory(List<DataSource> sources, List<object> saved)
@@ -485,6 +485,8 @@ public class DataSourceTransportEnforcementTests
             new RecordingSecurityAudit(),
             policy,
             TestEngineVerifier.Passing,
+            TestChangeApprovals.Submitter(),
+            TestTransport.Hasher(),
             NullLogger<DataSourceService>.Instance);
     }
 

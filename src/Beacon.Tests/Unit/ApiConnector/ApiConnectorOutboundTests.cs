@@ -637,6 +637,8 @@ public class ApiConnectorOutboundTests
             new RecordingSecurityAudit(),
             TestTransport.Policy(),
             TestEngineVerifier.Passing,
+            TestChangeApprovals.Submitter(),
+            TestTransport.Hasher(),
             NullLogger<DataSourceService>.Instance);
     }
 

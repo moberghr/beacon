@@ -1,3 +1,5 @@
+using Microsoft.Extensions.DependencyInjection;
+
 namespace Beacon.Core.Services;
 
 /// <summary>
@@ -58,5 +60,20 @@ internal static class AiDisabled
 {
     public const string Message =
         "This Beacon host runs with UseAI = false, so AI-backed features are unavailable. "
-        + "Set UseAI = true and call AddBeaconAI() to enable them.";
+        + "Call .AddAI() on the builder AddBeacon returns to enable them.";
+
+    /// <summary>
+    /// Removes the stand-ins Core registered while AI was off, so the real implementations <c>AddAI()</c> registers next are
+    /// the ones resolved, whichever way they are registered. A host's own implementation of either service stays.
+    /// </summary>
+    public static void RemoveStandIns(IServiceCollection services)
+    {
+        var standIns = services
+            .Where(x => x.ImplementationType == typeof(AiDisabledLlmConnectionTester) || x.ImplementationType == typeof(AiDisabledMcpEvalService))
+            .ToList();
+        foreach (var standIn in standIns)
+        {
+            services.Remove(standIn);
+        }
+    }
 }

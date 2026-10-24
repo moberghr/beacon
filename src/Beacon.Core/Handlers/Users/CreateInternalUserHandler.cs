@@ -13,6 +13,9 @@ internal sealed class CreateInternalUserHandler(
 {
     public async Task Handle(CreateInternalUserCommand request, CancellationToken cancellationToken)
     {
+        // Stored, and looked up to log the creation, trimmed.
+        request = request with { UserName = UserAccountFields.Trimmed(request.UserName), Email = UserAccountFields.TrimmedEmail(request.Email) };
+
         // The caller, then the roles, are checked before the user is created: a refusal creates nobody.
         await rules.DemandMayCreateInternalUserAsync(cancellationToken);
         var roles = await rules.RolesAsync(request.RoleIds, cancellationToken);
@@ -53,4 +56,13 @@ public record CreateInternalUserCommand(
     string? Email,
     string? DisplayName,
     string Password,
-    int[] RoleIds) : IRequest;
+    int[] RoleIds) : IRequest
+{
+    // The compiler-generated ToString prints every member; the secrets are printed redacted.
+    protected virtual bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"UserName = {UserName}, Email = {Email}, DisplayName = {DisplayName}, Password = {RedactedPrint.Of(Password)}, RoleIds = {RoleIds}");
+
+        return true;
+    }
+}

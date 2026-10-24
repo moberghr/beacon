@@ -8,7 +8,9 @@ import { Banner, Button, Card, CardBody, Field, Input, PageHeader } from '@/comp
 import { formatDateTime } from '@/lib/format';
 import { useAccess } from '@/auth/useAuth';
 import { useRequirePermission } from '@/auth/useRequirePermission';
-import { AiProvider, type BedrockAuthMode } from '@/lib/enums';
+import { AiProvider, ChangeApprovalKind, type BedrockAuthMode } from '@/lib/enums';
+import { AwaitingApprovalBanner } from '@/routes/approvals/AwaitingApproval';
+import { useChangeApprovalsList } from '@/routes/approvals/queries';
 import {
   modelsForProvider,
   providerRequiresApiKey,
@@ -56,6 +58,25 @@ export default function AdminSettingsPage() {
   }
 
   return <AdminSettingsForm />;
+}
+
+/** Only a live Admin reads the LLM connection's change requests, so only an Admin renders (and asks for) this. */
+function PendingLlmChangeBanner() {
+  const { items } = useChangeApprovalsList(ChangeApprovalKind.LlmConnection);
+  const pending = items[0];
+
+  if (!pending) {
+    return null;
+  }
+
+  return (
+    <AwaitingApprovalBanner
+      kind={ChangeApprovalKind.LlmConnection}
+      title="A change of the LLM connection waits for approval"
+      sub="The stored connection stays in use until a second person approves the change. Saving the settings again replaces the pending request."
+      requestId={pending.id}
+    />
+  );
 }
 
 function AdminSettingsForm() {
@@ -117,7 +138,13 @@ function AdminSettingsForm() {
       await updateMutation.mutateAsync(
         connectionLocked ? { ...keepStoredConnection(payload, settings), baseUrl: settings?.baseUrl ?? payload.baseUrl } : payload,
       );
-      toast.success('Admin settings saved');
+      // The PUT answers 204 whether a change of the LLM connection was applied or staged, so the toast claims neither;
+      // the pending banner (its approvals query is invalidated by the save) shows a staged one.
+      toast.success(
+        connectionLocked
+          ? 'Admin settings saved'
+          : 'Admin settings saved. If you changed the LLM provider, endpoint, region or authentication mode, that change was submitted for approval: the banner above shows it while it waits.',
+      );
     } catch {
       // createSimpleMutation already surfaced the error toast
     }
@@ -164,6 +191,8 @@ function AdminSettingsForm() {
       />
 
       <ActiveProviderBanner settings={settings} />
+
+      {access.isAdmin && <PendingLlmChangeBanner />}
 
       {!canEdit && (
         <Banner

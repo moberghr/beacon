@@ -33,9 +33,9 @@ namespace Beacon.Tests.Unit.EngineVerification;
 [NonParallelizable] // DbConnectionFactory is a process-wide registry.
 public class DataSourceEngineCheckTests
 {
-    private const string Connection = "Host=warehouse.internal;Database=sales;SSL Mode=VerifyFull";
+    private const string Connection = "Host=warehouse.internal;Database=sales;Password=reader;SSL Mode=VerifyFull";
 
-    private const string OtherConnection = "Host=warehouse-2.internal;Database=sales;SSL Mode=VerifyFull";
+    private const string OtherConnection = "Host=warehouse-2.internal;Database=sales;Password=reader;SSL Mode=VerifyFull";
 
     private const string RotatedConnection = "Host=warehouse.internal;Database=sales;Password=rotated;SSL Mode=VerifyFull";
 
@@ -292,7 +292,7 @@ public class DataSourceEngineCheckTests
     {
         Serve(new RecordingDbConnection { Scalar = _ => "10.11.6-MariaDB-0+deb12u1" }, DatabaseEngineType.MySQL);
 
-        var response = await Service([], []).TestConnection("Server=warehouse;SslMode=VerifyFull", DatabaseEngineType.MySQL, CancellationToken.None);
+        var response = await Service([], []).TestConnection("Server=warehouse;Uid=reader;Pwd=pw;SslMode=VerifyFull", DatabaseEngineType.MySQL, CancellationToken.None);
 
         response.Success.Should().BeTrue();
         response.Message.Should().StartWith("Connection successful.").And.Contain("MariaDB").And.NotContain("10.11.6");
@@ -379,6 +379,8 @@ public class DataSourceEngineCheckTests
             new RecordingSecurityAudit(),
             TestTransport.Policy(),
             new DatabaseEngineVerifier(NullLogger<DatabaseEngineVerifier>.Instance),
+            TestChangeApprovals.Submitter(),
+            TestTransport.Hasher(),
             NullLogger<DataSourceService>.Instance);
     }
 

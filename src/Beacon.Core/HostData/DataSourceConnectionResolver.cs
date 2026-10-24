@@ -1,10 +1,15 @@
+using System.Collections.Concurrent;
+using System.Security.Cryptography;
 using System.Text.Json;
 using System.Text.Json.Serialization;
+using Beacon.Core.ChangeApprovals;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Data.Enums;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.Logging;
 
 namespace Beacon.Core.HostData;
 
@@ -14,11 +19,19 @@ namespace Beacon.Core.HostData;
 /// (<c>{"hostConnectionStringName":"BeaconReadOnly"}</c>) and resolve the real string from the host's
 /// <see cref="IConfiguration"/> at call time, so no host secret is ever persisted (§1.1). A disabled source
 /// (<see cref="DataSource.DisabledTime"/>) is refused first on every path, with a <see cref="DataSourceDisabledException"/>,
-/// before anything is decrypted or its transport checked. A migration write target is
+/// before anything is decrypted or its transport checked. While the change approval workflow covers data-source connections
+/// (<see cref="ApprovalWorkflowOptions.CoversDataSourceConnections"/>), a governed source
+/// (<see cref="DataSource.ApprovedTargetHash"/> set) connects only with its approved definition: a created source waiting
+/// for its first approval is refused before anything is decrypted, a changed one once its connection data, decrypted once,
+/// is not the approved definition; both with a <see cref="DataSourceAwaitingApprovalException"/>. A migration write target is
 /// refused here (<see cref="MigrationWriteTargets"/>): its login may write, and only the migration writer connects with it.
 /// The resolved string then passes <see cref="IDataSourceTransportPolicy.EnsureStoredConnectionAllowed"/>: a connection
 /// that does not authenticate the server over TLS is warned about once per data source, or refused. Every connector and
 /// service that connects with a data source's stored connection data goes through this resolver; nothing else decrypts it.
+/// A host that registers its own implementation before Beacon's (registration is <c>TryAdd</c>) takes over that duty: the
+/// approval hold on data-source connections is enforced only here, so its resolver must refuse a source awaiting approval
+/// itself (<see cref="DataSourceAwaitingApprovalException"/>), or the hold is not enforced. The API host warns at startup
+/// when the hold is on and the resolver is not Beacon's.
 /// </summary>
 public interface IDataSourceConnectionResolver
 {
@@ -47,37 +60,86 @@ public interface IDataSourceConnectionResolver
     DataSourceTransportVerdict InspectTransport(DataSource dataSource);
 }
 
+/// <summary>
+/// Reads the definition of a data source's stored connection (<see cref="DataSourceApprovalDefinition"/>): the only place
+/// a stored connection becomes a definition hash, so the connection resolver remains the one decrypt site. Implemented by
+/// the connection resolver.
+/// </summary>
+internal interface IDataSourceDefinitionReader
+{
+    /// <summary>
+    /// The keyed hash, under the current key, of the definition of <paramref name="dataSource"/>'s stored connection (the
+    /// full entity); null when the stored connection cannot be read (it cannot be decrypted, or a host reference names no
+    /// configured string), which counts as a changed definition.
+    /// </summary>
+    string? CurrentDefinitionHash(DataSource dataSource);
+
+    /// <summary>
+    /// True when <paramref name="hash"/> is the keyed hash, under the current key or a previous one, of the definition of
+    /// <paramref name="dataSource"/>'s stored connection; false when it is null or held, or the connection cannot be read.
+    /// </summary>
+    bool DefinitionMatches(DataSource dataSource, string? hash);
+}
+
 internal sealed class DataSourceConnectionResolver(
     IEncryptionService encryptionService,
     IConfiguration configuration,
-    IDataSourceTransportPolicy transportPolicy) : IDataSourceConnectionResolver
+    IDataSourceTransportPolicy transportPolicy,
+    BeaconConfiguration beaconConfiguration,
+    ConnectionDefinitionHasher definitionHasher,
+    ILogger<DataSourceConnectionResolver>? logger = null) : IDataSourceConnectionResolver, IDataSourceDefinitionReader
 {
+    // The sources whose stored connection was found unreadable, each logged once per process.
+    private static readonly ConcurrentDictionary<int, byte> UnreadableLogged = new();
+
     public string GetConnectionString(DataSource dataSource)
     {
         EnsureEnabled(dataSource);
+        var approvedHash = EnsureApproved(dataSource);
         MigrationWriteTargets.EnsureReadable(dataSource);
 
-        return Checked(dataSource);
+        return Checked(dataSource, approvedHash);
     }
 
     public string GetConnectionData(DataSource dataSource)
     {
         EnsureEnabled(dataSource);
+        var approvedHash = EnsureApproved(dataSource);
         MigrationWriteTargets.EnsureReadable(dataSource);
 
-        return Checked(dataSource);
+        return Checked(dataSource, approvedHash);
     }
 
     public string GetWriteConnectionString(DataSource dataSource)
     {
         EnsureEnabled(dataSource);
+        var approvedHash = EnsureApproved(dataSource);
         var refusal = MigrationWriteTargets.DestinationRefusal(dataSource);
         if (refusal != null)
         {
             throw new InvalidOperationException(refusal);
         }
 
-        return Checked(dataSource);
+        return Checked(dataSource, approvedHash);
+    }
+
+    public string? CurrentDefinitionHash(DataSource dataSource)
+    {
+        var canonical = StoredCanonical(dataSource);
+
+        return canonical == null ? null : definitionHasher.Hash(ConnectionDefinitionPurpose.DataSourceDefinition, canonical);
+    }
+
+    public bool DefinitionMatches(DataSource dataSource, string? hash)
+    {
+        if (hash == null || DataSourceApprovalDefinition.IsHeld(hash))
+        {
+            return false;
+        }
+
+        var canonical = StoredCanonical(dataSource);
+
+        return canonical != null && definitionHasher.Matches(ConnectionDefinitionPurpose.DataSourceDefinition, hash, canonical);
     }
 
     public DataSourceTransportVerdict InspectTransport(DataSource dataSource)
@@ -110,12 +172,71 @@ internal sealed class DataSourceConnectionResolver(
         }
     }
 
-    private string Checked(DataSource dataSource)
+    // Right after the enabled check: a source the approval workflow governs (covered, and an approved hash recorded; never a
+    // host-managed one) returns the hash its connection must match. A created source waiting for its first approval is
+    // refused here, before its connection data is decrypted; a source not governed returns null and connects as before.
+    private string? EnsureApproved(DataSource dataSource)
+    {
+        if (dataSource.ApprovedTargetHash == null
+            || dataSource.HostManagedKey != null
+            || !beaconConfiguration.ApprovalWorkflow.Covers(ChangeApprovalKind.DataSourceConnection))
+        {
+            return null;
+        }
+
+        if (DataSourceApprovalDefinition.IsHeld(dataSource.ApprovedTargetHash))
+        {
+            throw new DataSourceAwaitingApprovalException(dataSource.Id);
+        }
+
+        return dataSource.ApprovedTargetHash;
+    }
+
+    // The connection data, decrypted once: a governed source's definition must be its approved one (a change of its secrets
+    // alone keeps the definition), then the transport check applies.
+    private string Checked(DataSource dataSource, string? approvedHash)
     {
         var connectionData = Resolve(dataSource);
+        if (approvedHash != null
+            && !DataSourceApprovalDefinition.Allows(definitionHasher, approvedHash, Canonical(dataSource, connectionData)))
+        {
+            throw new DataSourceAwaitingApprovalException(dataSource.Id);
+        }
+
         transportPolicy.EnsureStoredConnectionAllowed(dataSource, connectionData);
 
         return connectionData;
+    }
+
+    private string Canonical(DataSource dataSource, string connectionData)
+    {
+        return DataSourceApprovalDefinition.Canonical(transportPolicy, dataSource.DataSourceType, dataSource.DatabaseEngineType, connectionData);
+    }
+
+    // The canonical definition of the stored connection, or null when it cannot be read: not decrypted (a key that is gone,
+    // a corrupted value) or a host reference that names no configured string. Never the reason, which can quote the value.
+    private string? StoredCanonical(DataSource dataSource)
+    {
+        string connectionData;
+        try
+        {
+            connectionData = Resolve(dataSource);
+        }
+        catch (Exception ex) when (ex is CryptographicException or FormatException or InvalidOperationException)
+        {
+            // Counts as a changed definition; the type only, as a message can quote the connection (§1.11).
+            if (UnreadableLogged.TryAdd(dataSource.Id, 0))
+            {
+                logger?.LogWarning(
+                    "The stored connection of data source {DataSourceId} cannot be read ({ExceptionType}): it counts as a changed definition until it is entered again",
+                    dataSource.Id,
+                    ex.GetType().Name);
+            }
+
+            return null;
+        }
+
+        return Canonical(dataSource, connectionData);
     }
 
     private string Resolve(DataSource dataSource)

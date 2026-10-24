@@ -22,6 +22,8 @@ The page is open to Admins and to two [functional permissions](/security/authori
 
 The provider, endpoint, region and authentication mode decide where Beacon sends its LLM requests with the stored credentials, the base URL is the address of every link Beacon sends out, and the concurrency and per-minute limits decide how much LLM traffic runs at all, so only an Admin changes them. For anyone else the page shows those fields disabled with a note, and a request that changes any of them answers `403` and saves nothing. An Auditor sees the page read-only. API keys never reach these routes.
 
+While the [approval workflow](/security/approvals/#migration-jobs-custom-sql-rules-and-recipients) covers the LLM connection (`CoversLlmConnection`), an Admin's change of the provider, endpoint, region or authentication mode, or a first stored provider, is not applied on save: it waits for a second live Admin's approval, and the stored connection and models stay in use until then. The other values of the same save apply at once; a change of credentials or models alone, and testing the connection, are not reviewed.
+
 ## The page
 
 ### General
@@ -74,7 +76,7 @@ The page lists the latest changes from the settings history: when, which key, an
 3. The base URL in the running process (`BeaconConfiguration.BaseUrl`) is replaced.
 4. `ILlmConfigurationUpdater.UpdateConfiguration` hands the settings to `LlmProviderManager`, which builds a new provider and swaps it in atomically. A save by anyone but an Admin writes no LLM limit and keeps the limits in force. `DelegatingLlmProvider`, the proxy every feature holds, uses the new provider for the next request.
 
-**At startup** the LLM provider is built from `Beacon:LLM` and the base URL comes from the host's code (`options.BaseUrl`; the sample host reads `Beacon:BaseUrl`). Saving Admin settings swaps them immediately. After a restart the stored settings replace the configured ones once they are read: a stored base URL, the stored LLM configuration when a provider was stored, and the LLM limits (concurrency, per-minute limits and their enforcement) only when an Admin stored them, also when no provider was stored. See [Configuration → AI / LLM](/getting-started/configuration/#ai--llm).
+**At startup** the LLM provider is built from `Beacon:LLM` and the base URL comes from the host's code (`options.BaseUrl`; the sample host reads `Beacon:BaseUrl`). Saving Admin settings swaps them immediately. After a restart the stored settings replace the configured ones once they are read: a stored base URL, the stored LLM configuration when a provider was stored, and the LLM limits (concurrency, per-minute limits and their enforcement) only when an Admin stored them, also when no provider was stored. A save that stores no provider keeps the provider from `Beacon:LLM` in force, as a restart would: it applies the limits (an Admin's save) and the budget only. See [Configuration → AI / LLM](/getting-started/configuration/#ai--llm).
 
 Settings are cached in memory for one hour; a save clears the cache.
 

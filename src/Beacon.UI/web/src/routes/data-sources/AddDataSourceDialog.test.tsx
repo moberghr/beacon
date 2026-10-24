@@ -1,13 +1,23 @@
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { mswServer } from '../../../vitest.setup';
 import { renderWithProviders } from '@/test/render';
 import { functionalOnly } from '@/test/permissions';
 import { AccessReady } from '@/test/AccessReady';
+import { toast } from 'sonner';
 import { AddDataSourceDialog } from './AddDataSourceDialog';
 
+vi.mock('sonner', () => ({
+  toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
+}));
+
 describe('AddDataSourceDialog (multi-engine)', () => {
+  beforeEach(() => {
+    vi.mocked(toast.info).mockClear();
+    vi.mocked(toast.success).mockClear();
+  });
+
   it('switches engine sections to reveal kind-specific fields', async () => {
     const onClose = vi.fn();
     renderWithProviders(<AddDataSourceDialog open onClose={onClose} />);
@@ -66,6 +76,22 @@ describe('AddDataSourceDialog (multi-engine)', () => {
       connectionString: 'Host=db;Database=app;Username=u;Password=p',
       projectIds: [],
     });
+  });
+
+  it('says a held data source connects to nothing until approved, instead of announcing it as created', async () => {
+    mswServer.use(
+      http.post('*/beacon/api/data-sources', () =>
+        HttpResponse.json({ success: true, message: 'Submitted for approval: analytics connects to nothing until approved.', awaitingApproval: true })),
+    );
+    const onClose = vi.fn();
+    renderWithProviders(<AddDataSourceDialog open onClose={onClose} />);
+    await advanceToTestStep();
+
+    fireEvent.click(screen.getByRole('button', { name: /create data source/i }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(toast.info).toHaveBeenCalledWith('Submitted for approval: analytics connects to nothing until approved.');
+    expect(toast.success).not.toHaveBeenCalled();
   });
 
   it('links the new data source into the projects picked on the last step', async () => {

@@ -276,10 +276,12 @@ public class ProjectCreationAccessTests
             new RecordingSecurityAudit(),
             TestTransport.Policy(),
             TestEngineVerifier.Passing,
+            TestChangeApprovals.Submitter(),
+            TestTransport.Hasher(),
             NullLogger<DataSourceService>.Instance);
 
         await service.CreateDataSource(
-            new DataSourceData { Name = "warehouse", ConnectionString = "Host=x;SSL Mode=VerifyFull", DatabaseEngineType = DatabaseEngineType.PostgreSQL, ProjectIds = [OpenProject, OpenProject], LinkedByUserId = 3 },
+            new DataSourceData { Name = "warehouse", ConnectionString = "Host=x;Password=reader;SSL Mode=VerifyFull", DatabaseEngineType = DatabaseEngineType.PostgreSQL, ProjectIds = [OpenProject, OpenProject], LinkedByUserId = 3 },
             CancellationToken.None);
 
         var dataSource = saved.OfType<DataSource>().Should().ContainSingle().Subject;
@@ -321,6 +323,7 @@ public class ProjectCreationAccessTests
             factory,
             TestProjectAccess.Evaluator(scope),
             TestProjectAccess.Actors(),
+            new BeaconConfiguration(),
             NullLogger<CreateDataSourceHandler>.Instance);
     }
 

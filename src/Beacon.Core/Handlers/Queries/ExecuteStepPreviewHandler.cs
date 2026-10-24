@@ -1,17 +1,27 @@
+using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models.Queries;
 using Beacon.Core.Services;
 using MediatR;
-using Beacon.Core.Authorization;
+using Microsoft.Extensions.Logging;
 
 namespace Beacon.Core.Handlers.Queries;
 
-internal sealed class ExecuteStepPreviewHandler(IQueryExecutionPreviewService previewService)
+internal sealed class ExecuteStepPreviewHandler(
+    IQueryService queryService,
+    IStoredQueryPreview storedPreview,
+    ProjectRequestAuthorizer authorizer,
+    ILogger<ExecuteStepPreviewHandler> logger)
     : IRequestHandler<ExecuteStepPreviewCommand, QueryPreviewResult>
 {
     public async Task<QueryPreviewResult> Handle(ExecuteStepPreviewCommand request, CancellationToken cancellationToken)
     {
-        var result = await previewService.ExecuteStepPreview(
+        var result = await RunAsync(
+            queryService,
+            storedPreview,
+            authorizer,
+            logger,
             request.QueryId,
             request.StepOrder,
             request.Parameters,
@@ -26,6 +36,51 @@ internal sealed class ExecuteStepPreviewHandler(IQueryExecutionPreviewService pr
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// One page of a single step's result, run on its own; from the draft when given. A failure comes back as the
+    /// result, a cancellation as null. Shared with the obsolete service forwarder.
+    /// </summary>
+    internal static async Task<QueryPreviewResult?> RunAsync(
+        IQueryService queryService,
+        IStoredQueryPreview storedPreview,
+        ProjectRequestAuthorizer authorizer,
+        ILogger logger,
+        int queryId,
+        int stepOrder,
+        List<ParameterValue>? parameters,
+        QueryDraft? draft,
+        ListRequest paging,
+        CancellationToken cancellationToken)
+    {
+        await PreviewRunSupport.DemandMayRunAsync(authorizer, queryId, draft, cancellationToken);
+
+        try
+        {
+            if (draft != null)
+            {
+                return await queryService.PreviewQueryStepPaged(queryId, stepOrder, parameters, draft, paging, cancellationToken);
+            }
+
+            var snapshot = await PreviewRunSupport.LoadRunnableSnapshotAsync(storedPreview, authorizer, queryId, cancellationToken);
+
+            return await storedPreview.PreviewSnapshotStep(snapshot, stepOrder, parameters, paging, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            logger.LogDebug("Step preview for query {QueryId} step {StepOrder} was cancelled", queryId, stepOrder);
+            return null;
+        }
+        catch (Exception ex) when (!PreviewRunSupport.IsAccessRefusal(ex))
+        {
+            logger.LogWarning(
+                "Error executing step preview for query {QueryId} step {StepOrder}: {Failure}",
+                queryId,
+                stepOrder,
+                FailureCodes.Describe(ex));
+            return PreviewRunSupport.Failed(ex);
+        }
     }
 }
 

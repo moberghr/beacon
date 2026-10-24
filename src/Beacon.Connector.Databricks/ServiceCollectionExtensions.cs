@@ -13,6 +13,7 @@ public static class ServiceCollectionExtensions
         ConnectorRegistry.RegisterDataSourceType(DataSourceType.Databricks, "Databricks");
         builder.Services.AddTransient<IDataSourceProvider, DatabricksProvider>();
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceTransportInspector, DatabricksTransportInspector>());
+        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceConnectionOptionInspector, DatabricksConnectionOptionInspector>());
         return builder;
     }
 }

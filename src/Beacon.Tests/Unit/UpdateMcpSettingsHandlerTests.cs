@@ -244,11 +244,11 @@ public class UpdateMcpSettingsHandlerTests
         ex.Which.FieldName.Should().Be("RetainQueryContent");
     }
 
-    // Review finding F001: the global GET returns lock/ceiling-RESOLVED values and the page re-sends every
-    // field, so a locked or clamped value echoed back unchanged must NOT overwrite the stored value —
-    // otherwise lifting the lock/ceiling later would no longer restore the admin's configuration.
+    // The global GET hands the page the STORED values next to the resolved ones, so every value a save sends is written as
+    // sent: one above a deployment ceiling is kept (it applies again when the ceiling is raised), and an edit to exactly the
+    // ceiling is written too.
     [Test]
-    public async Task Handle_ClampedValueEchoedBack_KeepsStoredValue_ButDeliberateEditIsWritten()
+    public async Task Handle_ValuesAboveACeiling_AreStoredAsSent_AndAnEditToTheCeilingIsWritten()
     {
         var stored = new McpSettings { MaxRowLimit = 9000, StatementTimeoutSeconds = 120, MaxExplainCost = null };
         var (handler, saves) = CreateHandlerWithRow(
@@ -258,14 +258,14 @@ public class UpdateMcpSettingsHandlerTests
                 Ceilings = new McpCeilingOptions { MaxRowLimit = 1000, StatementTimeoutSeconds = 60, MaxExplainCost = 50m }
             });
 
-        // The page showed the resolved values 1000 / 60 / 50 and sends them back; the admin only edited the timeout.
+        // The page showed the stored 9000 / 120 / no limit; the admin keeps the row cap and sets the others to the ceiling.
         await handler.Handle(
-            new UpdateMcpSettingsCommand(new McpSettingsData { MaxRowLimit = 1000, StatementTimeoutSeconds = 30, MaxExplainCost = 50m }),
+            new UpdateMcpSettingsCommand(new McpSettingsData { MaxRowLimit = 9000, StatementTimeoutSeconds = 60, MaxExplainCost = 50m }),
             CancellationToken.None);
 
-        stored.MaxRowLimit.Should().Be(9000, "echoed ceiling value is not an edit");
-        stored.MaxExplainCost.Should().BeNull("echoed ceiling value is not an edit (null = no limit stays stored)");
-        stored.StatementTimeoutSeconds.Should().Be(30, "a value other than the resolved one is a deliberate edit");
+        stored.MaxRowLimit.Should().Be(9000, "a stored value above the ceiling is kept as sent");
+        stored.StatementTimeoutSeconds.Should().Be(60, "an edit to exactly the ceiling is an edit");
+        stored.MaxExplainCost.Should().Be(50m);
         saves().Should().Be(1);
     }
 

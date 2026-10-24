@@ -208,6 +208,11 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
 });
 ```
 
+A destination may list several addresses separated by commas or semicolons; a message to more than 50 addresses is
+refused (the run records a failed delivery). `IEmailAdapter` also has an overload that takes a `CancellationToken`;
+Beacon calls it, and by default it forwards to the overload above and stops waiting when the token is cancelled.
+Override it when your sender can cancel the send itself.
+
 Register an adapter before you create email recipients. The email has the subject
 `[Beacon] {data source} - {query name}`, and an HTML body with the query text (when shown), the total row count and the
 preview rows as a table; every value in it is HTML-encoded. See also
@@ -322,6 +327,9 @@ Placeholders are written `{{Name}}`, case-insensitive: `{{Timestamp}}`, `{{Sourc
 - Dates are ISO 8601, booleans `true`/`false`, decimals two places; a missing value is empty.
 - Text values are inserted as they are, without JSON escaping: quote string placeholders yourself, and prefer
   `{{Records}}` for row data.
+- The template is read once: a value that itself contains `{{...}}` is inserted as text, never expanded again. Text values are
+  escaped for JSON (quotes, backslashes, control characters), so write `"{{SubscriptionName}}"` inside quotes; `{{Records}}` and
+  `_Pretty` placeholders stay raw JSON. An expansion over 1 MB fails and the default message is sent.
 - An unknown placeholder is left as `{{UNKNOWN:Name}}`. If the template cannot be processed, Beacon sends the default
   body.
 

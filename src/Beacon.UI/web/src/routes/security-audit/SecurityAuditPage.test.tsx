@@ -6,11 +6,16 @@ import { toast } from 'sonner';
 import { renderWithProviders } from '@/test/render';
 import { functionalOnly, permissionsHandler } from '@/test/permissions';
 import { mswServer } from '../../../vitest.setup';
+import { downloadJson } from '@/lib/auditExport';
 import SecurityAuditPage, { actorOf, detailsOf, verdictsOf } from './SecurityAuditPage';
 import type { SecurityAuditEvent, VerifySecurityAuditResult } from './queries';
 
 vi.mock('sonner', () => ({
-  toast: { success: vi.fn(), error: vi.fn() },
+  toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
+}));
+vi.mock('@/lib/auditExport', async importOriginal => ({
+  ...(await importOriginal<typeof import('@/lib/auditExport')>()),
+  downloadJson: vi.fn(),
 }));
 
 /**
@@ -369,6 +374,35 @@ describe('SecurityAuditPage', () => {
     expect(await screen.findByText('The verification did not run')).toBeInTheDocument();
     expect(screen.getByText('The verification could not be recorded.')).toBeInTheDocument();
     expect(screen.queryByText('Verification busy')).not.toBeInTheDocument();
+  });
+
+  it('exports from the first page of the zero-based list, so the newest event is in the file', async () => {
+    const total = 250;
+    const pages: number[] = [];
+    mswServer.use(
+      http.get('*/beacon/api/security-audit', ({ request }) => {
+        const url = new URL(request.url);
+        const page = Number(url.searchParams.get('Page') ?? 0);
+        const size = Number(url.searchParams.get('PageSize') ?? 50);
+        pages.push(page);
+        const items = Array.from({ length: Math.max(0, Math.min(size, total - page * size)) }, (_, i) => ({ ...SIGN_IN_FAILED, id: total - (page * size + i) }));
+        return HttpResponse.json({ items, totalCount: total, pageCount: Math.ceil(total / size) });
+      }),
+    );
+
+    renderAt();
+    const button = await screen.findByRole('button', { name: 'Export JSON' });
+    await waitFor(() => expect(button).toBeEnabled());
+    pages.length = 0;
+    vi.mocked(downloadJson).mockClear();
+    fireEvent.click(button);
+    fireEvent.click(within(await screen.findByRole('dialog')).getByRole('button', { name: 'Download' }));
+
+    await waitFor(() => expect(downloadJson).toHaveBeenCalledTimes(1));
+    const rows = vi.mocked(downloadJson).mock.calls[0][1] as SecurityAuditEvent[];
+    expect(rows).toHaveLength(250);
+    expect(rows[0].id).toBe(250);
+    expect(pages).toEqual([0, 1, 2]);
   });
 });
 
