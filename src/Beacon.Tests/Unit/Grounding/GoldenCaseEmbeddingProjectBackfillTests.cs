@@ -22,7 +22,7 @@ namespace Beacon.Tests.Unit.Grounding;
 /// <summary>
 /// The migration that stamps golden-case vectors indexed before they carried a project with their case's project, so
 /// project-filtered retrieval finds them after an upgrade without re-embedding. Checked offline on both providers: it is
-/// data only (its target model is the snapshot and it sorts last), and its SQL, run on in-memory SQLite, stamps only a
+/// data only (its target model is the model before it, and it sorts right after the column foreign-key list), and its SQL, run on in-memory SQLite, stamps only a
 /// golden-case vector without a project whose case is on the vector's data source, leaving every other row as it was.
 /// </summary>
 [TestFixture]
@@ -32,7 +32,7 @@ public class GoldenCaseEmbeddingProjectBackfillTests
 
     [TestCase(false)]
     [TestCase(true)]
-    public void TheMigration_RunsOneBackfillStatement_ChangesNoSchema_AndSortsLast(bool sqlServer)
+    public void TheMigration_RunsOneBackfillStatement_ChangesNoSchema_AndSortsAfterTheColumnForeignKeyList(bool sqlServer)
     {
         using var provider = BuildProvider(sqlServer);
         using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
@@ -48,13 +48,15 @@ public class GoldenCaseEmbeddingProjectBackfillTests
         migration.DownOperations.Should().BeEmpty("which rows had no project before is not recorded");
         differ.GetDifferences(
                 Initialized(migration.TargetModel!, initializer).GetRelationalModel(),
-                Initialized(migrations.ModelSnapshot!.Model, initializer).GetRelationalModel())
-            .Should().BeEmpty("the migration's target model is the snapshot");
+                Initialized(MigrationNamed(context, migrations, "_AddColumnForeignKeyList").TargetModel!, initializer).GetRelationalModel())
+            .Should().BeEmpty("the migration's target model is the model before it");
         context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
         migrations.Migrations.Keys
             .Order(StringComparer.Ordinal)
-            .Last()
-            .Should().EndWith(Suffix, "it sorts after every earlier migration");
+            .SkipWhile(x => !x.EndsWith("_AddColumnForeignKeyList", StringComparison.Ordinal))
+            .Skip(1)
+            .First()
+            .Should().EndWith(Suffix, "it sorts right after the column foreign-key list");
     }
 
     [TestCase(false)]

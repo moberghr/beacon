@@ -21,7 +21,7 @@ namespace Beacon.Tests.Unit.Metadata;
 /// one nullable, unbounded text column to the column metadata, so every stored row keeps its single-target foreign-key
 /// fields and reads as before until its source is refreshed. It runs no SQL and backfills nothing. Up is exactly the
 /// difference between the model before it and its target model, and Down is exactly the way back. Its target model is the
-/// snapshot, the model has no pending changes, and it sorts right after the embedding content hash.
+/// model before the next schema migration, the model has no pending changes, and it sorts right after the embedding content hash.
 /// </summary>
 [TestFixture]
 public class ColumnForeignKeyListMigrationTests
@@ -56,10 +56,13 @@ public class ColumnForeignKeyListMigrationTests
             .Should().BeEquivalentTo(Signatures(differ.GetDifferences(before, target)), "Up is exactly the difference from the model before");
         Signatures(migration.DownOperations)
             .Should().BeEquivalentTo(Signatures(differ.GetDifferences(target, before)), "Down removes exactly what Up adds");
-        differ.GetDifferences(target, Initialized(migrations.ModelSnapshot!.Model, initializer).GetRelationalModel())
-            .Should().BeEmpty("the migration's target model is the snapshot");
+        // The next schema migration's own content is pinned by its own tests; the data-only backfill between them changes no schema.
+        var next = MigrationNamed(context, migrations, "_AddMcpAuditCorrelationAndHeartbeats");
+        Signatures(differ.GetDifferences(target, Initialized(next.TargetModel!, initializer).GetRelationalModel()))
+            .Should().BeEquivalentTo(
+                Signatures(next.UpOperations),
+                "this migration's target model differs from the next schema migration's only by that migration");
         context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
-        // The data-only golden-case backfill that follows it is pinned by GoldenCaseEmbeddingProjectBackfillTests.
         migrations.Migrations.Keys
             .Order(StringComparer.Ordinal)
             .SkipWhile(x => !x.EndsWith("_AddEmbeddingContentHash", StringComparison.Ordinal))
