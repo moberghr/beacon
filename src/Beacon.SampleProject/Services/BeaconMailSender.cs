@@ -50,8 +50,7 @@ public class BeaconMailSender(IConfiguration configuration) : IEmailAdapter
         {
             Port = port,
             EnableSsl = enableSsl,
-            Credentials = new NetworkCredential(username, password),
-            Timeout = (int)SendTimeout.TotalMilliseconds
+            Credentials = new NetworkCredential(username, password)
         };
 
         var mailMessage = new MailMessage
@@ -69,6 +68,9 @@ public class BeaconMailSender(IConfiguration configuration) : IEmailAdapter
             mailMessage.Attachments.Add(attachment);
         }
 
-        await smtpClient.SendMailAsync(mailMessage, cancellationToken);
+        // SmtpClient.Timeout does not apply to SendMailAsync, so the send's own deadline is a token.
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(SendTimeout);
+        await smtpClient.SendMailAsync(mailMessage, timeout.Token);
     }
 }

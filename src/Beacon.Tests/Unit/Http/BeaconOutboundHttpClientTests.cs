@@ -71,14 +71,12 @@ public class BeaconOutboundHttpClientTests
         HandlerChain(provider, BeaconHttpClients.Jwks).OfType<ResponseSizeLimitHandler>().Should().ContainSingle();
     }
 
-    [TestCase(BeaconHttpClients.Jwks)]
-    [TestCase(BeaconHttpClients.Databricks)]
-    [TestCase(BeaconHttpClients.GitHub)]
-    public async Task NamedClient_ReturnsARedirectAsIs_WithoutRequestingTheTarget(string name)
+    [Test]
+    public async Task DatabricksClient_ReturnsARedirectAsIs_WithoutRequestingTheTarget()
     {
-        using var server = new LoopbackServer(_ => "HTTP/1.1 302 Found\r\nLocation: /elsewhere\r\nContent-Length: 0\r\nConnection: close\r\n\r\n");
+        using var server = new LoopbackServer(_ => Redirect);
         using var provider = Services();
-        var client = provider.GetRequiredService<IHttpClientFactory>().CreateClient(name);
+        var client = provider.GetRequiredService<IHttpClientFactory>().CreateClient(BeaconHttpClients.Databricks);
         client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "secret");
 
         using var response = await client.GetAsync(server.Url("/start"));
@@ -86,6 +84,24 @@ public class BeaconOutboundHttpClientTests
         response.StatusCode.Should().Be(HttpStatusCode.Found);
         server.Requests.Should().Equal("/start");
     }
+
+    [TestCase(BeaconHttpClients.Jwks)]
+    [TestCase(BeaconHttpClients.GitHub)]
+    public async Task NamedClient_RefusesARedirectWithAClearMessage_WithoutRequestingTheTarget(string name)
+    {
+        using var server = new LoopbackServer(_ => Redirect);
+        using var provider = Services();
+        var client = provider.GetRequiredService<IHttpClientFactory>().CreateClient(name);
+        client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "secret");
+
+        var act = () => client.GetAsync(server.Url("/start"));
+
+        (await act.Should().ThrowAsync<HttpRequestException>())
+            .Which.Message.Should().Contain("redirect to another location").And.Contain("configure the final URL");
+        server.Requests.Should().Equal("/start");
+    }
+
+    private const string Redirect = "HTTP/1.1 302 Found\r\nLocation: /elsewhere\r\nContent-Length: 0\r\nConnection: close\r\n\r\n";
 
     [Test]
     public async Task JwksClient_RefusesABodyOverTheCap()

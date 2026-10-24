@@ -43,6 +43,7 @@ public static class BeaconHttpClients
             .AddHttpClient(Jwks)
             .ConfigureHttpClient(x => x.Timeout = JwksTimeout)
             .ConfigurePrimaryHttpMessageHandler(CreatePrimaryHandler)
+            .AddHttpMessageHandler(() => new RedirectRefusalHandler())
             .AddHttpMessageHandler(() => new ResponseSizeLimitHandler(JwksMaxResponseBytes, JwksTimeout));
 
         services
@@ -54,7 +55,8 @@ public static class BeaconHttpClients
         services
             .AddHttpClient(GitHub)
             .ConfigureHttpClient(x => x.Timeout = GitHubTimeout)
-            .ConfigurePrimaryHttpMessageHandler(CreatePrimaryHandler);
+            .ConfigurePrimaryHttpMessageHandler(CreatePrimaryHandler)
+            .AddHttpMessageHandler(() => new RedirectRefusalHandler());
 
         return services;
     }

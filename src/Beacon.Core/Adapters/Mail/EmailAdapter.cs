@@ -20,7 +20,7 @@ internal class EmailAdapter(IEmailAdapter emailAdapter) : IAdapter
         cancellationToken.ThrowIfCancellationRequested();
 
         var to = recipientQueryResult.RecipientDestination;
-        if (CountAddresses(to) > MaxRecipientsPerMessage)
+        if (EmailRecipientCounter.Count(to) > MaxRecipientsPerMessage)
         {
             throw new NotificationDeliveryException(NotificationFailureReasons.TooManyRecipients);
         }
@@ -32,12 +32,5 @@ internal class EmailAdapter(IEmailAdapter emailAdapter) : IAdapter
         // A file too large even for its headers is not attached; the body says so.
         var attachment = recipientQueryResult.QueryResultFile is { Omitted: true } ? null : recipientQueryResult.QueryResultFile;
         await emailAdapter.SendEmailAsync(to, subject, htmlBody, attachment, cancellationToken);
-    }
-
-    private static int CountAddresses(string destination)
-    {
-        return destination
-            .Split([',', ';'], StringSplitOptions.RemoveEmptyEntries | StringSplitOptions.TrimEntries)
-            .Length;
     }
 }

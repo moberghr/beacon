@@ -185,7 +185,10 @@ public static class AuthServiceExtensions
     /// <c>AddBeaconServices</c> are called in: internal users sign in first and the external login is the fallback, so
     /// adding it never takes internal-password sign-in away. Without user management, or with internal users off
     /// (<see cref="UserManagementOptions.AllowInternalUsers"/>), the external login alone is the provider. An <c>http</c>
-    /// JWKS or login URL to a loopback host is accepted in Development only (startup fails otherwise).
+    /// JWKS or login URL to a loopback host is accepted in Development only (startup fails otherwise). The JWKS fetch
+    /// uses Beacon's own bounded named client (<see cref="BeaconHttpClients.Jwks"/>): to change its proxy or handler, configure
+    /// that named client (<c>AddHttpClient(BeaconHttpClients.Jwks)</c>); an <c>AddHttpClient&lt;JwtExternalApiAuthenticationProvider&gt;</c>
+    /// registered after this call is not used, and one registered before it takes the provider's registration.
     /// </summary>
     public static IServiceCollection AddBeaconJwtAuthentication(
         this IServiceCollection services,
