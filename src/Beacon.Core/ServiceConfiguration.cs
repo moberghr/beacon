@@ -137,6 +137,7 @@ public static class ServiceConfiguration
         // their own derivation; and the scoped log of the statements a call ran on data sources, which its audit row takes.
         services.TryAddSingleton(new Mcp.McpContentHasher(Mcp.McpCallerSubjectHasher.KeySource(configuration, encryptionKey)));
         services.TryAddScoped<Mcp.IMcpStatementLog, Mcp.McpStatementLog>();
+        services.TryAddScoped<Helpers.LegacyListTruncation>();
 
         // The security audit trail (Beacon:Audit): append-only events with a keyed HMAC each (the integrity key, else one
         // derived for this purpose from the caller-hash secret; earlier keys still verify), sealed and kept append-only by

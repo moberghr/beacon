@@ -39,6 +39,7 @@ public class FastPathGoldenTests
         yield return Case("GetQueryChangeHistory", new GetQueryChangeHistoryQuery { QueryId = 5 });
         yield return Case("GetPendingApprovals", new GetPendingApprovalsQuery());
         yield return Case("GetQueryFolders", new GetQueryFoldersQuery());
+        yield return Case("ListQueryFolders", new ListQueryFoldersQuery());
         yield return Case("GetDataSources", new GetDataSourcesQuery());
         yield return Case("GetSubscriptions", new GetSubscriptionsQuery());
         yield return Case("GetNotifications", new GetNotificationsQuery());
@@ -50,6 +51,7 @@ public class FastPathGoldenTests
         yield return Case("GetHomeTaskSummary", new GetHomeTaskSummaryQuery());
         yield return Case("GetExecutionUptime", new GetExecutionUptimeQuery());
         yield return Case("GetDataQualityOverview", new GetDataQualityOverviewQuery());
+        yield return Case("ListDataQualityOverview", new ListDataQualityOverviewQuery());
         yield return Case("GetDataContracts", new GetDataContractsQuery());
         yield return Case("GetAiActorList", new GetAiActorListQuery());
         yield return Case("GetLearnedPatterns", new GetLearnedPatternsQuery());

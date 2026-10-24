@@ -39,7 +39,12 @@ internal static class EvalEndpoints
                 IMediator m,
                 CancellationToken ct) =>
                 m.Send(new GetGoldenCasesQuery { ProjectId = projectId, DataSourceId = dataSourceId }, ct))
-            .WithName("GetGoldenCases");
+            .WithName("GetGoldenCases")
+            .AsDeprecatedUnpagedList("GET /eval/golden/paged");
+
+        // Paged form of the list above (deprecated: all cases up to a 10,000 safety cap): page, pageSize, sort.
+        eval.MapGet("/golden/paged", ([AsParameters] ListGoldenCasesQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
+            .WithName("ListGoldenCases");
 
         // Correct verdicts no golden case was promoted from yet; a candidate becomes one only through /golden/promote.
         eval.MapGet("/golden/candidates", ([AsParameters] GetGoldenCandidatesQuery query, IMediator m, CancellationToken ct) =>
@@ -85,7 +90,12 @@ internal static class EvalEndpoints
 
         eval.MapGet("/runs/{runId:int}/results", (int runId, IMediator m, CancellationToken ct) =>
                 m.Send(new GetEvalResultsQuery(runId), ct))
-            .WithName("GetEvalResults");
+            .WithName("GetEvalResults")
+            .AsDeprecatedUnpagedList("GET /eval/runs/{runId}/results/paged");
+
+        // Paged form of the list above (deprecated: all results up to a 10,000 safety cap): page, pageSize, sort.
+        eval.MapGet("/runs/{runId:int}/results/paged", ([AsParameters] ListEvalResultsQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
+            .WithName("ListEvalResults");
 
         return group;
     }
