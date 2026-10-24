@@ -397,71 +397,20 @@ public partial class AiActorService : IAiActorServiceExtended
             var userPrompt = AiActorPrompts.BuildThinkCyclePrompt(
                 actor, schemaContext, existingQueries, triggeringSubscriptionId, recentResults);
 
-            var llmRequest = new LlmRequest
-            {
-                SystemPrompt = AiActorPrompts.ThinkCycleSystemPrompt,
-                Messages = new List<ChatMessage>
-                {
-                    new(ConversationRole.User, userPrompt)
-                },
-                Temperature = 0.3m,
-                MaxTokens = 4096,
-                Priority = background ? LlmRequestPriority.Background : LlmRequestPriority.Interactive,
-                Operation = LlmOperations.ActorThink
-            };
-
-            var llmResponse = await _llmProvider.CompleteAsync(llmRequest, cancellationToken);
-
-            execution.TokensUsed = llmResponse.TotalTokens;
-            execution.EstimatedCost = llmResponse.Cost;
-            execution.Model = llmResponse.Model;
-
-            // Parse LLM response
-            var planResponse = ParseLlmResponse(llmResponse.Content);
-            execution.DecisionSummary = planResponse.Analysis;
+            var completion = await CompletePlanAsync(
+                AiActorPrompts.ThinkCycleSystemPrompt,
+                userPrompt,
+                LlmOperations.ActorThink,
+                background ? LlmRequestPriority.Background : LlmRequestPriority.Interactive,
+                cancellationToken);
+            RecordCompletion(execution, completion);
+            var planResponse = completion.Plan;
 
             // 3. EXECUTING PHASE
             execution.Phase = AiActorExecutionPhase.Executing;
             await context.SaveChangesAsync(cancellationToken);
 
-            var executedActions = new List<AiActorAction>();
-            var proposals = new List<AiActorActionPlan>();
-            var newlyCreatedQueries = new Dictionary<string, int>(); // Map query names to IDs
-
-            foreach (var actionPlan in planResponse.Actions)
-            {
-                var action = await ExecuteOrProposeAsync(
-                    actor, actionPlan, newlyCreatedQueries, cancellationToken);
-                executedActions.Add(action);
-                if (action.Proposed)
-                {
-                    proposals.Add(actionPlan);
-                }
-
-                // Track newly created query IDs
-                if (action.ActionType == AiActorActionType.CreateQuery &&
-                    action.Success && action.ResultEntityId.HasValue &&
-                    !string.IsNullOrEmpty(action.QueryName))
-                {
-                    newlyCreatedQueries[action.QueryName] = action.ResultEntityId.Value;
-                }
-
-                // Update execution metrics
-                switch (action.ActionType)
-                {
-                    case AiActorActionType.CreateQuery when action.Success:
-                        execution.QueriesCreated++;
-                        break;
-                    case AiActorActionType.RefineQuery when action.Success:
-                        execution.QueriesRefined++;
-                        break;
-                    case AiActorActionType.CreateSubscription when action.Success:
-                        execution.SubscriptionsCreated++;
-                        break;
-                }
-            }
-
-            execution.ActionsJson = JsonSerializer.Serialize(executedActions, JsonOptions);
+            var (executedActions, proposals) = await RunPlannedActionsAsync(actor, planResponse.Actions, execution, cancellationToken);
 
             // 4. NOTIFYING PHASE (if needed)
             if (planResponse.ShouldNotify && !string.IsNullOrEmpty(planResponse.NotificationReason))
@@ -664,19 +613,13 @@ public partial class AiActorService : IAiActorServiceExtended
             var userPrompt = AiActorPrompts.BuildRefinementPrompt(
                 actor, schemaContext, existingQueries, feedback);
 
-            var llmRequest = new LlmRequest
-            {
-                SystemPrompt = AiActorPrompts.RefinementSystemPrompt,
-                Messages = new List<ChatMessage>
-                {
-                    new(ConversationRole.User, userPrompt)
-                },
-                Temperature = 0.3m,
-                MaxTokens = 4096,
-                Operation = LlmOperations.ActorRefine
-            };
-
-            var llmResponse = await _llmProvider.CompleteAsync(llmRequest, cancellationToken);
+            var completion = await CompletePlanAsync(
+                AiActorPrompts.RefinementSystemPrompt,
+                userPrompt,
+                LlmOperations.ActorRefine,
+                LlmRequestPriority.Interactive,
+                cancellationToken);
+            var llmResponse = completion.Response;
 
             // Store assistant response
             var assistantConversation = new AiActorConversation
@@ -692,50 +635,13 @@ public partial class AiActorService : IAiActorServiceExtended
             };
             context.AiActorConversations.Add(assistantConversation);
 
-            execution.TokensUsed = llmResponse.TotalTokens;
-            execution.EstimatedCost = llmResponse.Cost;
-            execution.Model = llmResponse.Model;
-
-            var planResponse = ParseLlmResponse(llmResponse.Content);
-            execution.DecisionSummary = planResponse.Analysis;
+            RecordCompletion(execution, completion);
+            var planResponse = completion.Plan;
 
             // Execute actions
             execution.Phase = AiActorExecutionPhase.Executing;
-            var executedActions = new List<AiActorAction>();
-            var proposals = new List<AiActorActionPlan>();
-            var newlyCreatedQueries = new Dictionary<string, int>();
+            var (executedActions, proposals) = await RunPlannedActionsAsync(actor, planResponse.Actions, execution, cancellationToken);
 
-            foreach (var actionPlan in planResponse.Actions)
-            {
-                var action = await ExecuteOrProposeAsync(actor, actionPlan, newlyCreatedQueries, cancellationToken);
-                executedActions.Add(action);
-                if (action.Proposed)
-                {
-                    proposals.Add(actionPlan);
-                }
-
-                if (action.ActionType == AiActorActionType.CreateQuery &&
-                    action.Success && action.ResultEntityId.HasValue &&
-                    !string.IsNullOrEmpty(action.QueryName))
-                {
-                    newlyCreatedQueries[action.QueryName] = action.ResultEntityId.Value;
-                }
-
-                switch (action.ActionType)
-                {
-                    case AiActorActionType.CreateQuery when action.Success:
-                        execution.QueriesCreated++;
-                        break;
-                    case AiActorActionType.RefineQuery when action.Success:
-                        execution.QueriesRefined++;
-                        break;
-                    case AiActorActionType.CreateSubscription when action.Success:
-                        execution.SubscriptionsCreated++;
-                        break;
-                }
-            }
-
-            execution.ActionsJson = JsonSerializer.Serialize(executedActions, JsonOptions);
             execution.Phase = AiActorExecutionPhase.Completed;
             execution.CompletedAt = DateTime.UtcNow;
 
@@ -1252,65 +1158,23 @@ public partial class AiActorService : IAiActorServiceExtended
 
             var userPrompt = AiActorPrompts.BuildInitialSetupPrompt(actor, schemaContext);
 
-            var llmRequest = new LlmRequest
-            {
-                SystemPrompt = AiActorPrompts.InitialSetupSystemPrompt,
-                Messages = new List<ChatMessage>
-                {
-                    new(ConversationRole.User, userPrompt)
-                },
-                Temperature = 0.3m,
-                MaxTokens = 4096,
-                Operation = LlmOperations.ActorSetup
-            };
-
             execution.Phase = AiActorExecutionPhase.Planning;
             await context.SaveChangesAsync(cancellationToken);
 
-            var llmResponse = await _llmProvider.CompleteAsync(llmRequest, cancellationToken);
-
-            execution.TokensUsed = llmResponse.TotalTokens;
-            execution.EstimatedCost = llmResponse.Cost;
-            execution.Model = llmResponse.Model;
-
-            var planResponse = ParseLlmResponse(llmResponse.Content);
-            execution.DecisionSummary = planResponse.Analysis;
+            var completion = await CompletePlanAsync(
+                AiActorPrompts.InitialSetupSystemPrompt,
+                userPrompt,
+                LlmOperations.ActorSetup,
+                LlmRequestPriority.Interactive,
+                cancellationToken);
+            RecordCompletion(execution, completion);
+            var planResponse = completion.Plan;
 
             execution.Phase = AiActorExecutionPhase.Executing;
             await context.SaveChangesAsync(cancellationToken);
 
-            var executedActions = new List<AiActorAction>();
-            var proposals = new List<AiActorActionPlan>();
-            var newlyCreatedQueries = new Dictionary<string, int>();
+            var (_, proposals) = await RunPlannedActionsAsync(actor, planResponse.Actions, execution, cancellationToken);
 
-            foreach (var actionPlan in planResponse.Actions)
-            {
-                var action = await ExecuteOrProposeAsync(actor, actionPlan, newlyCreatedQueries, cancellationToken);
-                executedActions.Add(action);
-                if (action.Proposed)
-                {
-                    proposals.Add(actionPlan);
-                }
-
-                if (action.ActionType == AiActorActionType.CreateQuery &&
-                    action.Success && action.ResultEntityId.HasValue &&
-                    !string.IsNullOrEmpty(action.QueryName))
-                {
-                    newlyCreatedQueries[action.QueryName] = action.ResultEntityId.Value;
-                }
-
-                switch (action.ActionType)
-                {
-                    case AiActorActionType.CreateQuery when action.Success:
-                        execution.QueriesCreated++;
-                        break;
-                    case AiActorActionType.CreateSubscription when action.Success:
-                        execution.SubscriptionsCreated++;
-                        break;
-                }
-            }
-
-            execution.ActionsJson = JsonSerializer.Serialize(executedActions, JsonOptions);
             execution.Phase = AiActorExecutionPhase.Completed;
             execution.CompletedAt = DateTime.UtcNow;
 
@@ -1459,6 +1323,100 @@ public partial class AiActorService : IAiActorServiceExtended
 
         return sb.ToString();
     }
+
+    // One completion of an actor prompt, through the provider (and so the LLM request queue), with its reply read as a plan.
+    // Every producer asks with the same sampling settings; only the prompts, the operation tag and the lane differ.
+    private async Task<PlanCompletion> CompletePlanAsync(
+        string systemPrompt,
+        string userPrompt,
+        string operation,
+        LlmRequestPriority priority,
+        CancellationToken cancellationToken)
+    {
+        var llmRequest = new LlmRequest
+        {
+            SystemPrompt = systemPrompt,
+            Messages = new List<ChatMessage>
+            {
+                new(ConversationRole.User, userPrompt)
+            },
+            Temperature = 0.3m,
+            MaxTokens = 4096,
+            Priority = priority,
+            Operation = operation
+        };
+
+        var llmResponse = await _llmProvider.CompleteAsync(llmRequest, cancellationToken);
+
+        return new PlanCompletion(llmResponse, ParseLlmResponse(llmResponse.Content));
+    }
+
+    // A cycle's execution carries its completion's usage and the model's analysis.
+    private static void RecordCompletion(AiActorExecution execution, PlanCompletion completion)
+    {
+        execution.TokensUsed = completion.Response.TotalTokens;
+        execution.EstimatedCost = completion.Response.Cost;
+        execution.Model = completion.Response.Model;
+        execution.DecisionSummary = completion.Plan.Analysis;
+    }
+
+    // The actions the model planned, in order, each executed or (with approval required) proposed through
+    // ExecuteOrProposeAsync; a query an earlier action created is known to the later ones by name. What succeeded is counted
+    // on the execution, and what became of every action is stored on it.
+    private async Task<PlannedActionsOutcome> RunPlannedActionsAsync(
+        Beacon.Core.Data.Entities.AiActor actor,
+        IEnumerable<AiActorActionPlan> actions,
+        AiActorExecution execution,
+        CancellationToken cancellationToken)
+    {
+        var executedActions = new List<AiActorAction>();
+        var proposals = new List<AiActorActionPlan>();
+        var newlyCreatedQueries = new Dictionary<string, int>();
+
+        foreach (var actionPlan in actions)
+        {
+            var action = await ExecuteOrProposeAsync(actor, actionPlan, newlyCreatedQueries, cancellationToken);
+            executedActions.Add(action);
+            if (action.Proposed)
+            {
+                proposals.Add(actionPlan);
+            }
+
+            RecordActionOutcome(execution, action, newlyCreatedQueries);
+        }
+
+        execution.ActionsJson = JsonSerializer.Serialize(executedActions, JsonOptions);
+
+        return new PlannedActionsOutcome(executedActions, proposals);
+    }
+
+    // After an action ran: a query it created is known to later actions by name, and its success is counted on the execution.
+    private static void RecordActionOutcome(AiActorExecution execution, AiActorAction action, Dictionary<string, int> newlyCreatedQueries)
+    {
+        if (action.ActionType == AiActorActionType.CreateQuery &&
+            action.Success && action.ResultEntityId.HasValue &&
+            !string.IsNullOrEmpty(action.QueryName))
+        {
+            newlyCreatedQueries[action.QueryName] = action.ResultEntityId.Value;
+        }
+
+        switch (action.ActionType)
+        {
+            case AiActorActionType.CreateQuery when action.Success:
+                execution.QueriesCreated++;
+                break;
+            case AiActorActionType.RefineQuery when action.Success:
+                execution.QueriesRefined++;
+                break;
+            case AiActorActionType.CreateSubscription when action.Success:
+                execution.SubscriptionsCreated++;
+                break;
+        }
+    }
+
+    private sealed record PlanCompletion(LlmResponse Response, AiActorPlanResponse Plan);
+
+    private sealed record PlannedActionsOutcome(List<AiActorAction> Executed, List<AiActorActionPlan> Proposals);
 
     private AiActorPlanResponse ParseLlmResponse(string content)
     {

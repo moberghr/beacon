@@ -1,7 +1,9 @@
 using Beacon.Api.Endpoints;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.OpenApi;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 
 namespace Beacon.Api.OpenApi;
@@ -10,6 +12,29 @@ public static class BeaconOpenApiExtensions
 {
     /// <summary>The setting that publishes the OpenAPI document to anonymous callers (<c>Beacon:OpenApi:Anonymous</c>).</summary>
     public const string AnonymousSettingName = "Beacon:OpenApi:Anonymous";
+
+    /// <summary>
+    /// Adds the OpenAPI document (<c>v1</c>) Beacon's React shell generates its typed client from; the host serves it with
+    /// <see cref="MapBeaconOpenApi"/> (or <c>app.MapOpenApi()</c>) at <c>/openapi/v1.json</c>. Enums stay integers on the
+    /// wire: each enum becomes a component schema named after its type, carrying its values and names
+    /// (<see cref="EnumSchemaTransformer"/>), so the generated TypeScript client has the backend's enum values.
+    /// <paramref name="configure"/> runs after Beacon's settings.
+    /// </summary>
+    public static IServiceCollection AddBeaconOpenApi(this IServiceCollection services, Action<OpenApiOptions>? configure = null)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+
+        return services.AddOpenApi(x =>
+        {
+            x.CreateSchemaReferenceId = y =>
+            {
+                var type = Nullable.GetUnderlyingType(y.Type) ?? y.Type;
+                return type.IsEnum ? type.Name : OpenApiOptions.CreateDefaultSchemaReferenceId(y);
+            };
+            x.AddSchemaTransformer<EnumSchemaTransformer>();
+            configure?.Invoke(x);
+        });
+    }
 
     /// <summary>
     /// Maps the OpenAPI document (<c>/openapi/v1.json</c>) like <c>MapOpenApi()</c>, but outside Development it needs a
@@ -22,11 +47,14 @@ public static class BeaconOpenApiExtensions
     {
         var builder = app.MapOpenApi();
         var anonymous = app.Environment.IsDevelopment() || app.Configuration.GetValue<bool>(AnonymousSettingName);
-        if (!anonymous)
+        if (anonymous)
         {
-            builder.RequireAuthorization(BeaconApiEndpoints.AuthPolicyName);
+            // Marked anonymous, so the login redirect leaves it alone where /openapi is one of Beacon's paths.
+            builder.AllowAnonymous();
+            return builder;
         }
 
+        builder.RequireAuthorization(BeaconApiEndpoints.AuthPolicyName);
         return builder;
     }
 }

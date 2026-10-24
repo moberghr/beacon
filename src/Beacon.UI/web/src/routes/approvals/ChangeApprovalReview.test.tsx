@@ -582,4 +582,30 @@ describe('reviewing a change of a data source connection or the LLM connection',
     expect(within(connection).getByText('Anthropic')).toBeInTheDocument();
     expect(within(connection).getByText('No credential is stored.')).toBeInTheDocument();
   });
+
+  it('shows an Admin role grant by the user label, the role and the requester, with no user name or e-mail', async () => {
+    serve(
+      {
+        ...DETAIL,
+        kind: ChangeApprovalKind.AdminRoleGrant,
+        resourceId: 9,
+        resourceName: 'User 9',
+        changeSummary: 'Admin role granted',
+        proposedMigrationJob: null,
+        proposedAdminRoleGrant: { userId: 9, roleId: 1, roleName: 'Admin', userName: 'secret.name', email: 'secret@example.test' },
+      },
+      [],
+    );
+    mswServer.use(permissionsHandler({ isAdmin: true }));
+
+    renderDetail();
+
+    const grant = await screen.findByRole('region', { name: 'Admin role grant' });
+    expect(within(grant).getByText('User 9')).toBeInTheDocument();
+    expect(within(grant).getByText('Admin')).toBeInTheDocument();
+    expect(within(grant).getByText('Ola Operator')).toBeInTheDocument();
+    expect(screen.queryByText(/secret/)).not.toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'User 9' })).toHaveAttribute('href', '/users');
+    expect(await screen.findByRole('button', { name: /approve/i })).toBeEnabled();
+  });
 });

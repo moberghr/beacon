@@ -46,7 +46,7 @@ startup entrypoint. `SyncBeaconHostDataSourcesAsync` keeps working on its own.
 | `Engine` | Normally inferred from the EF provider. Only SQL Server and PostgreSQL are supported. |
 | `AllowTables("Table", "schema.Table")` | Allow-list by store name (case-insensitive). Unknown names fail startup. |
 | `AllowEntity<T>()` | Allow-list the table or view an entity maps to. |
-| `AllowAllTables()` | Expose everything. Deliberately explicit; prefer an allow-list. |
+| `AllowAllTables()` | Expose everything. Deliberately explicit; prefer an allow-list. Logged as a warning at every sync. |
 | `ExcludeColumns(Func<HostColumn, bool>)` | Invisible in metadata **and** rejected at execution. |
 | `MaskColumns(Func<HostColumn, bool>)` | Visible in metadata (flagged `[PII: values are masked in query results]`); values masked in every result. Exclusion wins. |
 | `IncludeSecretLikeColumn("Table.Column")` | Lifts the secret-like hard-exclude for one column. Logged as a warning at every sync. |
@@ -56,10 +56,26 @@ startup entrypoint. `SyncBeaconHostDataSourcesAsync` keeps working on its own.
 
 ### Secret-like hard-exclude
 
-Regardless of your predicates, a column is excluded when its column or property name
-**contains** `password`, `passwd`, `secret`, `token`, `apikey`, `api_key`, `privatekey` or `private_key`, or has a
-**whole word** (camelCase / snake_case) `pin`, `salt`, `hash`, `otp` or `refresh`, so `PasswordHash`, `PinCode`,
-`OtpSeed` and `RefreshToken` are excluded while `Shipping` is not. Only `IncludeSecretLikeColumn` lifts it.
+Regardless of your predicates, a column is excluded when:
+
+- its column or property name **contains** `password`, `passwd`, `passphrase`, `passcode`, `secret`, `token`, `apikey`,
+  `api_key`, `privatekey`, `private_key`, `credential`, `connectionstring`, `securitystamp` or `recoverycode` (also with
+  an underscore: `connection_string`, `security_stamp`, `recovery_code`);
+- it has a **whole word** (camelCase / snake_case) `pin`, `pwd`, `salt`, `hash`, `otp`, `totp`, `hotp`, `mfa`,
+  `refresh`, `pfx`, `nonce`, `seed`, `cvv` or `cvc`, so `PasswordHash`, `PinCode`, `OtpSeed`, `TotpKey` and
+  `RefreshToken` are excluded while `Shipping` is not;
+- it has a `key` word beside a word naming key material (`api`, `access`, `secret`, `private`, `signing`, `encryption`,
+  `authenticator`, `certificate`, `cert`, `master`, `license`, `hmac`, `aes`, `rsa`, `pgp`, `gpg`, `ssh`):
+  `EncryptionKey` and `SigningKey` are excluded, `ProductKey` is not;
+- its **table** holds credentials: `AspNetUserTokens`, `DataProtectionKeys`, or any table whose name ends in the word
+  `Keys` or `Tokens` (`ApiKeys`, `signing_keys`, `RefreshTokens`) — every column of it;
+- its entity is ASP.NET Core Identity's `IdentityUserToken<TKey>` or Data Protection's `DataProtectionKey` (or derives
+  from one), whatever its table is called — every column of it.
+
+Business words that only sometimes name a secret (`SigningDate`, `CertificateNumber`, `RecoveredAmount`, `TimeStamp`,
+`ConcurrencyStamp`) are not excluded on their own. Only `IncludeSecretLikeColumn` lifts the exclusion. Every sync logs
+the columns it excluded (`schema.Table.Column`). The rule is a best-effort name heuristic: also deny the secret columns
+to the read-only login.
 
 ## Metadata
 

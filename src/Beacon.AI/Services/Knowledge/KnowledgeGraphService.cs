@@ -17,6 +17,7 @@ using Beacon.Core.Services.Validation;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace Beacon.AI.Services.Knowledge;
 
@@ -62,9 +63,12 @@ internal sealed partial class KnowledgeGraphService(
     private static readonly int[] DocChunkOwnerTypes = [(int)McpEmbeddingOwnerType.DocChunk];
     private static readonly int[] GlossaryOwnerTypes = [(int)McpEmbeddingOwnerType.GlossaryTerm];
 
-    // Golden eval cases are data-source-scoped (like Exemplar/metadata), so retrieval passes a dataSourceId
-    // (not a projectId) to the shared nearest-neighbour helpers.
+    // Golden eval cases belong to a project on one data source (like exemplars): each vector carries its case's project,
+    // so retrieval passes both the dataSourceId and the projectId to the shared nearest-neighbour helpers.
     private static readonly int[] GoldenCaseOwnerTypes = [(int)McpEmbeddingOwnerType.GoldenCase];
+
+    // The number a built-in data-quality rule's actual value starts with ("3", "9.25%", "90 minutes").
+    private static readonly Regex LeadingNumber = new("^[0-9]{1,20}(?:[.,][0-9]{1,6})?", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
 
     public Task<TableKnowledge> GetTableKnowledgeAsync(int dataSourceId, int projectId, string schemaName, string tableName, CancellationToken ct = default)
     {
@@ -111,36 +115,35 @@ internal sealed partial class KnowledgeGraphService(
             .Where(q => q.DataSourceId == dataSourceId && q.SchemaName == schemaName && q.TableName == tableName)
             .FirstOrDefaultAsync(ct);
 
-        var qualityRules = new List<QualityRuleInfo>();
-        var contract = await context.DataContracts
-            .Include(c => c.Rules)
-            .Where(c => c.DataSourceId == dataSourceId && c.SchemaName == schemaName && c.TableName == tableName)
-            .FirstOrDefaultAsync(ct);
-
-        if (contract != null)
-        {
-            // Get latest evaluation results - EvaluatedAt does not exist; use CreatedTime from BaseEntity
-            var latestEval = await context.DataQualityEvaluations
-                .Include(e => e.RuleResults)
-                .Where(e => e.DataContractId == contract.Id)
-                .OrderByDescending(e => e.CreatedTime)
-                .FirstOrDefaultAsync(ct);
-
-            if (latestEval != null)
-            {
-                foreach (var rule in contract.Rules)
+        // The table's enabled contracts, each rule as its contract's latest evaluation found it. A rule that evaluation did
+        // not run (disabled, waiting for approval, added since) is left out, never reported as failing. A result's stored
+        // text never reaches grounding (a Custom SQL rule's message and value are whatever its query returned): each rule
+        // gets a status written here from its type, its outcome and the digits of its actual value.
+        var ruleResults = await context.DataContracts
+            .Where(x => x.DataSourceId == dataSourceId)
+            .Where(x => x.SchemaName == schemaName)
+            .Where(x => x.TableName == tableName)
+            .Where(x => x.IsEnabled)
+            .SelectMany(x => x.Evaluations
+                .OrderByDescending(y => y.CreatedTime)
+                .ThenByDescending(y => y.Id)
+                .Take(1)
+                .SelectMany(y => y.RuleResults))
+            .Where(x => x.DataContractRule.IsEnabled)
+            .OrderBy(x => x.DataContractRule.DataContractId)
+            .ThenBy(x => x.DataContractRuleId)
+            .Select(x =>
+                new
                 {
-                    var result = latestEval.RuleResults.FirstOrDefault(r => r.DataContractRuleId == rule.Id);
-                    // RuleResult error detail is in Message property, not ErrorMessage
-                    qualityRules.Add(new QualityRuleInfo(
-                        rule.RuleType.ToString(),
-                        rule.ColumnName,
-                        result?.Passed ?? false,
-                        result?.Message
-                    ));
-                }
-            }
-        }
+                    x.DataContractRule.RuleType,
+                    x.DataContractRule.ColumnName,
+                    x.Passed,
+                    x.ActualValue
+                })
+            .ToListAsync(ct);
+        var qualityRules = ruleResults
+            .Select(x => new QualityRuleInfo(x.RuleType.ToString(), x.ColumnName, x.Passed, RuleStatus(x.RuleType, x.Passed, x.ActualValue)))
+            .ToList();
 
         // Count query executions that touched this data source via query steps
         var queryCount = await context.QueryExecutionHistory
@@ -675,6 +678,42 @@ internal sealed partial class KnowledgeGraphService(
             .WhereReadable()
             .Where(x => x.ProjectId == projectId)
             .Select(x => x.DataSourceId);
+    }
+
+    // A data-quality rule result's status as grounding shows it, written here and never taken from the stored result: the
+    // rule's outcome in words, and for a failed built-in rule the number its actual value starts with (digits and one
+    // decimal separator only). A Custom SQL rule's value is whatever its query returned, so it is never shown.
+    private static string? RuleStatus(DataContractRuleType ruleType, bool passed, string? actualValue)
+    {
+        // The value the evaluator stores when the rule's query did not run or its result could not be read.
+        if (!passed && actualValue == "Error")
+        {
+            return "The rule did not complete";
+        }
+
+        var number = ruleType == DataContractRuleType.CustomSql || actualValue == null
+            ? null
+            : LeadingNumber.Match(actualValue) is { Success: true } match ? match.Value : null;
+
+        return ruleType switch
+        {
+            DataContractRuleType.Freshness when passed => "Data is fresh",
+            DataContractRuleType.Freshness => number == null ? "Data is stale" : $"Data is stale ({number} minutes old)",
+            DataContractRuleType.Volume when passed => "Row count within expected range",
+            DataContractRuleType.Volume => number == null ? "Row count outside expected range" : $"Row count {number} outside expected range",
+            DataContractRuleType.NullRate when passed => "Null rate within threshold",
+            DataContractRuleType.NullRate => number == null ? "Null rate exceeds threshold" : $"Null rate {number}% exceeds threshold",
+            DataContractRuleType.Uniqueness when passed => "All values are unique",
+            DataContractRuleType.Uniqueness => number == null ? "Duplicate values found" : $"{number} duplicate values found",
+            DataContractRuleType.Referential when passed => "All references are valid",
+            DataContractRuleType.Referential => number == null ? "Orphaned records found" : $"{number} orphaned records found",
+            DataContractRuleType.Range when passed => "All values within range",
+            DataContractRuleType.Range => number == null ? "Values out of range" : $"{number} values out of range",
+            DataContractRuleType.Pattern when passed => "All values match pattern",
+            DataContractRuleType.Pattern => number == null ? "Values don't match pattern" : $"{number} values don't match pattern",
+            DataContractRuleType.CustomSql => passed ? "Custom check passed" : "Custom check failed",
+            _ => null
+        };
     }
 
     private static async Task<DataSource> LinkedDataSourceAsync(

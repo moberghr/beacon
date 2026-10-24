@@ -138,7 +138,8 @@ public class SecurityAuditDetailsTests
         var act = () => provider.GetRequiredService<IOptions<SecurityAuditOptions>>().Value;
 
         act.Should().Throw<OptionsValidationException>().WithMessage("*RetentionDays*");
-        provider.GetServices<IValidateOptions<SecurityAuditOptions>>().Should().ContainSingle();
+        provider.GetServices<IValidateOptions<SecurityAuditOptions>>().Select(x => x.GetType()).Should()
+            .Equal(typeof(SecurityAuditOptionsValidator), typeof(ExecutionLogRegistrationValidator));
     }
 
     [Test]

@@ -17,6 +17,7 @@ public static class ServiceCollectionExtensions
             .ValidateOnStart();
         builder.Services.AddTransient<IDataSourceProvider, BigQueryProvider>();
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceTransportInspector, BigQueryTransportInspector>());
+        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceConnectionOptionInspector, BigQueryConnectionOptionInspector>());
         return builder;
     }
 }

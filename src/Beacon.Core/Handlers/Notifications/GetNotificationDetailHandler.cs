@@ -51,6 +51,7 @@ internal sealed class GetNotificationDetailHandler(
         // Two-step load: scalar subqueries over an empty Notifications collection made EF/Npgsql materialize the whole
         // projected row as null, surfacing as a 404 for runs that have no notifications yet.
         var details = await context.QueryExecutionHistory
+            .IgnoreQueryFilters()
             .Where(x => x.Id == queryExecutionHistoryId)
             .WhereReadableWithin(context, scope)
             .Select(x =>
@@ -76,7 +77,9 @@ internal sealed class GetNotificationDetailHandler(
             return null;
         }
 
+        // The run passed the scope check above: a delivery stays part of that record after its recipient is archived.
         var firstNotification = await context.Notifications
+            .IgnoreQueryFilters()
             .Where(x => x.QueryExecutionHistoryId == queryExecutionHistoryId)
             .OrderBy(x => x.Id)
             .Select(x =>

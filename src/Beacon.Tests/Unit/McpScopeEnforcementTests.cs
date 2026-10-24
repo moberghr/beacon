@@ -437,9 +437,11 @@ public class McpScopeEnforcementTests
     }
 
     [Test]
-    public void SampleHost_MapsMcpWithMapBeaconMcp_NeverWithABareMapMcp()
+    public void SampleHost_MapsMcpThroughMapBeacon_NeverWithABareMapMcp()
     {
-        // The sample host does not boot without a database, so its MCP mapping is checked in its source. Together with
+        // The sample host does not boot without a database, so its MCP mapping is checked in its source. The sample maps
+        // MCP through the host chain's MapBeacon, which calls MapBeaconMcp (its Execute-scope policy on /beacon/mcp is pinned
+        // by BeaconHostChainTests.MapBeacon_MapsTheApi_SignIn_Mcp_Discovery_AndTheShell). Together with
         // MapBeaconMcp_RequiresTheExecuteScopePolicy_OnEveryMcpEndpoint this proves every /beacon/mcp endpoint the host
         // maps carries the Execute-scope policy.
         var code = File.ReadAllLines(SampleHostProgramPath())
@@ -447,7 +449,7 @@ public class McpScopeEnforcementTests
             .Where(x => !x.StartsWith("//", StringComparison.Ordinal))
             .ToList();
 
-        code.Should().Contain("app.MapBeaconMcp();");
+        code.Should().Contain("app.MapBeacon();");
         code.Should().NotContain(x => Regex.IsMatch(x, @"\.MapMcp\s*[<(]"), "a bare MapMcp skips the Execute-scope policy");
     }
 
