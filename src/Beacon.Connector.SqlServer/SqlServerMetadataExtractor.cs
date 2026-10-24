@@ -53,17 +53,6 @@ public class SqlServerMetadataExtractor : IDatabaseMetadataExtractor
             JOIN sys.foreign_keys fkc ON fk.constraint_object_id = fkc.object_id";
 
         var foreignKeys = await connection.QueryAsync(new CommandDefinition(foreignKeysQuery, commandTimeout: 180, cancellationToken: cancellationToken));
-        var fkLookup = foreignKeys
-            .GroupBy(fk => $"{fk.table_schema}.{fk.table_name}.{fk.column_name}")
-            .ToDictionary(
-                g => g.Key,
-                g => (
-                    TableName: (string)g.First().foreign_table_name,
-                    ColumnName: (string)g.First().foreign_column_name,
-                    SchemaName: (string?)g.First().foreign_schema_name,
-                    ConstraintName: (string?)g.First().constraint_name)
-            );
-
         const string indexesQuery = @"
             SELECT
                 s.name AS table_schema,
@@ -81,6 +70,25 @@ public class SqlServerMetadataExtractor : IDatabaseMetadataExtractor
             GROUP BY s.name, t.name, i.name, i.is_unique, i.is_primary_key";
 
         var indexesData = await connection.QueryAsync(new CommandDefinition(indexesQuery, commandTimeout: 180, cancellationToken: cancellationToken));
+
+        return Assemble(columnsData, foreignKeys, indexesData);
+    }
+
+    /// <summary>
+    /// Builds the table list from the rows the catalog queries returned. Pure: no connection, so a fixture can pin it.
+    /// </summary>
+    internal static IReadOnlyList<TableMetadataDto> Assemble(IEnumerable<dynamic> columnsData, IEnumerable<dynamic> foreignKeys, IEnumerable<dynamic> indexesData)
+    {
+        var fkLookup = foreignKeys
+            .GroupBy(fk => $"{fk.table_schema}.{fk.table_name}.{fk.column_name}")
+            .ToDictionary(
+                g => g.Key,
+                g => (
+                    TableName: (string)g.First().foreign_table_name,
+                    ColumnName: (string)g.First().foreign_column_name,
+                    SchemaName: (string?)g.First().foreign_schema_name,
+                    ConstraintName: (string?)g.First().constraint_name)
+            );
 
         var tables = columnsData
             .GroupBy(c => new { schema = (string)c.table_schema, table = (string)c.table_name })
