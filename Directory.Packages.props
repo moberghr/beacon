@@ -6,7 +6,7 @@
 
   <ItemGroup>
     <PackageVersion Include="AWSSDK.BedrockRuntime" Version="4.0.101.13" />
-    <PackageVersion Include="AWSSDK.CloudWatchLogs" Version="4.0.105" />
+    <PackageVersion Include="AWSSDK.CloudWatchLogs" Version="4.0.106.1" />
     <PackageVersion Include="ClosedXML" Version="0.105.1" />
     <PackageVersion Include="CronExpressionDescriptor" Version="2.51.0" />
     <PackageVersion Include="Cronos" Version="0.13.0" />
