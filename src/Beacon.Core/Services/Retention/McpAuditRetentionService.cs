@@ -9,8 +9,8 @@ using Beacon.Core.Telemetry;
 namespace Beacon.Core.Services.Retention;
 
 /// <summary>
-/// Deployment-level purge of <c>McpAuditLog</c> rows, driven by <c>Beacon:Mcp:Audit:RetentionDays</c>. A
-/// <c>null</c> window (the default) is a no-op — audit rows are kept forever until an operator opts in.
+/// Deployment-level purge of <c>McpAuditLog</c> rows, driven by <c>Beacon:Mcp:Audit:RetentionDays</c>. A window of
+/// <c>null</c> (the default) or <c>0</c> is a no-op: audit rows are kept forever.
 /// Scheduled by the host as the Warp recurring job <c>mcp-audit-retention</c>
 /// (see <c>Beacon.SampleProject/Warp/Jobs/McpMaintenanceJobs.cs</c>); consumer hosts schedule it themselves.
 /// </summary>
@@ -23,7 +23,8 @@ internal sealed class McpAuditRetentionService(
     IDbContextFactory<BeaconContext> contextFactory,
     IOptions<McpDeploymentOptions> deploymentOptions,
     TimeProvider timeProvider,
-    ILoggerFactory loggerFactory) : IMcpAuditRetentionService
+    ILoggerFactory loggerFactory,
+    IMaintenanceHeartbeat? heartbeat = null) : IMcpAuditRetentionService
 {
     internal static readonly EventId AuditPurgedEvent = new(9102, "McpAuditPurged");
 
@@ -32,7 +33,7 @@ internal sealed class McpAuditRetentionService(
     public async Task<int> PurgeExpiredAsync(CancellationToken cancellationToken)
     {
         var retentionDays = deploymentOptions.Value.Audit?.RetentionDays;
-        if (retentionDays is null)
+        if (retentionDays is null or 0)
         {
             _auditLogger.LogDebug("MCP audit retention purge skipped: no retention window configured.");
 
@@ -50,6 +51,11 @@ internal sealed class McpAuditRetentionService(
             "MCP audit purge deleted {Deleted} rows older than {Cutoff}",
             deleted,
             cutoff);
+
+        if (heartbeat != null)
+        {
+            await heartbeat.RecordAsync(MaintenanceJobNames.McpAuditRetention, cancellationToken);
+        }
 
         return deleted;
     }

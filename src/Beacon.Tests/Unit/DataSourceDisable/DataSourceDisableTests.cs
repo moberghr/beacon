@@ -775,7 +775,7 @@ public class DataSourceDisableTests
             return new DataSourceService(
                 factory.Object,
                 Encryption(),
-                Mock.Of<IDataSourceProviderFactory>(),
+                TestProviderFactory.Accepting(),
                 Cache,
                 Graph.Object,
                 audit,

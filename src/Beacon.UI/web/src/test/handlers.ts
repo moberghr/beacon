@@ -69,4 +69,7 @@ export const handlers = [
       ],
     })
   ),
+  // No AI actor plan waits for a decision unless a test says so (the actor detail page and the navigation badge ask).
+  http.get('*/beacon/api/ai-actors/:id/pending-plans', () => HttpResponse.json({ plans: [] })),
+  http.get('*/beacon/api/ai-actors/pending-plans/count', () => HttpResponse.json({ count: 0 })),
 ];

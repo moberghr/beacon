@@ -7,6 +7,7 @@ using Beacon.Core.Authorization;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Services;
+using Beacon.Core.Services.Embed;
 using Beacon.Core.Services.Security;
 using MediatR;
 using Microsoft.AspNetCore.Authorization;
@@ -68,8 +69,9 @@ internal static class BeaconApiRoutes
         builder.Services.AddSingleton(Mock.Of<IUserManagementService>());
         builder.Services.AddSingleton(Mock.Of<IDbContextFactory<BeaconContext>>());
         builder.Services.AddSingleton(new BeaconApiOptions { Realtime = false });
-        // The whole surface, the migration routes included (they are mapped only on a host that runs migrations).
+        // The whole surface, the migration and embed routes included (each is mapped only on a host that turned it on).
         builder.Services.AddSingleton(Options.Create(new MigrationOptions { Enabled = true }));
+        builder.Services.AddSingleton(Options.Create(new EmbedOptions { Enabled = true }));
         builder.Services.AddAntiforgery();
         builder.Services.AddRouting();
         builder.Services.AddBeaconApiAuthorization();

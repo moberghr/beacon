@@ -740,7 +740,7 @@ public class RestBearerUserBindingTests
         await using var app = await StartLoginHostAsync(CreateLoginProvider(issued, users.Object, Sso()));
         using var client = app.GetTestClient();
 
-        var response = await client.PostAsJsonAsync("/beacon/api/auth/login", new LoginRequest("ana", "secret"));
+        var response = await client.PostAsJsonWithAntiforgeryAsync(app.Services, "/beacon/api/auth/login", new LoginRequest("ana", "secret"));
 
         response.StatusCode.Should().Be(expected);
         var cookies = response.Headers.TryGetValues("Set-Cookie", out var values) ? values.ToList() : [];

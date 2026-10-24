@@ -195,7 +195,7 @@ internal sealed class ColumnValueSampler(
         try
         {
             run = await sqlRunner.RunAsync(
-                new GatedSqlRequest(dataSource, sql, new Dictionary<string, object?>(), statementBound + 1, rowSecurity, Timeout: StatementTimeout),
+                new GatedSqlRequest(dataSource, sql, new Dictionary<string, object?>(), statementBound + 1, rowSecurity, Timeout: StatementTimeout, ExecutionContext: SqlExecutionContexts.ColumnValueSample),
                 cancellationToken);
         }
         catch (InvalidOperationException)

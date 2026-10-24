@@ -150,6 +150,37 @@ public class LlmTelemetryTests
     }
 
     [Test]
+    public async Task FastTierCompletion_NamesTheFastModelOnItsSpan()
+    {
+        const string fastModel = "claude-telemetry-fast";
+        var main = new Mock<ILlmProvider>(MockBehavior.Strict);
+        var fast = new Mock<ILlmProvider>();
+        fast
+            .Setup(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new LlmResponse { Content = CompletionMarker, Model = fastModel, InputTokens = 12, OutputTokens = 3 });
+        var config = new LlmConfiguration { Provider = AiProvider.Claude, Model = Model, FastModel = fastModel };
+        var factory = new LlmProviderFactory(() => config, [new FixedRegistration(main.Object, fast.Object)]);
+        var manager = new LlmProviderManager(config, factory, NullLogger<LlmProviderManager>.Instance);
+        var delegating = new DelegatingLlmProvider(manager, new LlmRequestQueue(1, 1));
+        var request = MarkedRequest() with { Tier = LlmTier.Fast };
+
+        await delegating.CompleteAsync(request);
+
+        fast.Verify(x => x.CompleteAsync(request, It.IsAny<CancellationToken>()), Times.Once);
+        var span = _stopped.Single(x => x.OperationName == BeaconTelemetry.LlmCompletionActivityName && Equals(x.GetTagItem(BeaconTelemetry.LlmOperationTag), _operation));
+        span.GetTagItem(BeaconTelemetry.LlmProviderTag).Should().Be("claude");
+        span.GetTagItem(BeaconTelemetry.LlmRequestModelTag).Should().Be(fastModel);
+        span.GetTagItem(BeaconTelemetry.LlmResponseModelTag).Should().Be(fastModel);
+        span.GetTagItem(BeaconTelemetry.OutcomeTag).Should().Be(BeaconTelemetry.OutcomeSuccess);
+        _measurements
+            .Where(x => x.Instrument == BeaconTelemetry.LlmCalls.Name)
+            .Where(x => Equals(x.Tags.GetValueOrDefault(BeaconTelemetry.LlmOperationTag), _operation))
+            .Should().ContainSingle()
+            .Which.Tags[BeaconTelemetry.LlmRequestModelTag].Should().Be(fastModel);
+        AssertNoContent(span);
+    }
+
+    [Test]
     public async Task Completion_RecordsTheCallAndOneTokenMeasurementPerTokenType()
     {
         var inner = new Mock<ILlmProvider>();
@@ -721,12 +752,12 @@ public class LlmTelemetryTests
         return new DelegatingLlmProvider(manager, new LlmRequestQueue(1, 1));
     }
 
-    private sealed class FixedRegistration(ILlmProvider provider) : ILlmProviderRegistration
+    private sealed class FixedRegistration(ILlmProvider provider, ILlmProvider? fastProvider = null) : ILlmProviderRegistration
     {
         public AiProvider Provider => AiProvider.Claude;
 
         public bool RequiresApiKey => false;
 
-        public ILlmProvider Create(LlmConfiguration configuration, bool fast) => provider;
+        public ILlmProvider Create(LlmConfiguration configuration, bool fast) => fast ? fastProvider ?? provider : provider;
     }
 }

@@ -138,7 +138,7 @@ public class StoredRunReadersTests
     {
         var capture = new SqlCapture().ThenScalar(SubscriptionId).ThenNoRows();
 
-        await TaskService(capture.Factory()).GetTaskExecutionHistory(TaskId, StoredRunScope.WithinProjects([1]), CancellationToken.None);
+        await new GetTaskExecutionsHandler(capture.Factory(), null!).Read(TaskId, StoredRunScope.WithinProjects([1]), CancellationToken.None);
 
         capture.Commands.Should().HaveCount(2, "the task's subscription, then its runs");
         RestrictedPredicateOf(capture.Commands[1]);
@@ -151,7 +151,7 @@ public class StoredRunReadersTests
     {
         var capture = new SqlCapture().ThenScalar(SubscriptionId).ThenNoRows();
 
-        await TaskService(capture.Factory()).GetResultCountHistory(TaskId, StoredRunScope.WithinProjects([2]), CancellationToken.None);
+        await new GetTaskResultHistoryHandler(capture.Factory(), null!).Read(TaskId, StoredRunScope.WithinProjects([2]), CancellationToken.None);
 
         capture.Commands.Should().HaveCount(2, "the task's subscription, then its runs");
         RestrictedPredicateOf(capture.Commands[1]);
@@ -163,7 +163,7 @@ public class StoredRunReadersTests
     {
         var capture = new SqlCapture().ThenScalar(SubscriptionId).ThenNoRows();
 
-        await TaskService(capture.Factory()).GetTaskExecutionHistory(TaskId, StoredRunScope.Unrestricted, CancellationToken.None);
+        await new GetTaskExecutionsHandler(capture.Factory(), null!).Read(TaskId, StoredRunScope.Unrestricted, CancellationToken.None);
 
         capture.Commands[1].Should().NotContain("project_data_sources");
     }
@@ -184,14 +184,14 @@ public class StoredRunReadersTests
     {
         var access = TestProjectAccess.ForPrincipal(caller);
 
-        return await new GetTaskExecutionsHandler(TaskService(Factory()), access).Handle(new GetTaskExecutionsQuery(TaskId), CancellationToken.None);
+        return await new GetTaskExecutionsHandler(Factory(), access).Handle(new GetTaskExecutionsQuery(TaskId), CancellationToken.None);
     }
 
     private static async Task<TaskResultHistoryResult> TaskResultHistory(ClaimsPrincipal caller)
     {
         var access = TestProjectAccess.ForPrincipal(caller);
 
-        return await new GetTaskResultHistoryHandler(TaskService(Factory()), access).Handle(new GetTaskResultHistoryQuery(TaskId), CancellationToken.None);
+        return await new GetTaskResultHistoryHandler(Factory(), access).Handle(new GetTaskResultHistoryQuery(TaskId), CancellationToken.None);
     }
 
     private static async Task<GetSubscriptionAnomalyChartResult> AnomalyChart(ClaimsPrincipal caller)
@@ -200,11 +200,6 @@ public class StoredRunReadersTests
         var service = new AnomalyDetectionService(Factory(), NullLogger<AnomalyDetectionService>.Instance);
 
         return await new GetSubscriptionAnomalyChartHandler(service, access).Handle(new GetSubscriptionAnomalyChartQuery(SubscriptionId), CancellationToken.None);
-    }
-
-    private static TaskService TaskService(IDbContextFactory<BeaconContext> factory)
-    {
-        return new TaskService(factory, NullLogger<TaskService>.Instance, new RecordingSecurityAudit());
     }
 
     // The run must have recorded data sources, at least one, and some allowed project must hold each of them.

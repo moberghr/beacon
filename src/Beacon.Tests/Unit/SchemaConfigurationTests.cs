@@ -16,6 +16,9 @@ using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit;
 
+// UseBeaconSchema is obsolete (the schema is fixed to beacon) but keeps working until 6.0; these tests pin that.
+#pragma warning disable CS0618
+
 [TestFixture]
 public class SchemaConfigurationTests
 {
@@ -110,15 +113,13 @@ public class SchemaConfigurationTests
             .WithMessage($"*{injection}*");
     }
 
-    // SchemaAwareMigrationsSqlGenerator and SchemaModelCacheKeyFactory are internal to
-    // Beacon.Core.SqlServer, which grants InternalsVisibleTo to no test project, so these
-    // tests drive them the only way this assembly can: resolve the replaced services from a
-    // real DI container built via the public UseSqlServer() wiring, exactly as the host does.
+    // These tests drive the internal SchemaAwareMigrationsSqlGenerator through a real DI
+    // container built via the public UseSqlServer() / UsePostgreSql() wiring, exactly as the host does.
 
     [Test]
     public void SqlServerGenerator_RetargetsCreateTableSchema()
     {
-        using var provider = BuildSqlServerProvider("beacon");
+        using var provider = BuildSqlServerProvider();
         using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
         var generator = context.GetService<IMigrationsSqlGenerator>();
 
@@ -148,7 +149,7 @@ public class SchemaConfigurationTests
     [Test]
     public void SqlServerGenerator_RetargetsForeignKeyPrincipalSchema()
     {
-        using var provider = BuildSqlServerProvider("beacon");
+        using var provider = BuildSqlServerProvider();
         using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
         var generator = context.GetService<IMigrationsSqlGenerator>();
 
@@ -173,8 +174,8 @@ public class SchemaConfigurationTests
     [Test]
     public void ModelCacheKeyFactory_EqualForSameSchema()
     {
-        using var providerA = BuildSqlServerProvider("beacon");
-        using var providerB = BuildSqlServerProvider("beacon");
+        using var providerA = BuildSqlServerProvider();
+        using var providerB = BuildSqlServerProvider();
         using var contextA = providerA.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
         using var contextB = providerB.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
 
@@ -191,7 +192,7 @@ public class SchemaConfigurationTests
     [Test]
     public void PostgreSqlGenerator_RetargetsNullSchema()
     {
-        using var provider = BuildPostgreSqlProvider("beacon");
+        using var provider = BuildPostgreSqlProvider();
         using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
         var generator = context.GetService<IMigrationsSqlGenerator>();
 
@@ -221,7 +222,7 @@ public class SchemaConfigurationTests
     [Test]
     public void PostgreSqlGenerator_RetargetsForeignKeyPrincipalSchema()
     {
-        using var provider = BuildPostgreSqlProvider("beacon");
+        using var provider = BuildPostgreSqlProvider();
         using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
         var generator = context.GetService<IMigrationsSqlGenerator>();
 
@@ -245,7 +246,7 @@ public class SchemaConfigurationTests
     [Test]
     public void PostgreSqlGenerator_RetargetsBeaconLiteral()
     {
-        using var provider = BuildPostgreSqlProvider("beacon");
+        using var provider = BuildPostgreSqlProvider();
         using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
         var generator = context.GetService<IMigrationsSqlGenerator>();
 
@@ -279,7 +280,7 @@ public class SchemaConfigurationTests
     [Test]
     public void UsePostgreSql_SearchesBeaconThenPublic()
     {
-        using var provider = BuildPostgreSqlProvider("beacon");
+        using var provider = BuildPostgreSqlProvider();
         using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
 
         var searchPath = new NpgsqlConnectionStringBuilder(context.Database.GetConnectionString()).SearchPath;
@@ -295,7 +296,7 @@ public class SchemaConfigurationTests
     [Test]
     public void SqlServerGenerator_RetargetsNestedForeignKeySchema()
     {
-        using var provider = BuildSqlServerProvider("beacon");
+        using var provider = BuildSqlServerProvider();
         using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
         var generator = context.GetService<IMigrationsSqlGenerator>();
 
@@ -346,7 +347,7 @@ public class SchemaConfigurationTests
     [Test]
     public void SqlServerGenerator_RetargetsEnsureSchemaOperation()
     {
-        using var provider = BuildSqlServerProvider("beacon");
+        using var provider = BuildSqlServerProvider();
         using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
         var generator = context.GetService<IMigrationsSqlGenerator>();
 
@@ -361,7 +362,7 @@ public class SchemaConfigurationTests
     [Test]
     public void SqlServerGenerator_RetargetsRenameTableNewSchema()
     {
-        using var provider = BuildSqlServerProvider("beacon");
+        using var provider = BuildSqlServerProvider();
         using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
         var generator = context.GetService<IMigrationsSqlGenerator>();
 
@@ -382,7 +383,7 @@ public class SchemaConfigurationTests
     [Test]
     public void Generator_ThrowsOnUnexpectedSchemaLiteral()
     {
-        using var provider = BuildSqlServerProvider("beacon");
+        using var provider = BuildSqlServerProvider();
         using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
         var generator = context.GetService<IMigrationsSqlGenerator>();
 
@@ -445,7 +446,7 @@ public class SchemaConfigurationTests
         act.Should().NotThrow();
     }
 
-    private static ServiceProvider BuildPostgreSqlProvider(string schema)
+    private static ServiceProvider BuildPostgreSqlProvider()
     {
         var services = new ServiceCollection();
 
@@ -459,14 +460,12 @@ public class SchemaConfigurationTests
 
         var builder = services.AddBeaconServices(configuration, x => x.AddBeaconScheduler<NoOpScheduler>());
 
-        builder.UsePostgreSql(
-            "Host=localhost;Database=unused",
-            schema);
+        builder.UsePostgreSql("Host=localhost;Database=unused");
 
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
     }
 
-    private static ServiceProvider BuildSqlServerProvider(string schema)
+    private static ServiceProvider BuildSqlServerProvider()
     {
         var services = new ServiceCollection();
 
@@ -480,9 +479,7 @@ public class SchemaConfigurationTests
 
         var builder = services.AddBeaconServices(configuration, x => x.AddBeaconScheduler<NoOpScheduler>());
 
-        builder.UseSqlServer(
-            "Server=localhost;Database=unused;Trusted_Connection=True;TrustServerCertificate=True",
-            schema);
+        builder.UseSqlServer("Server=localhost;Database=unused;Trusted_Connection=True;TrustServerCertificate=True");
 
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
     }

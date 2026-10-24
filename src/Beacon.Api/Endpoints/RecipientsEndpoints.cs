@@ -45,4 +45,13 @@ internal sealed record UpdateRecipientBody(
     string? Destination,
     int NotificationType,
     string? HeadersJson,
-    string? BodyTemplate);
+    string? BodyTemplate)
+{
+    // The compiler-generated ToString prints every member; the secrets are printed redacted.
+    private bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"Name = {Name}, Description = {Description}, Destination = {Core.RedactedPrint.Of(Destination)}, NotificationType = {NotificationType}, HeadersJson = {Core.RedactedPrint.Of(HeadersJson)}, BodyTemplate = {BodyTemplate}");
+
+        return true;
+    }
+}

@@ -1,5 +1,5 @@
+using System.ComponentModel;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -12,29 +12,27 @@ namespace Beacon.Core.PostgreSql;
 
 public static class ServiceCollectionExtensions
 {
+    private const string Schema = BeaconDatabaseConfiguration.DefaultSchema;
+
     /// <summary>
     /// Configures PostgreSQL as the database provider for Beacon, reading the connection string from
-    /// <c>ConnectionStrings:BeaconContext</c> and the schema from <c>Beacon:Schema</c>
-    /// (defaults to <c>beacon</c>).
+    /// <c>ConnectionStrings:BeaconContext</c>. Beacon's schema is always <c>beacon</c>; <c>Beacon:Schema</c> set to any
+    /// other value is refused.
     /// </summary>
     public static IServiceCollection UsePostgreSql(this BeaconBuilder builder)
     {
-        return builder.UsePostgreSql(
-            BeaconDatabaseConfiguration.GetConnectionString(builder.Configuration),
-            BeaconDatabaseConfiguration.GetSchema(builder.Configuration));
+        var connectionString = BeaconDatabaseConfiguration.GetConnectionString(builder.Configuration);
+        BeaconDatabaseConfiguration.GetSchema(builder.Configuration);
+
+        return builder.UsePostgreSql(connectionString);
     }
 
     /// <summary>
-    /// Configures PostgreSQL as the database provider for Beacon.
+    /// Configures PostgreSQL as the database provider for Beacon, in the <c>beacon</c> schema.
     /// This method is chainable after AddBeaconServices().
     /// </summary>
-    public static IServiceCollection UsePostgreSql(
-        this BeaconBuilder builder,
-        string connectionString,
-        string schema = BeaconDatabaseConfiguration.DefaultSchema)
+    public static IServiceCollection UsePostgreSql(this BeaconBuilder builder, string connectionString)
     {
-        BeaconDatabaseConfiguration.RequireSupportedSchema(schema);
-
         // The schema comes first so Beacon's own unqualified names resolve there and never fall through to a
         // host table. public follows because a database that already has pgvector usually has it there:
         // AddMcpEmbedding's CREATE EXTENSION IF NOT EXISTS is then a no-op, and its unqualified vector(384) /
@@ -43,10 +41,20 @@ public static class ServiceCollectionExtensions
         // it to public (ALTER EXTENSION vector SET SCHEMA public) without breaking Beacon.
         var dataSource = new NpgsqlDataSourceBuilder(connectionString)
         {
-            ConnectionStringBuilder = { SearchPath = $"{schema},public" }
+            ConnectionStringBuilder = { SearchPath = $"{Schema},public" }
         }.Build();
 
-        return builder.AddPostgreSqlContext(_ => dataSource, schema, setSearchPathOnOpen: false);
+        return builder.AddPostgreSqlContext(_ => dataSource, setSearchPathOnOpen: false);
+    }
+
+    /// <summary>Beacon's schema is fixed to <c>beacon</c>: the argument is checked and otherwise ignored.</summary>
+    [Obsolete("Beacon's schema is fixed to 'beacon'; use UsePostgreSql(connectionString). This overload is removed in 6.0.")]
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static IServiceCollection UsePostgreSql(this BeaconBuilder builder, string connectionString, string schema)
+    {
+        BeaconDatabaseConfiguration.RequireSupportedSchema(schema);
+
+        return builder.UsePostgreSql(connectionString);
     }
 
     /// <summary>
@@ -55,14 +63,22 @@ public static class ServiceCollectionExtensions
     /// connection (EF Core, migrations in <c>UseBeacon()</c>, raw SQL) is opened from it. See the factory
     /// overload for what Beacon requires of the data source.
     /// </summary>
-    public static IServiceCollection UsePostgreSql(
-        this BeaconBuilder builder,
-        NpgsqlDataSource dataSource,
-        string schema = BeaconDatabaseConfiguration.DefaultSchema)
+    public static IServiceCollection UsePostgreSql(this BeaconBuilder builder, NpgsqlDataSource dataSource)
     {
         ArgumentNullException.ThrowIfNull(dataSource);
 
-        return builder.UsePostgreSql(_ => dataSource, schema);
+        return builder.UsePostgreSql(_ => dataSource);
+    }
+
+    /// <summary>Beacon's schema is fixed to <c>beacon</c>: the argument is checked and otherwise ignored.</summary>
+    [Obsolete("Beacon's schema is fixed to 'beacon'; use UsePostgreSql(dataSource). This overload is removed in 6.0.")]
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static IServiceCollection UsePostgreSql(this BeaconBuilder builder, NpgsqlDataSource dataSource, string schema)
+    {
+        ArgumentNullException.ThrowIfNull(dataSource);
+        BeaconDatabaseConfiguration.RequireSupportedSchema(schema);
+
+        return builder.UsePostgreSql(_ => dataSource);
     }
 
     /// <summary>
@@ -84,21 +100,43 @@ public static class ServiceCollectionExtensions
     /// <c>vector</c> extension, which Beacon's migrations create if missing.
     /// </para>
     /// </summary>
+    public static IServiceCollection UsePostgreSql(this BeaconBuilder builder, Func<IServiceProvider, NpgsqlDataSource> dataSourceFactory)
+    {
+        ArgumentNullException.ThrowIfNull(dataSourceFactory);
+
+        return builder.AddPostgreSqlContext(dataSourceFactory, setSearchPathOnOpen: true);
+    }
+
+    /// <summary>Beacon's schema is fixed to <c>beacon</c>: the argument is checked and otherwise ignored.</summary>
+    [Obsolete("Beacon's schema is fixed to 'beacon'; use UsePostgreSql(dataSourceFactory). This overload is removed in 6.0.")]
+    [EditorBrowsable(EditorBrowsableState.Never)]
     public static IServiceCollection UsePostgreSql(
         this BeaconBuilder builder,
         Func<IServiceProvider, NpgsqlDataSource> dataSourceFactory,
-        string schema = BeaconDatabaseConfiguration.DefaultSchema)
+        string schema)
     {
         ArgumentNullException.ThrowIfNull(dataSourceFactory);
         BeaconDatabaseConfiguration.RequireSupportedSchema(schema);
 
-        return builder.AddPostgreSqlContext(dataSourceFactory, schema, setSearchPathOnOpen: true);
+        return builder.AddPostgreSqlContext(dataSourceFactory, setSearchPathOnOpen: true);
+    }
+
+    /// <summary>
+    /// The model and migration options Beacon's PostgreSQL context uses, shared by <c>UsePostgreSql</c> and
+    /// <see cref="BeaconPostgreSqlMigrator"/>: snake-case names, the <c>beacon</c> schema's history table, and the
+    /// migration SQL generator that places the committed migrations' unqualified operations in <c>beacon</c>.
+    /// </summary>
+    internal static DbContextOptionsBuilder UseBeaconPostgreSqlModel(this DbContextOptionsBuilder options, NpgsqlDataSource dataSource)
+    {
+        return options
+            .UseNpgsql(dataSource, x => x.MigrationsHistoryTable("__EFMigrationsHistory", Schema))
+            .UseSnakeCaseNamingConvention()
+            .ReplaceService<IMigrationsSqlGenerator, SchemaAwareMigrationsSqlGenerator>();
     }
 
     private static IServiceCollection AddPostgreSqlContext(
         this BeaconBuilder builder,
         Func<IServiceProvider, NpgsqlDataSource> dataSourceFactory,
-        string schema,
         bool setSearchPathOnOpen)
     {
         // The pgvector type mapping (data-source-level UseVector() on NpgsqlDataSourceBuilder,
@@ -106,7 +144,7 @@ public static class ServiceCollectionExtensions
         // model has no Pgvector.Vector property (the vector(384) column is DB-managed only), and
         // enabling it cleanly requires restructuring how the data source is built. Vector queries
         // instead cast with a ::vector string literal and use the <=> operator.
-        builder.Services.AddDbContextFactory<PostgreSqlBeaconContext>((sp, options) =>
+        builder.Services.AddPooledDbContextFactory<PostgreSqlBeaconContext>((sp, options) =>
         {
             var dataSource = dataSourceFactory(sp);
             if (setSearchPathOnOpen)
@@ -114,18 +152,13 @@ public static class ServiceCollectionExtensions
                 RequireConnectionResetOnReturn(dataSource);
             }
 
-            options.UseNpgsql(dataSource,
-                    o => o.MigrationsHistoryTable("__EFMigrationsHistory", schema))
-                   .UseSnakeCaseNamingConvention()
-                   .AddInterceptors(sp.GetRequiredService<ContentRetentionInterceptor>(), sp.GetRequiredService<SecurityAuditInterceptor>())
-                   .UseBeaconSchema(schema)
-                   .ReplaceService<IMigrationsSqlGenerator, SchemaAwareMigrationsSqlGenerator>()
-                   .ReplaceService<IModelCacheKeyFactory, BeaconSchemaModelCacheKeyFactory>();
+            options.UseBeaconPostgreSqlModel(dataSource)
+                .AddInterceptors(sp.GetRequiredService<ContentRetentionInterceptor>(), sp.GetRequiredService<SecurityAuditInterceptor>());
 
             // A host data source carries the host's search path, not Beacon's (see the factory overload).
             if (setSearchPathOnOpen)
             {
-                options.AddInterceptors(new BeaconSearchPathInterceptor(schema));
+                options.AddInterceptors(new BeaconSearchPathInterceptor(Schema));
             }
         });
 
@@ -133,7 +166,7 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<IDbContextFactory<BeaconContext>>(sp =>
         {
             var factory = sp.GetRequiredService<IDbContextFactory<PostgreSqlBeaconContext>>();
-            return new BeaconContextFactoryAdapter(factory);
+            return new BeaconContextFactoryAdapter<PostgreSqlBeaconContext>(factory);
         });
 
         // Register BeaconContext as scoped (required for Data Protection key persistence)
@@ -165,21 +198,6 @@ public static class ServiceCollectionExtensions
                 "Beacon cannot share this NpgsqlDataSource: No Reset On Close is on, so the search path Beacon sets would survive the "
                 + "connection's return to the pool and redirect the host's next query on it. Turn it off, or give Beacon a data "
                 + "source of its own.");
-        }
-    }
-
-    private class BeaconContextFactoryAdapter : IDbContextFactory<BeaconContext>
-    {
-        private readonly IDbContextFactory<PostgreSqlBeaconContext> _factory;
-
-        public BeaconContextFactoryAdapter(IDbContextFactory<PostgreSqlBeaconContext> factory)
-        {
-            _factory = factory;
-        }
-
-        public BeaconContext CreateDbContext()
-        {
-            return _factory.CreateDbContext();
         }
     }
 }

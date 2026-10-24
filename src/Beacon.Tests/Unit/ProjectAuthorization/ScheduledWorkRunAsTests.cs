@@ -103,6 +103,7 @@ public class ScheduledWorkRunAsTests
 
         _connectionsOpened.Should().Be(0);
         ShouldBeSkipped([RestrictedSource]);
+        History().Single().TriggeredByUserId.Should().Be(OwnerId, "a scheduled run is recorded for the owner it runs as, by Users.Id");
         _logs.Entries.Should().ContainSingle(x => x.Level == LogLevel.Warning && x.Message.StartsWith($"Scheduled work skipped: subscription {SubscriptionId}, action Run, owner {OwnerId}"));
     }
 
@@ -609,7 +610,8 @@ public class ScheduledWorkRunAsTests
             x.GetRequiredService<ILogger<JobService>>(),
             x.GetRequiredService<IRunAsScope>(),
             TestChangeApprovals.Deliveries(),
-            requestPrincipal: x.GetRequiredService<IBeaconRequestPrincipal>()));
+            requestPrincipal: x.GetRequiredService<IBeaconRequestPrincipal>(),
+            actorAccessor: x.GetRequiredService<IBeaconActorAccessor>()));
 
         return services.BuildServiceProvider();
     }

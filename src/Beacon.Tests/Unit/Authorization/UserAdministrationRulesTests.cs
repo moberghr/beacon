@@ -19,6 +19,7 @@ using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.UserManagement;
 using Beacon.Core.Services;
+using Beacon.Core.Services.Security;
 using Beacon.Core.SecurityAudit;
 using Beacon.Tests.Common;
 
@@ -533,6 +534,50 @@ public class UserAdministrationRulesTests
         users.Verify(x => x.UpdateUserAsync(It.Is<UpdateUserRequest>(y => y.UserId == BenId && y.UserName == "ben-renamed" && y.Email == "new@example.test"), It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    [TestCase(true, false)]
+    [TestCase(false, false)]
+    [TestCase(true, true)]
+    [TestCase(false, true)]
+    public async Task UpdatingAnAccount_KeepsAStoredNameAndEmailWithSurroundingWhitespace(bool asAdmin, bool provisionedAtSignIn)
+    {
+        // Written before the trimming rules (a password account), or verbatim from an identity provider at sign-in.
+        var ben = _users.First(x => x.Id == BenId);
+        ben.UserName = provisionedAtSignIn ? " ben@corp.test " : " ab ";
+        ben.Email = provisionedAtSignIn ? " ben@corp.test" : null;
+        ben.IsInternalUser = !provisionedAtSignIn;
+        ben.IdentityProvider = provisionedAtSignIn ? "oidc" : null;
+        ben.DisplayName = "Ben";
+        ben.SecurityStamp = "before";
+        var (storedUserName, storedEmail) = (ben.UserName, ben.Email);
+        var permissions = asAdmin ? Admin() : UserAdmin();
+        var handler = new UpdateUserHandler(
+            new UserManagementService(Factory(offline: true), Mock.Of<IPasswordHasher>(), Mock.Of<IRoleService>(), new BeaconConfiguration(), TimeProvider.System, _audit),
+            Rules(permissions, false));
+
+        await handler.Handle(new UpdateUserCommand(BenId, storedUserName, storedEmail, "Ben B", true), CancellationToken.None);
+
+        ben.DisplayName.Should().Be("Ben B");
+        ben.SecurityStamp.Should().Be("before", "nothing the user signs in with changed");
+
+        await handler.Handle(new UpdateUserCommand(BenId, storedUserName, storedEmail, "Ben B", false), CancellationToken.None);
+
+        ben.IsEnabled.Should().BeFalse();
+        ben.UserName.Should().Be(storedUserName);
+        ben.Email.Should().Be(storedEmail);
+    }
+
+    [Test]
+    public async Task AUserAdmin_SendingAStoredPaddedNameTrimmed_ChangesItAndIsForbidden()
+    {
+        _users.First(x => x.Id == BenId).UserName = " ext-ben ";
+        var users = UpdatableUsers();
+
+        var act = () => Update(UserAdmin(), BenId, "ext-ben", null, users);
+
+        await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(UserAdministrationRules.SignInIdentityMessage);
+        users.Verify(x => x.UpdateUserAsync(It.IsAny<UpdateUserRequest>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
     [Test]
     public void OnlyTheReviewedRequests_SetAPasswordOrWhatAUserSignsInAs()
     {
@@ -707,7 +752,8 @@ public class UserAdministrationRulesTests
 
     private static IBeaconPermissionAccessor Admin() => TestPermissions.Admin;
 
-    private IDbContextFactory<BeaconContext> Factory()
+    // Offline: transactions are stand-ins, for the real user service.
+    private IDbContextFactory<BeaconContext> Factory(bool offline = false)
     {
         foreach (var user in _users)
         {
@@ -724,9 +770,11 @@ public class UserAdministrationRulesTests
                 {
                     [typeof(BeaconRole)] = RecordingBeaconContext.MemorySet(_roles, _saved),
                     [typeof(BeaconUser)] = RecordingBeaconContext.MemorySet(_users, _saved),
-                    [typeof(BeaconUserRole)] = RecordingBeaconContext.MemorySet(_userRoles, _saved)
+                    [typeof(BeaconUserRole)] = RecordingBeaconContext.MemorySet(_userRoles, _saved),
+                    [typeof(ApiKeyCredential)] = RecordingBeaconContext.MemorySet(new List<ApiKeyCredential>(), _saved)
                 },
-                _saved));
+                _saved,
+                offline ? new SqlCapture() : null));
 
         return factory.Object;
     }

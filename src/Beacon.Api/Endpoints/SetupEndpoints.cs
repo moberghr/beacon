@@ -108,7 +108,7 @@ public static class SetupEndpoints
             // A startup task Beacon runs for itself, with no request behind it.
             scope.ServiceProvider.GetService<ISystemWorkScope>()?.MarkAsSystemWork();
 
-            var userService = scope.ServiceProvider.GetService<IUserManagementService>();
+            var userService = scope.ServiceProvider.GetService<IUserManagementService>().OrNull();
             if (userService == null)
             {
                 logger.LogWarning(
