@@ -24,9 +24,25 @@ public class DatabaseMetadataService(
     ISharedSourceSettings sharedSourceSettings,
     IMemoryCache cache,
     ISchemaGraphService schemaGraphService,
-    ILogger<DatabaseMetadataService> logger)
+    ILogger<DatabaseMetadataService> logger,
+    ICatalogSnapshotCache catalogSnapshots)
     : IDatabaseMetadataService
 {
+    /// <summary>A service whose refreshes leave the ask path's catalog snapshots to expire on their own.</summary>
+    [Obsolete("Pass the ICatalogSnapshotCache so a refresh invalidates the catalog snapshots the ask path reads.")]
+    public DatabaseMetadataService(
+        IDbContextFactory<BeaconContext> contextFactory,
+        IDataSourceConnectionResolver connectionResolver,
+        IEnumerable<IDatabaseMetadataExtractor> metadataExtractors,
+        IColumnValueSampler columnValueSampler,
+        ISharedSourceSettings sharedSourceSettings,
+        IMemoryCache cache,
+        ISchemaGraphService schemaGraphService,
+        ILogger<DatabaseMetadataService> logger)
+        : this(contextFactory, connectionResolver, metadataExtractors, columnValueSampler, sharedSourceSettings, cache, schemaGraphService, logger, NoCatalogSnapshotCache.Instance)
+    {
+    }
+
     private const string CacheKeyPrefix = "DbMetadata_";
     private const int MaxLoggedSkippedNames = 50;
     private static readonly TimeSpan CacheExpiration = TimeSpan.FromHours(1);
@@ -109,11 +125,13 @@ public class DatabaseMetadataService(
                     cancellationToken);
             }
 
-            // Store in database
+            // Store in database. What was built from the stored catalog is dropped at once, before anything else can fail:
+            // the relationship graph is rebuilt on its next read, the ask path's catalog snapshots are loaded again.
             var stored = await StoreMetadataAsync(dataSourceId, tables, cancellationToken);
+            schemaGraphService.Invalidate(dataSourceId);
+            catalogSnapshots.Invalidate(dataSourceId);
 
-            // Update cache; the relationship graph is built from the stored tables, so it is rebuilt on its next read.
-            // A scan that a disable, a migration-write mark or a connection change overtook publishes nothing to the cache:
+            // Update cache. A scan that a disable, a migration-write mark or a connection change overtook publishes nothing to the cache:
             // the source is read again here, after the scan, and a disabled or write-target source returns no catalog.
             var snapshot = new DatabaseMetadataSnapshot(dataSourceId, scannedEngine, stored, DateTime.UtcNow)
             {
@@ -127,8 +145,6 @@ public class DatabaseMetadataService(
             {
                 cache.Set(GetCacheKey(dataSourceId), snapshot, CacheExpiration);
             }
-
-            schemaGraphService.Invalidate(dataSourceId);
 
             if (current is not { Readable: true })
             {
