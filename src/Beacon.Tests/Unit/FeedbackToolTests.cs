@@ -77,6 +77,30 @@ public class FeedbackToolTests
     }
 
     [Test]
+    public async Task CallerCancels_PropagatesTheCancellation_AfterAuditing()
+    {
+        using var caller = new CancellationTokenSource();
+        var mediator = new Mock<IMediator>();
+        mediator.Setup(x => x.Send(It.IsAny<RecordQueryFeedbackCommand>(), It.IsAny<CancellationToken>()))
+            .Returns(async (RecordQueryFeedbackCommand _, CancellationToken ct) =>
+            {
+                await caller.CancelAsync();
+                ct.ThrowIfCancellationRequested();
+
+                return new RecordQueryFeedbackResult(false, null);
+            });
+        var (tool, audit) = BuildTool(mediator);
+
+        var act = () => TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(SignalId, "correct", null, null, caller.Token));
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        var log = audit.Logs.Should().ContainSingle().Subject;
+        log.Tool.Should().Be("feedback");
+        log.ProjectId.Should().Be(SignalProjectId);
+        log.ErrorMessage.Should().Be("Cancelled by the caller.");
+    }
+
+    [Test]
     public async Task DoesNotPutUserTextInAuditParametersOrError()
     {
         var mediator = new Mock<IMediator>();

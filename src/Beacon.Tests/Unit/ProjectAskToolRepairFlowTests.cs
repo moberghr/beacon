@@ -1272,6 +1272,34 @@ public class ProjectAskToolRepairFlowTests
     }
 
     [Test]
+    public async Task ExecuteAsync_ThroughTheAuditFilter_AnswersThePersistedSignalId_AndTheSignalStoresNoRowCount()
+    {
+        var auditLogs = new List<McpAuditLog>();
+        var signals = new List<McpQuerySignal>();
+        var outcome = CannedOutcome() with { Execution = new AskExecutionResult("| id |", null, 3, true) };
+        var pipeline = new Mock<IAskSqlPipeline>();
+        pipeline
+            .Setup(x => x.RunAsync(It.IsAny<ILlmProvider>(), DataSourceId, ProjectId, Question, It.IsAny<McpSettingsData>(),
+                It.IsAny<IAskSqlExecutor>(), It.IsAny<AskSqlPipelineOptions>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(outcome);
+        var router = new Mock<IDataSourceRouter>();
+        router
+            .Setup(x => x.RouteAsync(It.IsAny<ILlmProvider>(), It.IsAny<List<DataSourceKnowledge>>(), Question, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new RoutingResult { Sources = [new RoutedSource { DataSourceId = DataSourceId, DataSourceName = "orders" }] });
+        var tool = DataQueryTool([DataSourceId], auditLogs, signals, pipeline.Object, router.Object);
+
+        var result = await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(Question, cancellationToken: CancellationToken.None));
+
+        (result.IsError ?? false).Should().BeFalse();
+        var signal = signals.Should().ContainSingle().Subject;
+        signal.Id.Should().Be(AuditCaptureContext.PersistedSignalIdBase);
+        result.Content.OfType<TextContentBlock>().Single().Text.Should().EndWith($"_signal_id: {signal.Id}_");
+        result.StructuredContent!.Value.GetProperty("signal_id").GetInt32().Should().Be(signal.Id);
+        signal.ResultRowCount.Should().BeNull("an ask signal stores no row count");
+        auditLogs.Should().ContainSingle().Which.ResultRowCount.Should().Be(3);
+    }
+
+    [Test]
     public async Task ExecuteAsync_SeveralDataSources_HandsTheCrossSourceQueryTheCallsBudget_AfterRouting()
     {
         AskLlmBudget? handed = null;
@@ -1659,6 +1687,8 @@ public class ProjectAskToolRepairFlowTests
 
     private sealed class AuditCaptureContext : BeaconContext
     {
+        public const int PersistedSignalIdBase = 900;
+
         private static readonly DbContextOptions<AuditCaptureContext> Options =
             new DbContextOptionsBuilder<AuditCaptureContext>()
                 .UseNpgsql("Host=localhost;Database=unused")
@@ -1675,7 +1705,11 @@ public class ProjectAskToolRepairFlowTests
                 .Callback<McpAuditLog>(auditLogs.Add);
             _signalSet
                 .Setup(x => x.Add(It.IsAny<McpQuerySignal>()))
-                .Callback<McpQuerySignal>(signals.Add);
+                .Callback<McpQuerySignal>(x =>
+                {
+                    x.Id = PersistedSignalIdBase + signals.Count;
+                    signals.Add(x);
+                });
         }
 
         public override DbSet<TEntity> Set<TEntity>() where TEntity : class

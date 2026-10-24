@@ -20,6 +20,8 @@ internal sealed class FeedbackTool(
     IMediator mediator,
     IProjectAccessEvaluator projectAccess)
 {
+    private const string CallerCancelledMessage = "Cancelled by the caller.";
+
     [McpServerTool(Name = "feedback", Title = "Record Answer Feedback", ReadOnly = false, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Record whether a previous `ask` answer was correct. Pass the signal_id from that ask response. An 'incorrect' verdict keeps the answer out of the common-query and join patterns Beacon learns; a 'correct' one lists it for an Admin, who may promote it to a verified example for future answers. Corrected SQL is kept only when it passes Beacon's SQL check; the answer says when it was not kept. Only include a note when the user explicitly asked to record one.")]
     public async Task<CallToolResult> ExecuteAsync(
@@ -36,11 +38,31 @@ internal sealed class FeedbackTool(
             .Start("feedback", projectContext.UserId, $"signal_id={signal_id};verdict={verdict}")
             .WithProject(projectContext.ActiveProjectId);
 
+        try
+        {
+            return await RateAsync(signal_id, verdict, corrected_sql, note, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The caller's own cancellation stays a cancellation; the call is still audited (§1.7).
+            recorder.FailCancelled(CallerCancelledMessage);
+
+            throw;
+        }
+    }
+
+    private async Task<CallToolResult> RateAsync(
+        int signalId,
+        string verdict,
+        string? correctedSql,
+        string? note,
+        CancellationToken cancellationToken)
+    {
         // The audit row is attributed to the project of the signal being rated (the transport path carries no
         // active project); null when the signal doesn't exist.
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         var projectId = await context.McpQuerySignals
-            .Where(x => x.Id == signal_id)
+            .Where(x => x.Id == signalId)
             .Select(x => x.ProjectId)
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -49,7 +71,7 @@ internal sealed class FeedbackTool(
         // "not found", so a caller cannot probe other projects' signals, and is attributed to the pinned project.
         if (!await IsRateableAsync(projectId, cancellationToken))
         {
-            var notFound = $"Query signal {signal_id} not found.";
+            var notFound = $"Query signal {signalId} not found.";
             recorder.Fail(notFound);
             return ToolHelper.Error(notFound);
         }
@@ -65,9 +87,9 @@ internal sealed class FeedbackTool(
 
         // A refusal the handler throws (signal not found, the SQL check's reason) is recorded by the audit filter, which
         // answers its message as the error, as the query tool answers a gate refusal.
-        var result = await mediator.Send(new RecordQueryFeedbackCommand(signal_id, parsedVerdict, corrected_sql, note), cancellationToken);
+        var result = await mediator.Send(new RecordQueryFeedbackCommand(signalId, parsedVerdict, correctedSql, note), cancellationToken);
         recorder.Succeed();
-        return ToolHelper.Success(Answer(signal_id, parsedVerdict, result));
+        return ToolHelper.Success(Answer(signalId, parsedVerdict, result));
     }
 
     private async Task<bool> IsRateableAsync(int? signalProjectId, CancellationToken cancellationToken)

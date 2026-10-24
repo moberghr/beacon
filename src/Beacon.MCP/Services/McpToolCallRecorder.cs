@@ -32,6 +32,7 @@ internal sealed class McpToolCallRecorder(
     private string? _signalSql;
     private string? _signalError;
     private bool _signalSucceeded;
+    private bool _signalCountsRows = true;
     private bool _written;
     private bool _inInvocation;
     private int? _signalId;
@@ -128,12 +129,15 @@ internal sealed class McpToolCallRecorder(
 
     /// <summary>
     /// The call succeeded. <paramref name="signalSucceeded"/> is the signal's verdict when it differs from the call's
-    /// (a dry run that found the SQL invalid, an answer whose SQL failed): the audit row has no error either way.
+    /// (a dry run that found the SQL invalid, an answer whose SQL failed): the audit row has no error either way. With
+    /// <paramref name="signalCountsRows"/> false the signal stores no row count (ask's signal never did), the audit row
+    /// still does.
     /// </summary>
-    public void Succeed(int? resultRowCount = null, IReadOnlyList<string>? tables = null, bool signalSucceeded = true)
+    public void Succeed(int? resultRowCount = null, IReadOnlyList<string>? tables = null, bool signalSucceeded = true, bool signalCountsRows = true)
     {
         Complete(resultRowCount, null, tables);
         _signalSucceeded = signalSucceeded;
+        _signalCountsRows = signalCountsRows;
     }
 
     /// <summary>
@@ -250,7 +254,7 @@ internal sealed class McpToolCallRecorder(
             _signal.SetExecutionFailed(_signalError);
         }
 
-        _signal.SetResult(ResultRowCount, ExecutionTimeMs, _signalSucceeded);
+        _signal.SetResult(_signalCountsRows ? ResultRowCount : null, ExecutionTimeMs, _signalSucceeded);
         _signalId = await signalService.RecordSignalAsync(_signal.Build(), cancellationToken);
 
         return _signalId;

@@ -205,7 +205,7 @@ internal sealed class ProjectAskTool(
 
             recorder
                 .WithDataSource(auditedDataSourceId)
-                .Succeed(auditedRowCount, auditedTables, askSucceeded);
+                .Succeed(auditedRowCount, auditedTables, askSucceeded, signalCountsRows: false);
 
             // The answer names its persisted signal for the feedback tool; the signal is written after the tool returns.
             return recorder.AnswerWithSignalId(signalId =>
