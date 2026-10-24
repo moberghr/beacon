@@ -287,7 +287,7 @@ Retrieve AI-generated documentation at three levels of detail.
 | `datasource_name` | string | No | Get docs for a specific data source |
 | `table_name` | string | No | Get detailed docs for a specific table or API endpoint |
 | `schema_name` | string | No | Schema name or API tag (optional qualifier for table_name) |
-| `response_format` | string | No | `concise` (summary sections) or `detailed` (everything). Project level defaults to `concise`; data-source, table and document level default to `detailed` |
+| `response_format` | string | No | (any response is also cut at the project's `MaxResultBytes` with a truncation note) `concise` (summary sections) or `detailed` (everything). Project level defaults to `concise`; data-source, table and document level default to `detailed` |
 | `document` | string | No | Path (or exact title) of a [host-imported document](/mcp/host-docs/); returns it in full |
 
 **Three levels:**
@@ -333,7 +333,7 @@ Every `ask` response that ran a data query ends with a `_signal_id: N_` marker. 
 
 A signal is rated only in its own project: the signal must belong to a project, that project must be the one the call resolves to (in the playground, the selected project; on the transport, one of the caller's projects), and the caller needs Query there. Anything else answers "Query signal N not found.", the same as a signal that does not exist, and is audited. Within its project, a verdict is recorded only by the caller who asked, a project admin of that project, or an Admin; anyone else gets an error saying so, and the refusal is audited too. `POST /beacon/api/eval/feedback` is Admin-only: the whole `/beacon/api/eval` group requires an Admin.
 
-The verdict is always recorded, with the user who recorded it. Whether `corrected_sql` and `note` are *stored* depends on the project's **Allow the feedback tool to store question and SQL text** setting. See [Content retention](#content-retention) below. When that setting is off, the verdict still lands and the rest is dropped.
+`corrected_sql` is at most 100,000 characters and `note` at most 2,000; a longer one is refused and nothing is recorded. The verdict is always recorded, with the user who recorded it. Whether `corrected_sql` and `note` are *stored* depends on the project's **Allow the feedback tool to store question and SQL text** setting. See [Content retention](#content-retention) below. When that setting is off, the verdict still lands and the rest is dropped.
 
 `corrected_sql` is checked before it is stored, in the dialect of the data source the rated answer ran on: its comments are removed, and it must pass the same read-only gate and catalog check a saved query step passes (a single read-only statement, columns that exist in Beacon's metadata; a data source Beacon holds no metadata for refuses it). Nothing runs. Comment characters inside a string literal are kept when the dialect reads them as part of it; a comment that cannot be removed safely, or characters a reviewer cannot see, refuse the SQL (see [the grounding SQL check](/mcp/knowledge-base/#who-curates-grounding)). Corrected SQL that cannot be kept never refuses the call: the verdict is recorded and only the SQL is dropped. This covers SQL the check refuses, SQL on a signal without a single data source (a cross-source or knowledge answer: there is no dialect to check it in), and SQL the project's retention setting does not keep. The log records the signal id only.
 

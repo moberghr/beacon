@@ -49,6 +49,7 @@ public class ProjectGetDocumentationResponseFormatTests
             contextFactory: null!,
             projectContext,
             auditService,
+            SettingsProviderMock.Create().Object,
             NullLogger<ProjectGetDocumentationTool>.Instance);
 
         var result = await tool.ExecuteAsync(response_format: responseFormat, cancellationToken: CancellationToken.None);
@@ -199,6 +200,7 @@ public class ProjectGetDocumentationResponseFormatTests
             new HostDocs.DocsStore().Factory().Object,
             projectContext,
             auditService,
+            SettingsProviderMock.Create().Object,
             NullLogger<ProjectGetDocumentationTool>.Instance);
 
         var result = await tool.ExecuteAsync(response_format: responseFormat, cancellationToken: CancellationToken.None);

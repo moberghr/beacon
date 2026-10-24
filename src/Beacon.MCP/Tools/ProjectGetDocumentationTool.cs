@@ -21,6 +21,7 @@ internal sealed class ProjectGetDocumentationTool(
     IDbContextFactory<BeaconContext> contextFactory,
     IProjectContext projectContext,
     McpAuditService auditService,
+    IMcpSettingsProvider settingsProvider,
     ILogger<ProjectGetDocumentationTool> logger)
 {
     internal const int ConciseCharBudget = 8000;
@@ -71,6 +72,8 @@ internal sealed class ProjectGetDocumentationTool(
         // No McpSignalService call here (audit-only) — see GetContextTool for the full rationale.
         try
         {
+            var maxResultBytes = (await settingsProvider.GetEffectiveSettingsAsync(projectId, cancellationToken)).MaxResultBytes;
+
             if (!string.IsNullOrWhiteSpace(document))
             {
                 if (!string.IsNullOrEmpty(datasource_name) || !string.IsNullOrEmpty(table_name))
@@ -86,7 +89,7 @@ internal sealed class ProjectGetDocumentationTool(
                 sw.Stop();
                 await auditService.LogToolCallAsync(projectContext.UserId, "get_documentation",
                     document, null, projectId, (int)sw.ElapsedMilliseconds, null, documentError, ct: cancellationToken);
-                return documentError != null ? ToolHelper.Error(documentError) : ToolHelper.Success(documentText!);
+                return documentError != null ? ToolHelper.Error(documentError) : ToolHelper.Success(ToolHelper.WithinByteBudget(documentText!, maxResultBytes));
             }
 
             // If no data source specified, return full project documentation
@@ -98,7 +101,7 @@ internal sealed class ProjectGetDocumentationTool(
                 sw.Stop();
                 await auditService.LogToolCallAsync(projectContext.UserId, "get_documentation",
                     null, null, projectId, (int)sw.ElapsedMilliseconds, null, null, ct: cancellationToken);
-                return ToolHelper.Success(docResult);
+                return ToolHelper.Success(ToolHelper.WithinByteBudget(docResult, maxResultBytes));
             }
 
             // Resolve data source
@@ -159,7 +162,7 @@ internal sealed class ProjectGetDocumentationTool(
             sw.Stop();
             await auditService.LogToolCallAsync(projectContext.UserId, "get_documentation",
                 datasource_name ?? table_name, dsId, projectId, (int)sw.ElapsedMilliseconds, null, null, ct: cancellationToken);
-            return ToolHelper.Success(result);
+            return ToolHelper.Success(ToolHelper.WithinByteBudget(result, maxResultBytes));
         }
         catch (Exception ex)
         {
