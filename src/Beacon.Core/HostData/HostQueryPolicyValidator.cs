@@ -105,14 +105,14 @@ internal static class HostQueryPolicyValidator
 
     // Npgsql rewrites @name placeholders to $n only when a parameter of that name is supplied; Beacon's binders emit
     // @p0, @p1 …, so only that shape is recognised (and FindUnboundParameter makes sure it is supplied).
-    private static readonly Regex PostgresParameterName = new("^p[0-9]{1,4}$", RegexOptions.CultureInvariant);
+    private static readonly Regex PostgresParameterName = new("^p[0-9]{1,4}$", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(250));
 
     // One conversion specifier of PostgreSQL's format(): %[position$][flags][width]type, where the width is digits, * or
     // *position$ (both taking the width from an argument) and the type s, I or L; %% is a literal percent sign.
-    private static readonly Regex FormatSpecifier = new(@"%(?:%|(?<position>[0-9]+\$)?-*(?<width>\*(?:[0-9]+\$)?|[0-9]+)?(?<type>[A-Za-z]?))", RegexOptions.CultureInvariant);
+    private static readonly Regex FormatSpecifier = new(@"%(?:%|(?<position>[0-9]+\$)?-*(?<width>\*(?:[0-9]+\$)?|[0-9]+)?(?<type>[A-Za-z]?))", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(1000));
 
     // A number in SQL Server's FORMAT format string; a standard format's precision (N999) sets the result's length.
-    private static readonly Regex FormatNumber = new("[0-9]+", RegexOptions.CultureInvariant);
+    private static readonly Regex FormatNumber = new("[0-9]+", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(1000));
 
     // PostgreSQL's catalog (reg*) types and, with a leading underscore, their array types: each looks a name up in the
     // system catalogs.

@@ -69,12 +69,12 @@ internal static class ProjectsEndpoints
         projects.MapGet("/documentation/{id:int}/export", async (
             int id,
             [FromQuery(Name = "asHtml")] bool asHtml,
+            HttpContext http,
             IMediator m,
             CancellationToken ct) =>
         {
             var result = await m.Send(new ExportProjectDocumentationCommand(id, asHtml), ct);
-            var bytes = System.Text.Encoding.UTF8.GetBytes(result.Content);
-            return Results.File(bytes, result.ContentType, result.FileName);
+            return ToDocumentationAttachment(http.Response, result);
         }).WithName("ExportProjectDocumentation");
 
         projects.MapPost("/documentation-sections/{id:int}/instruct", (
@@ -133,6 +133,13 @@ internal static class ProjectsEndpoints
             .RequireBeaconPermission(BeaconPermissions.UserAdminPolicy);
 
         return group;
+    }
+
+    internal static IResult ToDocumentationAttachment(HttpResponse response, ExportProjectDocumentationResult result)
+    {
+        response.Headers.XContentTypeOptions = "nosniff";
+        var bytes = System.Text.Encoding.UTF8.GetBytes(result.Content);
+        return Results.File(bytes, $"{result.ContentType}; charset=utf-8", result.FileName);
     }
 }
 

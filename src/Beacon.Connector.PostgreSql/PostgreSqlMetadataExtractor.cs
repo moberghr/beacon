@@ -141,11 +141,11 @@ public class PostgreSqlMetadataExtractor : IDatabaseMetadataExtractor
                         // nested parentheses (e.g. lower(name)) keep their full definition.
                         var usingIndex = indexDef.IndexOf(" USING ", StringComparison.OrdinalIgnoreCase);
                         var columnsSource = usingIndex >= 0 ? indexDef[usingIndex..] : indexDef;
-                        var columnsMatch = Regex.Match(columnsSource, @"\((.*)\)");
+                        var columnsMatch = Regex.Match(columnsSource, @"\((.*)\)", RegexOptions.None, TimeSpan.FromSeconds(1));
                         var columnNames = columnsMatch.Success
                             ? columnsMatch.Groups[1].Value
                                 .Split(',')
-                                .Select(c => Regex.Replace(c.Trim(), @"\s+(DESC|ASC|NULLS\s+(FIRST|LAST))\b", "", RegexOptions.IgnoreCase).Trim())
+                                .Select(c => Regex.Replace(c.Trim(), @"\s+(DESC|ASC|NULLS\s+(FIRST|LAST))\b", "", RegexOptions.IgnoreCase, TimeSpan.FromSeconds(1)).Trim())
                                 .ToArray()
                             : Array.Empty<string>();
 

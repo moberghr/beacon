@@ -46,6 +46,10 @@ public static class BeaconApiEndpoints
 
     public static IServiceCollection AddBeaconApiAuthorization(this IServiceCollection services)
     {
+        // The per-caller limits of /beacon/api and of the anonymous requests Beacon refuses (Beacon:RateLimits), here as
+        // well as in AddBeaconApiServices: every host that maps Beacon's routes registers its policies.
+        services.TryAddSingleton<BeaconApiRateLimiter>();
+
         services.AddAuthorization(options =>
         {
             // Scheme-agnostic on purpose: ApiKeyAuthMiddleware assigns context.User directly
@@ -158,13 +162,15 @@ public static class BeaconApiEndpoints
     {
         // Group-level auth policy: every endpoint requires an authenticated cookie session.
         // Endpoints opt out via .AllowAnonymous() (health, auth/me, csrf).
-        // The access-exception filter is outermost: it maps refused and missing resources to 403/404 problems.
+        // The rate-limit filter is outermost: a caller over its Beacon:RateLimits:Api limit gets 429 before anything runs.
+        // The access-exception filter is next: it maps refused and missing resources to 403/404 problems.
         // The scope filter runs next: a scoped caller (API key, mapped MCP caller) needs the Execute scope for
         // every request that is not GET/HEAD/OPTIONS and for GETs marked RequiresExecuteScope().
         // The permission filter enforces Viewer (read) vs Editor (write) when authorization or user
         // management is on; it runs after antiforgery so a forged request never reaches the user lookup.
         var group = endpoints.MapGroup(GroupPrefix)
             .RequireAuthorization(AuthPolicyName)
+            .AddEndpointFilter<BeaconApiRateLimitFilter>()
             .AddEndpointFilter<BeaconAccessExceptionEndpointFilter>()
             .AddEndpointFilter<BeaconScopeEndpointFilter>()
             .AddEndpointFilter<AntiforgeryEndpointFilter>()

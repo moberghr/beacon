@@ -1,5 +1,6 @@
 using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
+using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Beacon.Core.Authorization;
 using Beacon.Core.Mcp;
@@ -17,14 +18,16 @@ public static class BeaconMcpEndpointRouteBuilderExtensions
     /// signed-in browser session (Beacon's or the host's), and an unauthenticated caller the challenge. Use it instead of
     /// <c>MapMcp("/beacon/mcp")</c>. Every request is checked again inside the MCP layer (tool calls answer a tool error,
     /// other requests a JSON-RPC error), so a host that maps the route itself with a weaker policy still fails closed —
-    /// but it loses the 403 at the door.
+    /// but it loses the 403 at the door. Every request takes a permit of <c>Beacon:RateLimits:Mcp</c> in its caller's
+    /// partition (the API key, the mapped MCP caller); over the limit it is answered 429 with <c>Retry-After</c>.
     /// </summary>
     public static IEndpointConventionBuilder MapBeaconMcp(this IEndpointRouteBuilder endpoints)
     {
         var builder = endpoints
             .MapMcp(McpDiscoveryPaths.McpPath)
             .RequireAuthorization(BeaconScopes.ExecuteScopePolicyName)
-            .RequireAuthorization(McpCredentialPolicy);
+            .RequireAuthorization(McpCredentialPolicy)
+            .AddEndpointFilter<IEndpointConventionBuilder, McpRateLimitFilter>();
 
         // After authorization: a caller over its initialize limit (Beacon:RequestLimits) is answered 429 before the SDK
         // opens a session. No limiter registered (a host that did not call AddBeaconMcp) means no limit.

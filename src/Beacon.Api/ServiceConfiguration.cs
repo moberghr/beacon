@@ -1,6 +1,7 @@
 using Beacon.Core.Configuration;
 using Beacon.Api.Authentication;
 using Beacon.Api.Hubs;
+using Beacon.Api.Security;
 using Beacon.Api.SignalR;
 using Beacon.Core.Authorization;
 using Beacon.Core.Services;
@@ -55,6 +56,15 @@ public static class ServiceConfiguration
 
         // Login throttle ships with Beacon.Api so every host gets it, realtime on or off.
         services.TryAddSingleton<LoginRateLimiter>();
+
+        // Security headers and the Host/Origin check (UseBeaconAuthentication): Beacon:Security, unreadable origins refused at startup.
+        services.AddOptions<BeaconHostSecurityOptions>()
+            .BindConfiguration(BeaconHostSecurityOptions.SectionName)
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<BeaconHostSecurityOptions>, BeaconHostSecurityOptionsValidator>());
+
+        // The per-caller limits of /beacon/api and of the anonymous requests Beacon refuses (Beacon:RateLimits).
+        services.TryAddSingleton<BeaconApiRateLimiter>();
 
         if (!options.Realtime)
         {
