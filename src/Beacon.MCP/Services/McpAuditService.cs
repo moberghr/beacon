@@ -94,7 +94,7 @@ internal sealed partial class McpAuditService(
                 loggedErrorMessage = Truncate(errorMessage);
             }
 
-            // Minted by JwtBearerAuthMiddleware from IMcpCallerMapper; token-supplied values are stripped there.
+            // Minted by Beacon's bearer authentication from IMcpCallerMapper; token-supplied values are stripped there.
             var caller = httpContextAccessor.HttpContext?.User;
             var callerKind = caller?.FindFirst(McpCallerClaimTypes.CallerKind)?.Value;
             var callerHash = caller?.FindFirst(McpCallerClaimTypes.CallerHash)?.Value;

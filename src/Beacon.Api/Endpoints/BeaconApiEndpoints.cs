@@ -25,8 +25,8 @@ public static class BeaconApiEndpoints
     internal const string HubPath = "/beacon/api/hub";
 
     /// <summary>
-    /// Requires the <c>Execute</c> scope for scoped callers (§1.4): API keys minted by <c>ApiKeyAuthMiddleware</c> and
-    /// JWT callers on <c>/beacon/mcp</c> minted by <c>JwtBearerAuthMiddleware</c> (<c>auth_method=mcp_caller</c>, scope
+    /// Requires the <c>Execute</c> scope for scoped callers (§1.4): API keys minted by <c>ApiKeyAuthenticationHandler</c> and
+    /// JWT callers on <c>/beacon/mcp</c> minted by <c>BeaconJwtAuthenticationHandler</c> (<c>auth_method=mcp_caller</c>, scope
     /// decided by <see cref="IMcpCallerMapper"/>, never by the token). Interactive cookie/OIDC sessions and JWT callers
     /// on other routes carry no such marker and are not scope-gated — they are a full authenticated session governed
     /// by role. Every <c>/beacon/api</c> request that is not GET/HEAD/OPTIONS needs the same scope through
@@ -53,10 +53,9 @@ public static class BeaconApiEndpoints
 
         services.AddAuthorization(options =>
         {
-            // Scheme-agnostic on purpose: ApiKeyAuthMiddleware assigns context.User directly
-            // (no scheme registration), so pinning the policy to a single scheme would 403
-            // every API-key caller. RequireAuthenticatedUser() honours whatever identity the
-            // upstream middleware (cookie OR API key) has put on the context.
+            // Scheme-agnostic on purpose: UseBeaconAuthentication records the API key, bearer or cookie
+            // result on the request, and pinning the policy to one scheme would 403 every other
+            // caller. RequireAuthenticatedUser() honours whatever identity it has put on the context.
             options.AddPolicy(AuthPolicyName, new AuthorizationPolicyBuilder()
                 .RequireAuthenticatedUser()
                 .Build());
@@ -235,7 +234,7 @@ public static class BeaconApiEndpoints
         // case, so the server never advertises a hub it did not map.
         // The hub also admits only callers who may use it (HubAccessPolicy), and a connection is closed when the
         // expiry its request reported passes: for a cookie session the session's next check against the user store
-        // (BeaconSessionEvents), capped at its absolute lifetime; for an API key the same interval (ApiKeyAuthMiddleware).
+        // (BeaconSessionEvents), capped at its absolute lifetime; for an API key the same interval (ApiKeyAuthenticator).
         // The client then reconnects, and is checked again.
         var options = endpoints.ServiceProvider.GetService<BeaconApiOptions>();
         if (options?.Realtime == true)

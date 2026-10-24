@@ -3,6 +3,7 @@ using FluentAssertions;
 using Moq;
 using NUnit.Framework;
 using Beacon.Core.Authorization;
+using Beacon.Core.Mcp;
 using Beacon.Core.Models.UserManagement;
 using Beacon.Core.Services;
 using Beacon.SampleProject.Services;
@@ -42,6 +43,27 @@ public class SampleClaimsTransformationTests
         _userService
             .Setup(x => x.GetUserByExternalIdAsync(ExternalId(username), It.IsAny<CancellationToken>()))
             .ReturnsAsync(user);
+    }
+
+    [TestCase(McpCallerClaimTypes.ApiKeyAuthMethod)]
+    [TestCase(McpCallerClaimTypes.McpCallerAuthMethod)]
+    [TestCase(McpCallerClaimTypes.JwtAuthMethod)]
+    public async Task TransformAsync_HeaderCredentialCaller_IsLeftAsBeaconBuiltIt(string authMethod)
+    {
+        SetupUser("alice", new BeaconUserData
+        {
+            UserName = "alice",
+            IsEnabled = true,
+            IsSuperAdmin = true
+        });
+        var principal = AuthenticatedPrincipal("alice", new Claim(McpCallerClaimTypes.AuthMethod, authMethod));
+        var claimsBefore = principal.Claims.Count();
+
+        var result = await _transformation.TransformAsync(principal);
+
+        result.HasClaim(x => x.Type == BeaconClaims.Role).Should().BeFalse();
+        result.Claims.Should().HaveCount(claimsBefore);
+        _userService.Verify(x => x.GetUserByExternalIdAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Test]

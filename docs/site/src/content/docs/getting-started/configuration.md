@@ -269,7 +269,7 @@ builder.Services.AddBeaconCookieAuthentication("/beacon");   // login page /beac
 
 ### Where Beacon credentials apply
 
-Beacon's API keys, bearer tokens and `Beacon.Auth` cookie authenticate Beacon's own routes, everything under `/beacon`, and the path prefixes listed in `Beacon:Authentication:AdditionalPaths`. On every other route of the host, `ApiKeyAuthMiddleware`, the bearer JWT middleware and `BeaconCookieAuthMiddleware` do nothing, and the login and first-run redirects never send a request to Beacon's pages: the host's own authentication decides.
+Beacon's API keys, bearer tokens and `Beacon.Auth` cookie authenticate Beacon's own routes, everything under `/beacon`, and the path prefixes listed in `Beacon:Authentication:AdditionalPaths`. On every other route of the host, Beacon's API-key, bearer and cookie authentication do nothing, and the login and first-run redirects never send a request to Beacon's pages: the host's own authentication decides.
 
 | Key | Type | Default | What it does |
 |---|---|---|---|
@@ -279,7 +279,7 @@ Beacon's API keys, bearer tokens and `Beacon.Auth` cookie authenticate Beacon's 
 { "Beacon": { "Authentication": { "AdditionalPaths": [ "/warp" ] } } }
 ```
 
-`app.UseBeaconAuthentication()` wires Beacon's authentication in the order it needs: `ApiKeyAuthMiddleware`, the bearer JWT middleware, the host's `UseAuthentication()`, then `BeaconCookieAuthMiddleware`, followed by the origin check, with the security headers before them all unless the host added them earlier (`Beacon:Security`, below). Call it in place of `UseAuthentication()`, before `UseAuthorization()`.
+`app.UseBeaconAuthentication()` wires Beacon's authentication in the order it needs: the host's `UseAuthentication()`, then one Beacon step: a presented API key or bearer JWT, which wins over any session, else the `Beacon.Auth` cookie, followed by the origin check, with the security headers before them all unless the host added them earlier (`Beacon:Security`, below). Call it in place of `UseAuthentication()`, before `UseAuthorization()`.
 
 The cookie scheme (`Cookies`) applies the same scope itself. When it is the host's default authentication scheme (set as the default, or the only scheme registered), or a host policy names it, it authenticates nothing outside `/beacon` and `AdditionalPaths`: the session is refused there without a check against the user store, without renewal, and its cookie is left as it is. A host route that requires an authenticated user therefore needs the host's own scheme.
 

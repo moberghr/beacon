@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Beacon.Core.Authorization;
+using Beacon.Core.Mcp;
 using Beacon.Core.Services;
 
 namespace Beacon.SampleProject.Services;
@@ -20,7 +21,12 @@ public class SampleClaimsTransformation(IUserManagementService userService) : IC
 
     public async Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
     {
-        if (principal.Identity is not ClaimsIdentity identity || !identity.IsAuthenticated)
+        // A scoped caller (an API key, an MCP bearer caller) is capped by its scope and projects, never by a role: it is
+        // left as Beacon built it. So is a bearer caller on a REST route, which carries its Beacon user's roles already.
+        if (principal.Identity is not ClaimsIdentity identity
+            || !identity.IsAuthenticated
+            || BeaconScopes.IsScopedCaller(principal)
+            || principal.HasClaim(McpCallerClaimTypes.AuthMethod, McpCallerClaimTypes.JwtAuthMethod))
         {
             return principal;
         }

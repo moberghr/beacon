@@ -223,20 +223,22 @@ The order is load-bearing. Each step depends on the ones before it:
 | 4 | `UseStaticFiles` | Serves the UI bundle before authentication runs. |
 | 5 | Your exception handler (optional) | Turns Beacon's exceptions into problem+json. See [below](#error-responses). |
 | 6 | `UseMcpResourceMetadataChallenge` | Decorates every 401 from `/beacon/mcp` with the RFC 9728 `resource_metadata` pointer; must precede the middleware that writes those 401s. |
-| 7 | `ApiKeyAuthMiddleware` (`UseBeaconAuthentication` wires steps 7 to 11) | Authenticates `Authorization: Bearer sk-sem_…` before cookie auth could redirect an MCP client to a login page. |
-| 8 | `UseBeaconJwtBearerAuthentication` | Bearer JWTs (Entra and other OIDC access tokens). |
-| 9 | `UseAuthentication` | Your own schemes. A remote sign-in callback (the OIDC form post) is answered here, before the origin check. |
-| 10 | `BeaconCookieAuthMiddleware` | Fills `HttpContext.User` from the `Beacon.Auth` cookie **before** authorization evaluates policies. |
-| 11 | Origin check | Checks the Host and `Origin` of state-changing, realtime-hub and anonymous requests (`Beacon:Security`). |
-| 12 | `UseAuthorization` | Endpoint policies. |
-| 13 | `LoginFormAuthMiddleware` | Redirects signed-out browsers to `/beacon/login` (only when `EnableLoginForm`). |
-| 14 | `FirstRunSetupMiddleware` | Until the first admin exists, redirects Beacon's requests to `/beacon/setup`, except the health check `/beacon/api/health` and the MCP discovery documents (only with user management). |
-| 15 | `UseAntiforgery` | After authentication, so tokens are issued for the signed-in user. |
+| 7 | `UseAuthentication` (`UseBeaconAuthentication` wires steps 7 to 9) | Your own schemes. A remote sign-in callback (the OIDC form post) is answered here, before the origin check. |
+| 8 | Beacon's authentication | One step: a presented API key (`Authorization: Bearer sk-sem_…`) or bearer JWT (Entra and other OIDC access tokens, when enabled), else the `Beacon.Auth` cookie, fills `HttpContext.User` **before** authorization evaluates policies. A presented key or token wins over any session, so the key's scope and projects apply and an MCP client is never redirected to a login page. |
+| 9 | Origin check | Checks the Host and `Origin` of state-changing, realtime-hub and anonymous requests (`Beacon:Security`). |
+| 10 | `UseAuthorization` | Endpoint policies. |
+| 11 | `LoginFormAuthMiddleware` | Redirects signed-out browsers to `/beacon/login` (only when `EnableLoginForm`). |
+| 12 | `FirstRunSetupMiddleware` | Until the first admin exists, redirects Beacon's requests to `/beacon/setup`, except the health check `/beacon/api/health` and the MCP discovery documents (only with user management). |
+| 13 | `UseAntiforgery` | After authentication, so tokens are issued for the signed-in user. |
 
-Steps 3, 7, 8, 10, 11, 13 and 14 act on `/beacon` and the prefixes in `Beacon:Authentication:AdditionalPaths` only: a Beacon API key, bearer token or `Beacon.Auth` cookie never authenticates another route of your application, and your routes are never redirected to Beacon's login or setup page. Beacon's cookie scheme refuses the session on those other routes as well, so a host whose default scheme is the cookie still never has its own routes authenticated by it. List `/warp` there when you serve the Warp dashboard with Beacon's admin check: a host upgraded from a version without path scoping must add it, or the dashboard refuses every request. See [Where Beacon credentials apply](/getting-started/configuration/#where-beacon-credentials-apply).
+A refused API key is answered with a 401 problem (`application/problem+json`) on every Beacon route, also an anonymous one. A refused bearer token is answered with a 401 problem carrying `error: "invalid_token"` (and, for 5.x clients, `message`) and `WWW-Authenticate: Bearer error="invalid_token"` on an API request; on a page it is ignored, so the session cookie or the login redirect applies. Beacon registers its schemes under the names in `BeaconAuthenticationDefaults` (the `Beacon` policy scheme forwards to the one the request's credential belongs to); they never take away a host's only scheme of its own as its default.
+
+Do not call `UseAuthentication()` again after `UseBeaconAuthentication()`: a second pass of your schemes would replace the API key or token Beacon's step accepted.
+
+Steps 3, 8, 9, 11 and 12 act on `/beacon` and the prefixes in `Beacon:Authentication:AdditionalPaths` only: a Beacon API key, bearer token or `Beacon.Auth` cookie never authenticates another route of your application, and your routes are never redirected to Beacon's login or setup page. Beacon's cookie scheme refuses the session on those other routes as well, so a host whose default scheme is the cookie still never has its own routes authenticated by it. List `/warp` there when you serve the Warp dashboard with Beacon's admin check: a host upgraded from a version without path scoping must add it, or the dashboard refuses every request. See [Where Beacon credentials apply](/getting-started/configuration/#where-beacon-credentials-apply).
 
 :::danger[Do not reorder or assign `context.User` later]
-`ApiKeyAuthMiddleware` and `BeaconCookieAuthMiddleware` record their result as the request's authentication result; SignalR uses it to close connections when a session ends. Reordering them, or assigning `context.User` after them, breaks API-key callers, the login redirect and session revocation.
+Beacon's authentication records its result as the request's authentication result; SignalR uses it to close connections when a session ends. Reordering it, or assigning `context.User` after it, breaks API-key callers, the login redirect and session revocation. `ApiKeyAuthMiddleware` and `BeaconCookieAuthMiddleware` are obsolete: call `UseBeaconAuthentication` instead.
 :::
 
 ## Endpoints
@@ -476,7 +478,7 @@ builder.Services.AddBeacon(builder.Configuration, options =>
 var app = builder.Build();
 app.UseStaticFiles();
 // Your exception handler, if any, goes here: before UseBeaconPipeline (see Error responses).
-app.UseBeaconPipeline();   // steps 6 to 15 of the pipeline table above, in that order
+app.UseBeaconPipeline();   // steps 6 to 13 of the pipeline table above, in that order
 app.MapBeacon();           // API, sign-in, setup, MCP with the Execute policy, discovery documents, UI
 ```
 
