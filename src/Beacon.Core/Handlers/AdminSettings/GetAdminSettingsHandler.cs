@@ -5,11 +5,17 @@ using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.AdminSettings;
 
-internal sealed class GetAdminSettingsHandler(IAppSettingsService settingsService)
+internal sealed class GetAdminSettingsHandler(IAppSettingsService settingsService, StoredSettingsConvergence? convergence = null)
     : IRequestHandler<GetAdminSettingsQuery, GetAdminSettingsResult>
 {
     public async Task<GetAdminSettingsResult> Handle(GetAdminSettingsQuery request, CancellationToken cancellationToken)
     {
+        // Settings another replica saved are shown (and applied here) within the convergence's check interval.
+        if (convergence != null)
+        {
+            await convergence.EnsureCurrentAsync(cancellationToken);
+        }
+
         var settings = await settingsService.GetSettingsAsync(cancellationToken);
         var history = await settingsService.GetHistoryAsync(null, cancellationToken);
 

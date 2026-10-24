@@ -124,7 +124,8 @@ public class CsvReportGoldenTests
     [Test]
     public async Task Report_WithWhitespaceCells_QuotesOnlyALeadingOrTrailingSpace()
     {
-        // As the old writer did: only the space character triggers quoting; tabs and non-breaking spaces never do.
+        // As the old writer did: only the space character triggers quoting; tabs and non-breaking spaces never do. A leading tab
+        // is neutralised like a leading formula character.
         var data = new List<IDictionary<string, object?>>
         {
             Row(
@@ -140,7 +141,7 @@ public class CsvReportGoldenTests
 
         var text = Encoding.UTF8.GetString(await CsvBuilder.GetReport(data));
 
-        text.Should().Be("\uFEFF\uFEFFTabOnly,NbspOnly,TwoSpaces,TabLead,TabTrail,NbspLead,NbspTrail,Inner\r\n\t,\u00a0,\"  \",\tx,x\t,\u00a0x,x\u00a0,a b\r\n");
+        text.Should().Be("\uFEFF\uFEFFTabOnly,NbspOnly,TwoSpaces,TabLead,TabTrail,NbspLead,NbspTrail,Inner\r\n'\t,\u00a0,\"  \",'\tx,x\t,\u00a0x,x\u00a0,a b\r\n");
     }
 
     private static IDictionary<string, object?> Row(params (string Key, object? Value)[] cells)
@@ -161,5 +162,5 @@ public class CsvReportGoldenTests
         "plain,\"a,b\",\"say \"\"hi\"\"\",\"line1\nline2\",\"x\r\ny\",\" lead\",\"trail \",,,a\tb,Zagreb \u010d \u0107 \u0161 \u0111 \u017e,a;b\r\n" +
         "numbers,1234567.891,-0.5,1.5E-07,3.25,42,9223372036854775807,True,False,7,12.0,1E+21\r\n" +
         "dates,09.03.2026,31.12.1999,03/09/2026 14:30:15 +02:00,03/09/2026,14:30,01:30:00,0f8fad5b-d9cb-469f-a165-70867728950e,High,c,255,09.03.2026\r\n" +
-        "others,0x0102FF,,NaN,Infinity,01.01.0001,\" \",\"a\rb\",123456789012345678.123456789,18446744073709551615,-0,=SUM(A1)\r\n";
+        "others,0x0102FF,,NaN,Infinity,01.01.0001,\" \",\"a\rb\",123456789012345678.123456789,18446744073709551615,-0,'=SUM(A1)\r\n";
 }

@@ -1,5 +1,7 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Beacon.UI;
 
@@ -34,14 +36,31 @@ public static class BeaconUiEndpointRouteBuilderExtensions
         BasePath + "/{**path:regex(^(?!api(/|$))(?!mcp(/|$))([^.]*|.*/[^./]*)$)}";
 
     /// <summary>
+    /// The authorization policy on the SPA's pages, registered by <c>AddBeaconApiAuthorization()</c> (Beacon.Api): with the
+    /// login form on, a signed-out browser is redirected to the login page; with it off, the pages stay open.
+    /// </summary>
+    public const string PagePolicyName = "BeaconUiPage";
+
+    /// <summary>
+    /// The authorization policy on the first-run setup page, registered with <see cref="PagePolicyName"/>: open to a
+    /// signed-out browser while Beacon manages users, otherwise like every other page.
+    /// </summary>
+    public const string SetupPagePolicyName = "BeaconUiSetupPage";
+
+    /// <summary>
     /// The index document's path within the host's web root, which carries this package's
     /// <c>StaticWebAssetBasePath</c> prefix.
     /// </summary>
     private const string IndexFile = "beacon/index.html";
 
+    /// <summary>The pages a signed-out browser reaches: signing in, the page after signing out, and the error page.</summary>
+    private static readonly string[] AnonymousPages = ["login", "logout", "error"];
+
     /// <summary>
     /// Maps the SPA fallback so client-side routes resolve to <c>index.html</c> shipped
-    /// by this package. Covers both <c>/beacon</c> and everything beneath it.
+    /// by this package. Covers both <c>/beacon</c> and everything beneath it. The pages require
+    /// <see cref="PagePolicyName"/>; the login, logout and error pages are anonymous, and the setup page
+    /// requires <see cref="SetupPagePolicyName"/>.
     /// </summary>
     /// <param name="endpoints">The endpoint route builder.</param>
     /// <returns>The fallback endpoint convention builder, for further configuration.</returns>
@@ -49,9 +68,12 @@ public static class BeaconUiEndpointRouteBuilderExtensions
     {
         // The catch-all pattern alone does not match the bare "/beacon" (no trailing segment),
         // which is the URL people actually type, so map that exact path as well.
-        endpoints.MapFallbackToFile(BasePath, IndexFile);
+        endpoints.MapFallbackToFile(BasePath, IndexFile)
+            .RequireAuthorization(PagePolicyName);
+        MapAuthPages(endpoints);
 
-        return endpoints.MapFallbackToFile(DefaultFallbackPattern, IndexFile);
+        return endpoints.MapFallbackToFile(DefaultFallbackPattern, IndexFile)
+            .RequireAuthorization(PagePolicyName);
     }
 
     /// <summary>
@@ -64,6 +86,39 @@ public static class BeaconUiEndpointRouteBuilderExtensions
         this IEndpointRouteBuilder endpoints,
         string fallbackPattern)
     {
-        return endpoints.MapFallbackToFile(fallbackPattern, IndexFile);
+        MapAuthPages(endpoints);
+
+        return endpoints.MapFallbackToFile(fallbackPattern, IndexFile)
+            .RequireAuthorization(PagePolicyName);
+    }
+
+    // Exact paths, so they win over the catch-all; matched without regard to case like every route, while the login
+    // redirect still sends a differently cased path to the login page (LoginFormAuthMiddleware).
+    private static void MapAuthPages(IEndpointRouteBuilder endpoints)
+    {
+        RequirePagePolicies(endpoints.ServiceProvider);
+
+        foreach (var page in AnonymousPages)
+        {
+            endpoints.MapFallbackToFile($"{BasePath}/{page}", IndexFile)
+                .AllowAnonymous();
+        }
+
+        endpoints.MapFallbackToFile($"{BasePath}/setup", IndexFile)
+            .RequireAuthorization(SetupPagePolicyName);
+    }
+
+    // At startup rather than as a failure of every page request: the pages' policies come from AddBeaconApiAuthorization().
+    private static void RequirePagePolicies(IServiceProvider services)
+    {
+        var policies = services.GetService<IAuthorizationPolicyProvider>();
+        foreach (var name in new[] { PagePolicyName, SetupPagePolicyName })
+        {
+            if (policies?.GetPolicyAsync(name).GetAwaiter().GetResult() == null)
+            {
+                throw new InvalidOperationException(
+                    $"MapBeaconUi needs the authorization policy '{name}': call builder.Services.AddBeaconApiAuthorization() when registering services.");
+            }
+        }
     }
 }

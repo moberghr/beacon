@@ -295,6 +295,13 @@ export interface LlmConnectionView {
   credentials: LlmCredentialView[];
 }
 
+/** The grant of the Admin role a reviewer is shown: ids and the role's name only. */
+export interface AdminRoleGrantView {
+  userId: number;
+  roleId: number;
+  roleName: string;
+}
+
 /** A project a data source under review is linked to now. */
 export interface ChangeApprovalProject {
   id: number;
@@ -339,6 +346,8 @@ export interface ChangeApprovalDetail {
   /** The LLM connection the change was made from. */
   previousLlmConnection?: LlmConnectionView | null;
   proposedLlmConnection?: LlmConnectionView | null;
+  /** The Admin role grant a request of that kind proposes. */
+  proposedAdminRoleGrant?: AdminRoleGrantView | null;
   /** A data source's projects now (links are not part of the change); empty for every other kind. */
   currentProjects?: ChangeApprovalProject[];
   /** The hash of what this detail shows as proposed: an approval sends it back, so it applies exactly what was shown. */
@@ -366,6 +375,7 @@ export const CHANGE_KIND_LABEL: Record<ChangeApprovalKind, string> = {
   [ChangeApprovalKind.RecipientDestination]: 'Recipient',
   [ChangeApprovalKind.DataSourceConnection]: 'Data source',
   [ChangeApprovalKind.LlmConnection]: 'LLM connection',
+  [ChangeApprovalKind.AdminRoleGrant]: 'Admin role grant',
 };
 
 const CHANGES_KEY = ['approvals', 'changes'] as const;
@@ -406,6 +416,7 @@ const GOVERNED_KEYS = [
   ['subscriptions'],
   ['data-sources'],
   ['admin-settings'],
+  ['users'],
 ];
 
 export function useApproveChange() {

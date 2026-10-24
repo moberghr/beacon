@@ -219,6 +219,11 @@ public static class ServiceConfiguration
 
         // Notes at startup that provisioned user callers get the Viewer role (catalog only) by default.
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, McpUserCallerStartupNote>());
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, McpAuditStartupWarning>());
+
+        // Checks the MCP audit seal once the host has started: the sealing interceptor, the seal columns, when sealing
+        // started, and whether the verification runs.
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, McpAuditSealingStartupCheck>());
 
         return services;
     }

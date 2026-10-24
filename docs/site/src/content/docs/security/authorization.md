@@ -269,7 +269,7 @@ The complete route list is on [Routes & endpoints](/reference/routes/).
 - **A SecurityAdmin tightens, an Admin loosens.** A SecurityAdmin turns read-only enforcement and PII detection on, globally and per project; turning either off is an Admin's (`403`), and nobody's while the deployment locks them (`409`). Changing where a recipient delivers is refused (`403`) when the recipient is attached to work the SecurityAdmin cannot read.
 - **The authorization provider can veto.** A host may refuse a permission with `IBeaconAuthorizationProvider.AllowsFunctionalPermissionAsync` (a default member that returns `true`).
 
-`GET /beacon/api/auth/permissions` returns the caller's `canRead`, `canWrite`, `isAdmin` and `permissions` (the names held now; an Admin's lists all six). The shell uses it to show the pages each permission opens.
+`GET /beacon/api/auth/permissions` returns the caller's `canRead`, `canWrite`, `isAdmin` and `permissions` (the names held now; an Admin's lists all six). The shell uses it to show the pages each permission opens. It also carries `build` (the running release `version` and source `commit`), which the signed-in sidebar shows; the web bundle itself carries no build identity, so nothing about the deployed build is readable before sign-in.
 
 ### Holding a permission
 
@@ -436,7 +436,7 @@ Security-relevant actions are recorded in an append-only, signed trail an Audito
 - **Events and attribution start at the upgrade.** Existing resources record no creator or last modifier until they are next changed.
 - **Set `Beacon:Audit:IntegrityKey`** before you change the encryption key or the caller hash key; otherwise events signed under the old derived key verify as *unknown key* once that secret leaves the configuration.
 - **Schedule the verify and purge jobs** (`ISecurityAuditVerificationService.VerifyNewEventsAsync`, hourly; `ISecurityAuditRetentionService.PurgeExpiredAsync`, daily); the sample host schedules both. Events are kept forever until `Beacon:Audit:RetentionDays` (365 to 36,500) is set.
-- **Alert on** `beacon.security_audit.write_failures` and `beacon.security_audit.verification_failures` above zero, and ship the `Beacon.Audit` events 9104 to 9110 to your SIEM.
+- **Alert on** `beacon.security_audit.write_failures` and `beacon.security_audit.verification_failures` above zero, and ship the `Beacon.Audit` events 9104 to 9112 to your SIEM.
 - **Reads of audit data fail closed**: the security audit, MCP audit and owned-resources routes record each read first and fail when that record cannot be written.
 - **Owner changes** of subscriptions, data contracts and AI actors answer `409` when the owner changed since it was read.
 - **Where content is retained, the MCP audit now stores the SQL of every statement a call ran.** Review this against your privacy policy; `Beacon:Mcp:Audit:RequireContent` pins it on, `ForceNoContentRetention` pins it off.

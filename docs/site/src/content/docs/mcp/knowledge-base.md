@@ -148,7 +148,7 @@ Gold SQL, promoted or edited, and corrected SQL from feedback are stored as the 
 
 ### Injection
 
-The top `GoldenExemplarTopK` (default 4) cases matching the question are rendered into **Verified query examples (authoritative)**, ranked *above* mined learned patterns and capped by `GoldenExemplarBudgetChars` (default 2000). Retrieval hard-filters on the caller's project, so golden SQL never leaks across project boundaries on a shared data source. Gold SQL is rendered without its comments and the question on one line; a case whose comments cannot be removed, or whose SQL or question holds characters a reviewer cannot see, is left out, and its id is logged once per hour.
+The top `GoldenExemplarTopK` (default 4) cases matching the question are rendered into **Verified query examples (authoritative)**, ranked *above* mined learned patterns and capped by `GoldenExemplarBudgetChars` (default 2000). Retrieval hard-filters on the caller's project, so golden SQL never leaks across project boundaries on a shared data source: each golden case's vector carries its project, and the nearest-neighbour search takes the top cases of the caller's project only, so another project's cases on the same data source never take its slots. Vectors indexed before they carried a project are stamped with their case's project by the `BackfillGoldenCaseEmbeddingProjects` database migration, without re-embedding them, so golden examples keep matching after the upgrade. Gold SQL is rendered without its comments and the question on one line; a case whose comments cannot be removed, or whose SQL or question holds characters a reviewer cannot see, is left out, and its id is logged once per hour.
 
 ### Eval runs
 
@@ -234,7 +234,7 @@ On PostgreSQL, vectors are additionally written to a **pgvector** column with an
 Where a dense arm is available, its ranked results are merged with the keyword results using **reciprocal rank fusion**, with deterministic tie-breaks so paging stays stable. This drives:
 
 - The `search` MCP tool across tables, columns, and documentation.
-- Exemplar selection for golden examples and learned patterns (`ExemplarTopK`, default 4). A learned pattern is indexed only while its project links the data source and is not archived, its vector carries its own project, and selection filters on the caller's project, so a shared data source never surfaces another project's patterns.
+- Exemplar selection for golden examples and learned patterns (`ExemplarTopK`, default 4). A learned pattern is indexed only while its project links the data source and is not archived; its vector, like a golden case's, carries its own project, and selection filters on the caller's project, so a shared data source never surfaces another project's patterns or cases.
 - Documentation chunk retrieval (`DocChunkTopK`, default 6).
 
 Every dense path **fails open**: with no embedder configured, or with rows not yet indexed, retrieval falls back to the keyword/overlap path and returns results rather than failing.
@@ -254,7 +254,7 @@ Indexing and aggregation run as recurring [Warp](https://moberghr.github.io/warp
 | `mcp-learning-aggregate` | Every 6 hours | Mines signals into learned patterns, runs decay and replay verification |
 | `mcp-learning-cleanup` | Daily at 03:00 | Removes signals past the retention window |
 | `mcp-embedding-reindex` | Every 12 hours | Re-embeds schema metadata and exemplars |
-| `mcp-docchunk-reindex` | Every 12 hours | Re-chunks and re-embeds project documentation |
+| `mcp-docchunk-reindex` | Every 12 hours | Re-chunks and re-embeds project documentation, each project under its own effective settings (a project that turned semantic or contextual retrieval off is skipped or gets no blurbs) |
 | `mcp-audit-retention` | Daily at 03:30 | Purges MCP audit rows older than `Beacon:Mcp:Audit:RetentionDays` (a no-op while it is unset); see [MCP observability](/mcp/observability-and-audit/#retention) |
 
 These are the sample host's registrations (`Beacon.SampleProject/Program.cs`); a host that embeds Beacon schedules them itself.
