@@ -212,7 +212,14 @@ export const SECURITY_AUDIT_CATEGORIES: readonly SecurityAuditCategory[] = [
   {
     code: 'audit',
     label: 'The audit itself',
-    actions: ['audit.read', 'audit.verified', 'audit.purged', 'audit.mcp_audit_read'],
+    actions: [
+      'audit.read',
+      'audit.verified',
+      'audit.purged',
+      'audit.mcp_audit_read',
+      'audit.execution_log_read',
+      'audit.execution_log_exported',
+    ],
   },
 ];
 
@@ -242,6 +249,7 @@ export const SECURITY_AUDIT_RESOURCE_TYPES: readonly string[] = [
   'glossary_term',
   'documentation_section',
   'mcp_audit',
+  'execution_log',
   'attribute_definition',
   'row_policy',
   'table_classification',

@@ -64,6 +64,7 @@ public static class SecurityAuditResources
     public const string GlossaryTerm = "glossary_term";
     public const string DocumentationSection = "documentation_section";
     public const string McpAudit = "mcp_audit";
+    public const string ExecutionLog = "execution_log";
     public const string AttributeDefinition = "attribute_definition";
     public const string RowPolicy = "row_policy";
     public const string TableClassification = "table_classification";
@@ -255,6 +256,8 @@ public static class SecurityAuditActions
     public const string AuditVerified = "audit.verified";
     public const string AuditPurged = "audit.purged";
     public const string McpAuditRead = "audit.mcp_audit_read";
+    public const string ExecutionLogRead = "audit.execution_log_read";
+    public const string ExecutionLogExported = "audit.execution_log_exported";
 
     /// <summary>Every action in the catalogue.</summary>
     public static IReadOnlySet<string> All { get; } = typeof(SecurityAuditActions)

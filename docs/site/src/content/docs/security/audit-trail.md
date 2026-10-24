@@ -391,6 +391,46 @@ await recurringJobPublisher.AddOrUpdateRecurringJob(new PurgeExpiredSecurityAudi
 
 or by calling `ISecurityAuditRetentionService.PurgeExpiredAsync(cancellationToken)` from its own scheduler.
 
+## The execution log
+
+Besides the trail, Beacon keeps an **execution log** (`manual_query_execution_logs`) of the statements it runs on a data
+source for its own features: every statement of a query preview, a query run (from the editor, an AI actor's check, a
+migration's read), a subscription run and a column value sample, every documentation enum discovery statement and every
+data contract rule. (MCP calls have their own [audit](/mcp/observability-and-audit/).)
+
+- **Written before the statement is sent.** Each statement gets a row with `status = Started` (its SQL as sent, without
+  parameter values, the data source and what ran it) before it reaches the data source, and the row is closed when it
+  ends: `Succeeded` (with its row count), `Failed` (with the database's error redacted as it is with PII detection on,
+  whatever the caller's PII setting, so no quoted value is kept; a host data source's generic text as it is), `Cancelled`
+  (the caller stopped it) or `TimedOut` (its statement timeout, on every path), and `completed_time`. A statement the
+  gate refuses never runs and has no row.
+- **Abandoned rows.** A row still `Started` longer than `Beacon:Query:StatementTimeoutSeconds` plus 10 minutes is a
+  statement whose end was never recorded (the process stopped, the log store failed): the read and the export show it as
+  `Abandoned`, and `status=Abandoned` filters for it (nothing is written; the stored status stays `Started`).
+- **Who it ran for.** `triggered_by_user_id` is the `Users.Id` the statement ran for: the request's caller, or the owner
+  scheduled work runs as; null for work the system does on its own. Subscription runs record the same id on their run
+  history (`query_execution_history.triggered_by_user_id`).
+- **Fail-open by default.** A statement whose `Started` row cannot be written still runs, and a Warning is logged. Set
+  `Beacon:Audit:ExecutionLog:Required: true` to refuse such a statement instead (its caller gets an error); with it on,
+  the host fails to start when no execution log (`ISqlExecutionAudit`) is registered. The end of a statement that ran is
+  recorded whatever the caller's cancellation, and never in place of its result.
+- **Read and export.** `GET /beacon/api/execution-log` (paged, newest first) and `GET /beacon/api/execution-log/export`
+  (CSV, at most 10,000 rows; the `X-Beacon-Truncated` header says when more matched) take `from` and `to` (UTC, at most
+  93 days apart) and optional `dataSourceId`, `triggeredByUserId`, `status` and `executionContext`. Both are an Auditor's
+  or a SecurityAdmin's, list only the data sources the caller may read, and record an `audit.execution_log_read` or
+  `audit.execution_log_exported` event (the filters' shape, the row count) before they return; they fail when the event
+  cannot be written.
+- **Values masked on the way out.** The stored SQL keeps the values written into it (bind values are never stored); the
+  read and the export replace its string literals and numbers with `?` and drop its comments, read with the data
+  source's dialect (every quoted span and number when the source or its dialect is unknown). The export also cuts each
+  statement at 4,000 characters (marked ` [cut]`), and writes a cell that starts with `=`, `+`, `-`, `@`, a tab or a line
+  break with a leading `'`, so a spreadsheet reads it as text.
+- **Retention.** Rows are kept forever unless `Beacon:Audit:ExecutionLog:RetentionDays` is set (greater than zero);
+  schedule `IExecutionLogRetentionService.PurgeExpiredAsync` daily (the sample host's `execution-log-retention` job),
+  which deletes the older rows and logs `Beacon.Audit` event 9111. The log grows with every statement Beacon runs, one row
+  per column value sample of a metadata scan included, so set a retention that fits your storage.
+- **Not sealed.** The execution log is evidence, not signed like the trail.
+
 ## Shipping to a SIEM
 
 Every event is logged at category **`Beacon.Audit`** once the transaction that wrote it has committed; an event whose
@@ -463,6 +503,14 @@ lets a deployment pin the MCP audit's content on. See
 [MCP observability and audit](/mcp/observability-and-audit/).
 
 - **Events start at the upgrade.** Nothing is backfilled: the trail holds the actions taken after the upgrade only.
+- **The execution log writes a row before each statement.** From `AddExecutionLogStatus` (PostgreSQL `20261024210000`,
+  SQL Server `20261024210001`, additive: nullable `status`, `completed_time` and `triggered_by_user_id` on
+  `manual_query_execution_logs` plus an index on `triggered_by_user_id` and `created_time`, and a nullable
+  `triggered_by_user_id` on `query_execution_history`; nothing is backfilled) every statement Beacon runs for its own
+  features is in the [execution log](#the-execution-log), subscription steps, column value samples, enum discovery and
+  data contract rules included, so the table grows faster. Older rows keep a null `status`. A step of a query run is
+  recorded as `QueryStep` (the per-step `QueryStepPreview` rows written after the step are gone; a step preview's own
+  statements are `QueryStepPreview`).
   Earlier actions are only in the logs you kept (the project-access events 7101 onwards, the `Beacon.Audit` events 9100
   onwards), which are written as before.
 - **Existing resources have no attribution.** Queries, subscriptions, recipients, data contracts and migration jobs that

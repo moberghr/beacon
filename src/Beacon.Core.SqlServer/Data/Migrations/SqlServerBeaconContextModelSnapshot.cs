@@ -1605,6 +1605,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<DateTime?>("CompletedTime")
+                        .HasColumnType("datetime2");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("datetime2");
 
@@ -1629,8 +1632,14 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<int>("ResultCount")
                         .HasColumnType("int");
 
+                    b.Property<int?>("Status")
+                        .HasColumnType("int");
+
                     b.Property<bool>("Success")
                         .HasColumnType("bit");
+
+                    b.Property<int?>("TriggeredByUserId")
+                        .HasColumnType("int");
 
                     b.Property<string>("UserId")
                         .HasMaxLength(100)
@@ -1647,6 +1656,8 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.HasIndex("UserId");
 
                     b.HasIndex("DataSourceId", "CreatedTime");
+
+                    b.HasIndex("TriggeredByUserId", "CreatedTime");
 
                     b.HasIndex("UserId", "CreatedTime");
 
@@ -3537,6 +3548,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("SubscriptionId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("TriggeredByUserId")
                         .HasColumnType("int");
 
                     b.HasKey("Id");

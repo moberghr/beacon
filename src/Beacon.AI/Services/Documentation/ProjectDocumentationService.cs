@@ -11,6 +11,7 @@ using Beacon.AI.Services.LlmProviders;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Helpers;
 using Beacon.Core.RowSecurity;
+using Beacon.Core.Models.Providers;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
@@ -28,7 +29,8 @@ internal sealed class ProjectDocumentationService(
     ISharedSourceSettings sharedSourceSettings,
     IQueryGuardrailService guardrail,
     ILlmRowDataEgress rowDataEgress,
-    ILogger<ProjectDocumentationService> logger) : IProjectDocumentationService
+    ILogger<ProjectDocumentationService> logger,
+    ISqlExecutionAudit? executionAudit = null) : IProjectDocumentationService
 {
     public async Task<ProjectDocumentation> GenerateDocumentationAsync(
         int projectId, int userId, CancellationToken ct = default)
@@ -630,7 +632,7 @@ internal sealed class ProjectDocumentationService(
                 using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 timeoutCts.CancelAfter(TimeSpan.FromSeconds(15));
 
-                return (Values: await DiscoverEnumValuesForDataSourceAsync(ds, tables, settings.CustomPiiPatterns, timeoutCts.Token), SamplingOff: false);
+                return (Values: await DiscoverEnumValuesForDataSourceAsync(ds, tables, settings.CustomPiiPatterns, timeoutCts.Token, ct), SamplingOff: false);
             }
             catch (Exception ex)
             {
@@ -671,13 +673,14 @@ internal sealed class ProjectDocumentationService(
     /// come from the connected database: a table or column whose name carries quote, bracket, semicolon or control
     /// characters is skipped, every name is quoted in the engine's own way, and a column is identified in the result by its
     /// position, never by a literal of its name. Each statement passes the read-only execution gate — capped at
-    /// <see cref="EnumValuesPerColumn"/> rows per column — and runs through the provider's read-only path (§1.5/§1.10). A
+    /// <see cref="EnumValuesPerColumn"/> rows per column — and runs through the provider's read-only path (§1.5/§1.10), in
+    /// the execution log before it is sent (<see cref="ISqlExecutionAudit"/>). A
     /// table that is skipped is logged by name with the reason, and every run ends with how many tables were discovered.
     /// A column whose name <see cref="ColumnValueExclusions"/> leaves out (PII, secret-like, a financial amount) is not
     /// read, and a column one of whose values looks like PII or a credential is dropped.
     /// </summary>
     private async Task<List<EnumColumnValues>> DiscoverEnumValuesForDataSourceAsync(
-        DataSource dataSource, List<TableInfo> tables, IReadOnlyList<string> customPiiPatterns, CancellationToken ct)
+        DataSource dataSource, List<TableInfo> tables, IReadOnlyList<string> customPiiPatterns, CancellationToken ct, CancellationToken callerToken)
     {
         var provider = dataSourceProviderFactory.GetProvider(dataSource.DataSourceType);
         var engineType = dataSource.DatabaseEngineType!.Value;
@@ -740,8 +743,17 @@ internal sealed class ProjectDocumentationService(
                     continue;
                 }
 
-                var queryResult = await provider.ExecuteReadOnlyQueryAsync(
-                    dataSource, report.FinalSql, new Dictionary<string, object?>(), ct);
+                // Each statement is in the execution log before it runs: it reads real column values.
+                var finalSql = report.FinalSql;
+                Task<ProviderQueryResult> Read(CancellationToken token) =>
+                    provider.ExecuteReadOnlyQueryAsync(dataSource, finalSql, new Dictionary<string, object?>(), token);
+                var queryResult = executionAudit == null
+                    ? await Read(ct)
+                    : await executionAudit.RunAsync(
+                        new SqlExecutionStart(dataSource.Id, finalSql, SqlExecutionContexts.DocumentationEnumDiscovery),
+                        Read,
+                        ct,
+                        callerToken);
 
                 if (!queryResult.Success)
                 {

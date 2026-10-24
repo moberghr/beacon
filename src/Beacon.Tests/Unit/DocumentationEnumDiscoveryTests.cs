@@ -69,6 +69,28 @@ public class DocumentationEnumDiscoveryTests
     }
 
     [Test]
+    public async Task EachDiscoveryStatement_IsInTheExecutionLogBeforeItRuns_AndClosedWhenItEnds()
+    {
+        var order = new List<string>();
+        var audit = new RecordingExecutionAudit(order);
+        var provider = RecordingProvider();
+        provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .Callback(() => order.Add("execute"))
+            .ReturnsAsync(new ProviderQueryResult { Success = true });
+        var service = Service(provider.Object, [Table("orders", "status")], executionAudit: audit);
+
+        await GenerateIgnoringLaterFailures(service);
+
+        order.Should().Equal("start", "execute", "end");
+        audit.Starts.Should().ContainSingle()
+            .Which.Should().Match<SqlExecutionStart>(x => x.DataSourceId == DataSourceId
+                && x.ExecutionContext == SqlExecutionContexts.DocumentationEnumDiscovery
+                && x.Sql.Contains("\"orders\""));
+        audit.Ends.Should().ContainSingle().Which.Status.Should().Be(QueryExecutionLogStatus.Succeeded);
+    }
+
+    [Test]
     public async Task ASmallProjectsPrompts_AreUnchangedByThePromptBudget()
     {
         var prompts = new List<string>();
@@ -456,7 +478,8 @@ public class DocumentationEnumDiscoveryTests
         List<string>? prompts = null,
         McpSettingsData? settings = null,
         ILlmRowDataEgress? egress = null,
-        ILogger<ProjectDocumentationService>? logger = null)
+        ILogger<ProjectDocumentationService>? logger = null,
+        ISqlExecutionAudit? executionAudit = null)
     {
         var dataSource = new DataSource
         {
@@ -509,7 +532,8 @@ public class DocumentationEnumDiscoveryTests
             shared.Object,
             new QueryGuardrailService(),
             egress ?? TestRowDataEgress.Discarding(),
-            logger ?? NullLogger<ProjectDocumentationService>.Instance);
+            logger ?? NullLogger<ProjectDocumentationService>.Instance,
+            executionAudit);
     }
 
     private static DatabaseMetadata Table(string name, string column)
