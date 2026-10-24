@@ -100,6 +100,23 @@ public class BeaconAuthenticationSchemeTests
     }
 
     [Test]
+    public async Task HostWhoseOnlySchemeIsIdentity_AnswersAnonymousAndRefusedRequests_WithoutAServerError()
+    {
+        await using var host = await SchemeHost.StartAsync(bearer: true, beaconCookie: false, identityOnly: true);
+
+        var anonymousMcp = await host.SendAsync("/beacon/mcp");
+        var anonymousApi = await host.SendAsync("/beacon/api/whoami");
+        var refusedTokenOnAPage = await host.SendAsync("/beacon/home", authorization: "Bearer not-a-token");
+        var key = await host.SendAsync("/beacon/api/whoami", authorization: $"Bearer {ApiKey}");
+
+        anonymousMcp.StatusCode.Should().Be(HttpStatusCode.Found, "the host's own scheme challenges the anonymous caller");
+        anonymousApi.StatusCode.Should().Be(HttpStatusCode.Found, "the host's own scheme challenges the anonymous caller");
+        refusedTokenOnAPage.StatusCode.Should().Be(HttpStatusCode.OK, "a refused token on a page continues anonymously");
+        (await refusedTokenOnAPage.Content.ReadAsStringAsync()).Should().Be("anonymous");
+        key.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Test]
     public async Task BearerHandler_WithoutBearerAuthenticationConfigured_AuthenticatesNobody()
     {
         await using var host = await SchemeHost.StartAsync();
@@ -167,7 +184,7 @@ public class BeaconAuthenticationSchemeTests
 
         public List<string> Logs { get; }
 
-        public static async Task<SchemeHost> StartAsync(bool bearer = false, bool hostScheme = false, bool beaconCookie = true)
+        public static async Task<SchemeHost> StartAsync(bool bearer = false, bool hostScheme = false, bool beaconCookie = true, bool identityOnly = false)
         {
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing" });
             builder.WebHost.UseTestServer();
@@ -184,6 +201,11 @@ public class BeaconAuthenticationSchemeTests
             if (beaconCookie)
             {
                 builder.Services.AddBeaconCookieAuthentication("/beacon");
+            }
+            else if (identityOnly)
+            {
+                // The host owns sign-in with ASP.NET Identity's scheme: no scheme named Cookies at all.
+                builder.Services.AddAuthentication("Identity.Application").AddCookie("Identity.Application");
             }
             else
             {
@@ -214,6 +236,8 @@ public class BeaconAuthenticationSchemeTests
             app.UseBeaconAuthentication();
             app.UseAuthorization();
             app.MapGet("/beacon/api/whoami", WhoAmI).RequireAuthorization();
+            app.MapGet("/beacon/mcp", WhoAmI).RequireAuthorization();
+            app.MapGet("/beacon/home", (HttpContext context) => context.User.Identity?.IsAuthenticated == true ? "signed-in" : "anonymous");
             app.MapGet("/beacon/api/by-scheme", WhoAmI)
                 .RequireAuthorization(new Microsoft.AspNetCore.Authorization.AuthorizationPolicyBuilder(BeaconAuthenticationDefaults.AuthenticationScheme)
                     .RequireAuthenticatedUser()

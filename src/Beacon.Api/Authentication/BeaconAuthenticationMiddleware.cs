@@ -64,9 +64,19 @@ internal sealed class BeaconAuthenticationMiddleware(RequestDelegate next)
         await next(context);
     }
 
-    /// <summary>Authenticates the <c>Beacon.Auth</c> cookie and records a session as the request's authentication result.</summary>
+    /// <summary>
+    /// Authenticates the <c>Beacon.Auth</c> cookie and records a session as the request's authentication result. A host
+    /// without the cookie scheme (its own sign-in, such as ASP.NET Identity) has no session to read: the request stays as
+    /// the host's authentication left it.
+    /// </summary>
     internal static async Task AuthenticateCookieAsync(HttpContext context)
     {
+        var schemes = context.RequestServices.GetService<IAuthenticationSchemeProvider>();
+        if (schemes != null && await schemes.GetSchemeAsync(CookieAuthenticationDefaults.AuthenticationScheme) == null)
+        {
+            return;
+        }
+
         var result = await context.AuthenticateAsync(CookieAuthenticationDefaults.AuthenticationScheme);
         if (result.Succeeded)
         {

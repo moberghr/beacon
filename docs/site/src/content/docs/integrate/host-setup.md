@@ -228,6 +228,8 @@ The order is load-bearing. Each step depends on the ones before it:
 
 A refused API key is answered with a 401 problem (`application/problem+json`) on every Beacon route, also an anonymous one. A refused bearer token is answered with a 401 problem carrying `error: "invalid_token"` (and, for 5.x clients, `message`) and `WWW-Authenticate: Bearer error="invalid_token"` on an API request; on a page it is ignored, so the session cookie or the login redirect applies. Beacon registers its schemes under the names in `BeaconAuthenticationDefaults` (the `Beacon` policy scheme forwards to the one the request's credential belongs to); they never take away a host's only scheme of its own as its default.
 
+Do not call `UseAuthentication()` again after `UseBeaconAuthentication()`: a second pass of your schemes would replace the API key or token Beacon's step accepted.
+
 Steps 7, 9 and 10 act on `/beacon` and the prefixes in `Beacon:Authentication:AdditionalPaths` only: a Beacon API key, bearer token or `Beacon.Auth` cookie never authenticates another route of your application, and your routes are never redirected to Beacon's login or setup page. Beacon's cookie scheme refuses the session on those other routes as well, so a host whose default scheme is the cookie still never has its own routes authenticated by it. List `/warp` there when you serve the Warp dashboard with Beacon's admin check: a host upgraded from a version without path scoping must add it, or the dashboard refuses every request. See [Where Beacon credentials apply](/getting-started/configuration/#where-beacon-credentials-apply).
 
 :::danger[Do not reorder or assign `context.User` later]
