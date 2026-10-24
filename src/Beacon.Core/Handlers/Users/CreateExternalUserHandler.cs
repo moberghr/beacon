@@ -13,6 +13,9 @@ internal sealed class CreateExternalUserHandler(
 {
     public async Task Handle(CreateExternalUserCommand request, CancellationToken cancellationToken)
     {
+        // Stored, and looked up to log the creation, trimmed.
+        request = request with { UserName = UserAccountFields.Trimmed(request.UserName), Email = UserAccountFields.TrimmedEmail(request.Email) };
+
         // The roles are checked before the user is created: a refused role creates nobody.
         var roles = await rules.RolesAsync(request.RoleIds, cancellationToken);
         await rules.DemandMayAssignAsync(null, roles, roles, cancellationToken);

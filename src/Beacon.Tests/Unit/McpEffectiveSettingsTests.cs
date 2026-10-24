@@ -426,15 +426,16 @@ public class McpEffectiveSettingsTests
         var effective = new McpSettingsData { EnablePiiDetection = false };
         var incoming = new McpSettingsData { EnablePiiDetection = true };
 
+        var stored = new McpSettingsEntity { EnablePiiDetection = false };
         rule.Pin(effective);
-        rule.KeepStored(incoming, new McpSettingsEntity { EnablePiiDetection = false });
+        McpSettingFields.Store(incoming, stored, new HashSet<string> { rule.FieldName });
 
         rule.FieldName.Should().Be("EnablePiiDetection");
         rule.LockName.Should().Be("ForcePiiDetection");
         effective.EnablePiiDetection.Should().BeTrue();
         rule.Contradicts(new McpSettingsData { EnablePiiDetection = false }).Should().BeTrue();
         rule.HasOverride(new McpProjectSettingsData { EnablePiiDetection = true }).Should().BeTrue();
-        incoming.EnablePiiDetection.Should().BeFalse("the stored value survives a locked-field echo");
+        stored.EnablePiiDetection.Should().BeFalse("a write under the lock does not write the field it pins");
     }
 
     [Test]
@@ -467,13 +468,10 @@ public class McpEffectiveSettingsTests
 
         var incoming = new McpSettingsData { EnforceReadOnly = true, RetainQueryContent = false };
         var stored = new McpSettingsEntity { EnforceReadOnly = false, RetainQueryContent = true };
-        foreach (var rule in rules)
-        {
-            rule.KeepStored(incoming, stored);
-        }
+        McpSettingFields.Store(incoming, stored, rules.Select(x => x.FieldName).ToHashSet());
 
-        incoming.EnforceReadOnly.Should().BeFalse("the stored admin value survives a locked-field echo");
-        incoming.RetainQueryContent.Should().BeTrue();
+        stored.EnforceReadOnly.Should().BeFalse("the stored admin value survives a write under the lock");
+        stored.RetainQueryContent.Should().BeTrue();
     }
 
     [Test]

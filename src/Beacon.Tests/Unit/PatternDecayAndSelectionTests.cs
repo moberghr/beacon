@@ -253,6 +253,80 @@ public class PatternDecayAndSelectionTests
         patterns.Should().HaveCount(3);
     }
 
+    [Test]
+    public async Task DetectStalePatterns_CaseOnlyRename_MarksCorrectionStale()
+    {
+        var correction = NewCorrection(1, "loans", "Created_At");
+        var service = BuildAggregationService([correction], [NewColumn(1000, "public", "loans", "created_at")], out var context);
+
+        await service.DetectStalePatternsAsync(context, ProjectId, CancellationToken.None);
+
+        correction.SupersededAt.Should().NotBeNull("names compare case-sensitively, as PostgreSQL's equality did");
+    }
+
+    [Test]
+    public async Task DetectStalePatterns_NullSchemaIsNotEmptySchema()
+    {
+        var nullSchema = NewCorrection(1, "loans", "created_at");
+        nullSchema.SchemaName = null;
+        var emptySchema = NewCorrection(2, "loans", "created_at");
+        emptySchema.SchemaName = "";
+        var service = BuildAggregationService([nullSchema, emptySchema], [NewColumn(1000, "", "loans", "created_at")], out var context);
+
+        await service.DetectStalePatternsAsync(context, ProjectId, CancellationToken.None);
+
+        nullSchema.SupersededAt.Should().NotBeNull("a null schema is not the empty one");
+        emptySchema.SupersededAt.Should().BeNull();
+    }
+
+    [Test]
+    public async Task DetectStalePatterns_ManyCorrections_AreLookedUpInBatchesWithTheSameResult()
+    {
+        var count = McpLearningAggregationService.LookupBatchSize * 2 + 100;
+        var corrections = Enumerable.Range(1, count)
+            .Select(x => NewCorrection(x, "loans", $"col_{x}"))
+            .ToList();
+        var columns = Enumerable.Range(1, count)
+            .Where(x => x % 2 == 0)
+            .Select(x => NewColumn(1000 + x, "public", "loans", $"col_{x}"))
+            .ToList();
+        var service = BuildAggregationService(corrections, columns, out var context);
+
+        await service.DetectStalePatternsAsync(context, ProjectId, CancellationToken.None);
+
+        corrections.Where(x => x.SupersededAt == null).Select(x => x.Id).Should().Equal(Enumerable.Range(1, count).Where(x => x % 2 == 0));
+    }
+
+    [Test]
+    public void Batches_SplitsIntoListsOfAtMostTheBatchSize()
+    {
+        var items = Enumerable.Range(0, McpLearningAggregationService.LookupBatchSize * 2 + 1).ToList();
+
+        var batches = McpLearningAggregationService.Batches(items).ToList();
+
+        batches.Select(x => x.Length).Should().Equal(McpLearningAggregationService.LookupBatchSize, McpLearningAggregationService.LookupBatchSize, 1);
+        McpLearningAggregationService.Batches(new List<int>()).Should().BeEmpty();
+    }
+
+    [Test]
+    public void ColumnKey_KeepsNullApartFromEmpty()
+    {
+        McpLearningAggregationService.ColumnKey(1, "s", "t", null)
+            .Should().NotBe(McpLearningAggregationService.ColumnKey(1, "s", "t", ""));
+        McpLearningAggregationService.ColumnKey(1, "s", "t", "Name")
+            .Should().NotBe(McpLearningAggregationService.ColumnKey(1, "s", "t", "name"));
+    }
+
+    private static ColumnMetadata NewColumn(int id, string schema, string table, string column) =>
+        new()
+        {
+            Id = id,
+            DatabaseMetadataId = 100,
+            DatabaseMetadata = new DatabaseMetadata { Id = 100, DataSourceId = DataSourceId, SchemaName = schema, TableName = table },
+            ColumnName = column,
+            DataType = "text"
+        };
+
     // ExampleSql is "SELECT {id}" so returned lessons can be mapped back to their pattern id.
     private static int SqlToId(LearnedPatternInfo info) =>
         int.Parse(info.ExampleSql!["SELECT ".Length..]);

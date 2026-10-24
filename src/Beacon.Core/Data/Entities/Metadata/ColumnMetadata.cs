@@ -30,6 +30,13 @@ public class ColumnMetadata : BaseEntity
     /// </summary>
     public string? ForeignKeyConstraintName { get; set; }
 
+    /// <summary>
+    /// Every foreign key this column takes part in, as JSON (<see cref="Models.Metadata.ColumnForeignKeys"/>), when it takes
+    /// part in more than one; the single-target columns above hold the first in constraint-name order. Null when the column
+    /// takes part in at most one (the columns above then hold it) and for rows stored before the list was kept.
+    /// </summary>
+    public string? ForeignKeys { get; set; }
+
     public string? DefaultValue { get; set; }
     public int? MaxLength { get; set; }
     public string? Description { get; set; }

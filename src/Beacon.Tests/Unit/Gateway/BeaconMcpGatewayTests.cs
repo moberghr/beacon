@@ -79,6 +79,20 @@ public class BeaconMcpGatewayTests
     }
 
     [Test]
+    public async Task TheEvaluationHarness_StaysOff_ItsAiOffStandInResolvesAndRefuses()
+    {
+        using var provider = Services().BuildServiceProvider();
+        using var scope = provider.CreateScope();
+
+        var eval = scope.ServiceProvider.GetRequiredService<Beacon.Core.Services.IMcpEvalService>();
+        var act = () => eval.StartRunAsync(1, 1, CancellationToken.None);
+
+        eval.GetType().Name.Should().Be("AiDisabledMcpEvalService");
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*AI-backed features are unavailable*");
+        provider.GetRequiredService<Beacon.Core.BeaconConfiguration>().UseAI.Should().BeFalse();
+    }
+
+    [Test]
     public void RetainingToolContent_LiftsOnlyTheContentLock()
     {
         using var provider = Services(x => x.RetainToolContent = true).BuildServiceProvider();
@@ -108,6 +122,37 @@ public class BeaconMcpGatewayTests
 
         response.StatusCode.Should().Be(HttpStatusCode.Unauthorized, "the host's session counts for nothing on the MCP route");
         response.Headers.WwwAuthenticate.ToString().Should().Contain("resource_metadata=");
+    }
+
+    [Test]
+    public async Task GatewayRoutes_CarryTheSecurityHeaders_HostRoutesDoNot()
+    {
+        await using var app = await StartAsync();
+        using var client = app.GetTestClient();
+
+        var mcp = await PostInitializeAsync(app, token: null, hostSession: true);
+        var hostRoute = await client.GetAsync("/api/me");
+
+        mcp.Headers.GetValues("X-Content-Type-Options").Should().Equal("nosniff");
+        mcp.Headers.Contains("Content-Security-Policy").Should().BeTrue();
+        hostRoute.Headers.Contains("X-Content-Type-Options").Should().BeFalse();
+    }
+
+    [Test]
+    public async Task GatewayOriginCheck_RefusesAForeignOrigin_AndAdmitsThePublicOne()
+    {
+        await using var app = await StartAsync(settings: new() { ["Beacon:Security:OriginGuard"] = "Enforce" });
+
+        // The check is for requests without an Authorization header (an ambient cookie); a bearer caller passes.
+        var foreign = await PostInitializeAsync(app, null, hostSession: false, origin: "https://other.example");
+        var foreignBearer = await PostInitializeAsync(app, Token(KnownPerson), hostSession: false, origin: "https://other.example");
+        var publicOrigin = await PostInitializeAsync(app, Token(KnownPerson), hostSession: false, origin: "https://inventhor.example.com");
+        var noBrowser = await PostInitializeAsync(app, Token(KnownPerson), hostSession: false);
+
+        foreign.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        foreignBearer.StatusCode.Should().Be(HttpStatusCode.OK);
+        publicOrigin.StatusCode.Should().Be(HttpStatusCode.OK, await publicOrigin.Content.ReadAsStringAsync());
+        noBrowser.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     [Test]
@@ -225,12 +270,13 @@ public class BeaconMcpGatewayTests
         more?.Invoke(options);
     }
 
-    private static async Task<WebApplication> StartAsync(bool namedDefault = true)
+    private static async Task<WebApplication> StartAsync(bool namedDefault = true, Dictionary<string, string?>? settings = null)
     {
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing" });
         builder.WebHost.UseTestServer();
         builder.Logging.ClearProviders();
         builder.Configuration.AddConfiguration(Configuration());
+        builder.Configuration.AddInMemoryCollection(settings ?? []);
 
         var authentication = namedDefault ? builder.Services.AddAuthentication("HostSession") : builder.Services.AddAuthentication();
         authentication.AddScheme<AuthenticationSchemeOptions, HostSessionHandler>("HostSession", _ => { });
@@ -258,9 +304,10 @@ public class BeaconMcpGatewayTests
         return app;
     }
 
-    private static Task<HttpResponseMessage> PostInitializeAsync(WebApplication app, string? token, bool hostSession)
+    private static Task<HttpResponseMessage> PostInitializeAsync(WebApplication app, string? token, bool hostSession, string? origin = null)
     {
-        var request = new HttpRequestMessage(HttpMethod.Post, "/beacon/mcp")
+        // With an Origin, the request goes to the public host (Beacon:PublicBaseUrl), as a browser's would.
+        var request = new HttpRequestMessage(HttpMethod.Post, origin == null ? "/beacon/mcp" : "https://inventhor.example.com/beacon/mcp")
         {
             Content = new StringContent(
                 """{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"test","version":"1"}}}""",
@@ -272,6 +319,11 @@ public class BeaconMcpGatewayTests
         if (token != null)
         {
             request.Headers.Authorization = new AuthenticationHeaderValue("Bearer", token);
+        }
+
+        if (origin != null)
+        {
+            request.Headers.TryAddWithoutValidation("Origin", origin);
         }
 
         if (hostSession)

@@ -46,6 +46,14 @@ public class SnowflakeMetadataExtractor : IDatabaseMetadataExtractor
             WHERE tc.CONSTRAINT_TYPE = 'PRIMARY KEY'";
 
         var pkData = (await connection.QueryAsync(new CommandDefinition(pkQuery, commandTimeout: 180, cancellationToken: cancellationToken))).AsList();
+        return Assemble(columnsData, pkData);
+    }
+
+    /// <summary>
+    /// Builds the table list from the rows the catalog queries returned. Pure: no connection, so a fixture can pin it.
+    /// </summary>
+    internal static IReadOnlyList<TableMetadataDto> Assemble(IEnumerable<dynamic> columnsData, IEnumerable<dynamic> pkData)
+    {
         var pkLookup = pkData
             .Select(pk => $"{pk.table_schema}.{pk.table_name}.{pk.column_name}")
             .ToHashSet();

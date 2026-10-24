@@ -77,7 +77,7 @@ internal sealed class SqlCapture
     public int Commits { get; private set; }
 
     /// <summary>
-    /// Answers every command the script does not: a <c>count(*)</c> read with one, anything else with no rows. For tests
+    /// Answers every command the script does not: a <c>count(*)</c> read with one, an average with a NULL row, anything else with no rows. For tests
     /// that compare the SQL a handler sends, not what it does with the rows.
     /// </summary>
     public SqlCapture AnsweringCountsWithOne()
@@ -85,7 +85,9 @@ internal sealed class SqlCapture
         _fallback = sql => sql.Contains("count(*)", StringComparison.OrdinalIgnoreCase)
             && sql.TrimStart().StartsWith("SELECT count(", StringComparison.OrdinalIgnoreCase)
                 ? (() => Scalar(1), 1)
-                : (() => new DataTable().CreateDataReader(), 1);
+                : sql.TrimStart().StartsWith("SELECT avg(", StringComparison.OrdinalIgnoreCase)
+                    ? (() => NullAverage(), 1)
+                    : (() => new DataTable().CreateDataReader(), 1);
 
         return this;
     }
@@ -182,6 +184,16 @@ internal sealed class SqlCapture
     private static Type ColumnTypeOf(object value)
     {
         return value is DBNull ? typeof(string) : value.GetType();
+    }
+
+    // An average over no rows: the database answers one row holding NULL.
+    private static DbDataReader NullAverage()
+    {
+        var table = new DataTable();
+        table.Columns.Add("value", typeof(double));
+        table.Rows.Add(DBNull.Value);
+
+        return table.CreateDataReader();
     }
 
     private static DbDataReader Scalar(object value)
