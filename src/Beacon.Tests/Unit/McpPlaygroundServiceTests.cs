@@ -517,24 +517,21 @@ public class McpPlaygroundServiceTests
             _knowledgeGraph.Object,
             factory.Object,
             x.GetRequiredService<IProjectContext>(),
-            x.GetRequiredService<McpAuditService>(),
-            TestRowDataEgress.Discarding(),
-            NullLogger<GetQueryContextTool>.Instance));
+            x.GetRequiredService<McpToolCallRecorder>(),
+            TestRowDataEgress.Discarding()));
 
         services.AddScoped(x => new ProjectSearchTool(
             _knowledgeGraph.Object,
             x.GetRequiredService<IProjectContext>(),
-            x.GetRequiredService<McpAuditService>(),
-            NullLogger<ProjectSearchTool>.Instance));
+            x.GetRequiredService<McpToolCallRecorder>()));
 
         services.AddScoped(x => new ProjectGetDocumentationTool(
             _knowledgeGraph.Object,
             Mock.Of<IProjectDocumentationService>(),
             factory.Object,
             x.GetRequiredService<IProjectContext>(),
-            x.GetRequiredService<McpAuditService>(),
             SettingsProviderMock.Create().Object,
-            NullLogger<ProjectGetDocumentationTool>.Instance));
+            x.GetRequiredService<McpToolCallRecorder>()));
 
         return services.BuildServiceProvider();
     }

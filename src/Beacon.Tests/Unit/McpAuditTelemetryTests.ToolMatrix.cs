@@ -446,28 +446,24 @@ public partial class McpAuditTelemetryTests
                 toolFactory.Object,
                 brief.Object,
                 x.GetRequiredService<IProjectContext>(),
-                x.GetRequiredService<McpAuditService>(),
-                NullLogger<GetContextTool>.Instance));
+                x.GetRequiredService<McpToolCallRecorder>()));
             services.AddScoped(x => new ProjectSearchTool(
                 knowledgeGraph.Object,
                 x.GetRequiredService<IProjectContext>(),
-                x.GetRequiredService<McpAuditService>(),
-                NullLogger<ProjectSearchTool>.Instance));
+                x.GetRequiredService<McpToolCallRecorder>()));
             services.AddScoped(x => new ProjectGetDocumentationTool(
                 knowledgeGraph.Object,
                 documentation.Object,
                 toolFactory.Object,
                 x.GetRequiredService<IProjectContext>(),
-                x.GetRequiredService<McpAuditService>(),
                 settingsProvider.Object,
-                NullLogger<ProjectGetDocumentationTool>.Instance));
+                x.GetRequiredService<McpToolCallRecorder>()));
             services.AddScoped(x => new GetQueryContextTool(
                 knowledgeGraph.Object,
                 toolFactory.Object,
                 x.GetRequiredService<IProjectContext>(),
-                x.GetRequiredService<McpAuditService>(),
-                TestRowDataEgress.Discarding(),
-                NullLogger<GetQueryContextTool>.Instance));
+                x.GetRequiredService<McpToolCallRecorder>(),
+                TestRowDataEgress.Discarding()));
             services.AddScoped(x => new DryRunTool(
                 toolFactory.Object,
                 TestSqlGate.Create(guardrail),
