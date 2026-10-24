@@ -261,7 +261,7 @@ These are the sample host's registrations (`Beacon.SampleProject/Program.cs`); a
 
 ## Settings reference
 
-These are the grounding, retrieval and learning settings of `McpSettingsData`; they round-trip through `GET`/`PUT /beacon/api/mcp/settings`. The guardrail settings (max row limit, read-only enforcement, PII detection and patterns, content retention) are described in [MCP Server → Configuration](/mcp/server/#configuration). The **MCP Settings** page (`/beacon/mcp-settings`) shows sample-value collection and value grounding (globally and per project) and the learning switch, auto-approve threshold, injection budget and signal retention. Everything else in this table is set through the API only; a save on the page sends every setting back as it read it, so the API-only ones keep their values.
+These are the grounding, retrieval and learning settings of `McpSettingsData`; they round-trip through `GET`/`PUT /beacon/api/mcp/settings`. The guardrail settings (max row limit, read-only enforcement, PII detection and patterns, content retention) are described in [MCP Server → Configuration](/mcp/server/#configuration). The **MCP Settings** page (`/beacon/mcp-settings`) shows sample-value collection and value grounding (globally and per project) and the learning switch, auto-approve threshold, injection budget and signal retention. Everything else in this table is set through the API only; a save on the page sends every setting back as it read it (the stored values, `stored` on the `GET`), so the API-only ones keep their values.
 
 | Setting | Default | Effect |
 |---|---|---|

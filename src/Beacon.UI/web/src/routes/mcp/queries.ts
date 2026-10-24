@@ -153,6 +153,19 @@ export interface McpProjectSettingsData {
   allowExplicitFeedbackContent?: boolean | null;
 }
 
+/**
+ * The global GET: the resolved settings every MCP consumer reads (locks and ceilings applied), the row as stored (what the
+ * page edits and sends back, so a value above a ceiling or under a lock survives a save) and which fields a lock or a
+ * ceiling decides.
+ */
+export interface GetMcpSettingsResult extends McpSettingsData {
+  stored: McpSettingsData;
+  /** Field names (PascalCase, as the server reports them) pinned by a `Beacon:Mcp` deployment lock. */
+  lockedFields: string[];
+  /** Field names whose stored value a `Beacon:Mcp:Ceilings` value lowers. */
+  clampedFields: string[];
+}
+
 export interface GetMcpProjectSettingsResult {
   projectId: number;
   overrides: McpProjectSettingsData;
@@ -361,7 +374,7 @@ export const GROUNDING_RECHECK_KEY = ['eval', 'grounding', 'recheck'] as const;
 export function useMcpSettings() {
   return useQuery({
     queryKey: MCP_SETTINGS_KEY,
-    queryFn: async () => unwrap<McpSettingsData>(await beaconApi().getMcpSettings()),
+    queryFn: async () => unwrap<GetMcpSettingsResult>(await beaconApi().getMcpSettings()),
   });
 }
 
