@@ -413,15 +413,13 @@ using (var warpStartupScope = app.Services.CreateScope())
     // recipient secrets, which an older version cannot read, so an operator runs it once every node runs this version
     // (see "Notification Destinations" in the configuration docs).
 
-    // Retired encryption keys: while Beacon:PreviousEncryptionKeys lists a key, every start enqueues one run of the
-    // re-encryption job, which moves stored values still under a previous key to Beacon:EncryptionKey and logs how many
-    // there were. Once it reports none, remove the previous keys from the configuration.
-    if (Beacon.Core.ServiceConfiguration.HasPreviousEncryptionKeys(app.Configuration))
-    {
-        var publisher = warpStartupScope.ServiceProvider.GetRequiredService<IPublisher>();
-        await publisher.Enqueue(new ReEncryptStoredValuesJob());
-        await publisher.SaveChangesAsync(bootToken);
-    }
+    // Retired encryption keys and the legacy format: every start enqueues one run of the re-encryption job, which moves
+    // stored values still under a key in Beacon:PreviousEncryptionKeys, or still in the legacy v1 format, to
+    // Beacon:EncryptionKey in the current format and logs how many there were. Once it reports none, remove the previous
+    // keys from the configuration and turn Beacon:Encryption:AllowLegacyCbc off. A run with nothing to move writes nothing.
+    var publisher = warpStartupScope.ServiceProvider.GetRequiredService<IPublisher>();
+    await publisher.Enqueue(new ReEncryptStoredValuesJob());
+    await publisher.SaveChangesAsync(bootToken);
 }
 
 app.Run();

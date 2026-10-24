@@ -227,7 +227,11 @@ export Beacon__EncryptionKey="<the new value>"
 export Beacon__PreviousEncryptionKeys__0="<the key configured until now>"
 ```
 
-`IStoredValueReEncryptionService` re-encrypts every stored value only a previous key decrypts (conditional writes, so a concurrent save wins). The sample host enqueues it as `ReEncryptStoredValuesJob` at every start while a previous key is listed; a host with its own jobs does the same. Startup also logs how many values remain under a previous key, how many no key decrypts, and how many recipient approval hashes cannot be recomputed. Remove the previous keys once none remain.
+`IStoredValueReEncryptionService` re-encrypts every stored value only a previous key decrypts (conditional writes, so a concurrent save wins). It also rewrites, in the current AES-GCM format, every value still in the legacy format written before it (unauthenticated AES-CBC), under whichever configured key. The sample host enqueues it as `ReEncryptStoredValuesJob` at every start; a host with its own jobs does the same. Startup also logs how many values remain under a previous key, how many no key decrypts, how many recipient approval hashes cannot be recomputed, and how many values are still in the legacy format. Remove the previous keys once none remain.
+
+### The legacy format
+
+Values in the legacy format stay readable while `Beacon:Encryption:AllowLegacyCbc` is `true` (the default); the first one read is logged once as a Warning. Once the re-encryption run reports none left in the legacy format (`StoredValueReEncryptionResult.LegacyFormatReadRemovable`), set it to `false`: a legacy value is then refused like one no key decrypts. The report covers Beacon's own stored values only (data sources, repository tokens, sensitive settings, recipients); values your host stored itself through `IEncryptionService` are not scanned, so check those before turning it off.
 
 Before changing the key, set `Beacon:Mcp:CallerHashKey` to the key in use now, so MCP audit rows keep grouping together across the change. The MCP audit's content hashes (`ContentHash`, `SqlHash`) come from the same secret and behave the same way. **Set `Beacon:Audit:IntegrityKey` before you change the key** too, so security audit events written from then on do not depend on it; events signed before keep verifying while their secret stays configured (see [Security audit trail](#security-audit-trail)).
 
