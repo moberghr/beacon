@@ -320,7 +320,22 @@ public class AppSettingsService : IAppSettingsService, IAppSettingsStager
         if (!string.IsNullOrEmpty(key))
             query = query.Where(h => h.SettingKey == key);
 
-        return await query.OrderByDescending(h => h.ChangedAt).Take(200).ToListAsync(ct);
+        // The fields a caller reads, never the seal columns: the history reads before the seal migration is applied too.
+        return await query
+            .OrderByDescending(x => x.ChangedAt)
+            .Take(200)
+            .Select(x =>
+                new AppSettingHistory
+                {
+                    Id = x.Id,
+                    CreatedTime = x.CreatedTime,
+                    SettingKey = x.SettingKey,
+                    OldValue = x.OldValue,
+                    NewValue = x.NewValue,
+                    ChangedAt = x.ChangedAt,
+                    ChangedByUserId = x.ChangedByUserId
+                })
+            .ToListAsync(ct);
     }
 }
 

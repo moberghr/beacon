@@ -9,7 +9,8 @@ namespace Beacon.Core.SecurityAudit;
 /// verification of the trail (9105), a retention purge (9106), an event that could not be written (9107, Error: the same
 /// fields as 9104 with <c>Persisted=False</c>, so the stream still holds what the database lost), stored events that fail
 /// verification (9108, Error), the checkpoint each scheduled verification writes (9109), a retention purge that did not
-/// run (9110, Error), MCP audit rows that fail verification (9111, Error) and the MCP audit checkpoint (9112). Identifiers, codes, counts and digests only, like the events themselves.
+/// run (9110, Error), MCP audit rows that fail verification (9111, Error), the MCP audit checkpoint (9112), rows of the other sealed audit
+/// tables (the execution log, the settings history) that fail verification (9113, Error) and their checkpoint (9114). Identifiers, codes, counts and digests only, like the events themselves.
 /// </summary>
 public static class SecurityAuditLogEvents
 {
@@ -22,6 +23,8 @@ public static class SecurityAuditLogEvents
     public static readonly EventId PurgeFailed = new(9110, "SecurityAuditPurgeFailed");
     public static readonly EventId McpAuditVerificationFailed = new(9111, "McpAuditVerificationFailed");
     public static readonly EventId McpAuditCheckpoint = new(9112, "McpAuditCheckpoint");
+    public static readonly EventId AuditTableVerificationFailed = new(9113, "AuditTableVerificationFailed");
+    public static readonly EventId AuditTableCheckpoint = new(9114, "AuditTableCheckpoint");
 
     private const string EventTemplate =
         "Security audit event: Action={Action} Outcome={Outcome} EventGuid={EventGuid} AuditId={AuditId} Persisted={Persisted} " +

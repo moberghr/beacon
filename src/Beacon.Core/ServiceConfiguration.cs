@@ -192,7 +192,12 @@ public static class ServiceConfiguration
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.SecurityAuditOptions>, Configuration.SecurityAuditOptionsValidator>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.SecurityAuditOptions>, Configuration.ExecutionLogRegistrationValidator>());
         services.TryAddSingleton(SecurityAudit.SecurityAuditIntegrity.From(configuration, encryptionKey, previousEncryptionKeys));
-        services.TryAddSingleton<SecurityAuditInterceptor>();
+        services.TryAddSingleton<SecurityAudit.IAuditTableSealProbe, SecurityAudit.InformationSchemaSealProbe>();
+        services.TryAddSingleton<SecurityAudit.AuditTableSealSchema>();
+        services.TryAddSingleton(x => new SecurityAuditInterceptor(
+            x.GetRequiredService<SecurityAudit.SecurityAuditIntegrity>(),
+            x.GetRequiredService<Microsoft.Extensions.Logging.ILoggerFactory>(),
+            x.GetRequiredService<SecurityAudit.AuditTableSealSchema>()));
         services.TryAddScoped<SecurityAudit.ISecurityAuditRecorder, SecurityAudit.SecurityAuditRecorder>();
         services.TryAddTransient<SecurityAudit.ISecurityAuditRetentionService, SecurityAudit.SecurityAuditRetentionService>();
 
@@ -204,6 +209,9 @@ public static class ServiceConfiguration
         services.TryAddTransient<SecurityAudit.IMcpAuditVerificationService, SecurityAudit.McpAuditVerificationService>();
         services.TryAddTransient<SecurityAudit.IMcpAuditSealSchema, SecurityAudit.McpAuditSealSchema>();
         services.TryAddScoped<SecurityAudit.McpAuditSealingStartup>();
+        services.TryAddTransient<SecurityAudit.IAuditTableVerificationService, SecurityAudit.AuditTableVerificationService>();
+        services.TryAddSingleton<SecurityAudit.IAuditTableRetention, SecurityAudit.DataRetentionAuditTableRetention>();
+        services.TryAddScoped<SecurityAudit.AuditTableSealingStartup>();
 
         // Keyed hashes of where governed recipients deliver: under a key derived from the encryption key for this purpose;
         // hashes written under a previous key keep matching until the re-encryption run rewrites them.

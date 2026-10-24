@@ -436,7 +436,7 @@ Security-relevant actions are recorded in an append-only, signed trail an Audito
 - **Events and attribution start at the upgrade.** Existing resources record no creator or last modifier until they are next changed.
 - **Set `Beacon:Audit:IntegrityKey`** before you change the encryption key or the caller hash key; otherwise events signed under the old derived key verify as *unknown key* once that secret leaves the configuration.
 - **Schedule the verify and purge jobs** (`ISecurityAuditVerificationService.VerifyNewEventsAsync`, hourly; `ISecurityAuditRetentionService.PurgeExpiredAsync`, daily); the sample host schedules both. Events are kept forever until `Beacon:Audit:RetentionDays` (365 to 36,500) is set.
-- **Alert on** `beacon.security_audit.write_failures` and `beacon.security_audit.verification_failures` above zero, and ship the `Beacon.Audit` events 9104 to 9112 to your SIEM.
+- **Alert on** `beacon.security_audit.write_failures` and `beacon.security_audit.verification_failures` above zero, and ship the `Beacon.Audit` events 9104 to 9114 to your SIEM.
 - **Reads of audit data fail closed**: the security audit, MCP audit and owned-resources routes record each read first and fail when that record cannot be written.
 - **Owner changes** of subscriptions, data contracts and AI actors answer `409` when the owner changed since it was read.
 - **Where content is retained, the MCP audit now stores the SQL of every statement a call ran.** Review this against your privacy policy; `Beacon:Mcp:Audit:RequireContent` pins it on, `ForceNoContentRetention` pins it off.

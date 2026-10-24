@@ -86,6 +86,9 @@ public static class ServiceConfiguration
         services.TryUseRequestPrincipal<Beacon.Shared.Http.HttpContextRequestPrincipal>();
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, RequestPrincipalStartupCheck>());
 
+        // Records when the execution log and settings history seals started, and warns while their seal columns are missing.
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, AuditTableSealingStartupCheck>());
+
         // Login throttle ships with Beacon.Api so every host gets it, realtime on or off.
         services.TryAddSingleton<LoginRateLimiter>();
 

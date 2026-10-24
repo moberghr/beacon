@@ -157,6 +157,8 @@ public static class McpRetentionDenyList
         Rule<ManualQueryExecutionLog>(nameof(ManualQueryExecutionLog.QueryText), RetentionKind.Content),
         Rule<ManualQueryExecutionLog>(nameof(ManualQueryExecutionLog.ExecutionContext), RetentionKind.Structural),
         Rule<ManualQueryExecutionLog>(nameof(ManualQueryExecutionLog.ErrorMessage), RetentionKind.ErrorClass),
+        Rule<ManualQueryExecutionLog>(nameof(ManualQueryExecutionLog.HmacKeyId), RetentionKind.Structural),
+        Rule<ManualQueryExecutionLog>(nameof(ManualQueryExecutionLog.Hmac), RetentionKind.Structural),
 
         // AI actors: everything the model wrote about the data is content; the model name is structure.
         Rule<AiActorExecution>(nameof(AiActorExecution.Model), RetentionKind.Structural),

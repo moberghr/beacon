@@ -9,7 +9,7 @@ namespace Beacon.Core.Data.Entities;
 /// samples) and every documentation enum discovery statement, written as <see cref="QueryExecutionLogStatus.Started"/>
 /// before the statement runs and closed when it ends; plus one summary row per query preview run.
 /// </summary>
-public class ManualQueryExecutionLog : BaseEntity
+public class ManualQueryExecutionLog : BaseEntity, ISealedAuditRow
 {
     /// <summary>
     /// The caller's user id as a preview's summary row recorded it. Null on statement rows, which record
@@ -67,6 +67,22 @@ public class ManualQueryExecutionLog : BaseEntity
     /// </summary>
     public string? ErrorMessage { get; set; }
 
-    // Navigation properties
+    /// <inheritdoc />
+    public Guid? AuditGuid { get; set; }
+
+    /// <inheritdoc />
+    public int? SealVersion { get; set; }
+
+    /// <inheritdoc />
+    public string? HmacKeyId { get; set; }
+
+    /// <inheritdoc />
+    public string? Hmac { get; set; }
+
+    /// <summary>
+    /// The data source, by <see cref="DataSourceId"/>. The key sets it to null when the data source row is deleted at the
+    /// database (Beacon only archives data sources), which changes the sealed row: the verification then reports it as
+    /// modified.
+    /// </summary>
     public DataSource? DataSource { get; set; }
 }
