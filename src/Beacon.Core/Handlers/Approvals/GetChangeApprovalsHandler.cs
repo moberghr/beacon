@@ -22,9 +22,11 @@ internal sealed class GetChangeApprovalsHandler(
 }
 
 /// <summary>
-/// The pending changes of migration jobs, data contracts' Custom SQL rules and recipients, newest first unless
-/// <c>sort</c> says otherwise; of one <c>kind</c> when given. An Approver (an Admin holds the permission) lists every one;
-/// anyone else, as for query approvals, those of the migration jobs and data contracts it reads, never a recipient's.
+/// The pending changes of migration jobs, data contracts' Custom SQL rules, recipients, data-source connections, the LLM
+/// connection and grants of the Admin role, newest first unless <c>sort</c> says otherwise; of one <c>kind</c> when given.
+/// An Approver (an Admin holds the permission) lists every one but the LLM connection's and the Admin role's grants,
+/// which only a live Admin lists; anyone else, as for
+/// query approvals, those of the migration jobs and data contracts it reads, never a recipient's or a connection's.
 /// </summary>
 public record GetChangeApprovalsQuery : ListRequest, IRequest<PagedList<ChangeApprovalSummary>>, IProjectFilteredRequest
 {
@@ -39,10 +41,12 @@ internal static class ChangeApprovalScopes
         IBeaconPermissionAccessor permissionAccessor,
         CancellationToken cancellationToken)
     {
-        // An Approver reviews every change request; anyone else those of the projects it reads.
-        if ((await permissionAccessor.GetCurrentAsync(cancellationToken)).Holds(BeaconPermissions.Approver))
+        // An Approver reviews every change request (a live Admin the LLM connection's too); anyone else those of the projects
+        // it reads.
+        var permissions = await permissionAccessor.GetCurrentAsync(cancellationToken);
+        if (permissions.Holds(BeaconPermissions.Approver))
         {
-            return ChangeApprovalScope.Approver;
+            return ChangeApprovalScope.Approver with { IsLiveAdmin = permissions.IsAdmin };
         }
 
         return new ChangeApprovalScope((await projectAccess.GetScopeAsync(cancellationToken)).For(ProjectAction.Read), false);

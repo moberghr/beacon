@@ -188,6 +188,54 @@ public class ContentRetentionInterceptorTests
     }
 
     [Test]
+    public async Task ContentStoresOutsideMcp_UnderTheGlobalLock_LoseTheirContent_AndKeepTheirStructure()
+    {
+        using var context = NpgsqlTestContext.Create();
+        var resolvedProjects = new List<int?>();
+        var run = new QueryExecutionHistory
+        {
+            SubscriptionId = 1,
+            ResultCount = 2,
+            CompiledSql = "SELECT * FROM accounts WHERE national_id = '12345678901'",
+            NotificationStatus = Beacon.Core.Data.Enums.NotificationStatus.NotificationSent,
+            ExecutionTimeMs = 12,
+            Results = "[{\"national_id\":\"12345678901\"}]",
+            Comment = "Recipient 4: awaiting_approval"
+        };
+        var log = new ManualQueryExecutionLog
+        {
+            QueryText = "SELECT * FROM accounts WHERE national_id = '12345678901'",
+            ResultCount = 0,
+            ExecutionTimeMs = 3,
+            Success = false,
+            ExecutionContext = "preview",
+            ErrorMessage = "permission denied for table accounts"
+        };
+        var turn = new AiActorConversation { AiActorId = 1, MessageContent = "account 12345678901 looks unusual", Model = "model-a" };
+        context.AddRange(run, log, turn);
+
+        await _interceptor.RedactTrackedEntriesAsync(
+            context.ChangeTracker,
+            (projectId, _) =>
+            {
+                resolvedProjects.Add(projectId);
+
+                return Task.FromResult(new ContentRetentionDecision(false, false));
+            });
+
+        resolvedProjects.Should().Equal([null], "content stores carry no project and take the global decision");
+        run.CompiledSql.Should().BeEmpty("a required content column is emptied");
+        run.Results.Should().BeNull();
+        run.Comment.Should().Be("Recipient 4: awaiting_approval", "the comment holds only generic reasons");
+        run.ResultCount.Should().Be(2);
+        log.QueryText.Should().BeEmpty();
+        log.ErrorMessage.Should().Be(McpContentRedactor.ClassPermission);
+        log.ExecutionContext.Should().Be("preview");
+        turn.MessageContent.Should().BeEmpty();
+        turn.Model.Should().Be("model-a");
+    }
+
+    [Test]
     public async Task EntitiesWithoutAProject_UseTheGlobalDecision()
     {
         // Review F2 (test lane): McpEvalResult carries no ProjectId, so it takes the interceptor's

@@ -10,7 +10,7 @@ import { ProjectMembershipManagement, ProjectRole } from '@/lib/enums';
 import ProjectDetailPage from './ProjectDetailPage';
 
 vi.mock('sonner', () => ({
-  toast: { success: vi.fn(), error: vi.fn() },
+  toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
 }));
 
 function project(overrides: Record<string, unknown> = {}) {
@@ -359,6 +359,30 @@ describe('ProjectDetailPage access', () => {
     expect(await screen.findByRole('button', { name: /set token for ledger-api/i })).toBeInTheDocument();
   });
 
+  it('marks a repository whose last scan hit a limit as partial, with the reasons', async () => {
+    const repositories = [
+      {
+        id: 21, name: 'ledger-api', url: 'https://example.test/ledger-api', scanStatus: 'Completed', lastScanAt: null,
+        referenceCount: 4, hasAccessToken: false, partialScan: true, partialScanReasons: ['only the first 3 of 7 files were scanned'],
+      },
+      {
+        id: 22, name: 'billing-api', url: 'https://example.test/billing-api', scanStatus: 'Completed', lastScanAt: null,
+        referenceCount: 9, hasAccessToken: false, partialScan: false, partialScanReasons: [],
+      },
+    ];
+    mswServer.use(
+      signedIn([]),
+      http.get('*/beacon/api/projects/5', () => HttpResponse.json(project({ repositories }))),
+    );
+
+    renderPage();
+    fireEvent.click(await screen.findByRole('tab', { name: /repositories/i }));
+
+    expect(await screen.findByText('A repository was only partly scanned')).toBeInTheDocument();
+    expect(screen.getByText(/only the first 3 of 7 files were scanned/)).toBeInTheDocument();
+    expect(screen.getAllByText('Partial')).toHaveLength(1);
+  });
+
   it('never shows the access card or the projects sharing its sources to a non-Admin, even a project admin', async () => {
     mswServer.use(
       signedIn([]),
@@ -679,5 +703,119 @@ describe('ProjectDetailPage documentation', () => {
 
     expect(await screen.findByText('No documentation generated yet')).toBeInTheDocument();
     expect(screen.queryByText('Imported documents')).not.toBeInTheDocument();
+  });
+});
+
+describe('ProjectDetailPage repository scan', () => {
+  beforeEach(() => {
+    vi.mocked(toast.success).mockClear();
+    vi.mocked(toast.error).mockClear();
+    vi.mocked(toast.warning).mockClear();
+  });
+
+  const repositories = [
+    { id: 21, name: 'ledger-api', url: 'https://example.test/ledger-api', scanStatus: null, lastScanAt: null, referenceCount: 0, hasAccessToken: false },
+  ];
+
+  function task(state: number, overrides: Record<string, unknown> = {}) {
+    return {
+      taskId: 51,
+      jobId: 'job-3',
+      state,
+      createdTime: '2026-10-24T12:00:00Z',
+      startedTime: null,
+      finishedTime: null,
+      failureCode: null,
+      warningCount: null,
+      ...overrides,
+    };
+  }
+
+  const started = http.post('*/beacon/api/projects/5/scans', () =>
+    HttpResponse.json({ taskId: 51, jobId: 'job-3', state: 0 }, { status: 202 }),
+  );
+
+  it('offers the scan to an Editor of the project only', async () => {
+    mswServer.use(
+      signedIn([]),
+      http.get('*/beacon/api/projects/5', () => HttpResponse.json(project({ repositories, myRole: ProjectRole.Viewer }))),
+    );
+
+    const view = renderPage();
+    fireEvent.click(await screen.findByRole('tab', { name: /repositories/i }));
+    expect(await screen.findByText('ledger-api')).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: /scan repositories/i })).not.toBeInTheDocument();
+    view.unmount();
+
+    mswServer.use(http.get('*/beacon/api/projects/5', () => HttpResponse.json(project({ repositories, myRole: ProjectRole.Editor }))));
+    renderPage();
+    fireEvent.click(await screen.findByRole('tab', { name: /repositories/i }));
+    expect(await screen.findByRole('button', { name: /scan repositories/i })).toBeEnabled();
+  });
+
+  it('starts a background scan, shows its progress, and reads the project again when it finishes', async () => {
+    let reads = 0;
+    let projectReads = 0;
+    mswServer.use(
+      signedIn([]),
+      http.get('*/beacon/api/projects/5', () => {
+        projectReads += 1;
+        return HttpResponse.json(project({ repositories, myRole: ProjectRole.Editor }));
+      }),
+      started,
+      http.get('*/beacon/api/projects/5/scans/51', () => {
+        reads += 1;
+        return HttpResponse.json(reads === 1 ? task(1) : task(2, { warningCount: 0 }));
+      }),
+    );
+
+    renderPage();
+    fireEvent.click(await screen.findByRole('tab', { name: /repositories/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /scan repositories/i }));
+
+    expect(await screen.findByRole('button', { name: /scanning/i })).toBeDisabled();
+    const before = projectReads;
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Repositories scanned'), { timeout: 5000 });
+    await waitFor(() => expect(projectReads).toBeGreaterThan(before));
+    expect(await screen.findByRole('button', { name: /scan repositories/i })).toBeEnabled();
+  });
+
+  it('says how many repositories failed or were only partly scanned', async () => {
+    mswServer.use(
+      signedIn([]),
+      http.get('*/beacon/api/projects/5', () => HttpResponse.json(project({ repositories, myRole: ProjectRole.Editor }))),
+      started,
+      http.get('*/beacon/api/projects/5/scans/51', () => HttpResponse.json(task(2, { warningCount: 2 }))),
+    );
+
+    renderPage();
+    fireEvent.click(await screen.findByRole('tab', { name: /repositories/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /scan repositories/i }));
+
+    await waitFor(() => expect(toast.warning).toHaveBeenCalledWith(expect.stringContaining('2 repositories failed or were only partly scanned')));
+  });
+
+  it("says why the scan did not start (409) or did not run", async () => {
+    mswServer.use(
+      signedIn([]),
+      http.get('*/beacon/api/projects/5', () => HttpResponse.json(project({ repositories, myRole: ProjectRole.Editor }))),
+      http.post('*/beacon/api/projects/5/scans', () => conflict("A scan of this project's repositories is already queued or running.")),
+    );
+
+    const view = renderPage();
+    fireEvent.click(await screen.findByRole('tab', { name: /repositories/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /scan repositories/i }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('already queued or running')));
+    view.unmount();
+
+    mswServer.use(
+      started,
+      http.get('*/beacon/api/projects/5/scans/51', () => HttpResponse.json(task(4, { failureCode: 'forbidden' }))),
+    );
+    renderPage();
+    fireEvent.click(await screen.findByRole('tab', { name: /repositories/i }));
+    fireEvent.click(await screen.findByRole('button', { name: /scan repositories/i }));
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('You can no longer change this project, so its repositories were not scanned.'));
+    expect(toast.success).not.toHaveBeenCalled();
   });
 });

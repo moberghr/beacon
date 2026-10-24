@@ -12,15 +12,15 @@ using Microsoft.Extensions.Logging;
 namespace Beacon.Core.ChangeApprovals;
 
 /// <summary>
-/// Submits a change of a governed resource (a migration job, a data contract's Custom SQL rules, a recipient) while the
-/// workflow covers its kind (<see cref="ApprovalWorkflowOptions.Covers"/>). The requester is the caller
-/// (<see cref="IBeaconActorAccessor"/>), resolved before anything is written; a caller Beacon cannot name submits nothing
-/// (403) unless the host allows self-approval. Inside the unit of work that writes the resource — its row taken first, so
-/// submissions and decisions on one resource run one after the other — a change that alters the definition is refused
-/// (409) while someone else's change of the resource waits, and so is any submission that would supersede someone else's
-/// pending request; the requester's own earlier pending request is superseded (and told after the commit); a definition
-/// that is not the approved one gets a request unless a pending one already proposes exactly it (for a recipient, under
-/// the current or a previous key).
+/// Submits a change of a governed resource (a migration job, a data contract's Custom SQL rules, a recipient, a data
+/// source's connection) while the workflow covers its kind (<see cref="ApprovalWorkflowOptions.Covers"/>). The requester
+/// is the caller (<see cref="IBeaconActorAccessor"/>), resolved before anything is written; a caller Beacon cannot name
+/// submits nothing (403) unless the host allows self-approval. Inside the unit of work that writes the resource — its row
+/// taken first, so submissions and decisions on one resource run one after the other — a change that alters the
+/// definition is refused (409) while someone else's change of the resource waits, and so is any submission that would
+/// supersede someone else's pending request; the requester's own earlier pending request is superseded (and told after
+/// the commit); a definition that is not the approved one gets a request unless a pending one already proposes exactly it
+/// (for a recipient or a data source's connection, under the current or a previous key).
 /// </summary>
 internal sealed class ChangeApprovalSubmitter(
     IBeaconActorAccessor actorAccessor,
@@ -63,6 +63,39 @@ internal sealed class ChangeApprovalSubmitter(
         }
 
         return new ChangeRequester(actor.UserId, userContext.DisplayName);
+    }
+
+    /// <summary>
+    /// The caller as the requester of a change of <paramref name="kind"/> that may apply at once, or null when the workflow
+    /// does not cover the kind. Refuses nobody: <see cref="DemandNamedAsync"/> refuses a caller without a user id once the
+    /// change turns out to wait for approval.
+    /// </summary>
+    public async Task<ChangeRequester?> CallerAsync(ChangeApprovalKind kind, CancellationToken cancellationToken)
+    {
+        if (!Covers(kind))
+        {
+            return null;
+        }
+
+        var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
+
+        return new ChangeRequester(actor.UserId, userContext.DisplayName);
+    }
+
+    /// <summary>
+    /// A change by <paramref name="requester"/> waits for approval: refused (403) when Beacon cannot name the requester and
+    /// the host does not allow self-approval, as <see cref="RequesterAsync"/> refuses, before anything is written.
+    /// </summary>
+    public async Task DemandNamedAsync(ChangeRequester requester, ChangeApprovalKind kind, int? resourceId, CancellationToken cancellationToken)
+    {
+        if (requester.UserId != null || configuration.ApprovalWorkflow.AllowSelfApproval)
+        {
+            return;
+        }
+
+        var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
+
+        throw AccessRefusal.Of(logger, actor, ResourceOf(kind), resourceId, UnidentifiedRequesterMessage);
     }
 
     /// <summary>
@@ -122,10 +155,7 @@ internal sealed class ChangeApprovalSubmitter(
             var supersededIds = superseded
                 .Select(x => x.Id)
                 .ToList();
-            await context.ChangeApprovalRequests
-                .Where(x => supersededIds.Contains(x.Id))
-                .Where(x => x.Status == ApprovalStatus.Pending)
-                .ExecuteUpdateAsync(x => x.SetProperty(y => y.Status, ApprovalStatus.Superseded), cancellationToken);
+            await SupersedeAsync(context, proposal.Kind, supersededIds, cancellationToken);
         }
 
         var alreadyProposed = pending.Any(x => proposal.Proposes(x.DefinitionHash));
@@ -147,7 +177,8 @@ internal sealed class ChangeApprovalSubmitter(
             PreviousJson = proposal.Previous == null ? null : JsonSerializer.Serialize(proposal.Previous, proposal.Previous.GetType(), JsonOptions),
             RequestedByUserId = requester.UserId,
             RequestedByUserName = await ChangeAuthorLabel.OfAsync(context, requester.UserId, requester.DisplayName, cancellationToken),
-            ChangeSummary = proposal.ChangeSummary
+            ChangeSummary = proposal.ChangeSummary,
+            EncryptedPayload = proposal.EncryptedPayload
         };
 
         context.ChangeApprovalRequests.Add(request);
@@ -183,10 +214,7 @@ internal sealed class ChangeApprovalSubmitter(
         var ids = orphaned
             .Select(x => x.Id)
             .ToList();
-        await context.ChangeApprovalRequests
-            .Where(x => ids.Contains(x.Id))
-            .Where(x => x.Status == ApprovalStatus.Pending)
-            .ExecuteUpdateAsync(x => x.SetProperty(y => y.Status, ApprovalStatus.Superseded), cancellationToken);
+        await SupersedeAsync(context, kind, ids, cancellationToken);
         logger.LogInformation(
             "{RequestCount} pending change requests of {Kind} {ResourceId} were superseded: a save made while the approval workflow does not review it changed what they propose",
             orphaned.Count,
@@ -194,6 +222,40 @@ internal sealed class ChangeApprovalSubmitter(
             resourceId);
 
         return new ChangeSubmission(orphaned, null);
+    }
+
+    /// <summary>
+    /// The resource of <paramref name="kind"/> is deleted in this unit of work: every pending request of it can no longer
+    /// be approved, so it is superseded (whoever requested it), and its requester is told after the commit.
+    /// </summary>
+    public async Task<ChangeSubmission> SupersedeOfDeletedAsync(
+        BeaconContext context,
+        ChangeApprovalKind kind,
+        int resourceId,
+        CancellationToken cancellationToken)
+    {
+        var pending = await context.ChangeApprovalRequests
+            .Where(x => x.Kind == kind)
+            .Where(x => x.ResourceId == resourceId)
+            .Where(x => x.Status == ApprovalStatus.Pending)
+            .Select(x => new SupersededChange(x.Id, x.RequestedByUserId))
+            .ToListAsync(cancellationToken);
+        if (pending.Count == 0)
+        {
+            return new ChangeSubmission([], null);
+        }
+
+        var ids = pending
+            .Select(x => x.Id)
+            .ToList();
+        await SupersedeAsync(context, kind, ids, cancellationToken);
+        logger.LogInformation(
+            "{RequestCount} pending change requests of {Kind} {ResourceId} were superseded: the resource was deleted",
+            pending.Count,
+            kind,
+            resourceId);
+
+        return new ChangeSubmission(pending, null);
     }
 
     /// <summary>
@@ -237,6 +299,9 @@ internal sealed class ChangeApprovalSubmitter(
             ChangeApprovalKind.MigrationJob => "migration job",
             ChangeApprovalKind.CustomSqlRules => "data contract",
             ChangeApprovalKind.RecipientDestination => "recipient",
+            ChangeApprovalKind.DataSourceConnection => "data source",
+            ChangeApprovalKind.LlmConnection => "LLM connection",
+            ChangeApprovalKind.AdminRoleGrant => "user",
             _ => "resource"
         };
     }
@@ -245,6 +310,23 @@ internal sealed class ChangeApprovalSubmitter(
     internal static string OtherPendingMessage(ChangeApprovalKind kind)
     {
         return $"Another person's change of this {ResourceOf(kind)} waits for approval: it is approved, rejected or withdrawn first.";
+    }
+
+    // Marks the pending requests among supersededIds Superseded. A superseded LLM-connection request can never be applied,
+    // so the encrypted connection it carries is wiped in the same update; no other kind carries one.
+    private static Task<int> SupersedeAsync(BeaconContext context, ChangeApprovalKind kind, List<int> supersededIds, CancellationToken cancellationToken)
+    {
+        var pending = context.ChangeApprovalRequests
+            .Where(x => supersededIds.Contains(x.Id))
+            .Where(x => x.Status == ApprovalStatus.Pending);
+
+        return kind == ChangeApprovalKind.LlmConnection
+            ? pending.ExecuteUpdateAsync(
+                x => x
+                    .SetProperty(y => y.Status, ApprovalStatus.Superseded)
+                    .SetProperty(y => y.EncryptedPayload, (string?)null),
+                cancellationToken)
+            : pending.ExecuteUpdateAsync(x => x.SetProperty(y => y.Status, ApprovalStatus.Superseded), cancellationToken);
     }
 
     // The same person by the id a request recorded for them (ignoring case, as identity providers may change it).
@@ -264,7 +346,8 @@ internal sealed record ChangeRequester(string? UserId, string? DisplayName);
 /// creates) and the one it holds after, whether that one needs approval (it is not the approved definition), and what a
 /// reviewer is shown of the resource before and after. <c>MatchesDefinition</c> tells whether a pending
 /// request's hash names the definition the resource holds after, where a hash is not compared as written: a recipient's
-/// keyed hash also matches when it was written under a previous key.
+/// keyed hash also matches when it was written under a previous key. <c>EncryptedPayload</c> is what the request stores,
+/// encrypted, for its approval to apply (the LLM connection's staged values).
 /// </summary>
 internal sealed record ChangeProposal(
     ChangeApprovalKind Kind,
@@ -276,7 +359,8 @@ internal sealed record ChangeProposal(
     object Proposed,
     object? Previous,
     string ChangeSummary,
-    Func<string, bool>? MatchesDefinition = null)
+    Func<string, bool>? MatchesDefinition = null,
+    string? EncryptedPayload = null)
 {
     /// <summary>
     /// True when a pending request whose definition hash is <paramref name="definitionHash"/> proposes the definition the

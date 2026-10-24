@@ -39,7 +39,7 @@ public class DocumentationSectionEditsMigrationTests
         var differ = context.GetService<IMigrationsModelDiffer>();
 
         var migration = MigrationNamed(context, migrations, Suffix);
-        var previous = MigrationNamed(context, migrations, "_AddRowSecurityModel");
+        var previous = MigrationNamed(context, migrations, "_AddContractRuleHistory");
         var before = Initialized(previous.TargetModel!, initializer).GetRelationalModel();
         var target = Initialized(migration.TargetModel!, initializer).GetRelationalModel();
         var table = sqlServer ? "ProjectDocumentationSections" : "project_documentation_sections";

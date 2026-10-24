@@ -14,17 +14,29 @@ export interface AwaitingApprovalState {
   lastDecision?: ChangeApprovalOutcome | null;
 }
 
-/** What to do about a rejected change: a migration job cannot be edited, so it is deleted and created again. */
+/**
+ * What to do about a rejected change: a migration job cannot be edited, so it is deleted and created again; a data
+ * source's connection is replaced (the approved one back, or a new one for approval); the LLM connection stays as it was.
+ */
 export const REJECTED_REMEDY: Record<ChangeApprovalKind, string> = {
   [ChangeApprovalKind.MigrationJob]: 'Rejected — delete and recreate the job',
   [ChangeApprovalKind.CustomSqlRules]: 'Rejected — change it and save again',
   [ChangeApprovalKind.RecipientDestination]: 'Rejected — change it and save again',
+  [ChangeApprovalKind.DataSourceConnection]: 'Rejected — replace the connection, or delete the data source',
+  [ChangeApprovalKind.LlmConnection]: 'Rejected — the LLM connection stays as it was',
+  [ChangeApprovalKind.AdminRoleGrant]: 'Rejected — the user does not hold the Admin role',
 };
 
 const REJECTED_EFFECT: Record<ChangeApprovalKind, string> = {
   [ChangeApprovalKind.MigrationJob]: 'A reviewer rejected this job’s definition, so it never runs as it is.',
   [ChangeApprovalKind.CustomSqlRules]: 'A reviewer rejected the change of these Custom SQL rules, so they are not evaluated as they are.',
   [ChangeApprovalKind.RecipientDestination]: 'A reviewer rejected where this recipient delivers, so deliveries skip it.',
+  [ChangeApprovalKind.DataSourceConnection]:
+    'A reviewer rejected this connection, so Beacon makes no connection with the data source until it holds an approved one. Replace it with the connection approved before (that applies at once) or with a new one (that waits for approval), or delete the data source.',
+  [ChangeApprovalKind.LlmConnection]:
+    'A reviewer rejected this change of the LLM connection, so the stored connection stays in use. Save the settings again to submit another change.',
+  [ChangeApprovalKind.AdminRoleGrant]:
+    'A reviewer rejected this grant of the Admin role, so the user does not hold it. Set the user’s roles again to submit another grant.',
 };
 
 // A resource that waits while no request of it is pending and its last request was not rejected (replaced by a newer
@@ -33,6 +45,15 @@ const NO_REQUEST_REMEDY: Record<ChangeApprovalKind, string> = {
   [ChangeApprovalKind.MigrationJob]: 'No change request waits: delete and recreate the job to submit it for approval.',
   [ChangeApprovalKind.CustomSqlRules]: 'No change request waits: save the rules again to submit them for approval.',
   [ChangeApprovalKind.RecipientDestination]: 'No change request waits: save the recipient again to submit it for approval.',
+  [ChangeApprovalKind.DataSourceConnection]: 'No change request waits: replace the connection to submit it for approval.',
+  [ChangeApprovalKind.LlmConnection]: 'No change request waits: save the LLM settings again to submit the change for approval.',
+  [ChangeApprovalKind.AdminRoleGrant]: 'No change request waits: set the user’s roles again to submit the grant for approval.',
+};
+
+// What a pending change means for its resource, where the generic "waits for approval" says too little.
+const PENDING_HINT: Partial<Record<ChangeApprovalKind, string>> = {
+  [ChangeApprovalKind.DataSourceConnection]:
+    "This connection waits for a second person's approval: Beacon makes no connection with the data source until it is approved.",
 };
 
 /** The resource's last change was rejected and no newer request waits. */
@@ -41,14 +62,23 @@ export function isRejected(state: AwaitingApprovalState): boolean {
 }
 
 /**
- * Whether the caller may open a change request of this kind: an Approver (an Admin holds the permission) every one;
- * anyone else those of the migration jobs and data contracts they read (the server filters them by project), never a
- * recipient's.
+ * Whether the caller may open a change request of this kind: an LLM connection's only an Admin now; a recipient's and a
+ * data source connection's only an Approver (an Admin holds the permission); the migration jobs' and data contracts' an
+ * Approver every one, anyone else those they read (the server filters them by project).
  */
 export function useCanOpenChange(kind: ChangeApprovalKind): boolean {
-  const canReview = useAccess().hasPermission('Approver');
+  const access = useAccess();
 
-  return canReview || kind !== ChangeApprovalKind.RecipientDestination;
+  switch (kind) {
+    case ChangeApprovalKind.LlmConnection:
+    case ChangeApprovalKind.AdminRoleGrant:
+      return access.isAdmin;
+    case ChangeApprovalKind.RecipientDestination:
+    case ChangeApprovalKind.DataSourceConnection:
+      return access.hasPermission('Approver');
+    default:
+      return true;
+  }
 }
 
 /** The reviewer's comment on a decision, quoted, with when it was made. */
@@ -73,7 +103,11 @@ export function AwaitingApprovalPill({ kind, requestId, lastDecision }: Awaiting
       Rejected
     </Pill>
   ) : (
-    <Pill tone="warn" dot title={requestId != null ? "This change waits for a second person's approval" : NO_REQUEST_REMEDY[kind]}>
+    <Pill
+      tone="warn"
+      dot
+      title={requestId != null ? PENDING_HINT[kind] ?? "This change waits for a second person's approval" : NO_REQUEST_REMEDY[kind]}
+    >
       Awaiting approval
     </Pill>
   );
@@ -165,6 +199,16 @@ export function AwaitingApprovalBanner({
     />
   );
 }
+
+/** What a held data source means, and how to withdraw it. */
+export const DATA_SOURCE_HELD_TITLE = 'Held for approval';
+export const DATA_SOURCE_HELD_HINT =
+  'This data source connects to nothing until a second person approves its connection: no query, preview, subscription run or MCP call reaches it. To withdraw it, delete the data source, or save the connection that was approved before back (that applies at once).';
+
+/** A held data source with no pending request (rejected, withdrawn or replaced): how it is submitted again. */
+export const DATA_SOURCE_HELD_NO_REQUEST_TITLE = 'Held: no change request waits';
+export const DATA_SOURCE_HELD_NO_REQUEST_HINT =
+  'This data source was never approved and connects to nothing, and no request waits for approval (a rejected one leaves none). Save the connection to submit it for approval again.';
 
 /** What a create answered when the server submitted it for approval. */
 export interface SubmittedForApproval {

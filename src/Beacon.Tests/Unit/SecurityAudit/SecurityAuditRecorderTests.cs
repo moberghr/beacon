@@ -42,6 +42,7 @@ public class SecurityAuditRecorderTests
         var system = Recorder.ActorOf(BeaconActor.OffRequest, null, hasher);
         var owner = Recorder.ActorOf(new BeaconActor("ext-ana", false) { Kind = BeaconPrincipalKind.Owner, BeaconUserId = 7 }, null, hasher);
         var nobody = Recorder.ActorOf(BeaconActor.Nobody, null, hasher);
+        var embed = Recorder.ActorOf(new BeaconActor("ext-ana", false) { Kind = BeaconPrincipalKind.Embed, BeaconUserId = 7, AllowedProjectIds = [4] }, null, hasher);
 
         user.Should().Be(new SecurityAuditActor(SecurityAuditActorKinds.User, 7));
         key.Should().Be(new SecurityAuditActor(SecurityAuditActorKinds.ApiKey, 7, 12));
@@ -52,6 +53,7 @@ public class SecurityAuditRecorderTests
         system.Should().Be(SecurityAuditActor.System);
         owner.Should().Be(new SecurityAuditActor(SecurityAuditActorKinds.System, 7));
         nobody.Should().Be(SecurityAuditActor.Anonymous);
+        embed.Should().Be(new SecurityAuditActor(SecurityAuditActorKinds.Embed, 7), "an embed grant or token is recorded as the creator it acts for");
     }
 
     [Test]

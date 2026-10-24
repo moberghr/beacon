@@ -2,7 +2,10 @@ using Beacon.Core.Data.Enums;
 
 namespace Beacon.Core.Models.Approvals;
 
-/// <summary>A pending change of a migration job, a data contract's Custom SQL rules or a recipient, as listed.</summary>
+/// <summary>
+/// A pending change of a migration job, a data contract's Custom SQL rules, a recipient, a data source's connection or the
+/// LLM connection, as listed.
+/// </summary>
 public sealed record ChangeApprovalSummary
 {
     public int Id { get; init; }
@@ -25,7 +28,9 @@ public sealed record ChangeApprovalSummary
 
 /// <summary>
 /// A change request with what it changes: for its <see cref="Kind"/>, the resource before (null for a resource the change
-/// creates) and as proposed. Destinations are masked as the recipients page masks them; no secret is ever returned.
+/// creates) and as proposed. Destinations are masked as the recipients page masks them, a connection shows its host, port,
+/// database and login and the names of the settings it changes, and the LLM connection its endpoint's scheme and host
+/// with fingerprints; no secret is ever returned.
 /// </summary>
 public sealed record ChangeApprovalDetail
 {
@@ -70,6 +75,25 @@ public sealed record ChangeApprovalDetail
 
     public RecipientDestinationView? ProposedRecipientDestination { get; init; }
 
+    /// <summary>A data source's connection as it was stored before the change; null for a source the change creates.</summary>
+    public DataSourceConnectionView? PreviousDataSourceConnection { get; init; }
+
+    public DataSourceConnectionView? ProposedDataSourceConnection { get; init; }
+
+    /// <summary>The LLM connection the change was made from (<see cref="LlmConnectionView.FromHostConfiguration"/> when none was stored).</summary>
+    public LlmConnectionView? PreviousLlmConnection { get; init; }
+
+    public LlmConnectionView? ProposedLlmConnection { get; init; }
+
+    /// <summary>For a grant of the Admin role, the user and the role it grants (ids and the role's name only).</summary>
+    public AdminRoleGrantView? ProposedAdminRoleGrant { get; init; }
+
+    /// <summary>
+    /// For a data source's connection, the projects it is linked to now, read when the detail is shown: links are not part
+    /// of what the request proposes, so one made or removed since does not make it stale. Empty for every other kind.
+    /// </summary>
+    public IReadOnlyList<ChangeApprovalProject> CurrentProjects { get; init; } = [];
+
     /// <summary>
     /// The hash of what this detail shows as proposed: approving sends it back, so the decision applies exactly what the
     /// reviewer was shown (409 otherwise).
@@ -99,8 +123,20 @@ public sealed record ChangeApprovalDetail
     /// </summary>
     public bool ChangeHiddenByMask { get; init; }
 
-    /// <summary>Approving this request requires a comment: what changed cannot be seen, so the reviewer records how they checked it.</summary>
+    /// <summary>
+    /// Approving this request requires a comment: what changed cannot be seen (a recipient change that lies only in a masked
+    /// part, <see cref="ChangeHiddenByMask"/>, or a data-source connection its connector cannot show setting by setting,
+    /// <see cref="DataSourceConnectionView.SecretOnlyDefinition"/>), so the reviewer records how they checked it.
+    /// </summary>
     public bool CommentRequiredToApprove { get; init; }
+}
+
+/// <summary>A project a data source under review is linked to, by id and name.</summary>
+public sealed record ChangeApprovalProject
+{
+    public int Id { get; init; }
+
+    public string Name { get; init; } = string.Empty;
 }
 
 /// <summary>
@@ -176,6 +212,103 @@ public sealed record RecipientDestinationView
 
 /// <summary>A custom header's name and the fingerprint of its value (never the value).</summary>
 public sealed record RecipientHeaderView
+{
+    public string Name { get; init; } = string.Empty;
+
+    public string Fingerprint { get; init; } = string.Empty;
+}
+
+/// <summary>
+/// A data source's connection, as a reviewer is shown it: its name, type and engine; the host, port, database and login it
+/// connects with; the names (never the values) of the other connection settings the change sets or changes; a keyed
+/// fingerprint of the whole definition; and how the connection is protected. No secret and no other setting value is ever
+/// shown.
+/// </summary>
+public sealed record DataSourceConnectionView
+{
+    public string Name { get; init; } = string.Empty;
+
+    public DataSourceType DataSourceType { get; init; }
+
+    public DatabaseEngineType? DatabaseEngineType { get; init; }
+
+    public string? Host { get; init; }
+
+    public int? Port { get; init; }
+
+    public string? Database { get; init; }
+
+    /// <summary>The user name the connection signs in with, or its authentication mode when it has none.</summary>
+    public string? Login { get; init; }
+
+    /// <summary>The names of the connection settings the change sets or changes (every setting of a new source), ordinally sorted.</summary>
+    public IReadOnlyList<string> ChangedSettings { get; init; } = [];
+
+    /// <summary>
+    /// The connection cannot be read setting by setting (its connector gives no definition): the definition is the whole
+    /// connection data, secrets included, shown only as its <see cref="Fingerprint"/>, and approving it requires a comment.
+    /// </summary>
+    public bool SecretOnlyDefinition { get; init; }
+
+    /// <summary>A short keyed fingerprint of the whole definition, to compare it out of band.</summary>
+    public string? Fingerprint { get; init; }
+
+    /// <summary>The connection authenticates the server over TLS.</summary>
+    public bool AuthenticatesServer { get; init; }
+
+    /// <summary>The engine enforces read-only on the connection itself, besides Beacon's own checks.</summary>
+    public bool DatabaseReadOnlyEnforced { get; init; }
+
+    /// <summary>The change points the source at another engine, host, port or database.</summary>
+    public bool IsTargetChange { get; init; }
+}
+
+/// <summary>
+/// A grant of the Admin role, as a reviewer is shown it: the user by <c>Users.Id</c> and the role by its id and name; the
+/// user's label is read live (<see cref="ChangeApprovalDetail.ResourceName"/>), never stored with the request.
+/// </summary>
+public sealed record AdminRoleGrantView
+{
+    public int UserId { get; init; }
+
+    public int RoleId { get; init; }
+
+    public string RoleName { get; init; } = string.Empty;
+}
+
+/// <summary>
+/// The stored LLM connection, as a reviewer is shown it: the provider, the endpoint as scheme and host only with a keyed
+/// fingerprint of the whole endpoint, the region, the authentication mode and the models, the fingerprint of the connection
+/// the change is based on, and a fingerprint of each credential; never a credential or the endpoint's path.
+/// </summary>
+public sealed record LlmConnectionView
+{
+    /// <summary>The connection is the host's configuration (nothing stored yet), so no value is shown.</summary>
+    public bool FromHostConfiguration { get; init; }
+
+    public AiProvider? Provider { get; init; }
+
+    /// <summary>The endpoint's scheme, host and port; its path and query only show in <see cref="EndpointFingerprint"/>.</summary>
+    public string? Endpoint { get; init; }
+
+    public string? EndpointFingerprint { get; init; }
+
+    public string? Region { get; init; }
+
+    public BedrockAuthMode BedrockAuthMode { get; init; }
+
+    public string? Model { get; init; }
+
+    public string? FastModel { get; init; }
+
+    /// <summary>The fingerprint of the stored connection the change was made from.</summary>
+    public string? BasedOn { get; init; }
+
+    public IReadOnlyList<LlmCredentialView> Credentials { get; init; } = [];
+}
+
+/// <summary>A credential of the LLM connection: its name and the fingerprint of its value (never the value).</summary>
+public sealed record LlmCredentialView
 {
     public string Name { get; init; } = string.Empty;
 

@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Data;
 using Beacon.Core.Authorization;
+using Beacon.Core.Models;
 using Beacon.Core.Services;
 using Beacon.Core.SecurityAudit;
 
@@ -28,6 +29,21 @@ internal sealed class UpdateGoldenCaseHandler(
 
     public async Task Handle(UpdateGoldenCaseCommand request, CancellationToken cancellationToken)
     {
+        if (request.Question?.Length > InputLimits.GoldenQuestionMaxLength)
+        {
+            throw new BeaconValidationException($"The question is longer than {InputLimits.GoldenQuestionMaxLength} characters.");
+        }
+
+        if (request.GoldSql?.Length > InputLimits.GoldenSqlMaxLength)
+        {
+            throw new BeaconValidationException($"The gold SQL is longer than {InputLimits.GoldenSqlMaxLength} characters.");
+        }
+
+        if (request.Notes?.Length > InputLimits.GoldenNotesMaxLength)
+        {
+            throw new BeaconValidationException($"The notes are longer than {InputLimits.GoldenNotesMaxLength} characters.");
+        }
+
         var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
         if (actor.BeaconUserId == null)
         {

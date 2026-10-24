@@ -16,14 +16,25 @@ public class OpenApiImportService(
 
     /// <summary>How long fetching the description, body included, may take: 30 seconds. Settable for tests.</summary>
     internal TimeSpan SpecFetchTimeout { get; init; } = TimeSpan.FromSeconds(30);
-    public async Task<List<ApiEndpointMetadata>> ImportAsync(
+    public Task<List<ApiEndpointMetadata>> ImportAsync(
         string specUrl,
         ApiEndpointFilter? filter,
         CancellationToken ct)
     {
-        logger.LogInformation("Importing OpenAPI spec from {SpecUrl}", specUrl);
+        return ImportAsync(specUrl, filter, null, ct);
+    }
 
-        var client = httpClientFactory.CreateClient();
+    /// <summary>
+    /// Fetches the description through the connector's client (no redirects). The data source's credentials go only when
+    /// the description is on the base URL's origin.
+    /// </summary>
+    public async Task<List<ApiEndpointMetadata>> ImportAsync(
+        string specUrl,
+        ApiEndpointFilter? filter,
+        ApiConnectionConfig? config,
+        CancellationToken ct)
+    {
+        var client = httpClientFactory.CreateClient(ApiConnectorHttpClient.Name);
         client.Timeout = SpecFetchTimeout;
 
         // The deadline covers the body too: HttpClient.Timeout ends once the headers are read.
@@ -32,7 +43,14 @@ public class OpenApiImportService(
         MemoryStream stream;
         try
         {
-            using var response = await client.GetAsync(specUrl, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token);
+            using var request = new HttpRequestMessage(HttpMethod.Get, specUrl);
+            if (config != null && ApiHttpClientHelper.SameOrigin(specUrl, config.BaseUrl))
+            {
+                ApiHttpClientHelper.ApplyAuth(request, config.Auth);
+            }
+
+            using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token);
+            ApiHttpClientHelper.EnsureNotRedirected(response);
             response.EnsureSuccessStatusCode();
 
             stream = await ApiHttpClientHelper.ReadCappedAsync(response, MaxSpecBytes, "OpenAPI description", timeoutCts.Token);

@@ -1,5 +1,5 @@
+using System.ComponentModel;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
 using Microsoft.EntityFrameworkCore.Migrations;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
@@ -13,40 +13,42 @@ public static class ServiceCollectionExtensions
 {
     /// <summary>
     /// Configures SQL Server as the database provider for Beacon, reading the connection string from
-    /// <c>ConnectionStrings:BeaconContext</c> and the schema from <c>Beacon:Schema</c>
-    /// (defaults to <c>beacon</c>).
+    /// <c>ConnectionStrings:BeaconContext</c>. Beacon's schema is always <c>beacon</c>; <c>Beacon:Schema</c> set to any
+    /// other value is refused.
     /// </summary>
     public static IServiceCollection UseSqlServer(this BeaconBuilder builder)
     {
-        return builder.UseSqlServer(
-            BeaconDatabaseConfiguration.GetConnectionString(builder.Configuration),
-            BeaconDatabaseConfiguration.GetSchema(builder.Configuration));
+        var connectionString = BeaconDatabaseConfiguration.GetConnectionString(builder.Configuration);
+        BeaconDatabaseConfiguration.GetSchema(builder.Configuration);
+
+        return builder.UseSqlServer(connectionString);
     }
 
-    /// <summary>
-    /// Configures SQL Server as the database provider for Beacon.
-    /// This method is chainable after AddBeaconServices().
-    /// </summary>
-    public static IServiceCollection UseSqlServer(
-        this BeaconBuilder builder,
-        string connectionString,
-        string schema = BeaconDatabaseConfiguration.DefaultSchema)
+    /// <summary>Beacon's schema is fixed to <c>beacon</c>: the argument is checked and otherwise ignored.</summary>
+    [Obsolete("Beacon's schema is fixed to 'beacon'; use UseSqlServer(connectionString). This overload is removed in 6.0.")]
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static IServiceCollection UseSqlServer(this BeaconBuilder builder, string connectionString, string schema)
     {
         BeaconDatabaseConfiguration.RequireSupportedSchema(schema);
 
-        builder.Services.AddDbContextFactory<SqlServerBeaconContext>((sp, options) =>
-            options.UseSqlServer(connectionString,
-                    b => b.MigrationsHistoryTable("__EFMigrationsHistory", schema))
-                .AddInterceptors(sp.GetRequiredService<ContentRetentionInterceptor>(), sp.GetRequiredService<SecurityAuditInterceptor>())
-                .UseBeaconSchema(schema)
-                .ReplaceService<IMigrationsSqlGenerator, SchemaAwareMigrationsSqlGenerator>()
-                .ReplaceService<IModelCacheKeyFactory, BeaconSchemaModelCacheKeyFactory>());
+        return builder.UseSqlServer(connectionString);
+    }
+
+    /// <summary>
+    /// Configures SQL Server as the database provider for Beacon, in the <c>beacon</c> schema.
+    /// This method is chainable after AddBeaconServices().
+    /// </summary>
+    public static IServiceCollection UseSqlServer(this BeaconBuilder builder, string connectionString)
+    {
+        builder.Services.AddPooledDbContextFactory<SqlServerBeaconContext>((sp, options) =>
+            options.UseBeaconSqlServerModel(connectionString)
+                .AddInterceptors(sp.GetRequiredService<ContentRetentionInterceptor>(), sp.GetRequiredService<SecurityAuditInterceptor>()));
 
         // Register the base context factory using the SQL Server implementation
         builder.Services.AddSingleton<IDbContextFactory<BeaconContext>>(sp =>
         {
             var factory = sp.GetRequiredService<IDbContextFactory<SqlServerBeaconContext>>();
-            return new BeaconContextFactoryAdapter(factory);
+            return new BeaconContextFactoryAdapter<SqlServerBeaconContext>(factory);
         });
 
         // Register BeaconContext as scoped (required for Data Protection key persistence)
@@ -56,18 +58,15 @@ public static class ServiceCollectionExtensions
         return builder.Services;
     }
 
-    private class BeaconContextFactoryAdapter : IDbContextFactory<BeaconContext>
+    /// <summary>
+    /// The model and migration options Beacon's SQL Server context uses, shared by <c>UseSqlServer</c> and
+    /// <see cref="BeaconSqlServerMigrator"/>: the <c>beacon</c> schema's history table and the migration SQL generator
+    /// that places the committed migrations' operations in <c>beacon</c>.
+    /// </summary>
+    internal static DbContextOptionsBuilder UseBeaconSqlServerModel(this DbContextOptionsBuilder options, string connectionString)
     {
-        private readonly IDbContextFactory<SqlServerBeaconContext> _factory;
-
-        public BeaconContextFactoryAdapter(IDbContextFactory<SqlServerBeaconContext> factory)
-        {
-            _factory = factory;
-        }
-
-        public BeaconContext CreateDbContext()
-        {
-            return _factory.CreateDbContext();
-        }
+        return options
+            .UseSqlServer(connectionString, x => x.MigrationsHistoryTable("__EFMigrationsHistory", BeaconDatabaseConfiguration.DefaultSchema))
+            .ReplaceService<IMigrationsSqlGenerator, SchemaAwareMigrationsSqlGenerator>();
     }
 }

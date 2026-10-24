@@ -290,12 +290,17 @@ public class AdminSettingsLlmConnectionTests
 
     private UpdateAdminSettingsHandler Update(IBeaconPermissionAccessor permissions)
     {
+        // The settings the connection is judged against are read where they are stored: the same ones the mock serves.
+        var store = new ChangeGovernance.ChangeApprovalStore();
+        store.StoreSettings(_settings.Object.GetSettingsAsync().GetAwaiter().GetResult());
+
         return new UpdateAdminSettingsHandler(
             _settings.Object,
             Mock.Of<IBeaconUserContext>(),
             TestProjectAccess.Actors(),
             permissions,
             _catalog,
+            TestChangeApprovals.Llm(store.Factory(), settingsService: _settings.Object),
             NullLogger<UpdateAdminSettingsHandler>.Instance);
     }
 

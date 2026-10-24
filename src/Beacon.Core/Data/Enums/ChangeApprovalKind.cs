@@ -10,5 +10,23 @@ public enum ChangeApprovalKind
     CustomSqlRules = 2,
 
     /// <summary>A recipient created, or where it delivers changed: deliveries skip it until approved.</summary>
-    RecipientDestination = 3
+    RecipientDestination = 3,
+
+    /// <summary>
+    /// A data source created, or a non-secret part of its connection changed: Beacon makes no connection with it until the
+    /// definition is approved.
+    /// </summary>
+    DataSourceConnection = 4,
+
+    /// <summary>
+    /// The stored LLM connection's provider, endpoint, region or authentication mode changed: the stored connection stays in
+    /// use, and the change is staged until a live Admin approves it.
+    /// </summary>
+    LlmConnection = 5,
+
+    /// <summary>
+    /// A user given the Admin role: the rest of the save applies, and the user holds the Admin role only once a live Admin
+    /// other than the requester approves the grant.
+    /// </summary>
+    AdminRoleGrant = 6
 }

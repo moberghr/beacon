@@ -2,12 +2,10 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
-using ModelContextProtocol;
-using ModelContextProtocol.Protocol;
-using ModelContextProtocol.Server;
 using Beacon.Core.Authorization;
 using Beacon.Core.HostEndpoints;
 using Beacon.Core.Mcp;
+using Beacon.MCP.DynamicTools;
 
 namespace Beacon.MCP.HostEndpoints;
 
@@ -40,11 +38,13 @@ public static class HostEndpointToolsServiceCollectionExtensions
         services.TryAddSingleton<IHostEndpointProjectResolver, HostEndpointProjectResolver>();
         services.TryAddSingleton<HostEndpointToolRegistry>();
         services.TryAddSingleton<HostEndpointDispatcher>();
+        services.TryAddSingleton<HostEndpointCallLimiter>();
         services.TryAddTransient<HostEndpointToolService>();
         services.TryAddTransient<IHostEndpointToolOverview>(x => x.GetRequiredService<HostEndpointToolService>());
         services.AddTransient<IHostEndpointToolCatalog>(x => x.GetRequiredService<HostEndpointToolService>());
         services.AddTransient<IStartupFilter, HostEndpointToolsStartupFilter>();
-        services.Configure<McpServerOptions>(InstallHandlers);
+        // Served through the SDK's list/call handlers beside the attribute tools, after the saved-query tools.
+        services.AddMcpDynamicToolSource<HostEndpointDynamicToolSource>();
 
         return services;
     }
@@ -73,53 +73,5 @@ public static class HostEndpointToolsServiceCollectionExtensions
         builder.WithMetadata(new BeaconToolMetadata(name, description, readOnly) { Destructive = destructive, Idempotent = idempotent });
 
         return builder;
-    }
-
-    /// <summary>
-    /// Adds the endpoint tools through the SDK's list/call handlers, which serve tools that are not in the static
-    /// tool collection: the eight attribute tools are untouched, and an already-installed handler is chained.
-    /// </summary>
-    private static void InstallHandlers(McpServerOptions options)
-    {
-        var previousList = options.Handlers.ListToolsHandler;
-        var previousCall = options.Handlers.CallToolHandler;
-
-        options.Handlers.ListToolsHandler = async (request, cancellationToken) =>
-        {
-            var result = previousList != null
-                ? await previousList(request, cancellationToken)
-                : new ListToolsResult();
-
-            var service = request.Services?.GetService<HostEndpointToolService>();
-            if (service == null)
-            {
-                return result;
-            }
-
-            var tools = await service.ListToolsAsync(cancellationToken);
-            if (tools.Count > 0)
-            {
-                result.Tools = [.. result.Tools ?? [], .. tools];
-            }
-
-            return result;
-        };
-
-        options.Handlers.CallToolHandler = async (request, cancellationToken) =>
-        {
-            var name = request.Params?.Name;
-            var service = request.Services?.GetService<HostEndpointToolService>();
-            if (service != null && service.Handles(name))
-            {
-                return await service.CallAsync(name!, request.Params?.Arguments, cancellationToken);
-            }
-
-            if (previousCall != null)
-            {
-                return await previousCall(request, cancellationToken);
-            }
-
-            throw new McpProtocolException($"Unknown tool: '{name}'", McpErrorCode.InvalidParams);
-        };
     }
 }

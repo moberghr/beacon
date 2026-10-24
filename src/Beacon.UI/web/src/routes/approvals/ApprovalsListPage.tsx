@@ -27,17 +27,30 @@ const KIND_OPTIONS: SegOption<KindFilter>[] = [
   { value: `${ChangeApprovalKind.MigrationJob}`, label: 'Migration jobs' },
   { value: `${ChangeApprovalKind.CustomSqlRules}`, label: 'Custom SQL rules' },
   { value: `${ChangeApprovalKind.RecipientDestination}`, label: 'Recipients' },
+  { value: `${ChangeApprovalKind.DataSourceConnection}`, label: 'Data sources' },
+  { value: `${ChangeApprovalKind.LlmConnection}`, label: 'LLM connection' },
+  { value: `${ChangeApprovalKind.AdminRoleGrant}`, label: 'Admin role' },
 ];
 
-// Recipient changes are an Approver's to read: the server lists them to nobody else.
-const READER_KIND_OPTIONS = KIND_OPTIONS.filter(x => x.value !== `${ChangeApprovalKind.RecipientDestination}`);
+// Recipient and data-source connection changes are an Approver's to read, and LLM connection changes and Admin role grants only an Admin's: the
+// server lists them to nobody else.
+const APPROVER_KINDS: KindFilter[] = [`${ChangeApprovalKind.RecipientDestination}`, `${ChangeApprovalKind.DataSourceConnection}`];
+const ADMIN_KINDS: KindFilter[] = [`${ChangeApprovalKind.LlmConnection}`, `${ChangeApprovalKind.AdminRoleGrant}`];
+
+function kindOptions(canReview: boolean, isAdmin: boolean): SegOption<KindFilter>[] {
+  return KIND_OPTIONS
+    .filter(x => canReview || !APPROVER_KINDS.includes(x.value))
+    .filter(x => isAdmin || !ADMIN_KINDS.includes(x.value));
+}
 
 export default function ApprovalsListPage() {
   const [params, setParams] = useSearchParams();
   // Approving and rejecting is an Approver's (an Admin holds it); everyone else reads the query, migration job and
-  // Custom SQL requests of the projects whose data they read, never a recipient's.
-  const canReview = useAccess().hasPermission('Approver');
-  const options = canReview ? KIND_OPTIONS : READER_KIND_OPTIONS;
+  // Custom SQL requests of the projects whose data they read, never a recipient's or a data source's. LLM connection
+  // changes are read and decided by an Admin only.
+  const access = useAccess();
+  const canReview = access.hasPermission('Approver');
+  const options = kindOptions(canReview, access.isAdmin);
   const requested = params.get('kind') ?? 'queries';
   const kind: KindFilter = options.some(x => x.value === requested) ? (requested as KindFilter) : 'queries';
 

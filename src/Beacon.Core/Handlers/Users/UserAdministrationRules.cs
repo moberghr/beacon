@@ -81,18 +81,18 @@ internal sealed class UserAdministrationRules(
     }
 
     /// <summary>
-    /// Refuses a change to what user <paramref name="userId"/> signs in with, its user name or its e-mail address, by a
-    /// caller who is not an Admin (403). Values equal to the stored ones change nothing and pass; a missing e-mail address
+    /// The user name and e-mail address an update of user <paramref name="userId"/> stores, and a refusal (403) when a
+    /// caller who is not an Admin changes either. A value sent exactly as stored is kept as it is, surrounding whitespace
+    /// included (an account written before the trimming rules, or by an identity provider sign-in), and changes nothing;
+    /// any other value is trimmed, and is a change only when it then differs from the stored one. A missing e-mail address
     /// and an empty one are the same.
     /// </summary>
-    public async Task DemandMayChangeSignInIdentityAsync(int userId, string userName, string? email, CancellationToken cancellationToken)
+    public async Task<(string UserName, string? Email)> DemandMayChangeSignInIdentityAsync(
+        int userId,
+        string? userName,
+        string? email,
+        CancellationToken cancellationToken)
     {
-        var permissions = await permissionAccessor.GetCurrentAsync(cancellationToken);
-        if (permissions.IsAdmin)
-        {
-            return;
-        }
-
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         var stored = await context.Users
             .Where(x => x.Id == userId)
@@ -104,10 +104,23 @@ internal sealed class UserAdministrationRules(
                 })
             .FirstOrDefaultAsync(cancellationToken);
 
-        // An unknown user is the update's to answer (not found); there is nothing to change.
-        if (stored == null || (stored.UserName == userName && EmptyAsNull(stored.Email) == EmptyAsNull(email)))
+        // An unknown user is the update's to answer (not found); there is nothing to compare with.
+        if (stored == null)
         {
-            return;
+            return (UserAccountFields.Trimmed(userName), UserAccountFields.TrimmedEmail(email));
+        }
+
+        var newUserName = userName == stored.UserName ? stored.UserName : UserAccountFields.Trimmed(userName);
+        var newEmail = EmptyAsNull(email) == EmptyAsNull(stored.Email) ? stored.Email : UserAccountFields.TrimmedEmail(email);
+        if (stored.UserName == newUserName && EmptyAsNull(stored.Email) == EmptyAsNull(newEmail))
+        {
+            return (newUserName, newEmail);
+        }
+
+        var permissions = await permissionAccessor.GetCurrentAsync(cancellationToken);
+        if (permissions.IsAdmin)
+        {
+            return (newUserName, newEmail);
         }
 
         var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
@@ -153,20 +166,27 @@ internal sealed class UserAdministrationRules(
 
     /// <summary>
     /// Logs a new user (named <paramref name="userName"/>, unique), internal or external, and the roles it was created
-    /// with, by the new user's id.
+    /// with, by the new user's id: the roles it holds, so a grant of the Admin role that waits for approval is not logged as
+    /// assigned.
     /// </summary>
     public async Task LogCreatedAsync(
         string userName,
         bool isInternalUser,
-        IReadOnlyCollection<AssignableRole> roles,
         CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        var userId = await context.Users
+        var created = await context.Users
             .Where(x => x.UserName == userName)
-            .Select(x => (int?)x.Id)
+            .Select(x =>
+                new
+                {
+                    x.Id,
+                    RoleIds = x.UserRoles
+                        .Select(y => y.RoleId)
+                        .ToList()
+                })
             .FirstOrDefaultAsync(cancellationToken);
-        if (userId == null)
+        if (created == null)
         {
             return;
         }
@@ -175,17 +195,11 @@ internal sealed class UserAdministrationRules(
         logger.LogInformation(
             ProjectAccessEvents.UserCreated,
             "User created: user {UserId}, internal {IsInternalUser}, by user {ActorId}",
-            userId.Value,
+            created.Id,
             isInternalUser,
             actor.LogId);
 
-        await LogRolesChangedAsync(
-            userId.Value,
-            roles
-                .Select(x => x.Id)
-                .ToList(),
-            [],
-            cancellationToken);
+        await LogRolesChangedAsync(created.Id, created.RoleIds, [], cancellationToken);
     }
 
     /// <summary>Logs a change to user <paramref name="userId"/>'s roles: role ids only.</summary>

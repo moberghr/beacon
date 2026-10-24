@@ -58,4 +58,13 @@ public record UpdateDataSourceCommand(
     bool? MetadataLoadTableNamesOnly,
     List<string>? MetadataExcludeSchemas,
     List<string>? MetadataIncludeSchemas,
-    bool ConfirmTargetChange = false) : IRequest;
+    bool ConfirmTargetChange = false) : IRequest
+{
+    // The compiler-generated ToString prints every member; the secrets are printed redacted.
+    protected virtual bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"DataSourceId = {DataSourceId}, Name = {Name}, DatabaseEngineType = {DatabaseEngineType}, ConnectionString = {RedactedPrint.Of(ConnectionString)}, MetadataLoadingEnabled = {MetadataLoadingEnabled}, MetadataMaxTables = {MetadataMaxTables}, MetadataMaxColumnsPerTable = {MetadataMaxColumnsPerTable}, MetadataLoadTableNamesOnly = {MetadataLoadTableNamesOnly}, MetadataExcludeSchemas = {MetadataExcludeSchemas}, MetadataIncludeSchemas = {MetadataIncludeSchemas}, ConfirmTargetChange = {ConfirmTargetChange}");
+
+        return true;
+    }
+}

@@ -99,7 +99,13 @@ public class ChangeApprovalOutcomeTests
     {
         var store = new ChangeApprovalStore();
         var contract = store.AddContract(ChangeApprovalStore.Volume());
-        contract.Rules.Add(ChangeApprovalStore.CustomSql(CountSql, approvedSqlHash: ChangeApprovalHashes.NothingApproved));
+        var added = ChangeApprovalStore.CustomSql(CountSql, approvedSqlHash: ChangeApprovalHashes.NothingApproved);
+        added.DataContractId = contract.Id;
+        var gained = contract.Rules
+            .Append(added)
+            .ToList();
+        store.RuleReads = new ReadsInTheTransactionSee(store.Rules.ToList(), gained, () => store.Offline.Timeline.Contains(SqlCapture.TransactionBegun));
+        contract.Rules = gained;
 
         var act = () => ContractUpdateHandler(store, TestChangeApprovals.On()).Handle(UpdateCommand(contract, Volume()), CancellationToken.None);
 
@@ -142,9 +148,10 @@ public class ChangeApprovalOutcomeTests
     }
 
     // A reader who is no Approver sees the change requests of the migration jobs and data contracts it reads, never a
-    // recipient's, nor one whose resource is gone; an Approver sees every one.
+    // recipient's, a data source's connection or the LLM connection's, nor one whose resource is gone; an Approver sees
+    // every one but the LLM connection's.
     [Test]
-    public async Task AReaderWhoIsNoApprover_SeesTheChangesOfJobsAndContracts_NeverARecipients()
+    public async Task AReaderWhoIsNoApprover_SeesTheChangesOfJobsAndContracts_NeverARecipientsOrAConnections()
     {
         var store = new ChangeApprovalStore();
         var job = store.AddJob();
@@ -154,17 +161,55 @@ public class ChangeApprovalOutcomeTests
         var contractRequest = store.AddRequest(ChangeApprovalKind.CustomSqlRules, contract.Id, "b", "ext-ben");
         var recipientRequest = store.AddRequest(ChangeApprovalKind.RecipientDestination, recipient.Id, "c", "ext-ben");
         store.AddRequest(ChangeApprovalKind.MigrationJob, 404, "d", "ext-ben");
+        var connectionRequest = store.AddRequest(ChangeApprovalKind.DataSourceConnection, ChangeApprovalStore.Warehouse, "e", "ext-ben");
+        var llmRequest = store.AddRequest(ChangeApprovalKind.LlmConnection, 0, "f", "ext-ben");
         var reader = new ChangeApprovalScope(ProjectSet.All, IsApprover: false);
 
         var read = await Approvals(store).GetPendingAsync(new GetChangeApprovalsQuery(), null, reader, CancellationToken.None);
         var all = await Approvals(store).GetPendingAsync(new GetChangeApprovalsQuery(), null, ChangeApprovalScope.Approver, CancellationToken.None);
         var recipientDetail = await Approvals(store).GetDetailAsync(recipientRequest.Id, reader, CancellationToken.None);
+        var connectionDetail = await Approvals(store).GetDetailAsync(connectionRequest.Id, reader, CancellationToken.None);
+        var llmDetail = await Approvals(store).GetDetailAsync(llmRequest.Id, reader, CancellationToken.None);
         var jobDetail = await Approvals(store).GetDetailAsync(jobRequest.Id, reader, CancellationToken.None);
 
         read.Items.Select(x => x.Id).Should().BeEquivalentTo([jobRequest.Id, contractRequest.Id]);
-        all.TotalCount.Should().Be(4);
+        all.TotalCount.Should().Be(5, "an Approver who is no live Admin reads every request but the LLM connection's");
         recipientDetail.Should().BeNull("a recipient's change is an Approver's to read");
+        connectionDetail.Should().BeNull("a data source's connection change is an Approver's to read");
+        llmDetail.Should().BeNull("the LLM connection's change is a live Admin's to read");
         jobDetail.Should().NotBeNull();
+    }
+
+    // The LLM connection's change requests are a live Admin's to read: an Approver who is no Admin lists and opens every
+    // other kind, a data source's connection included, but not them; the caller's scope says which, from its live
+    // permissions.
+    [Test]
+    public async Task AnApproverWhoIsNoLiveAdmin_DoesNotReadTheLlmConnectionsRequests()
+    {
+        var store = new ChangeApprovalStore();
+        var job = store.AddJob();
+        var connection = store.AddRequest(ChangeApprovalKind.DataSourceConnection, ChangeApprovalStore.Warehouse, "a", "ext-ben");
+        var llm = store.AddRequest(ChangeApprovalKind.LlmConnection, 0, "b", "ext-ben");
+        store.AddRequest(ChangeApprovalKind.MigrationJob, job.Id, "c", "ext-ben");
+        var approver = await ChangeApprovalScopes.OfCallerAsync(
+            TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted),
+            TestPermissions.Holding(BeaconPermissions.Approver),
+            CancellationToken.None);
+        var admin = await ChangeApprovalScopes.OfCallerAsync(TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted), TestPermissions.Admin, CancellationToken.None);
+
+        var approversList = await Approvals(store).GetPendingAsync(new GetChangeApprovalsQuery(), null, approver, CancellationToken.None);
+        var adminsList = await Approvals(store).GetPendingAsync(new GetChangeApprovalsQuery(), null, admin, CancellationToken.None);
+        var approversDetail = await Approvals(store).GetDetailAsync(llm.Id, approver, CancellationToken.None);
+        var adminsDetail = await Approvals(store).GetDetailAsync(llm.Id, admin, CancellationToken.None);
+
+        approver.Should().BeEquivalentTo(new { IsApprover = true, IsLiveAdmin = false }, x => x.ExcludingMissingMembers());
+        admin.Should().BeEquivalentTo(new { IsApprover = true, IsLiveAdmin = true }, x => x.ExcludingMissingMembers());
+        new ChangeApprovalScope(ProjectSet.All, IsApprover: true).IsLiveAdmin.Should().BeFalse("a scope built without it reads no LLM connection request");
+        approversList.Items.Select(x => x.Kind).Should().BeEquivalentTo([ChangeApprovalKind.DataSourceConnection, ChangeApprovalKind.MigrationJob]);
+        approversList.Items.Should().Contain(x => x.Id == connection.Id);
+        adminsList.Items.Select(x => x.Id).Should().Contain(llm.Id).And.HaveCount(3);
+        approversDetail.Should().BeNull("only a live Admin reads it");
+        adminsDetail.Should().NotBeNull();
     }
 
     // Restricted to its projects, the reader's list and detail are filtered in the SQL, by the jobs' source and destination
@@ -270,7 +315,22 @@ public class ChangeApprovalOutcomeTests
             TestChangeApprovals.Hasher,
             TestChangeApprovals.On(),
             new RecordingSecurityAudit(),
+            TestPermissions.Admin,
+            TestChangeApprovals.ReviewerUnchanged,
+            TestChangeApprovals.NoDefinitions,
+            TestChangeApprovals.NoProbe,
+            TestChangeApprovals.Llm(),
             NullLogger<ChangeApprovalService>.Instance);
 
     private static SqlCapture Capture(bool sqlServer) => sqlServer ? SqlCapture.OnSqlServer() : new SqlCapture();
+
+    // Reads before the save's transaction see the rules as its check found them; reads inside it see the ones stored meanwhile.
+    private sealed class ReadsInTheTransactionSee(List<DataContractRule> before, List<DataContractRule> meanwhile, Func<bool> inTransaction)
+        : IEnumerable<DataContractRule>
+    {
+        public IEnumerator<DataContractRule> GetEnumerator() =>
+            (inTransaction() ? meanwhile : before).GetEnumerator();
+
+        System.Collections.IEnumerator System.Collections.IEnumerable.GetEnumerator() => GetEnumerator();
+    }
 }

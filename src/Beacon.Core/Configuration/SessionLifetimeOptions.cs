@@ -29,6 +29,14 @@ public sealed class SessionLifetimeOptions
     /// </summary>
     public int AbsoluteLifetimeHours { get; set; } = 12;
 
+    /// <summary>
+    /// A single sign-on session's cookie outlives the browser session: false (the default) issues a session cookie that
+    /// the browser drops when it closes, so the user signs in again (with the identity provider's own session, often
+    /// without a prompt); true keeps it until its expiry, within <see cref="AbsoluteLifetimeHours"/>. Password sign-in
+    /// follows the request's "remember me" instead.
+    /// </summary>
+    public bool PersistSsoCookie { get; set; }
+
     /// <summary>The revalidation interval as a time span (zero: every request).</summary>
     public TimeSpan RevalidateInterval => TimeSpan.FromMinutes(RevalidateMinutes);
 

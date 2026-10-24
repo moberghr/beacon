@@ -20,7 +20,24 @@ internal sealed class ForcedMetadataRefreshCooldown(IMemoryCache cache, TimeProv
     private readonly HashSet<int> _running = [];
 
     /// <summary>The memory-cache key holding the time of the data source's last successful forced refresh.</summary>
-    public static string CacheKey(int dataSourceId) => $"metadata-forced-refresh:{dataSourceId}";
+    public static string CacheKey(int dataSourceId) => BeaconCacheEntries.Key($"metadata-forced-refresh:{dataSourceId}");
+
+    /// <summary>
+    /// Why a forced refresh of the data source may not start now (it runs in this process, or the cooldown holds it back),
+    /// or null when it may; unlike <see cref="TryStart"/> it starts nothing. A cooldown of 0 never refuses.
+    /// </summary>
+    public string? Refusal(int dataSourceId, int cooldownMinutes, bool ignoreCooldown)
+    {
+        if (cooldownMinutes <= 0)
+        {
+            return null;
+        }
+
+        lock (_gate)
+        {
+            return RefusalWithinGate(dataSourceId, cooldownMinutes, ignoreCooldown);
+        }
+    }
 
     /// <summary>
     /// Starts a forced refresh of the data source: null when it may run (it is then running until
@@ -36,16 +53,10 @@ internal sealed class ForcedMetadataRefreshCooldown(IMemoryCache cache, TimeProv
 
         lock (_gate)
         {
-            if (_running.Contains(dataSourceId))
+            var refusal = RefusalWithinGate(dataSourceId, cooldownMinutes, ignoreCooldown);
+            if (refusal != null)
             {
-                return AlreadyRunningMessage;
-            }
-
-            if (!ignoreCooldown
-                && cache.TryGetValue(CacheKey(dataSourceId), out DateTimeOffset lastRefreshed)
-                && timeProvider.GetUtcNow() - lastRefreshed < TimeSpan.FromMinutes(cooldownMinutes))
-            {
-                return $"This data source's metadata was refreshed less than {cooldownMinutes} minutes ago; try again later.";
+                return refusal;
             }
 
             _running.Add(dataSourceId);
@@ -64,12 +75,29 @@ internal sealed class ForcedMetadataRefreshCooldown(IMemoryCache cache, TimeProv
         if (succeeded)
         {
             // Kept for the longest cooldown accepted, so a setting raised later still sees it.
-            cache.Set(CacheKey(dataSourceId), timeProvider.GetUtcNow(), TimeSpan.FromMinutes(MetadataRefreshOptions.MaxCooldownMinutes));
+            cache.Set(CacheKey(dataSourceId), timeProvider.GetUtcNow(), BeaconCacheEntries.For(TimeSpan.FromMinutes(MetadataRefreshOptions.MaxCooldownMinutes)));
         }
 
         lock (_gate)
         {
             _running.Remove(dataSourceId);
         }
+    }
+
+    private string? RefusalWithinGate(int dataSourceId, int cooldownMinutes, bool ignoreCooldown)
+    {
+        if (_running.Contains(dataSourceId))
+        {
+            return AlreadyRunningMessage;
+        }
+
+        if (!ignoreCooldown
+            && cache.TryGetValue(CacheKey(dataSourceId), out DateTimeOffset lastRefreshed)
+            && timeProvider.GetUtcNow() - lastRefreshed < TimeSpan.FromMinutes(cooldownMinutes))
+        {
+            return $"This data source's metadata was refreshed less than {cooldownMinutes} minutes ago; try again later.";
+        }
+
+        return null;
     }
 }

@@ -4,7 +4,15 @@ import { beaconApi } from '@/api/client';
 import { usePagedList } from '@/lib/usePagedList';
 import { createSimpleMutation } from '@/lib/mutations';
 import { ChangeApprovalKind } from '@/lib/enums';
-import type { ApprovalStatus, MigrationMode, NotificationType } from '@/lib/enums';
+import type {
+  AiProvider,
+  ApprovalStatus,
+  BedrockAuthMode,
+  DatabaseEngineType,
+  DataSourceType,
+  MigrationMode,
+  NotificationType,
+} from '@/lib/enums';
 
 // Local strict mirrors of the generated approval DTOs — dates are strings on
 // the wire (see `unwrap` docs in @/lib/api).
@@ -167,9 +175,12 @@ export function useRejectQueryChange() {
   );
 }
 
-// --- changes of migration jobs, Custom SQL rules and recipients ---------------------------------------------------
+// --- changes of migration jobs, Custom SQL rules, recipients, data-source connections and the LLM connection --------
 
-/** A pending change of a migration job, a data contract's Custom SQL rules or a recipient, as listed. */
+/**
+ * A pending change of a migration job, a data contract's Custom SQL rules, a recipient, a data source's connection or the
+ * LLM connection, as listed.
+ */
 export interface ChangeApprovalSummary {
   id: number;
   kind: ChangeApprovalKind;
@@ -229,6 +240,75 @@ export interface RecipientDestinationView {
 }
 
 /**
+ * A data source's connection, as a reviewer is shown it: the host, port, database and login it connects with, and the
+ * names (never the values) of the other settings the change sets or changes. Never a secret.
+ */
+export interface DataSourceConnectionView {
+  name: string;
+  dataSourceType: DataSourceType;
+  databaseEngineType: DatabaseEngineType | null;
+  host: string | null;
+  port: number | null;
+  database: string | null;
+  /** The user name it signs in with, or its authentication mode when it has none. */
+  login: string | null;
+  /** The names of the settings the change sets or changes (every setting of a new source). */
+  changedSettings: string[];
+  /**
+   * Its connector cannot show the connection setting by setting: the whole connection, secrets included, is shown only as
+   * its fingerprint, and approving it needs a comment.
+   */
+  secretOnlyDefinition: boolean;
+  /** A short keyed fingerprint of the whole definition, to compare out of band. */
+  fingerprint: string | null;
+  /** The connection authenticates the server over TLS. */
+  authenticatesServer: boolean;
+  /** The engine itself refuses writes in Beacon's read-only session. */
+  databaseReadOnlyEnforced: boolean;
+  /** The change points the source at another engine, host, port or database. */
+  isTargetChange: boolean;
+}
+
+/** A credential of the LLM connection: its name and a fingerprint of its value (never the value). */
+export interface LlmCredentialView {
+  name: string;
+  fingerprint: string;
+}
+
+/**
+ * The stored LLM connection, as a reviewer is shown it: the provider, the endpoint's scheme and host with a fingerprint of
+ * the whole endpoint, the region, the authentication mode, the models and a fingerprint of each credential.
+ */
+export interface LlmConnectionView {
+  /** Nothing was stored: the host's configuration was in use, so no value is shown. */
+  fromHostConfiguration: boolean;
+  provider: AiProvider | null;
+  /** Scheme, host and port only: the path and query show only in the endpoint's fingerprint. */
+  endpoint: string | null;
+  endpointFingerprint: string | null;
+  region: string | null;
+  bedrockAuthMode: BedrockAuthMode;
+  model: string | null;
+  fastModel: string | null;
+  /** The fingerprint of the stored connection the change was made from. */
+  basedOn: string | null;
+  credentials: LlmCredentialView[];
+}
+
+/** The grant of the Admin role a reviewer is shown: ids and the role's name only. */
+export interface AdminRoleGrantView {
+  userId: number;
+  roleId: number;
+  roleName: string;
+}
+
+/** A project a data source under review is linked to now. */
+export interface ChangeApprovalProject {
+  id: number;
+  name: string;
+}
+
+/**
  * The last decision on a governed resource's change, shown with the resource while it waits for approval and no request
  * of it is pending: a rejection (change it and save again; a migration job is deleted and created again) or a request a
  * newer save replaced, with the reviewer's comment.
@@ -260,6 +340,16 @@ export interface ChangeApprovalDetail {
   proposedCustomSqlRules: CustomSqlRulesView | null;
   previousRecipientDestination: RecipientDestinationView | null;
   proposedRecipientDestination: RecipientDestinationView | null;
+  /** The source's connection before the change; null for a source the change creates. */
+  previousDataSourceConnection?: DataSourceConnectionView | null;
+  proposedDataSourceConnection?: DataSourceConnectionView | null;
+  /** The LLM connection the change was made from. */
+  previousLlmConnection?: LlmConnectionView | null;
+  proposedLlmConnection?: LlmConnectionView | null;
+  /** The Admin role grant a request of that kind proposes. */
+  proposedAdminRoleGrant?: AdminRoleGrantView | null;
+  /** A data source's projects now (links are not part of the change); empty for every other kind. */
+  currentProjects?: ChangeApprovalProject[];
   /** The hash of what this detail shows as proposed: an approval sends it back, so it applies exactly what was shown. */
   payloadHash: string;
   isOwnRequest: boolean;
@@ -283,18 +373,22 @@ export const CHANGE_KIND_LABEL: Record<ChangeApprovalKind, string> = {
   [ChangeApprovalKind.MigrationJob]: 'Migration job',
   [ChangeApprovalKind.CustomSqlRules]: 'Custom SQL rules',
   [ChangeApprovalKind.RecipientDestination]: 'Recipient',
+  [ChangeApprovalKind.DataSourceConnection]: 'Data source',
+  [ChangeApprovalKind.LlmConnection]: 'LLM connection',
+  [ChangeApprovalKind.AdminRoleGrant]: 'Admin role grant',
 };
 
 const CHANGES_KEY = ['approvals', 'changes'] as const;
 const CHANGE_DETAIL_KEY = (id: number | undefined) => ['approvals', 'changes', 'detail', id] as const;
 
 /** Pending changes of one kind: server-paged, newest first. */
-export function useChangeApprovalsList(kind: ChangeApprovalKind) {
+export function useChangeApprovalsList(kind: ChangeApprovalKind, enabled = true) {
   return usePagedList<ChangeApprovalSummary>({
     queryKey: [...CHANGES_KEY, kind],
     path: '/beacon/api/approvals/changes',
     fixedParams: { kind },
     defaultSort: { column: 'createdTime', direction: 'desc' },
+    enabled,
   });
 }
 
@@ -312,8 +406,18 @@ interface ChangeApproveArgs extends ApprovalActionArgs {
   expectedPayloadHash: string | null;
 }
 
-// A decision changes what the governed pages show (awaiting badges, the run and delivery state).
-const GOVERNED_KEYS = [['approvals'], ['migration-jobs'], ['recipients'], ['data-quality'], ['subscriptions']];
+// A decision changes what the governed pages show (awaiting badges, the run and delivery state, the held data sources
+// and the LLM connection in use).
+const GOVERNED_KEYS = [
+  ['approvals'],
+  ['migration-jobs'],
+  ['recipients'],
+  ['data-quality'],
+  ['subscriptions'],
+  ['data-sources'],
+  ['admin-settings'],
+  ['users'],
+];
 
 export function useApproveChange() {
   const qc = useQueryClient();

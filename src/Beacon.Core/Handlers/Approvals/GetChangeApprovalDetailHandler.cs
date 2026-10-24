@@ -22,10 +22,10 @@ internal sealed class GetChangeApprovalDetailHandler(
 /// <summary>
 /// A change request with what it changes (the resource before and as proposed, credentials masked), the payload hash an
 /// approval names, and whether the caller may approve it now. An Approver (an Admin holds the permission) reads every
-/// one; anyone else, as for query approvals, one of a migration job or data contract it reads (never a recipient's), and
-/// any other is not found.
+/// one but the LLM-connection and Admin-grant ones, which only a live Admin reads; anyone else, as for query approvals, one of a migration
+/// job or data contract it reads (never a recipient's or a connection's), and any other is not found.
 /// </summary>
-[ProjectScopeExempt("scope-filtered in the service: an Approver reads every change request; anyone else one of a migration job or data contract whose data sources it reads (never a recipient's), and any other is not found")]
+[ProjectScopeExempt("scope-filtered in the service: an Approver reads every change request but the LLM-connection and Admin-grant ones, which only a live Admin reads; anyone else one of a migration job or data contract whose data sources it reads (never a recipient's or a connection's), and any other is not found")]
 public record GetChangeApprovalDetailQuery : IRequest<ChangeApprovalDetail?>
 {
     public required int RequestId { get; init; }

@@ -118,3 +118,66 @@ describe('approvals and the Approver permission', () => {
     expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument();
   });
 });
+
+describe('the kinds of change each caller may read', () => {
+  const noRequests = http.get('*/beacon/api/approvals/pending', () => HttpResponse.json({ items: [], totalCount: 0, pageCount: 0 }));
+
+  // The permissions load after the first render: each test waits (findByRole) for an option they decide.
+  function kindsShown() {
+    return screen.findByRole('radiogroup', { name: 'Kind of change' });
+  }
+
+  it('offers an Approver the data-source connection changes, not the LLM connection ones', async () => {
+    mswServer.use(noRequests, permissionsHandler({ permissions: ['Approver'] }));
+
+    renderWithProviders(<ApprovalsListPage />);
+
+    const kinds = await kindsShown();
+    expect(await within(kinds).findByRole('radio', { name: 'Data sources' })).toBeInTheDocument();
+    expect(within(kinds).queryByRole('radio', { name: 'LLM connection' })).not.toBeInTheDocument();
+  });
+
+  it('offers an Admin the LLM connection changes too', async () => {
+    mswServer.use(noRequests, permissionsHandler({ isAdmin: true }));
+
+    renderWithProviders(<ApprovalsListPage />);
+
+    const kinds = await kindsShown();
+    expect(await within(kinds).findByRole('radio', { name: 'LLM connection' })).toBeInTheDocument();
+    expect(within(kinds).getByRole('radio', { name: 'Data sources' })).toBeInTheDocument();
+    expect(within(kinds).getByRole('radio', { name: 'Admin role' })).toBeInTheDocument();
+  });
+
+  it('never offers an Approver who is not an Admin the Admin role grants', async () => {
+    mswServer.use(noRequests, permissionsHandler({ permissions: ['Approver'] }));
+
+    renderWithProviders(<ApprovalsListPage />);
+
+    const kinds = await kindsShown();
+    expect(await within(kinds).findByRole('radio', { name: 'Data sources' })).toBeInTheDocument();
+    expect(within(kinds).queryByRole('radio', { name: 'Admin role' })).not.toBeInTheDocument();
+  });
+
+  it('offers someone who is not an Approver neither, and a link to them falls back to the query requests', async () => {
+    mswServer.use(noRequests, permissionsHandler({ permissions: ['DataSourceAdmin', 'SecurityAdmin'] }));
+
+    renderWithProviders(<ApprovalsListPage />, { initialEntries: ['/approvals?kind=5'] });
+
+    const kinds = await kindsShown();
+    expect(await within(kinds).findByRole('radio', { name: 'Migration jobs' })).toBeInTheDocument();
+    expect(within(kinds).queryByRole('radio', { name: 'Data sources' })).not.toBeInTheDocument();
+    expect(within(kinds).queryByRole('radio', { name: 'LLM connection' })).not.toBeInTheDocument();
+    expect(within(kinds).getByRole('radio', { name: 'Queries' })).toHaveAttribute('aria-checked', 'true');
+  });
+
+  it('sends an Approver who is not an Admin opening the LLM kind back to the query requests', async () => {
+    mswServer.use(noRequests, permissionsHandler({ permissions: ['Approver'] }));
+
+    renderWithProviders(<ApprovalsListPage />, { initialEntries: ['/approvals?kind=5'] });
+
+    const kinds = await kindsShown();
+    expect(await within(kinds).findByRole('radio', { name: 'Data sources' })).toBeInTheDocument();
+    expect(within(kinds).queryByRole('radio', { name: 'LLM connection' })).not.toBeInTheDocument();
+    expect(within(kinds).getByRole('radio', { name: 'Queries' })).toHaveAttribute('aria-checked', 'true');
+  });
+});
