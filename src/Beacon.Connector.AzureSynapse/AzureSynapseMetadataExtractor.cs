@@ -1,16 +1,15 @@
-using System.Data.Common;
-using Beacon.Core.Helpers;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Helpers;
 using Beacon.Core.Models.Metadata;
 using Beacon.Core.Services.Providers;
 
 namespace Beacon.Connector.AzureSynapse;
 
-public class AzureSynapseMetadataExtractor : SqlMetadataExtractorBase
+public class AzureSynapseMetadataExtractor : IDatabaseMetadataExtractor
 {
-    public override DatabaseEngineType SupportedEngineType => DatabaseEngineType.AzureSynapse;
+    public DatabaseEngineType SupportedEngineType => DatabaseEngineType.AzureSynapse;
 
-    protected override string ColumnsQuery => @"
+    private const string ColumnsQuery = @"
             SELECT
                 s.name AS table_schema,
                 t.name AS table_name,
@@ -27,7 +26,7 @@ public class AzureSynapseMetadataExtractor : SqlMetadataExtractorBase
             LEFT JOIN sys.indexes i ON t.object_id = i.object_id AND i.is_primary_key = 1
             LEFT JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id AND c.column_id = ic.column_id";
 
-    protected override string ForeignKeysQuery => @"
+    private const string ForeignKeysQuery = @"
             SELECT
                 s.name AS table_schema,
                 t.name AS table_name,
@@ -45,7 +44,7 @@ public class AzureSynapseMetadataExtractor : SqlMetadataExtractorBase
             JOIN sys.columns rc ON fk.referenced_object_id = rc.object_id AND fk.referenced_column_id = rc.column_id
             JOIN sys.foreign_keys fkc ON fk.constraint_object_id = fkc.object_id";
 
-    protected override string IndexesQuery => @"
+    private const string IndexesQuery = @"
             SELECT
                 s.name AS table_schema,
                 t.name AS table_name,
@@ -62,17 +61,18 @@ public class AzureSynapseMetadataExtractor : SqlMetadataExtractorBase
             WHERE i.name IS NOT NULL
             ORDER BY s.name, t.name, i.name, ic.key_ordinal";
 
-    protected override DbConnection CreateConnection(string connectionString)
-        => DbConnectionFactory.CreateConnection(DatabaseEngineType.AzureSynapse, connectionString);
+    public async Task<IReadOnlyList<TableMetadataDto>> ExtractMetadataAsync(string connectionString, CancellationToken cancellationToken = default)
+    {
+        await using var connection = DbConnectionFactory.CreateConnection(DatabaseEngineType.AzureSynapse, connectionString);
 
-    protected override IReadOnlyList<IndexMetadataDto> MapIndexes(IEnumerable<dynamic> indexRows)
-        => MapIndexRows(indexRows);
+        return await TsqlCatalogScan.ExtractAsync(connection, ColumnsQuery, ForeignKeysQuery, IndexesQuery, MapIndexRows, cancellationToken);
+    }
 
     /// <summary>
     /// Builds the table list from the rows the catalog queries returned. Pure: no connection, so a fixture can pin it.
     /// </summary>
     internal static IReadOnlyList<TableMetadataDto> Assemble(IEnumerable<dynamic> columnsData, IEnumerable<dynamic> foreignKeys, IEnumerable<dynamic> indexesData)
-        => Assemble(columnsData, foreignKeys, indexesData, MapIndexRows);
+        => TsqlCatalogScan.Assemble(columnsData, foreignKeys, indexesData, MapIndexRows);
 
     private static IReadOnlyList<IndexMetadataDto> MapIndexRows(IEnumerable<dynamic> indexRows)
         => indexRows

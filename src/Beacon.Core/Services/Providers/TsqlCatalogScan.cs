@@ -1,51 +1,39 @@
 using System.Data.Common;
-using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.Metadata;
 using Dapper;
 
 namespace Beacon.Core.Services.Providers;
 
 /// <summary>
-/// Shared catalog scan for the T-SQL engines (SQL Server, Synapse): three fixed catalog statements, then a pure
-/// row-to-DTO assembly. Lives in Core because both connectors reference Core and never each other (§2.4).
-/// The statements are fixed text that runs outside the SQL gate; this base holds no read-only or error handling.
+/// The catalog scan the T-SQL connectors (SQL Server, Synapse) share: three fixed catalog statements, then a pure
+/// row-to-DTO assembly. Internal to Core (visible to those two connectors), so it adds no public API (§2.4).
+/// The statements are fixed text the connector passes in and run outside the SQL gate; no read-only or error handling lives here.
 /// </summary>
-public abstract class SqlMetadataExtractorBase : IDatabaseMetadataExtractor
+internal static class TsqlCatalogScan
 {
     private const int CommandTimeoutSeconds = 180;
 
-    public abstract DatabaseEngineType SupportedEngineType { get; }
-
-    /// <summary>Fixed catalog statement: one row per column (table_schema, table_name, column_name, data_type, is_nullable, max_length, ordinal_position, is_primary_key).</summary>
-    protected abstract string ColumnsQuery { get; }
-
-    /// <summary>Fixed catalog statement: one row per foreign key column.</summary>
-    protected abstract string ForeignKeysQuery { get; }
-
-    /// <summary>Fixed catalog statement: the rows <see cref="MapIndexes"/> turns into one table's indexes.</summary>
-    protected abstract string IndexesQuery { get; }
-
-    protected abstract DbConnection CreateConnection(string connectionString);
-
-    public async Task<IReadOnlyList<TableMetadataDto>> ExtractMetadataAsync(string connectionString, CancellationToken cancellationToken = default)
+    public static async Task<IReadOnlyList<TableMetadataDto>> ExtractAsync(
+        DbConnection connection,
+        string columnsQuery,
+        string foreignKeysQuery,
+        string indexesQuery,
+        Func<IEnumerable<dynamic>, IReadOnlyList<IndexMetadataDto>> mapIndexes,
+        CancellationToken cancellationToken)
     {
-        await using var connection = CreateConnection(connectionString);
         await connection.OpenAsync(cancellationToken);
 
-        var columnsData = (await connection.QueryAsync(new CommandDefinition(ColumnsQuery, commandTimeout: CommandTimeoutSeconds, cancellationToken: cancellationToken))).AsList();
-        var foreignKeys = (await connection.QueryAsync(new CommandDefinition(ForeignKeysQuery, commandTimeout: CommandTimeoutSeconds, cancellationToken: cancellationToken))).AsList();
-        var indexesData = (await connection.QueryAsync(new CommandDefinition(IndexesQuery, commandTimeout: CommandTimeoutSeconds, cancellationToken: cancellationToken))).AsList();
+        var columnsData = (await connection.QueryAsync(new CommandDefinition(columnsQuery, commandTimeout: CommandTimeoutSeconds, cancellationToken: cancellationToken))).AsList();
+        var foreignKeys = (await connection.QueryAsync(new CommandDefinition(foreignKeysQuery, commandTimeout: CommandTimeoutSeconds, cancellationToken: cancellationToken))).AsList();
+        var indexesData = (await connection.QueryAsync(new CommandDefinition(indexesQuery, commandTimeout: CommandTimeoutSeconds, cancellationToken: cancellationToken))).AsList();
 
-        return Assemble(columnsData, foreignKeys, indexesData, MapIndexes);
+        return Assemble(columnsData, foreignKeys, indexesData, mapIndexes);
     }
-
-    /// <summary>Turns the index rows of one table (those of <see cref="IndexesQuery"/> with its schema and name) into its indexes.</summary>
-    protected abstract IReadOnlyList<IndexMetadataDto> MapIndexes(IEnumerable<dynamic> tableIndexRows);
 
     /// <summary>
     /// Builds the table list from the rows the catalog queries returned. Pure: no connection, so a fixture can pin it.
     /// </summary>
-    protected static IReadOnlyList<TableMetadataDto> Assemble(
+    public static IReadOnlyList<TableMetadataDto> Assemble(
         IEnumerable<dynamic> columnsData,
         IEnumerable<dynamic> foreignKeys,
         IEnumerable<dynamic> indexesData,

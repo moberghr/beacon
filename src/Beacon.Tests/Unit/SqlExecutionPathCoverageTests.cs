@@ -141,6 +141,18 @@ public class SqlExecutionPathCoverageTests
         ["src/Beacon.Core/HostData/HostReadOnlyLoginCheck.cs"] = "the startup check of a host source's read-only login, on the resolver's connection: fixed catalog SQL, outside the gate"
     };
 
+    // The production files that run Dapper CommandDefinition statements (catalog scans, locks, the migration writer), and why.
+    private static readonly Dictionary<string, string> DapperCommandUsers = new(StringComparer.Ordinal)
+    {
+        ["src/Beacon.Connector.PostgreSql/PostgreSqlMetadataExtractor.cs"] = "the metadata scan's fixed catalog SQL",
+        ["src/Beacon.Connector.MySql/MySqlMetadataExtractor.cs"] = "the metadata scan's fixed catalog SQL",
+        ["src/Beacon.Connector.Snowflake/SnowflakeMetadataExtractor.cs"] = "the metadata scan's fixed catalog SQL",
+        ["src/Beacon.Core/Services/Providers/TsqlCatalogScan.cs"] = "the SQL Server and Synapse metadata scan's fixed catalog SQL, passed in by those extractors",
+        ["src/Beacon.Core/DataMigration/MigrationRunLock.cs"] = "the destination lock statements",
+        ["src/Beacon.Core/Services/MigrationService.Sql.cs"] = "the migration writer's statements on its write target",
+        ["src/Beacon.Core/Services/Providers/DatabaseProvider.cs"] = "the database connectors' gated reads"
+    };
+
     private static readonly Regex GateUse = new(@"\b(?:ISqlExecutionGate|SqlGateRequest)\b", RegexOptions.CultureInvariant);
 
     private static readonly Regex ExecuteCall = new(@"\.(?:ExecuteReadOnlyQueryAsync|ExecuteQueryAsync|ValidateQueryAsync|EstimateReadOnlyCostAsync)\b", RegexOptions.CultureInvariant);
@@ -156,6 +168,17 @@ public class SqlExecutionPathCoverageTests
     private static readonly Regex RowSecurityContextCreation = new(@"\bRowSecurityContext\.(?:NotApplicable|Filtered|Denied)\(", RegexOptions.CultureInvariant);
 
     private static readonly Lazy<Dictionary<string, string>> Sources = new(ReadProductionSources);
+
+    [Test]
+    public void EveryFileThatRunsADapperCommand_IsListed()
+    {
+        var users = Sources.Value
+            .Where(x => x.Value.Contains("new CommandDefinition(", StringComparison.Ordinal))
+            .Select(x => x.Key)
+            .ToList();
+
+        users.Should().BeEquivalentTo(DapperCommandUsers.Keys, "a Dapper statement in an unlisted file could run SQL the gate never saw: review it and list it with its reason");
+    }
 
     [Test]
     public void EveryFileThatUsesTheGate_IsListed()
