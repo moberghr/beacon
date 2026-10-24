@@ -10,6 +10,6 @@ interface ImportMeta {
 }
 
 // Side-effect entry points of monaco-editor; the package ships no typings for them.
-declare module 'monaco-editor/esm/vs/editor/editor.all';
-declare module 'monaco-editor/esm/vs/basic-languages/sql/sql.contribution';
-declare module 'monaco-editor/esm/vs/editor/editor.api';
+declare module 'monaco-editor/features/register.all';
+declare module 'monaco-editor/languages/definitions/sql/register';
+declare module 'monaco-editor/editor/editor.api';
