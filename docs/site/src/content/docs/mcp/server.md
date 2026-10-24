@@ -122,7 +122,7 @@ Beacon publishes anonymous, read-only discovery metadata so remote clients can b
 
 Unauthenticated requests to `/beacon/mcp` answer `401` with a `WWW-Authenticate: Bearer resource_metadata="…"` header pointing at the metadata document, so OAuth-capable clients discover the auth requirements from the challenge itself (RFC 9728 §5.1). A bearer value that is not a valid token (malformed, wrong algorithm, unknown signing key, expired) gets the same `401`, with `error="invalid_token"` added to the challenge. When the JWKS endpoint cannot be reached and no keys are cached, a bearer JWT gets `503` with `Retry-After` instead: the token was never judged, and a `401` would make an OAuth client discard it and sign in again unnecessarily.
 
-Behind a reverse proxy, set `Beacon:PublicBaseUrl` (e.g. `https://beacon.example.com`) so the discovery documents advertise the public origin; when unset, the URLs are derived from the incoming request.
+Behind a reverse proxy, set `Beacon:PublicBaseUrl` (e.g. `https://beacon.example.com`) so the discovery documents advertise the public origin; when unset, the URLs are derived from the incoming request and the responses are not cacheable.
 
 A registry manifest for the official [MCP registry](https://registry.modelcontextprotocol.io) ships in `deploy/registry/server.json` with a publishing runbook alongside it. Publishing is a deliberate out-of-band step (DNS verification of the namespace domain).
 
