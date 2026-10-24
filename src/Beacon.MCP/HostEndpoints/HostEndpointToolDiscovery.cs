@@ -18,6 +18,7 @@ using Microsoft.AspNetCore.Mvc.Controllers;
 using Microsoft.AspNetCore.Mvc.ModelBinding;
 using Microsoft.AspNetCore.Mvc.ModelBinding.Metadata;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.Routing.Patterns;
 using Microsoft.Extensions.DependencyInjection;
 using Beacon.Core.HostData;
 using Beacon.Core.HostEndpoints;
@@ -59,7 +60,7 @@ internal sealed partial class HostEndpointToolDiscovery(
         typeof(PipeReader)
     };
 
-    [GeneratedRegex("^[a-z][a-z0-9_]{2,47}$")]
+    [GeneratedRegex("^[a-z][a-z0-9_]{2,47}$", RegexOptions.None, matchTimeoutMilliseconds: 250)]
     private static partial Regex NamePattern();
 
     /// <param name="authenticationSchemes">
@@ -70,6 +71,13 @@ internal sealed partial class HostEndpointToolDiscovery(
     /// <param name="allowWriteTools"><see cref="HostEndpointToolOptions.AllowWriteTools"/>.</param>
     /// <param name="callerBoundArguments">The argument names <see cref="HostEndpointToolOptions.BindFromCaller(string, string)"/> fills.</param>
     /// <param name="descriptionNote"><see cref="HostEndpointToolOptions.DescriptionNote"/>.</param>
+    /// <param name="allowReadOnlyPost"><see cref="HostEndpointToolOptions.AllowReadOnlyPost"/>.</param>
+    /// <param name="warnings">Receives one line per endpoint that is not exposed but does not fail startup.</param>
+    /// <param name="parameterPolicies">
+    /// The host's <see cref="ParameterPolicyFactory"/>, which turns the route's inline constraints into the
+    /// <see cref="IRouteConstraint"/>s routing evaluates. Null when the host has no routing services: a route with an
+    /// inline constraint then fails startup, since its values could not be checked.
+    /// </param>
     public IReadOnlyList<HostEndpointToolDescriptor> Discover(
         IEnumerable<Endpoint> endpoints,
         IReadOnlyList<ApiDescription> apiDescriptions,
@@ -78,7 +86,10 @@ internal sealed partial class HostEndpointToolDiscovery(
         IReadOnlyCollection<string>? trustedAuthenticationSchemes = null,
         bool allowWriteTools = false,
         IReadOnlyCollection<string>? callerBoundArguments = null,
-        Func<HostEndpointToolNote, string?>? descriptionNote = null)
+        Func<HostEndpointToolNote, string?>? descriptionNote = null,
+        bool allowReadOnlyPost = false,
+        ICollection<string>? warnings = null,
+        ParameterPolicyFactory? parameterPolicies = null)
     {
         var trusted = new HashSet<string>(trustedAuthenticationSchemes ?? [], StringComparer.Ordinal);
         var callerBound = new HashSet<string>(callerBoundArguments ?? [], StringComparer.OrdinalIgnoreCase);
@@ -149,13 +160,22 @@ internal sealed partial class HostEndpointToolDiscovery(
             }
             else if (endpointFailures.Count == 0)
             {
-                try
+                var verbWarning = metadata.ReadOnly ? ReadOnlyVerbWarning(routeEndpoint, allowReadOnlyPost) : null;
+                if (verbWarning != null)
                 {
-                    tools.Add(Describe(routeEndpoint, metadata, apiDescriptions, callerBound, descriptionNote));
+                    warnings?.Add($"{display} [{metadata.Name}]: {verbWarning}");
                 }
-                catch (HostEndpointToolDefinitionException ex)
+
+                if (verbWarning == null || allowReadOnlyPost)
                 {
-                    endpointFailures.Add(ex.Message);
+                    try
+                    {
+                        tools.Add(Describe(routeEndpoint, metadata, apiDescriptions, callerBound, descriptionNote, parameterPolicies));
+                    }
+                    catch (HostEndpointToolDefinitionException ex)
+                    {
+                        endpointFailures.Add(ex.Message);
+                    }
                 }
             }
 
@@ -191,7 +211,8 @@ internal sealed partial class HostEndpointToolDiscovery(
         IBeaconToolMetadata metadata,
         IReadOnlyList<ApiDescription> apiDescriptions,
         IReadOnlySet<string> callerBound,
-        Func<HostEndpointToolNote, string?>? descriptionNote)
+        Func<HostEndpointToolNote, string?>? descriptionNote,
+        ParameterPolicyFactory? parameterPolicies)
     {
         var httpMethod = ChooseHttpMethod(endpoint);
         var method = ResolveMethod(endpoint);
@@ -252,8 +273,75 @@ internal sealed partial class HostEndpointToolDiscovery(
             !metadata.ReadOnly && metadata.Idempotent)
         {
             CallerBindings = callerBindings,
-            CallerBoundNames = callerBound
+            CallerBoundNames = callerBound,
+            RouteConstraints = RouteConstraintsOf(endpoint.RoutePattern, parameterPolicies)
         };
+    }
+
+    /// <summary>
+    /// A warning for a read-only tool whose HTTP method is not GET or HEAD, or null. With
+    /// <see cref="HostEndpointToolOptions.AllowReadOnlyPost"/> on (the default) the tool is still exposed, as before;
+    /// with it off, only GET and HEAD read-only tools are.
+    /// </summary>
+    private static string? ReadOnlyVerbWarning(Endpoint endpoint, bool allowReadOnlyPost)
+    {
+        var method = ChooseHttpMethod(endpoint);
+        if (HttpMethods.IsGet(method) || HttpMethods.IsHead(method))
+        {
+            return null;
+        }
+
+        if (!allowReadOnlyPost)
+        {
+            return $"it is declared ReadOnly = true but accepts only {method}, and HostEndpointToolOptions.AllowReadOnlyPost is off, so it is not exposed; expose it with GET, or declare it a write tool (ReadOnly = false, with AllowWriteTools)";
+        }
+
+        return HttpMethods.IsPost(method)
+            ? "it is declared ReadOnly = true but accepts only POST; it is exposed as a read (a grid or a search over POST). Set HostEndpointToolOptions.AllowReadOnlyPost = false to expose read-only tools on GET and HEAD only"
+            : $"it is declared ReadOnly = true but accepts only {method}, a verb that normally changes data; it is exposed as a read because the host declared it so. Declare it a write tool (ReadOnly = false, with AllowWriteTools) if it changes anything, or set HostEndpointToolOptions.AllowReadOnlyPost = false to expose read-only tools on GET and HEAD only";
+    }
+
+    /// <summary>
+    /// The constraints routing would evaluate on the route's values (<c>{id:int}</c>, <c>{slug:regex(...)}</c>, a custom
+    /// <see cref="IRouteConstraint"/>), resolved as the host's matcher resolves them. Other parameter policies
+    /// (transformers) do not judge an incoming value and are left out.
+    /// </summary>
+    private static List<HostEndpointRouteConstraint> RouteConstraintsOf(RoutePattern pattern, ParameterPolicyFactory? parameterPolicies)
+    {
+        var constraints = new List<HostEndpointRouteConstraint>();
+        foreach (var (name, references) in pattern.ParameterPolicies)
+        {
+            var parameter = pattern.GetParameter(name);
+            foreach (var reference in references)
+            {
+                var policy = parameterPolicies != null && parameter != null
+                    ? CreatePolicy(parameterPolicies, parameter, reference)
+                    : reference.ParameterPolicy
+                        ?? throw new HostEndpointToolDefinitionException($"route parameter '{name}' has the constraint '{reference.Content}', which cannot be checked without the host's routing services");
+
+                if (policy is IRouteConstraint constraint)
+                {
+                    constraints.Add(new HostEndpointRouteConstraint(name, constraint));
+                }
+            }
+        }
+
+        return constraints;
+    }
+
+    private static IParameterPolicy CreatePolicy(
+        ParameterPolicyFactory parameterPolicies,
+        RoutePatternParameterPart parameter,
+        RoutePatternParameterPolicyReference reference)
+    {
+        try
+        {
+            return parameterPolicies.Create(parameter, reference);
+        }
+        catch (InvalidOperationException ex)
+        {
+            throw new HostEndpointToolDefinitionException($"route parameter '{parameter.Name}' has a constraint the host's routing cannot resolve: {ex.Message}");
+        }
     }
 
     // The host's function runs once per tool at startup; a throw is reported like any other definition error, naming the

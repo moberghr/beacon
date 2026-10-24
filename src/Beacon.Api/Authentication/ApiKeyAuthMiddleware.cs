@@ -182,8 +182,14 @@ public sealed class ApiKeyAuthMiddleware(RequestDelegate next)
         return new ClaimsPrincipal(new ClaimsIdentity(claims, McpCallerClaimTypes.ApiKeyOwnerAuthenticationType));
     }
 
+    // Counted against the client address's limit of refused anonymous requests: over it, 429 instead of the 401.
     private static Task RefuseAsync(HttpContext context, string detail = "Invalid or expired API key.")
     {
+        if (!AnonymousRefusalThrottle.TryAdmit(context, out var retryAfter))
+        {
+            return RateLimitRefusal.WriteAsync(context, retryAfter);
+        }
+
         return Results.Problem(
                 title: "Unauthorized",
                 detail: detail,

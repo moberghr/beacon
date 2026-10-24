@@ -1,5 +1,6 @@
 using System.Reflection;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Data.Entities.DataMigration;
 
 namespace Beacon.Core.Services.Retention;
 
@@ -28,9 +29,10 @@ public enum RetentionKind
 public sealed record McpRetentionRule(Type Entity, string Property, RetentionKind Kind, Func<string, bool>? AlreadyRedacted = null);
 
 /// <summary>
-/// The single place every string property of every <c>Mcp*</c> entity is classified. The reflection test
-/// (<c>McpRetentionDenyListTests</c>) fails if a new column ships unclassified, and
-/// <c>ContentRetentionInterceptor</c> is driven entirely by this table.
+/// The single place every string property of every <c>Mcp*</c> entity, and of every content store outside MCP
+/// (<see cref="ContentStores"/>: run history, notifications, the execution log, AI actor output, migration runs), is
+/// classified. The reflection test (<c>McpRetentionDenyListTests</c>) fails if a new column ships unclassified;
+/// <c>ContentRetentionInterceptor</c> and the data retention job's content expiry are driven entirely by this table.
 /// </summary>
 public static class McpRetentionDenyList
 {
@@ -125,6 +127,7 @@ public static class McpRetentionDenyList
         Rule<McpDocChunk>(nameof(McpDocChunk.ContextualBlurb), RetentionKind.Structural),
 
         Rule<McpEmbedding>(nameof(McpEmbedding.Model), RetentionKind.Structural),
+        Rule<McpEmbedding>(nameof(McpEmbedding.ContentHash), RetentionKind.Structural),
 
         // Admin configuration: prompts, tool descriptions, PII patterns.
         Rule<McpSettings>(nameof(McpSettings.AskSystemPrompt), RetentionKind.Structural),
@@ -136,7 +139,53 @@ public static class McpRetentionDenyList
         Rule<McpSettings>(nameof(McpSettings.AskDescription), RetentionKind.Structural),
         Rule<McpSettings>(nameof(McpSettings.CustomPiiPatterns), RetentionKind.Structural),
 
-        Rule<McpProjectSettings>(nameof(McpProjectSettings.CustomPiiPatterns), RetentionKind.Structural)
+        Rule<McpProjectSettings>(nameof(McpProjectSettings.CustomPiiPatterns), RetentionKind.Structural),
+
+        // Subscription runs: the SQL that ran and the stored result snapshot are content. The comment is structure: it
+        // only ever holds generic reasons and recipient ids, never remote or database text.
+        Rule<QueryExecutionHistory>(nameof(QueryExecutionHistory.CompiledSql), RetentionKind.Content),
+        Rule<QueryExecutionHistory>(nameof(QueryExecutionHistory.Results), RetentionKind.Content),
+        Rule<QueryExecutionHistory>(nameof(QueryExecutionHistory.Comment), RetentionKind.Structural),
+
+        Rule<Notification>(nameof(Notification.Results), RetentionKind.Content),
+
+        // The execution log of previews and ad-hoc runs: the statement text is content, its error text becomes its class.
+        Rule<ManualQueryExecutionLog>(nameof(ManualQueryExecutionLog.UserId), RetentionKind.Structural),
+        Rule<ManualQueryExecutionLog>(nameof(ManualQueryExecutionLog.QueryText), RetentionKind.Content),
+        Rule<ManualQueryExecutionLog>(nameof(ManualQueryExecutionLog.ExecutionContext), RetentionKind.Structural),
+        Rule<ManualQueryExecutionLog>(nameof(ManualQueryExecutionLog.ErrorMessage), RetentionKind.ErrorClass),
+
+        // AI actors: everything the model wrote about the data is content; the model name is structure.
+        Rule<AiActorExecution>(nameof(AiActorExecution.Model), RetentionKind.Structural),
+        Rule<AiActorExecution>(nameof(AiActorExecution.DecisionSummary), RetentionKind.Content),
+        Rule<AiActorExecution>(nameof(AiActorExecution.ActionsJson), RetentionKind.Content),
+        Rule<AiActorExecution>(nameof(AiActorExecution.ErrorMessage), RetentionKind.ErrorClass),
+        Rule<AiActorExecution>(nameof(AiActorExecution.DetailedAnalysis), RetentionKind.Content),
+        Rule<AiActorExecution>(nameof(AiActorExecution.FindingsJson), RetentionKind.Content),
+
+        Rule<AiActorConversation>(nameof(AiActorConversation.MessageContent), RetentionKind.Content),
+        Rule<AiActorConversation>(nameof(AiActorConversation.Model), RetentionKind.Structural),
+        Rule<AiActorConversation>(nameof(AiActorConversation.Metadata), RetentionKind.Content),
+
+        // Data migration runs: the statement that read the source and its parameters are content.
+        Rule<MigrationExecutionHistory>(nameof(MigrationExecutionHistory.ErrorMessage), RetentionKind.ErrorClass),
+        Rule<MigrationExecutionHistory>(nameof(MigrationExecutionHistory.ExecutedQuery), RetentionKind.Content),
+        Rule<MigrationExecutionHistory>(nameof(MigrationExecutionHistory.QueryParameters), RetentionKind.Content)
+    ];
+
+    /// <summary>
+    /// The content stores outside MCP. They carry no project, so the content lock applies to them through the global
+    /// decision (<c>RetainQueryContent</c> off globally, or <c>Beacon:Mcp:ForceNoContentRetention</c>), and the data
+    /// retention job clears their content after <c>Beacon:Retention:ContentDays</c>.
+    /// </summary>
+    public static IReadOnlyList<Type> ContentStores { get; } =
+    [
+        typeof(QueryExecutionHistory),
+        typeof(Notification),
+        typeof(ManualQueryExecutionLog),
+        typeof(AiActorExecution),
+        typeof(AiActorConversation),
+        typeof(MigrationExecutionHistory)
     ];
 
     /// <summary>Content properties declared <c>required</c>: they get <c>""</c> instead of <c>null</c>.</summary>
@@ -144,7 +193,11 @@ public static class McpRetentionDenyList
     {
         Key(typeof(McpQuerySignal), nameof(McpQuerySignal.Question)),
         Key(typeof(McpEvalCase), nameof(McpEvalCase.Question)),
-        Key(typeof(McpEvalCase), nameof(McpEvalCase.GoldSql))
+        Key(typeof(McpEvalCase), nameof(McpEvalCase.GoldSql)),
+        Key(typeof(QueryExecutionHistory), nameof(QueryExecutionHistory.CompiledSql)),
+        Key(typeof(ManualQueryExecutionLog), nameof(ManualQueryExecutionLog.QueryText)),
+        Key(typeof(AiActorConversation), nameof(AiActorConversation.MessageContent)),
+        Key(typeof(MigrationExecutionHistory), nameof(MigrationExecutionHistory.ExecutedQuery))
     };
 
     private static readonly Dictionary<Type, Func<object, int?>> ProjectIdSelectors = new()

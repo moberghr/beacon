@@ -179,7 +179,7 @@ public class McpToolEarlyReturnAuditTests
     {
         return new ProjectGetDocumentationTool(
             new Mock<IKnowledgeGraphService>().Object, new Mock<IProjectDocumentationService>().Object,
-            factory, projectContext, recorder);
+            factory, projectContext, SettingsProviderMock.Create().Object, recorder);
     }
 
     private static (List<McpAuditLog> Logs, IDbContextFactory<BeaconContext> Factory, McpProjectContext ProjectContext, McpToolCallRecorder Recorder) Arrange()

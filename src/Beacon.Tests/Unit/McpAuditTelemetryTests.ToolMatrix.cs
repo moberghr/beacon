@@ -456,6 +456,7 @@ public partial class McpAuditTelemetryTests
                 documentation.Object,
                 toolFactory.Object,
                 x.GetRequiredService<IProjectContext>(),
+                settingsProvider.Object,
                 x.GetRequiredService<McpToolCallRecorder>()));
             services.AddScoped(x => new GetQueryContextTool(
                 knowledgeGraph.Object,

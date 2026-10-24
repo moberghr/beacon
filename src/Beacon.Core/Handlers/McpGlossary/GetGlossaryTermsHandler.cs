@@ -1,7 +1,9 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.Authorization;
+using Beacon.Core.Helpers;
 
 namespace Beacon.Core.Handlers.McpGlossary;
 
@@ -10,7 +12,9 @@ namespace Beacon.Core.Handlers.McpGlossary;
 /// deactivated terms (admin management view). Active-only by default so the CRUD list mirrors what
 /// injection sees.
 /// </summary>
-internal sealed class GetGlossaryTermsHandler(IDbContextFactory<BeaconContext> contextFactory)
+internal sealed class GetGlossaryTermsHandler(IDbContextFactory<BeaconContext> contextFactory,
+    LegacyListTruncation? truncation = null,
+    ILogger<GetGlossaryTermsHandler>? logger = null)
     : IRequestHandler<GetGlossaryTermsQuery, List<GlossaryTermItem>>
 {
     public async Task<List<GlossaryTermItem>> Handle(GetGlossaryTermsQuery request, CancellationToken cancellationToken)
@@ -30,8 +34,9 @@ internal sealed class GetGlossaryTermsHandler(IDbContextFactory<BeaconContext> c
             query = query.Where(x => x.IsActive);
         }
 
-        return await query
+        var items = await query
             .OrderBy(x => x.Term)
+            .Take(ListRequest.LegacyUnpagedCap + 1)
             .Select(x =>
                 new GlossaryTermItem
                 {
@@ -49,6 +54,8 @@ internal sealed class GetGlossaryTermsHandler(IDbContextFactory<BeaconContext> c
                     CreatedTime = x.CreatedTime
                 })
             .ToListAsync(cancellationToken);
+
+        return LegacyListTruncation.Apply(items, truncation, logger, "glossary");
     }
 }
 
