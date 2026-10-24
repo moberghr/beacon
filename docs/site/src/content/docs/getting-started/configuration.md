@@ -150,7 +150,7 @@ Bearer-token and external-login settings are code-only too, through `builder.Ser
 | `ConnectionStrings:{Name}` | string | none | The connection of a host-managed data source, which stores only the name and reads the string at call time |
 | `Beacon:Schema` | string | `beacon` | **Not configurable.** Any value other than `beacon` stops the host (see below). Leave it out |
 | `Beacon:BaseUrl` | string | none (the sample host falls back to `https://localhost:7187`) | Read by the sample host into `options.BaseUrl` |
-| `Beacon:PublicBaseUrl` | string (origin) | derived from the request | The origin advertised in the MCP discovery documents and the `WWW-Authenticate` challenge. Unset, it follows the request's `Host` header, which the client controls, and startup logs a Warning. Set it behind any proxy |
+| `Beacon:PublicBaseUrl` | string (origin) | derived from the request | The origin advertised in the MCP discovery documents and the `WWW-Authenticate` challenge. Unset, it follows the request's `Host` header, which the client controls, the documents are sent with `Cache-Control: no-store`, and startup logs a Warning. Set it behind any proxy |
 | `Beacon:OpenApi:Anonymous` | bool | `false` | Publishes the OpenAPI document (`MapBeaconOpenApi()`) to anonymous callers outside Development. Off, it needs a signed-in Beacon caller; list `/openapi` in `Beacon:Authentication:AdditionalPaths` so the Beacon session reaches it. |
 | `Beacon:ForwardedHeaders:Enabled` | bool | `false` | Sample host: apply `X-Forwarded-For` and `X-Forwarded-Proto` from known proxies |
 | `Beacon:ForwardedHeaders:KnownProxies` | string[] | empty | Sample host: proxy IP addresses to trust; entries that are not IP addresses are skipped, and an empty list trusts none |
@@ -166,7 +166,7 @@ Beacon only supports the 'beacon' schema, but 'tenant_a' was configured.
 Remove Beacon:Schema (or set it to 'beacon') and move any existing Beacon tables into 'beacon'.
 ```
 
-The obsolete overloads `.UsePostgreSql(connectionString, schema)` and `.UseSqlServer(connectionString, schema)` (removed in 6.0) accept a schema argument for the same reason only as `beacon`, and otherwise ignore it. On PostgreSQL the search path is `beacon,public`, so a pgvector extension installed in `public` resolves.
+The obsolete overloads `.UsePostgreSql(connectionString, schema)` and `.UseSqlServer(connectionString, schema)` (removed in 6.0) accept a schema argument for the same reason only as `beacon`, and otherwise ignore it. On PostgreSQL the search path is `beacon,public`, so a pgvector extension installed in `public` resolves. Startup logs a Warning when every role can create objects in `public` (the default before PostgreSQL 15); run `REVOKE CREATE ON SCHEMA public FROM PUBLIC` unless every role that can connect is trusted.
 
 ### Forwarded headers
 
@@ -879,6 +879,35 @@ A write that contradicts an MCP lock answers `409` (`/errors/setting-locked`), a
 
 Other startup-validated keys (`Beacon:Authorization:*`, `Beacon:Authentication:*`, `Beacon:UserManagement:*`, `Beacon:ApiKeys:*`, `Beacon:Query:*`, `Beacon:Subscriptions:*`, `Beacon:Notifications:*`, `Beacon:EncryptionKey`, `Beacon:DataProtection:*`) have no runtime override either. Of the configuration values, only the base URL and the LLM settings can also be changed at runtime, in [Admin settings](/security/admin-settings/).
 
+## Regulated profile (`Beacon:Profile`)
+
+`Beacon:Profile: Regulated` turns on a preset of the settings a regulated deployment needs. Unset (or `None`) changes nothing; any other value fails startup. The profile reads the host's configuration keys: a key the host left unset is filled, a key the host set weaker than the profile requires is **never overridden** — the host fails to start with every such key listed in one message.
+
+| Key | Under the profile |
+|---|---|
+| `Beacon:Mcp:ForceReadOnly`, `Beacon:Mcp:ForcePiiDetection` | Already `true` by default; `false` fails startup |
+| `Beacon:Mcp:Audit:Required` | Unset: `true`. `false` fails startup |
+| `Beacon:Mcp:ForbidRowDataToLlm` | Unset: `true` (no sample values, value grounding or eval judge). `false` fails startup |
+| `Beacon:Mcp:Ceilings:MaxRowLimit`, `StatementTimeoutSeconds`, `MaxResultBytes`, `MaxConcurrentQueriesPerKey` | Unset: the built-in MCP settings defaults (1,000 rows, 30 s, 262,144 bytes, 4 queries per key), so an Admin cannot raise them. A value the host sets is kept |
+| `Beacon:Retention:Locked` | Unset: `true`, so `Beacon:Retention:Days`, `ContentDays`, every target and `Beacon:Mcp:Audit:RetentionDays` must be configured above zero (see [Data retention](#data-retention-beaconretention)). `false` fails startup. The profile sets no window itself: nothing is deleted that the host did not configure |
+| `Beacon:RateLimits:*:PermitLimit` (`Login`, `Api`, `Anonymous`, `Mcp`, `Ask`) and `Beacon:RateLimits:Lockout` | Already on by default; a limit of `0`, or a lockout turned off, fails startup (see [Request limits](#request-limits)) |
+| `Beacon:UserManagement:LocalLogin:Enabled` | Must be set to `false`; never filled, since it ends password sign-in for every account but the break-glass ones (`BreakGlassUserNames` stay allowed) |
+| `Beacon:Authentication:Oidc:RequireMfa` | With single sign-on on, must be set to `true`; never filled, since your identity provider must send the `amr`/`acr` claims first |
+
+```json
+{
+  "Beacon": {
+    "Profile": "Regulated",
+    "UserManagement": { "LocalLogin": { "Enabled": false, "BreakGlassUserNames": [ "admin" ] } },
+    "Authentication": { "Oidc": { "Enabled": true, "RequireMfa": true } },
+    "Retention": { "Days": 90, "ContentDays": 30 },
+    "Mcp": { "Audit": { "RetentionDays": 365 } }
+  }
+}
+```
+
+At startup Beacon logs one report of these checks (event 9130, Warning) naming each setting that is weaker than the profile requires, also when no profile is set; under the profile, once every check holds, one Information (9131) names the settings the profile filled. The report carries configuration names only, never a value. LLM concurrency and rate limits are Admin settings stored at runtime (see [AI / LLM](#ai--llm)), outside the profile.
+
 ## MCP (`Beacon:Mcp`)
 
 Validated at startup. Without the section, `ForceReadOnly` and `ForcePiiDetection` are on, nothing else is locked, and only the built-in length caps apply.
@@ -1067,7 +1096,7 @@ Not configurable, on every deployment:
 }
 ```
 
-Beacon logs identifiers and counts, never query text, connection strings, row data or tokens. Security log events are structured log events 7101 to 7123; route them to your log pipeline, together with the `Beacon.Audit` category, which carries the MCP audit events and a copy of every committed [security audit](/security/audit-trail/#shipping-to-a-siem) event (9104 to 9110).
+Beacon logs identifiers and counts, never query text, connection strings, row data or tokens. Security log events are structured log events 7101 to 7123; route them to your log pipeline, together with the `Beacon.Audit` category, which carries the MCP audit events and a copy of every committed [security audit](/security/audit-trail/#shipping-to-a-siem) event (9104 to 9112).
 
 ## Complete example
 

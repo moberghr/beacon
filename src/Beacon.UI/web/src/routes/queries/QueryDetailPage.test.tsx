@@ -108,4 +108,31 @@ describe('QueryDetailPage', () => {
 
     await waitFor(() => expect(screen.queryByText(message)).not.toBeInTheDocument());
   });
+
+  // The run-after-save intent is router state; a link's query string never runs a query.
+  it.each([
+    ['a ?run=1 link', '/queries/42?run=1', false],
+    ['router state set by the app', { pathname: '/queries/42', state: { run: true } }, true],
+  ])('runs the preview from %s: %s', async (_name, entry, shouldRun) => {
+    let previews = 0;
+    mswServer.use(
+      http.get('*/beacon/api/queries/42', () => HttpResponse.json(SAMPLE_DETAIL)),
+      http.get('*/beacon/api/queries/42/versions', () => HttpResponse.json([])),
+      http.post('*/beacon/api/queries/42/preview', () => {
+        previews += 1;
+        return HttpResponse.json({ result: null, steps: [], dataSourcesInvolved: [] });
+      }),
+    );
+
+    renderWithProviders(
+      <Routes>
+        <Route path="/queries/:id" element={<QueryDetailPage />} />
+      </Routes>,
+      { initialEntries: [entry as string] },
+    );
+
+    await screen.findByText('Daily revenue alert');
+    await new Promise(resolve => setTimeout(resolve, 150));
+    expect(previews > 0).toBe(shouldRun);
+  });
 });

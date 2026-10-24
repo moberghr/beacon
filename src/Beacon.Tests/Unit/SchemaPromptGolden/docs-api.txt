@@ -1,0 +1,10 @@
+# API Data Sources
+
+## billing-api
+
+### GET /invoices
+Description: Invoices
+Response fields:
+  - number (string) — Invoice number
+  - total (number)
+
