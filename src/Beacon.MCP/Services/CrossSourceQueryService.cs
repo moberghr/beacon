@@ -1,6 +1,7 @@
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
+using Beacon.AI.Services;
 using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
 using Beacon.AI.Services.Mcp;
@@ -308,21 +309,23 @@ internal sealed class CrossSourceQueryService(
         text += FormatFailedSourcesNote(failedSources);
 
         var analysis = memDb.AnalyzeDatabase();
+        // The source's name is stored text and the question the caller's: the name stays on its line inside a data block,
+        // the question is neutralised, so neither can pose as the prompt's own instructions.
         var tablesInfo = string.Join("\n", analysis.Tables.Values.Select(x =>
-            $"Table: {x.TableName} ({x.RowCount} rows, {x.ColumnCount} columns, from {x.SourceProject})"));
+            $"Table: {x.TableName} ({x.RowCount} rows, {x.ColumnCount} columns, from {PromptData.OneLine(x.SourceProject)})"));
 
         var joinPrompt = $"""
             I have the following in-memory SQLite tables loaded from different data sources:
-            {tablesInfo}
+            {PromptData.Fence("loaded tables", tablesInfo)}
 
-            Write a SQLite query to combine these results and answer: "{question}"
+            Write a SQLite query to combine these results and answer: "{PromptData.OneLine(question)}"
             Use the table names exactly as shown (result1, result2, etc.).
             Return ONLY the SQL query.
             """;
 
         var joinRequest = new LlmRequest
         {
-            SystemPrompt = "You are a SQLite expert. Return ONLY the SQL query.",
+            SystemPrompt = $"You are a SQLite expert. Return ONLY the SQL query.\n\n{PromptData.Rule}",
             Messages = [new ChatMessage(ConversationRole.User, joinPrompt)],
             Temperature = 0.1m,
             MaxTokens = 1024,

@@ -1,4 +1,5 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { toast } from 'sonner';
 import { AlertTriangle, ArrowLeftRight, Layers, Play, RefreshCw, X } from 'lucide-react';
@@ -7,12 +8,16 @@ import { Tabs, type TabDef } from '@/components/Tabs';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
-import { ChangeApprovalKind, MigrationMode, MigrationStatus } from '@/lib/enums';
+import { BackgroundTaskState, ChangeApprovalKind, MigrationMode, MigrationStatus } from '@/lib/enums';
+import { isBackgroundTaskFinished } from '@/lib/useBackgroundTask';
+import { describeError } from '@/lib/api';
+import type { BackgroundTaskStatus, BackgroundTaskTicket } from '@/api/generated/beacon-api';
 import { formatDateTime, formatNumber, formatRelativeTime } from '@/lib/format';
 import {
   useMigrationJobQuery,
   useDeleteMigrationJob,
-  useRunMigrationJob,
+  useMigrationJobRunStatus,
+  useStartMigrationJobRun,
 } from './queries';
 import {
   MIGRATION_MODE_LABEL,
@@ -40,11 +45,48 @@ export default function MigrationJobDetailPage() {
   const listQuery = useMigrationJobQuery(Number.isFinite(numericId) ? numericId : null);
   const executions = useMigrationExecutionsList({ jobId: numericId, urlPrefix: 'runs' });
   const deleteMutation = useDeleteMigrationJob();
-  const runMutation = useRunMigrationJob();
+  const startRun = useStartMigrationJobRun();
+  // The run is a background task: the ticket is followed until it finishes, then the job and its run history are read again.
+  const [runTicket, setRunTicket] = useState<BackgroundTaskTicket | null>(null);
+  const runTask = useMigrationJobRunStatus(numericId, runTicket);
+  const queryClient = useQueryClient();
   const [confirmDelete, setConfirmDelete] = useState(false);
   const [tab, setTab] = useState<TabKey>('overview');
 
   const job = listQuery.data ?? null;
+  const finishedRun = isBackgroundTaskFinished(runTask.status?.state) ? runTask.status : null;
+  const runReadFailed = runTicket != null && runTask.error != null;
+
+  useEffect(() => {
+    if (runTicket == null || (finishedRun == null && !runReadFailed)) {
+      return;
+    }
+    // Invalidate the prefixes so the job detail and both run histories (this job's and the Migration History page) refresh.
+    void queryClient.invalidateQueries({ queryKey: ['migration-jobs'] });
+    void queryClient.invalidateQueries({ queryKey: ['migration-executions'] });
+    if (finishedRun?.state === BackgroundTaskState.Succeeded) {
+      const failedRows = finishedRun.warningCount ?? 0;
+      if (failedRows > 0) {
+        toast.warning(`Migration finished with ${formatNumber(failedRows)} failed ${failedRows === 1 ? 'row' : 'rows'}; the run history has its counts.`);
+      } else {
+        toast.success('Migration finished; the run history has its counts.');
+      }
+    } else if (finishedRun?.state === BackgroundTaskState.Skipped && finishedRun.failureCode === 'busy') {
+      toast.info('Another run of this job is in progress; wait for it to end, then run the job again.');
+    } else if (finishedRun != null) {
+      toast.error(describeRunFailure(finishedRun));
+    } else {
+      toast.error(describeError(runTask.error, 'Could not read the run progress'));
+    }
+    setRunTicket(null);
+  }, [runTicket, finishedRun, runReadFailed, runTask.error, queryClient]);
+
+  const running = runTicket != null || startRun.isPending;
+  const runLabel = !running
+    ? 'Run now'
+    : runTask.state === BackgroundTaskState.Running
+      ? 'Running…'
+      : 'Run queued…';
 
   if (Number.isNaN(numericId)) {
     return (
@@ -78,26 +120,10 @@ export default function MigrationJobDetailPage() {
 
   const handleRun = async () => {
     try {
-      const result = await runMutation.mutateAsync({ id: job.id });
-      if (result.status === MigrationStatus.Failed) {
-        toast.error(result.errorMessage ?? 'Migration failed');
-        return;
-      }
-      if (result.status === MigrationStatus.PartialSuccess) {
-        toast.warning(
-          `Migration finished with partial success — ${formatNumber(result.sourceRowsRead)} read, ${formatNumber(result.destinationRowsWritten)} written, ${formatNumber(result.rowsFailed)} failed`,
-        );
-        return;
-      }
-      if (result.status === MigrationStatus.Completed) {
-        toast.success(
-          `Migration succeeded — ${formatNumber(result.sourceRowsRead)} read, ${formatNumber(result.destinationRowsWritten)} written`,
-        );
-        return;
-      }
-      toast.success(`Migration finished with status ${EXECUTION_STATUS_LABEL[result.status] ?? result.status}`);
-    } catch {
-      // useRunMigrationJob (createSimpleMutation) already toasts the error.
+      setRunTicket(await startRun.mutateAsync(job.id));
+    } catch (err) {
+      // 409: the job already has a run queued or in progress; the server says so.
+      toast.error(describeError(err, 'Run migration job failed'));
     }
   };
 
@@ -151,8 +177,9 @@ export default function MigrationJobDetailPage() {
               variant="primary"
               type="button"
               onClick={handleRun}
-              disabled={!job.isEnabled || job.awaitingApproval === true || runMutation.isPending}
-              icon={<Play />}
+              disabled={!job.isEnabled || job.awaitingApproval === true || running}
+              aria-busy={running}
+              icon={running ? <RefreshCw className="animate-spin" /> : <Play />}
               title={
                 !job.isEnabled
                   ? 'Enable the job to run it'
@@ -163,7 +190,7 @@ export default function MigrationJobDetailPage() {
                     : 'Run this migration now'
               }
             >
-              {runMutation.isPending ? 'Running…' : 'Run now'}
+              {runLabel}
             </Button>
             <Button
               variant="danger"
@@ -380,4 +407,20 @@ function ExecutionsTab({ executions, tableProps, isLoading, isError, error }: {
       />
     </CardBody>
   );
+}
+
+// A run that did not finish says why by its code; a failed run's error is in the job's run history.
+function describeRunFailure(status: BackgroundTaskStatus): string {
+  switch (status.failureCode) {
+    case 'run_failed':
+      return 'The migration run failed; its error is in the run history.';
+    case 'forbidden':
+      return 'You can no longer run this job, so it did not run.';
+    case 'abandoned':
+      return 'The migration run stopped without finishing; check the run history before running the job again.';
+    case 'cancelled':
+      return 'The migration run was cancelled; the run history has its outcome.';
+    default:
+      return 'The migration run failed; the server log has the details.';
+  }
 }

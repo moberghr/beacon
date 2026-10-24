@@ -13,6 +13,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Exceptions;
 using Beacon.Core.Models;
 using Beacon.Core.Models.DataQuality;
+using Beacon.Core.Models.Providers;
 using Beacon.Core.RowSecurity;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
@@ -30,7 +31,8 @@ public interface IDataQualityEvaluationService
 /// Evaluates a data contract's rules. Before any rule runs, the evaluation's actor (the caller of a request, or a
 /// scheduled evaluation's owner) must still be allowed to run stored SQL on the contract's data source
 /// (<see cref="IExecutionAccessCheck"/>); otherwise nothing runs or is recorded. Every rule's SQL passes the read-only
-/// gate (<see cref="DataQualityRuleGuard"/>) and runs through <see cref="IDataSourceProvider.ExecuteReadOnlyQueryAsync"/>,
+/// gate (<see cref="DataQualityRuleGuard"/>), is in the execution log before it is sent (<see cref="ISqlExecutionAudit"/>)
+/// and runs through <see cref="IDataSourceProvider.ExecuteReadOnlyQueryAsync"/>,
 /// which owns the host policy, host column masking, the generic host error and the READ ONLY transaction (§1.5). A failed
 /// rule never stores or returns the server's error text: a server or conversion error can quote row values (§1.11). While
 /// the change approval workflow covers Custom SQL rules, a Custom SQL rule whose SQL on the contract's data source is not
@@ -50,7 +52,8 @@ internal class DataQualityEvaluationService(
     ISharedSourceSettings sharedSourceSettings,
     IQueryGuardrailService guardrail,
     BeaconConfiguration configuration,
-    ILogger<DataQualityEvaluationService> logger) : IDataQualityEvaluationService
+    ILogger<DataQualityEvaluationService> logger,
+    ISqlExecutionAudit? executionAudit = null) : IDataQualityEvaluationService
 {
     /// <summary>What a rule result says when its query fails on an ordinary data source.</summary>
     public const string ExecutionFailedMessage = "Execution failed on the data source.";
@@ -250,7 +253,16 @@ internal class DataQualityEvaluationService(
             // §1.5 — the read-only path: a READ ONLY transaction on PostgreSQL; on a host-managed source the host
             // policy, host column masking and the generic host error. The provider reports a cancellation as a failed
             // result, so the caller's token is checked here.
-            var result = await provider.ExecuteReadOnlyQueryAsync(contract.DataSource, query.Sql, query.Parameters, timeoutCts.Token);
+            // The statement is in the execution log before it is sent (the rule timeout is recorded as timed out).
+            Task<ProviderQueryResult> Read(CancellationToken token) =>
+                provider.ExecuteReadOnlyQueryAsync(contract.DataSource, query.Sql, query.Parameters, token);
+            var result = executionAudit == null
+                ? await Read(timeoutCts.Token)
+                : await executionAudit.RunAsync(
+                    new SqlExecutionStart(contract.DataSourceId, query.Sql, SqlExecutionContexts.DataQualityRule),
+                    Read,
+                    timeoutCts.Token,
+                    cancellationToken);
             ruleStopwatch.Stop();
             cancellationToken.ThrowIfCancellationRequested();
 
@@ -266,7 +278,7 @@ internal class DataQualityEvaluationService(
                     ruleStopwatch.ElapsedMilliseconds,
                     timedOut);
 
-                return Failed(rule, timedOut ? TimedOutMessage : FailureMessage(contract.DataSource, exception: null), ruleStopwatch.Elapsed.TotalMilliseconds);
+                return Failed(rule, timedOut ? TimedOutMessage : FailureMessage(contract.DataSource, exception: null, result.ErrorMessage), ruleStopwatch.Elapsed.TotalMilliseconds);
             }
 
             try
@@ -434,12 +446,20 @@ internal class DataQualityEvaluationService(
     }
 
     // A disabled source says so, with the refusal's generic message (a provider that catches the refusal reports a failed
-    // result, so the source's own state is read too); any other failure keeps its generic message.
-    private static string FailureMessage(DataSource dataSource, Exception? exception)
+    // result, so the source's own state is read too); so does a source whose connection waits for approval, refused by the
+    // connection resolver (a provider that catches that refusal reports its fixed message, which holds no value, so the
+    // reported text is compared); any other failure keeps its generic message.
+    private static string FailureMessage(DataSource dataSource, Exception? exception, string? reported = null)
     {
         if (exception is DataSourceDisabledException || dataSource.DisabledTime != null)
         {
             return DataSourceDisabledException.RefusalMessage;
+        }
+
+        if (exception is DataSourceAwaitingApprovalException
+            || string.Equals(reported, DataSourceAwaitingApprovalException.RefusalMessage, StringComparison.Ordinal))
+        {
+            return DataSourceAwaitingApprovalException.RefusalMessage;
         }
 
         return dataSource.HostManagedKey == null ? ExecutionFailedMessage : DatabaseProvider.HostQueryFailedMessage;

@@ -250,7 +250,7 @@ schema and table). Beacon keeps the previous score and derives a trend:
 | **Stable** | Within ±1 point |
 | **Degrading** | New score more than 1 point below the previous |
 
-Table scores also appear in the MCP `get_documentation` output for the table (see [MCP server](/mcp/server/)).
+Table scores also appear in the MCP `get_documentation` output for the table, with the rule results of the table's enabled contracts from their latest evaluation, each as a status Beacon writes itself (see [MCP server](/mcp/server/#get_documentation)).
 
 ## Alerting
 

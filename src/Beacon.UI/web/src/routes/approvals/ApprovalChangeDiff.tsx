@@ -187,7 +187,7 @@ function FinalQueryDiff({ current, proposed }: { current: string | null; propose
   );
 }
 
-function SqlBlock({ label, sql }: { label: string; sql: string }) {
+export function SqlBlock({ label, sql }: { label: string; sql: string }) {
   return (
     <div>
       <div className="text-2xs font-semibold uppercase tracking-eyebrow text-text-muted mb-1">{label}</div>

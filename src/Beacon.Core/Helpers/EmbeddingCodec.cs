@@ -56,6 +56,43 @@ public static class EmbeddingCodec
     }
 
     /// <summary>
+    /// Cosine similarity between a vector and a stored little-endian vector, read in place without allocating the
+    /// decoded array. Returns exactly what <see cref="Cosine(float[], float[])"/> returns for the decoded bytes.
+    /// </summary>
+    public static double Cosine(float[] a, ReadOnlySpan<byte> storedB)
+    {
+        ArgumentNullException.ThrowIfNull(a);
+
+        if (storedB.Length % sizeof(float) != 0)
+        {
+            throw new ArgumentException("Embedding byte length must be a multiple of 4.", nameof(storedB));
+        }
+
+        if (a.Length != storedB.Length / sizeof(float))
+        {
+            throw new ArgumentException("Vectors must have the same length.", nameof(storedB));
+        }
+
+        double dot = 0;
+        double normA = 0;
+        double normB = 0;
+        for (var i = 0; i < a.Length; i++)
+        {
+            var b = BinaryPrimitives.ReadSingleLittleEndian(storedB.Slice(i * sizeof(float)));
+            dot += (double)a[i] * b;
+            normA += (double)a[i] * a[i];
+            normB += (double)b * b;
+        }
+
+        if (normA <= 0 || normB <= 0)
+        {
+            return 0;
+        }
+
+        return dot / (Math.Sqrt(normA) * Math.Sqrt(normB));
+    }
+
+    /// <summary>
     /// Cosine similarity in [-1, 1]. Returns 0 when either vector has zero norm (guards divide-by-zero).
     /// </summary>
     public static double Cosine(float[] a, float[] b)

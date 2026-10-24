@@ -2,9 +2,9 @@ namespace Beacon.Core.Adapters.Shared;
 
 /// <summary>
 /// Provides consistent formatting for cell values across all notification adapters.
-/// Handles date/time types, booleans, and null values uniformly.
+/// Handles date/time types, booleans, and null values uniformly, and drops direction-override, zero-width and control characters.
 /// </summary>
-internal static class CellValueFormatter
+internal static partial class CellValueFormatter
 {
     /// <summary>
     /// Formats a cell value for display in notifications.
@@ -18,7 +18,7 @@ internal static class CellValueFormatter
             return string.Empty;
         }
 
-        return value switch
+        var formatted = value switch
         {
             DateTime dateTime => dateTime.ToString("yyyy-MM-dd HH:mm:ss"),
             DateTimeOffset dateTimeOffset => dateTimeOffset.ToString("yyyy-MM-dd HH:mm:ss"),
@@ -27,6 +27,9 @@ internal static class CellValueFormatter
             bool boolean => boolean ? "Yes" : "No",
             _ => value.ToString() ?? string.Empty
         };
+
+        // Direction overrides, zero-width and control characters are dropped: they can make a value read as another.
+        return ChannelText.StripUnsafe(formatted);
     }
 
     /// <summary>
@@ -44,6 +47,10 @@ internal static class CellValueFormatter
         }
 
         // Remove characters that would break table formatting
-        return System.Text.RegularExpressions.Regex.Replace(formatted, @"\t|\n|\r", " ").Trim();
+        return formatted
+            .Replace('\t', ' ')
+            .Replace('\n', ' ')
+            .Replace('\r', ' ')
+            .Trim();
     }
 }

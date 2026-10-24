@@ -28,12 +28,12 @@ column has a foreign key: an event outlives the user, key or project it names.
 | `CreatedTime` | When the event was recorded (UTC, kept to the microsecond). |
 | `Category`, `Action` | The event family and what happened, named `{category}.{what happened}` in the past tense; see the [catalogue](#event-catalogue). |
 | `Outcome` | `success`, `failure` (the attempt did not succeed, such as a wrong password), `refused` (Beacon refused it by rule: local login off, a setup token that does not match, a purge of events that fail verification) or `empty` (there was nothing to act on: a verification that found no event to check, which is not a success). |
-| `ActorKind` | How the actor was authenticated: `user`, `session` (a signed-in session without a stored Beacon user), `api_key`, `mcp_caller`, `system` (Beacon's own background work) or `anonymous`. |
+| `ActorKind` | How the actor was authenticated: `user`, `session` (a signed-in session without a stored Beacon user), `api_key`, `mcp_caller`, `system` (Beacon's own background work), `embed` (an embed grant or token, recorded as the grant's creator) or `anonymous`. |
 | `ActorUserId` | The acting user's `Users.Id` (an API key's owner); `null` for a caller without a stored Beacon user. |
 | `ApiKeyId` | The API key the actor used. |
 | `CallerHash` | For a caller without a Beacon user (a single sign-on subject, a host session, an MCP caller, the name typed at a failed password sign-in): a keyed hash, never the subject or the name itself. For an MCP caller it is the same hash the MCP audit records. |
 | `ProjectId` | The project the action concerns, when it concerns one. |
-| `ResourceType`, `ResourceId` | What was acted on: `user`, `api_key`, `project`, `data_source`, `repository`, `query`, `subscription`, `recipient`, `data_contract`, `migration_job`, `ai_actor`, `ai_actor_plan`, `approval_request`, `change_approval_request`, `task`, `settings`, `learned_pattern`, `documentation_patch`, `eval_case`, `schema_relationship`, `glossary_term`, `documentation_section`, `mcp_audit` or `security_audit`. |
+| `ResourceType`, `ResourceId` | What was acted on: `user`, `api_key`, `project`, `data_source`, `repository`, `query`, `subscription`, `recipient`, `data_contract`, `migration_job`, `ai_actor`, `ai_actor_plan`, `approval_request`, `change_approval_request`, `task`, `settings`, `learned_pattern`, `documentation_patch`, `eval_case`, `schema_relationship`, `glossary_term`, `documentation_section`, `mcp_audit`, `embed_grant` or `security_audit`. |
 | `DetailsJson` | What else the event needs, as a small JSON object of identifiers, counts, flags, codes and keyed digests (below). |
 | `TraceId` | The W3C trace id of the request or job that recorded the event. |
 | `KeyId`, `Hmac` | The integrity key the event was signed with, and the signature; see [Integrity](#integrity-signatures-and-verification). |
@@ -81,7 +81,7 @@ Every action belongs to one category, the part of its name before the dot.
 |---|---|
 | `auth.password_sign_in_succeeded` | A password sign-in issued a session. |
 | `auth.password_sign_in_failed` | A password sign-in did not succeed (`failure`); names the user the sign-in name resolved to, when it did, and the attempt by a keyed hash of the name typed. |
-| `auth.password_sign_in_refused` | A password sign-in refused by rule (`refused`): local login is off and the account is no break-glass account (`local_login_off`), or the password was right but an administrator set it and the user must choose a new one first (`password_change_required`). |
+| `auth.password_sign_in_refused` | A password sign-in refused by rule (`refused`): local login is off and the account is no break-glass account (`local_login_off`), or the password was right but an administrator set it and the user must choose a new one first (`password_change_required`), or the user is locked out after too many wrong passwords, whatever password was sent (`locked_out`). |
 | `auth.break_glass_signed_in` | A break-glass account signed in with its password while local login is off. |
 | `auth.signed_out` | A session signed out. |
 | `auth.signed_out_everywhere` | Every session of a user was ended (**Sign out everywhere**, by the user or an administrator). |
@@ -89,6 +89,7 @@ Every action belongs to one category, the part of its name before the dot.
 | `auth.sso_signed_in` | A single sign-on was admitted. |
 | `auth.sso_refused` | A single sign-on was refused, with the reason; the subject only as its keyed hash. |
 | `auth.setup_token_refused` | First-run setup was attempted with a setup token that does not match. |
+| `auth.user_locked_out` | An internal user's password sign-in was locked after too many wrong passwords in a row (`Beacon:RateLimits:Lockout`); names the user, with the number of attempts, the lockout length in minutes and when it ends. |
 
 **Identity** (`identity`)
 
@@ -111,7 +112,9 @@ Every action belongs to one category, the part of its name before the dot.
 **Project access** (`access`): `access.project_created`, `access.member_added`, `access.member_role_changed`,
 `access.member_removed`, `access.access_mode_changed` (a project opened or restricted), `access.data_sources_linked`,
 `access.data_source_unlinked`, `access.repository_token_changed` (whether a token is now set, never the token),
-`access.repository_scan_requested`. Events recorded before dashboards were removed keep their
+`access.repository_scan_requested`, `access.repository_scan_ran` (a background scan ended: its task, the ids of the
+repositories it scanned and how many failed, were partial or were not scanned; `refused` with the reason when the task
+was skipped). Events recorded before dashboards were removed keep their
 `access.dashboard_shared` and `access.dashboard_share_revoked` actions and the `dashboard` resource type, and the page
 still filters by them. The project-access log events (`ProjectAccessEvents`, 7101 onwards) are still written
 as before; refused and hidden reads of a project (7108, 7109) and skipped scheduled work (7111) stay on the log only, for
@@ -142,10 +145,13 @@ query exposed to MCP callers as a tool, renamed, or withdrawn).
 **Approvals** (`approvals`): a change submitted for a second person's review, and the decision on it.
 `approvals.query_change_submitted`, `approvals.query_change_approved`, `approvals.query_change_rejected` (query
 versions); `approvals.change_submitted`, `approvals.change_approved`, `approvals.change_rejected` (change requests of
-migration jobs, Custom SQL rules and recipients, with the requests a submission supersedes);
+migration jobs, Custom SQL rules, recipients, data-source connections and the LLM connection, with the requests a
+submission supersedes);
 `approvals.ai_plan_submitted`, `approvals.ai_plan_approved`, `approvals.ai_plan_rejected` and
 `approvals.ai_plan_revision_requested` (AI actor plans); `approvals.ai_actor_created` (an AI actor created, with its
-data source and whether its changes wait for approval).
+data source and whether its changes wait for approval); `approvals.ai_actor_think_started` (an on-demand think cycle
+accepted as a background task, with the task id); `approvals.ai_actor_archived` (an AI actor archived; archiving one
+already archived changes and records nothing).
 
 **Ownership** (`ownership`): `ownership.owner_changed`: the owner of a subscription, data contract or AI actor changed,
 with the previous and the new owner as `Users.Id`. Setting the owner a resource already has changes nothing and records
@@ -160,16 +166,31 @@ nothing.
 `curation.relationship_unverified`, `curation.relationship_edited`, `curation.relationship_deleted`,
 `curation.grounding_rechecked` (a run of the grounding recheck, with what it checked and refused),
 `curation.glossary_term_created`, `curation.glossary_term_updated`, `curation.glossary_term_deleted` and
-`curation.documentation_section_edited`.
+`curation.documentation_section_edited` and `curation.documentation_generation_started` (a documentation regeneration someone
+started, with its task id).
 
 **Data quality** (`data_quality`): `data_quality.contract_created`, `data_quality.contract_updated`,
 `data_quality.contract_archived` and `data_quality.contract_evaluated` (an evaluation someone started; scheduled
 evaluations are not recorded).
 
-**Data migrations** (`migrations`): `migrations.job_created`, `migrations.job_deleted`, `migrations.job_started` (a run
+**Data migrations** (`migrations`): `migrations.job_created`, `migrations.job_deleted`, `migrations.job_run_requested`
+(a run started as a background task, with its task id and where the caller's MigrationOperator permission came from:
+`role` or `idp`), `migrations.job_started` (a run
 began (by the caller, or the `system` actor for a scheduled run), recorded before it touches a data source, with the
 execution id and the source and destination data sources) and `migrations.job_run_ended` (`success`, `failure` with the
-row counts, or `refused` before it started, with the reason: `not_approved`, `write_target_refused`).
+row counts, or `refused` before it started, with the reason: `not_approved`, `write_target_refused`, `run_in_progress`,
+or for a background run task, with its task id, `forbidden` or `abandoned`).
+
+**Embedding** (`embed`): `embed.grant_created` (with the project, query and version ids, the number of origins and
+locked parameters and the days until it expires; never an origin or a parameter value) and `embed.grant_revoked`.
+Revoking a revoked grant records nothing. `embed.token_issued` (a grant secret exchanged for a token, with its lifetime
+in seconds), `embed.token_refused` (outcome `refused`, the `embed` actor never set: an embed credential that was presented
+and refused, with the reason `expired`, `invalid_signature`, `revoked`, `grant_expired`, `superseded`, `unknown` or
+`origin`, and the grant when the credential named one; a request from another origin that carries no credential is
+refused without an event; at most 600 a minute are recorded, and a client past its refusal budget is answered 429 without
+one) and `embed.query_rendered` (each render of a grant's query, with the query and version ids, the row count and whether
+the rows were cut at the cap; outcome `failure` with the reason `render_failed` (also when the run throws), `busy` (no
+render slot free; within the same 600-a-minute cap as refusals) or `unrunnable`, or `refused` with `parameters`). None carries a token, a secret, an origin, a parameter value or SQL.
 
 **The audit itself** (`audit`): `audit.read` (every read of the trail, with the filters' shape and the page),
 `audit.verified` (every verification, with its counts; outcome `failure` when an event failed, `empty` when nothing was
@@ -370,6 +391,46 @@ await recurringJobPublisher.AddOrUpdateRecurringJob(new PurgeExpiredSecurityAudi
 
 or by calling `ISecurityAuditRetentionService.PurgeExpiredAsync(cancellationToken)` from its own scheduler.
 
+## The execution log
+
+Besides the trail, Beacon keeps an **execution log** (`manual_query_execution_logs`) of the statements it runs on a data
+source for its own features: every statement of a query preview, a query run (from the editor, an AI actor's check, a
+migration's read), a subscription run and a column value sample, every documentation enum discovery statement and every
+data contract rule. (MCP calls have their own [audit](/mcp/observability-and-audit/).)
+
+- **Written before the statement is sent.** Each statement gets a row with `status = Started` (its SQL as sent, without
+  parameter values, the data source and what ran it) before it reaches the data source, and the row is closed when it
+  ends: `Succeeded` (with its row count), `Failed` (with the database's error redacted as it is with PII detection on,
+  whatever the caller's PII setting, so no quoted value is kept; a host data source's generic text as it is), `Cancelled`
+  (the caller stopped it) or `TimedOut` (its statement timeout, on every path), and `completed_time`. A statement the
+  gate refuses never runs and has no row.
+- **Abandoned rows.** A row still `Started` longer than `Beacon:Query:StatementTimeoutSeconds` plus 10 minutes is a
+  statement whose end was never recorded (the process stopped, the log store failed): the read and the export show it as
+  `Abandoned`, and `status=Abandoned` filters for it (nothing is written; the stored status stays `Started`).
+- **Who it ran for.** `triggered_by_user_id` is the `Users.Id` the statement ran for: the request's caller, or the owner
+  scheduled work runs as; null for work the system does on its own. Subscription runs record the same id on their run
+  history (`query_execution_history.triggered_by_user_id`).
+- **Fail-open by default.** A statement whose `Started` row cannot be written still runs, and a Warning is logged. Set
+  `Beacon:Audit:ExecutionLog:Required: true` to refuse such a statement instead (its caller gets an error); with it on,
+  the host fails to start when no execution log (`ISqlExecutionAudit`) is registered. The end of a statement that ran is
+  recorded whatever the caller's cancellation, and never in place of its result.
+- **Read and export.** `GET /beacon/api/execution-log` (paged, newest first) and `GET /beacon/api/execution-log/export`
+  (CSV, at most 10,000 rows; the `X-Beacon-Truncated` header says when more matched) take `from` and `to` (UTC, at most
+  93 days apart) and optional `dataSourceId`, `triggeredByUserId`, `status` and `executionContext`. Both are an Auditor's
+  or a SecurityAdmin's, list only the data sources the caller may read, and record an `audit.execution_log_read` or
+  `audit.execution_log_exported` event (the filters' shape, the row count) before they return; they fail when the event
+  cannot be written.
+- **Values masked on the way out.** The stored SQL keeps the values written into it (bind values are never stored); the
+  read and the export replace its string literals and numbers with `?` and drop its comments, read with the data
+  source's dialect (every quoted span and number when the source or its dialect is unknown). The export also cuts each
+  statement at 4,000 characters (marked ` [cut]`), and writes a cell that starts with `=`, `+`, `-`, `@`, a tab or a line
+  break with a leading `'`, so a spreadsheet reads it as text.
+- **Retention.** Rows are kept forever unless `Beacon:Audit:ExecutionLog:RetentionDays` is set (greater than zero);
+  schedule `IExecutionLogRetentionService.PurgeExpiredAsync` daily (the sample host's `execution-log-retention` job),
+  which deletes the older rows and logs `Beacon.Audit` event 9111. The log grows with every statement Beacon runs, one row
+  per column value sample of a metadata scan included, so set a retention that fits your storage.
+- **Not sealed.** The execution log is evidence, not signed like the trail.
+
 ## Shipping to a SIEM
 
 Every event is logged at category **`Beacon.Audit`** once the transaction that wrote it has committed; an event whose
@@ -442,6 +503,14 @@ lets a deployment pin the MCP audit's content on. See
 [MCP observability and audit](/mcp/observability-and-audit/).
 
 - **Events start at the upgrade.** Nothing is backfilled: the trail holds the actions taken after the upgrade only.
+- **The execution log writes a row before each statement.** From `AddExecutionLogStatus` (PostgreSQL `20261024210000`,
+  SQL Server `20261024210001`, additive: nullable `status`, `completed_time` and `triggered_by_user_id` on
+  `manual_query_execution_logs` plus an index on `triggered_by_user_id` and `created_time`, and a nullable
+  `triggered_by_user_id` on `query_execution_history`; nothing is backfilled) every statement Beacon runs for its own
+  features is in the [execution log](#the-execution-log), subscription steps, column value samples, enum discovery and
+  data contract rules included, so the table grows faster. Older rows keep a null `status`. A step of a query run is
+  recorded as `QueryStep` (the per-step `QueryStepPreview` rows written after the step are gone; a step preview's own
+  statements are `QueryStepPreview`).
   Earlier actions are only in the logs you kept (the project-access events 7101 onwards, the `Beacon.Audit` events 9100
   onwards), which are written as before.
 - **Existing resources have no attribution.** Queries, subscriptions, recipients, data contracts and migration jobs that

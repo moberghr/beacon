@@ -1,11 +1,13 @@
 using FluentAssertions;
 using NUnit.Framework;
+using Beacon.Core.Handlers.ExecutionLog;
 using Beacon.Core.Handlers.AiActors;
 using Beacon.Core.Handlers.Approvals;
 using Beacon.Core.Handlers.ControlTower;
 using Beacon.Core.Handlers.DataQuality.GetDataContracts;
 using Beacon.Core.Handlers.DataQuality.GetDataQualityOverview;
 using Beacon.Core.Handlers.DataSources;
+using Beacon.Core.Handlers.Embed;
 using Beacon.Core.Handlers.Home;
 using Beacon.Core.Handlers.McpLearning;
 using Beacon.Core.Handlers.Notifications;
@@ -39,6 +41,7 @@ public class FastPathGoldenTests
         yield return Case("GetQueryChangeHistory", new GetQueryChangeHistoryQuery { QueryId = 5 });
         yield return Case("GetPendingApprovals", new GetPendingApprovalsQuery());
         yield return Case("GetQueryFolders", new GetQueryFoldersQuery());
+        yield return Case("ListQueryFolders", new ListQueryFoldersQuery());
         yield return Case("GetDataSources", new GetDataSourcesQuery());
         yield return Case("GetSubscriptions", new GetSubscriptionsQuery());
         yield return Case("GetNotifications", new GetNotificationsQuery());
@@ -50,11 +53,16 @@ public class FastPathGoldenTests
         yield return Case("GetHomeTaskSummary", new GetHomeTaskSummaryQuery());
         yield return Case("GetExecutionUptime", new GetExecutionUptimeQuery());
         yield return Case("GetDataQualityOverview", new GetDataQualityOverviewQuery());
+        yield return Case("ListDataQualityOverview", new ListDataQualityOverviewQuery());
         yield return Case("GetDataContracts", new GetDataContractsQuery());
         yield return Case("GetAiActorList", new GetAiActorListQuery());
+        yield return Case("GetPendingPlanCount", new GetPendingPlanCountQuery());
         yield return Case("GetLearnedPatterns", new GetLearnedPatternsQuery());
         yield return Case("GetDocumentationPatches", new GetDocumentationPatchesQuery());
         yield return Case("GetLearningStats", new GetLearningStatsQuery());
+        yield return Case("GetExecutionLog", new GetExecutionLogQuery { From = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc), To = new DateTime(2026, 10, 8, 0, 0, 0, DateTimeKind.Utc) });
+        yield return Case("ExportExecutionLog", new ExportExecutionLogQuery { From = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc), To = new DateTime(2026, 10, 8, 0, 0, 0, DateTimeKind.Utc) });
+        yield return Case("ListEmbedGrants", new ListEmbedGrantsQuery());
     }
 
     [TestCaseSource(nameof(ListRequests))]

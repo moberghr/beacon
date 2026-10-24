@@ -3,25 +3,33 @@ using Microsoft.Extensions.Logging;
 using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.ChangeApprovals;
 using Beacon.Core.Data;
+using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.HostData;
 using Beacon.Core.Notifications;
 
 namespace Beacon.Core.Services;
 
 /// <summary>
 /// Moves stored values off the keys listed in <c>Beacon:PreviousEncryptionKeys</c>: every encrypted value at rest
-/// (data-source connection data, repository access tokens, sensitive settings, recipient destinations and headers) that
-/// only a previous key decrypts is re-encrypted with <c>Beacon:EncryptionKey</c>, and every keyed hash of where a governed
-/// recipient delivers (its approved hash, its pending change request's) that matches the definition it holds only under a
-/// previous key is recomputed under the current key. Idempotent and safe to run repeatedly or
+/// (data-source connection data, repository access tokens, sensitive settings, recipient destinations and headers, staged
+/// LLM connection changes) that only a previous key decrypts is re-encrypted with <c>Beacon:EncryptionKey</c>, and every
+/// keyed hash of where a governed recipient delivers or of a governed data source's connection definition (approved, or
+/// of a pending change request) that matches the definition it holds only under a previous key is recomputed under the
+/// current key. A run first expires the LLM connection changes that waited past their expiry (wiping what they staged); a
+/// pending one whose recorded connection hash or shown fingerprints are not under the current key cannot be rewritten (its
+/// reviewer's view is bound by its payload hash) and counts as an unresolved key dependency until it is decided, expires or
+/// is submitted again. Idempotent and safe to run repeatedly or
 /// from several replicas: each write is conditional on the stored value being unchanged, so a concurrent save wins (it is
 /// already encrypted with the current key). Values no configured key decrypts are counted and logged by id, never
 /// changed. A keyed recipient hash of a definition the recipient does not hold cannot be recomputed (its plaintext is not
 /// stored): while a previous key is configured it is counted as an unresolved key dependency and logged by id, until the
 /// recipient's pending change is decided (an approval writes the approved hash under the current key) or the recipient is
 /// saved back to its approved destination. Once a run reports no value left under a previous key, none unreadable and no
-/// unresolved key dependency, the previous keys can be removed from the configuration. The sample host runs it as a
-/// background job at startup while a previous key is configured.
+/// unresolved key dependency, the previous keys can be removed from the configuration. A value in the legacy v1 format
+/// (unauthenticated AES-CBC) is rewritten in the current format whichever configured key decrypts it, and counted in
+/// <see cref="StoredValueReEncryptionResult.LegacyFormat"/>; once a run finds none (and none unreadable),
+/// <c>Beacon:Encryption:AllowLegacyCbc</c> can be turned off. The sample host runs it as a background job at every start.
 /// </summary>
 public interface IStoredValueReEncryptionService
 {
@@ -47,21 +55,38 @@ public interface IStoredValueReEncryptionService
 public sealed record StoredValueReEncryptionResult(int UnderPreviousKeys, int ReEncrypted, int SkippedAsChanged, int Unreadable, int Failed)
 {
     /// <summary>
-    /// Keyed recipient hashes (approved, or of a pending change request) that name a definition the recipient does not hold,
-    /// so they cannot be rewritten under the current key and may still need a previous key; counted only while a previous
-    /// key is configured. The previous keys are not removable while any remain.
+    /// Keyed recipient and data-source definition hashes (approved, or of a pending change request) that name a definition
+    /// the recipient or data source does not hold, and pending LLM connection changes whose recorded hash or shown
+    /// fingerprints are not under the current key, so they cannot be rewritten under the current key and may still need a
+    /// previous key; counted only while a previous key is configured. The previous keys are not removable while any remain.
     /// </summary>
     public int UnresolvedKeyDependencies { get; init; }
 
+    /// <summary>
+    /// Values found in the legacy v1 format (unauthenticated AES-CBC), under the current or a previous key; a run rewrites
+    /// them in the current format (counted in <see cref="ReEncrypted"/> or <see cref="SkippedAsChanged"/> like the others).
+    /// </summary>
+    public int LegacyFormat { get; init; }
+
     /// <summary>True when nothing stored needs a previous key any more: the previous keys can be removed.</summary>
     public bool PreviousKeysRemovable => UnderPreviousKeys == 0 && Unreadable == 0 && Failed == 0 && UnresolvedKeyDependencies == 0;
+
+    /// <summary>
+    /// True when no value stored is in the legacy v1 format (and none is unreadable or failed):
+    /// <c>Beacon:Encryption:AllowLegacyCbc</c> can be turned off. The scan covers Beacon's own stored values only; a host
+    /// that stored values of its own through <see cref="IEncryptionService"/> must check those itself.
+    /// </summary>
+    public bool LegacyFormatReadRemovable => LegacyFormat == 0 && Unreadable == 0 && Failed == 0;
 }
 
 internal sealed class StoredValueReEncryptionService(
     IDbContextFactory<BeaconContext> contextFactory,
     IEncryptionService encryptionService,
     ILogger<StoredValueReEncryptionService> logger,
-    RecipientDestinationHasher? hasher = null) : IStoredValueReEncryptionService
+    RecipientDestinationHasher? hasher = null,
+    IDataSourceDefinitionReader? definitionReader = null,
+    ConnectionDefinitionHasher? connectionHasher = null,
+    LlmConnectionApproval? llmConnections = null) : IStoredValueReEncryptionService
 {
     public async Task<StoredValueReEncryptionResult> ReEncryptAsync(CancellationToken cancellationToken)
     {
@@ -75,12 +100,13 @@ internal sealed class StoredValueReEncryptionService(
         }
 
         var result = await ScanAsync(new Run(encryption, logger, write: true), cancellationToken);
-        if (!result.PreviousKeysRemovable)
+        if (!result.PreviousKeysRemovable || !result.LegacyFormatReadRemovable)
         {
             logger.LogWarning(
                 ProjectAccessEvents.StoredValuesReEncrypted,
-                "Stored value re-encryption: {UnderPreviousKeys} under a previous key, {ReEncrypted} re-encrypted with the current key, {Skipped} changed meanwhile, {Unreadable} readable with no configured key, {Failed} failed, {Unresolved} keyed recipient hashes that cannot be rewritten under the current key",
+                "Stored value re-encryption: {UnderPreviousKeys} under a previous key, {LegacyFormat} in the legacy format, {ReEncrypted} re-encrypted with the current key, {Skipped} changed meanwhile, {Unreadable} readable with no configured key, {Failed} failed, {Unresolved} keyed hashes that cannot be rewritten under the current key",
                 result.UnderPreviousKeys,
+                result.LegacyFormat,
                 result.ReEncrypted,
                 result.SkippedAsChanged,
                 result.Unreadable,
@@ -91,14 +117,14 @@ internal sealed class StoredValueReEncryptionService(
         {
             logger.LogInformation(
                 ProjectAccessEvents.StoredValuesReEncrypted,
-                "Stored value re-encryption: no value is under a previous key; Beacon:PreviousEncryptionKeys can be removed");
+                "Stored value re-encryption: no value of Beacon's own is under a previous key or in the legacy format (values a host stored through IEncryptionService are not scanned); Beacon:PreviousEncryptionKeys can be removed and Beacon:Encryption:AllowLegacyCbc turned off");
         }
 
         if (result.UnresolvedKeyDependencies > 0)
         {
             logger.LogWarning(
                 ProjectAccessEvents.StoredValuesReEncrypted,
-                "{Unresolved} keyed recipient hashes name a definition their recipient does not hold and may still need a previous key; keep {Setting} until none remain. Decide each recipient's pending change (an approval writes its approved hash under the current key), or save the recipient back to its approved destination, then run again",
+                "{Unresolved} keyed hashes name a definition their recipient or data source does not hold, or belong to a pending LLM connection change, and may still need a previous key; keep {Setting} until none remain. Decide each pending change (an approval writes its approved hash under the current key), or save the recipient or data source back to its approved definition, then run again",
                 result.UnresolvedKeyDependencies,
                 ServiceConfiguration.PreviousEncryptionKeysKey);
         }
@@ -122,6 +148,12 @@ internal sealed class StoredValueReEncryptionService(
     private async Task<StoredValueReEncryptionResult> ScanAsync(Run run, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        // A staged LLM connection change that waited past its expiry is wiped, not re-encrypted.
+        if (run.Writes && llmConnections != null)
+        {
+            await llmConnections.ExpireAsync(context, cancellationToken);
+        }
 
         var dataSources = await context.DataSources
             .IgnoreQueryFilters()
@@ -202,9 +234,40 @@ internal sealed class StoredValueReEncryptionService(
                 .ExecuteUpdateAsync(x => x.SetProperty(y => y.HeadersJson, value), cancellationToken), cancellationToken);
         }
 
+        var payloads = await context.ChangeApprovalRequests
+            .Where(x => x.EncryptedPayload != null)
+            .Select(x =>
+                new
+                {
+                    x.Id,
+                    x.EncryptedPayload
+                })
+            .ToListAsync(cancellationToken);
+        foreach (var row in payloads)
+        {
+            await run.ReEncryptAsync("LLM connection change request", row.Id, row.EncryptedPayload, string.Empty, value => context.ChangeApprovalRequests
+                .Where(x => x.Id == row.Id)
+                .Where(x => x.EncryptedPayload == row.EncryptedPayload)
+                .ExecuteUpdateAsync(x => x.SetProperty(y => y.EncryptedPayload, value), cancellationToken), cancellationToken);
+        }
+
         if (hasher != null)
         {
             await RehashRecipientApprovalsAsync(context, run, hasher, new RecipientSecretProtector(run.Encryption), cancellationToken);
+        }
+
+        if (definitionReader != null && connectionHasher != null)
+        {
+            await RehashDataSourceApprovalsAsync(context, run, definitionReader, connectionHasher, cancellationToken);
+        }
+
+        if (llmConnections != null)
+        {
+            var llmDependencies = await llmConnections.KeyDependenciesAsync(context, cancellationToken);
+            foreach (var requestId in llmDependencies)
+            {
+                run.UnresolvedRequest(true, "LLM connection change request", requestId);
+            }
         }
 
         return run.Result();
@@ -303,6 +366,98 @@ internal sealed class StoredValueReEncryptionService(
         }
     }
 
+    // The keyed hashes of governed data sources' connection definitions (approved, and of their pending requests) that match
+    // the definition the source holds only under a previous key: recomputed under the current key from its stored
+    // connection (through the definition reader, the one place a stored connection becomes a definition hash), each
+    // conditional on being unchanged. A held source has no keyed hash. One that names a definition the source does not
+    // hold (a change waits, or the stored connection cannot be read) cannot be recomputed: while a previous key is
+    // configured it counts as an unresolved key dependency.
+    private static async Task RehashDataSourceApprovalsAsync(
+        BeaconContext context,
+        Run run,
+        IDataSourceDefinitionReader reader,
+        ConnectionDefinitionHasher hasher,
+        CancellationToken cancellationToken)
+    {
+        // Full entities: the definition reader decrypts the stored connection itself.
+        var governed = await context.DataSources
+            .IgnoreQueryFilters()
+            .AsNoTracking()
+            .Where(x => x.ApprovedTargetHash != null)
+            .ToListAsync(cancellationToken);
+        var sources = governed.ToDictionary(x => x.Id);
+
+        foreach (var source in governed)
+        {
+            var approved = source.ApprovedTargetHash;
+            if (!IsKeyedDefinition(approved))
+            {
+                continue;
+            }
+
+            var current = reader.CurrentDefinitionHash(source);
+            if (string.Equals(current, approved, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (current == null || !reader.DefinitionMatches(source, approved))
+            {
+                run.UnresolvedRequest(hasher.HasPreviousKeys, "data source approval", source.Id);
+                continue;
+            }
+
+            await run.RewriteAsync("data source approval", source.Id, () => context.DataSources
+                .IgnoreQueryFilters()
+                .Where(x => x.Id == source.Id)
+                .Where(x => x.ApprovedTargetHash == approved)
+                .ExecuteUpdateAsync(x => x.SetProperty(y => y.ApprovedTargetHash, current), cancellationToken), cancellationToken);
+        }
+
+        var requests = await context.ChangeApprovalRequests
+            .Where(x => x.Kind == ChangeApprovalKind.DataSourceConnection)
+            .Where(x => x.Status == ApprovalStatus.Pending)
+            .Select(x =>
+                new
+                {
+                    x.Id,
+                    x.ResourceId,
+                    x.DefinitionHash
+                })
+            .ToListAsync(cancellationToken);
+        foreach (var request in requests)
+        {
+            if (!IsKeyedDefinition(request.DefinitionHash))
+            {
+                continue;
+            }
+
+            var source = sources.GetValueOrDefault(request.ResourceId);
+            var current = source == null ? null : reader.CurrentDefinitionHash(source);
+            if (string.Equals(current, request.DefinitionHash, StringComparison.Ordinal))
+            {
+                continue;
+            }
+
+            if (source == null || current == null || !reader.DefinitionMatches(source, request.DefinitionHash))
+            {
+                run.UnresolvedRequest(hasher.HasPreviousKeys, "data source change request", request.Id);
+                continue;
+            }
+
+            await run.RewriteAsync("data source change request", request.Id, () => context.ChangeApprovalRequests
+                .Where(x => x.Id == request.Id)
+                .Where(x => x.DefinitionHash == request.DefinitionHash)
+                .ExecuteUpdateAsync(x => x.SetProperty(y => y.DefinitionHash, current), cancellationToken), cancellationToken);
+        }
+    }
+
+    // A keyed connection definition hash, as opposed to a held source's marker.
+    private static bool IsKeyedDefinition(string? hash)
+    {
+        return hash != null && hash.StartsWith(ConnectionDefinitionHasher.Prefix, StringComparison.Ordinal);
+    }
+
     // A keyed hash, as opposed to the marker of a resource with nothing approved yet.
     private static bool IsKeyed(string? hash)
     {
@@ -314,7 +469,11 @@ internal sealed class StoredValueReEncryptionService(
     {
         public EncryptionService Encryption => encryption;
 
+        /// <summary>True when the run writes (re-encrypts), false when it only counts.</summary>
+        public bool Writes => write;
+
         private int _underPreviousKeys;
+        private int _legacyFormat;
         private int _reEncrypted;
         private int _skipped;
         private int _unreadable;
@@ -338,7 +497,7 @@ internal sealed class StoredValueReEncryptionService(
             }
 
             var cipherText = stored[prefix.Length..];
-            var match = encryption.Identify(cipherText);
+            var match = encryption.Identify(cipherText, out var legacyFormat);
             if (match == EncryptionService.KeyMatch.None)
             {
                 _unreadable++;
@@ -356,19 +515,39 @@ internal sealed class StoredValueReEncryptionService(
                 return;
             }
 
-            if (match != EncryptionService.KeyMatch.Previous)
+            if (match != EncryptionService.KeyMatch.Previous && !legacyFormat)
             {
                 return;
             }
 
-            await RewriteAsync(kind, id, () => writeIfUnchanged(prefix + encryption.Encrypt(encryption.Decrypt(cipherText))), cancellationToken);
+            if (legacyFormat)
+            {
+                _legacyFormat++;
+            }
+
+            await RewriteAsync(
+                kind,
+                id,
+                () => writeIfUnchanged(prefix + encryption.Encrypt(encryption.Decrypt(cipherText))),
+                cancellationToken,
+                underPreviousKey: match == EncryptionService.KeyMatch.Previous);
         }
 
-        // A value found under a previous key (a cipher text, or a keyed hash) is counted and, with write, rewritten under the
-        // current key by writeIfUnchanged (a conditional update that answers the rows it wrote).
-        public async Task RewriteAsync(string kind, int id, Func<Task<int>> writeIfUnchanged, CancellationToken cancellationToken)
+        // A value found under a previous key (a cipher text, or a keyed hash) or in the legacy format is counted and, with
+        // write, rewritten under the current key in the current format by writeIfUnchanged (a conditional update that
+        // answers the rows it wrote).
+        public async Task RewriteAsync(
+            string kind,
+            int id,
+            Func<Task<int>> writeIfUnchanged,
+            CancellationToken cancellationToken,
+            bool underPreviousKey = true)
         {
-            _underPreviousKeys++;
+            if (underPreviousKey)
+            {
+                _underPreviousKeys++;
+            }
+
             if (!write)
             {
                 return;
@@ -425,11 +604,34 @@ internal sealed class StoredValueReEncryptionService(
                 recipientId);
         }
 
+        // A keyed hash (or a fingerprint a request shows) that cannot be rewritten under the current key: while a previous
+        // key is configured it may depend on one, so it is counted and, with write, logged by id.
+        public void UnresolvedRequest(bool previousKeysConfigured, string kind, int id)
+        {
+            if (!previousKeysConfigured)
+            {
+                return;
+            }
+
+            _unresolved++;
+            if (!write)
+            {
+                return;
+            }
+
+            logger.LogWarning(
+                ProjectAccessEvents.StoredValuesReEncrypted,
+                "The keyed hash of {Kind} {Id} cannot be rewritten under the current key and may still need a previous key",
+                kind,
+                id);
+        }
+
         public StoredValueReEncryptionResult Result()
         {
             return new StoredValueReEncryptionResult(_underPreviousKeys, _reEncrypted, _skipped, _unreadable, _failed)
             {
-                UnresolvedKeyDependencies = _unresolved
+                UnresolvedKeyDependencies = _unresolved,
+                LegacyFormat = _legacyFormat
             };
         }
     }

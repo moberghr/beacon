@@ -73,6 +73,12 @@ public class RowSecurityModelMigrationTests
             .Should().BeEquivalentTo(Signatures(differ.GetDifferences(before, target)), "Up is exactly the difference from the model before");
         Signatures(migration.DownOperations)
             .Should().BeEquivalentTo(Signatures(differ.GetDifferences(target, before)), "Down removes exactly what Up adds");
+        // The next migration's own content is pinned by ConnectionChangeApprovalMigrationTests.
+        var next = MigrationNamed(context, migrations, "_AddConnectionChangeApproval");
+        Signatures(differ.GetDifferences(target, Initialized(next.TargetModel!, initializer).GetRelationalModel()))
+            .Should().BeEquivalentTo(
+                Signatures(next.UpOperations),
+                "this migration's target model differs from the next one's only by the next migration");
         context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
         migrations.Migrations.Keys
             .Order(StringComparer.Ordinal)
@@ -80,12 +86,6 @@ public class RowSecurityModelMigrationTests
             .Skip(1)
             .First()
             .Should().EndWith(Suffix, "it sorts after every earlier migration");
-        // The next migration's own content is pinned by ContractRuleHistoryMigrationTests.
-        var next = MigrationNamed(context, migrations, "_AddContractRuleHistory");
-        Signatures(differ.GetDifferences(target, Initialized(next.TargetModel!, initializer).GetRelationalModel()))
-            .Should().BeEquivalentTo(
-                Signatures(next.UpOperations),
-                "this migration's target model differs from the next one's only by the next migration");
     }
 
     [TestCase(false)]

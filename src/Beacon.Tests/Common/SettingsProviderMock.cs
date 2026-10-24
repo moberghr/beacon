@@ -42,6 +42,8 @@ internal static class SettingsProviderMock
         mock.Setup(x => x.GetEffectiveSettingsDetailAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .Returns(async (int projectId, CancellationToken ct) =>
                 new McpEffectiveSettings(await mock.Object.GetEffectiveSettingsAsync(projectId, ct), locked, clamped));
+        mock.Setup(x => x.GetStoredSettingsAsync(It.IsAny<CancellationToken>()))
+            .Returns((CancellationToken ct) => mock.Object.GetSettingsAsync(ct));
         mock.Setup(x => x.GetProjectOverridesAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(overrides);
 

@@ -15,6 +15,7 @@ internal sealed class CreateDataSourceHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IProjectAccessEvaluator projectAccess,
     IBeaconActorAccessor actorAccessor,
+    BeaconConfiguration configuration,
     ILogger<CreateDataSourceHandler> logger)
     : IRequestHandler<CreateDataSourceCommand, CreateDataSourceResult>
 {
@@ -52,7 +53,10 @@ internal sealed class CreateDataSourceHandler(
             throw new InvalidOperationException(response.Message);
         }
 
-        return new CreateDataSourceResult(true, response.Message);
+        return new CreateDataSourceResult(true, response.Message)
+        {
+            AwaitingApproval = configuration.ApprovalWorkflow.Covers(ChangeApprovalKind.DataSourceConnection)
+        };
     }
 
     // Each target project must be live, and the caller must manage its data sources (an Admin does, for every project).
@@ -93,6 +97,22 @@ public record CreateDataSourceCommand(
     bool MetadataLoadTableNamesOnly,
     List<string>? MetadataExcludeSchemas,
     List<string>? MetadataIncludeSchemas,
-    List<int>? ProjectIds = null) : IRequest<CreateDataSourceResult>;
+    List<int>? ProjectIds = null) : IRequest<CreateDataSourceResult>
+{
+    // The compiler-generated ToString prints every member; the secrets are printed redacted.
+    protected virtual bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"Name = {Name}, DataSourceType = {DataSourceType}, DatabaseEngineType = {DatabaseEngineType}, ConnectionString = {RedactedPrint.Of(ConnectionString)}, MetadataLoadingEnabled = {MetadataLoadingEnabled}, MetadataMaxTables = {MetadataMaxTables}, MetadataMaxColumnsPerTable = {MetadataMaxColumnsPerTable}, MetadataLoadTableNamesOnly = {MetadataLoadTableNamesOnly}, MetadataExcludeSchemas = {MetadataExcludeSchemas}, MetadataIncludeSchemas = {MetadataIncludeSchemas}, ProjectIds = {ProjectIds}");
 
-public record CreateDataSourceResult(bool Success, string Message);
+        return true;
+    }
+}
+
+public record CreateDataSourceResult(bool Success, string Message)
+{
+    /// <summary>
+    /// The change approval workflow covers data-source connections: the source was saved held, with a pending request, and
+    /// connects to nothing until a second person approves its connection.
+    /// </summary>
+    public bool AwaitingApproval { get; init; }
+}

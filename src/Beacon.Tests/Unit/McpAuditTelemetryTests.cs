@@ -27,7 +27,7 @@ namespace Beacon.Tests.Unit;
 /// </summary>
 [TestFixture]
 [NonParallelizable]
-public class McpAuditTelemetryTests
+public partial class McpAuditTelemetryTests
 {
     // Const, never the static ActivitySource field: referencing that inside ShouldListenTo re-enters its static ctor.
     private const string SourceName = "Beacon.Tests.McpAuditTelemetry";
@@ -102,7 +102,7 @@ public class McpAuditTelemetryTests
         auditEvent.EventId.Name.Should().Be("McpToolAudited");
         auditEvent.State.Keys.Should().BeEquivalentTo(
             "Tool", "AuditId", "Persisted", "ProjectId", "DataSourceId", "UserId", "ApiKeyId", "CallerKind",
-            "CallerHash", "DurationMs", "Rows", "ErrorClass", "TraceId", "McpSessionId", "UpstreamRequestId",
+            "CallerHash", "DurationMs", "Rows", "ErrorClass", "CorrelationId", "TraceId", "McpSessionId", "UpstreamRequestId",
             "{OriginalFormat}");
         auditEvent.State["Tool"].Should().Be(_tool);
         auditEvent.State["Persisted"].Should().Be(true);

@@ -172,6 +172,10 @@ When the approved SQL changes, the routine picks up the new version on its next 
   never sees a query that needs a B-only source. A tool outside your projects answers exactly like one that does not
   exist. A caller with no project access sees no tools (fail closed). When your credentials reach the same tool
   through several projects, the schema offers `project_id` and the call requires it.
+- **Visibility follows data-source membership, not an owning project.** A saved query has no owning project: a tool
+  appears in every project of the caller that contains all of its data sources, so linking a data source to another
+  project can make an existing tool visible there. The tool's SQL is never listed, and the caller's `Run` permission
+  is still checked in each project and again right before the query runs.
 - **Re-checked before it runs.** Right before any SQL runs, the call checks the steps it is about to run again: the
   caller may still run saved SQL in the project, and the project still links every data source those steps read.
   Otherwise the call fails ("not available in project N for your credentials") without running anything, and is

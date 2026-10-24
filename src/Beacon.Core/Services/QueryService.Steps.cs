@@ -139,8 +139,9 @@ internal partial class QueryService
     /// it bounds the final query on the in-memory join too.</param>
     /// <param name="maxRows">The row ceiling of every statement in place of <see cref="ExecutionRowCeiling"/> (a
     /// migration's own budget), or null.</param>
-    /// <param name="recordManualExecution">Records the run and its steps as manual executions (a run from the editor);
-    /// false for a subscription run, which its run history records.</param>
+    /// <param name="recordManualExecution">Records the run's summary row in the execution log (a run from the editor);
+    /// false for a subscription run, which its run history records. Every step's statement is in the execution log either
+    /// way (<see cref="GatedSqlRunner"/>).</param>
     private async Task<QueryExecutionResult> ExecuteQuerySteps(
         Query query,
         string? finalQuery,
@@ -290,7 +291,7 @@ internal partial class QueryService
             executionContext: "FullQueryPreview",
             errorMessage: executionResult.ErrorMessage,
             userId: userContext.UserId,
-            cancellationToken: cancellationToken);
+            cancellationToken: CancellationToken.None);
 
         return executionResult;
     }
@@ -326,7 +327,15 @@ internal partial class QueryService
         var rowSecurity = await rowSecurityResolver.ResolveAsync(step.DataSourceId, cancellationToken);
 
         var run = await sqlRunner.RunAsync(
-            new GatedSqlRequest(step.DataSource, StoredSql.Flatten(parameterizedSql, DataSourceSqlDialect.Of(step.DataSource)), sqlParameters, ceiling + 1, rowSecurity, masking?.Settings, statementTimeout),
+            new GatedSqlRequest(
+                step.DataSource,
+                StoredSql.Flatten(parameterizedSql, DataSourceSqlDialect.Of(step.DataSource)),
+                sqlParameters,
+                ceiling + 1,
+                rowSecurity,
+                masking?.Settings,
+                statementTimeout,
+                recordManualExecution ? SqlExecutionContexts.QueryStep : SqlExecutionContexts.SubscriptionStep),
             cancellationToken);
 
         var errorMessage = run.TimedOut
@@ -370,23 +379,6 @@ internal partial class QueryService
             Success = errorMessage == null,
             ErrorMessage = errorMessage
         };
-
-        if (!recordManualExecution)
-        {
-            return (stepResult, run);
-        }
-
-        // Log manual query execution for step preview
-        await queryExecutionLogger.LogQueryExecutionAsync(
-            queryText: parameterizedSql,
-            resultCount: results.Count,
-            executionTimeMs: run.ExecutionTimeMs,
-            success: errorMessage == null,
-            dataSourceId: step.DataSourceId,
-            executionContext: "QueryStepPreview",
-            errorMessage: errorMessage,
-            userId: userContext.UserId,
-            cancellationToken: CancellationToken.None);
 
         return (stepResult, run);
     }
