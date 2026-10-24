@@ -114,12 +114,12 @@ internal sealed class SqlGenerationService(TimeProvider? timeProvider = null, IL
             - CRITICAL: Before writing your final SQL, mentally verify each column reference against the schema. If a column is not listed, do NOT use it.
             """;
 
-        // The stable part — the operator's instruction and the schema context — is a user message marked as a cache breakpoint,
-        // a prefix the provider can reuse across candidates and repairs; the date and the question follow in a message of
-        // their own. The schema stays user content, never system prompt.
+        // The stable part — the operator's instruction, the data rule and the schema context in its data block — is a user
+        // message marked as a cache breakpoint, a prefix the provider can reuse across candidates and repairs; the date and the
+        // question follow in a message of their own. The schema stays user content, never system prompt.
         var contextMessage = GenerationContextMessage(settings.GlobalInstruction, schemaContext);
 
-        var questionMessage = $"{TodayLine()}\n\nUSER QUESTION: {question}";
+        var questionMessage = $"{TodayLine()}\n\nUSER QUESTION: {PromptData.Neutralise(question)}";
 
         return new LlmRequest
         {
@@ -144,7 +144,7 @@ internal sealed class SqlGenerationService(TimeProvider? timeProvider = null, IL
             contextMessage += $"INSTRUCTIONS:\n{globalInstruction}\n\n";
         }
 
-        return contextMessage + $"DATABASE CONTEXT:\n{schemaContext}";
+        return contextMessage + $"{PromptData.Rule}\n\nDATABASE CONTEXT:\n{PromptData.Fence("database context", schemaContext)}";
     }
 
     private string TodayLine()
@@ -296,15 +296,18 @@ internal sealed class SqlGenerationService(TimeProvider? timeProvider = null, IL
         // The schema comes first: the generation's own first message, byte for byte and marked as the same cache breakpoint,
         // when the repair is over the context the generation was sent; otherwise the full schema with no breakpoint. The parts
         // of this attempt follow in a message of their own — the question, the previous SQL and its error, then the rules —
-        // ending with the instruction. The schema stays user content, never system prompt.
+        // ending with the instruction. The schema, the table schemas, the previous SQL and the error are data blocks under the
+        // data rule the first message states. The schema stays user content, never system prompt.
         var contextMessage = cachedContextMessage != null
             ? new ChatMessage(ConversationRole.User, cachedContextMessage) { CacheBreakpoint = true }
-            : new ChatMessage(ConversationRole.User, $"FULL DATABASE SCHEMA (authoritative source):\n{fullContext}");
+            : new ChatMessage(
+                ConversationRole.User,
+                $"{PromptData.Rule}\n\nFULL DATABASE SCHEMA (authoritative source):\n{PromptData.Fence("database schema", fullContext)}");
 
         var schemaSection = tablesContext != null
             ? $"""
                 EXACT SCHEMAS FOR TABLES IN YOUR QUERY:
-                {tablesContext}
+                {PromptData.Fence("table schemas", tablesContext)}
 
 
                 """
@@ -313,14 +316,15 @@ internal sealed class SqlGenerationService(TimeProvider? timeProvider = null, IL
         var attemptMessage = $"""
             {TodayLine()}
 
-            {schemaSection}USER QUESTION: {question}
+            {schemaSection}USER QUESTION: {PromptData.Neutralise(question)}
 
             Your previous SQL query failed.
 
             PREVIOUS SQL:
-            {previousSql}
+            {PromptData.Fence("previous sql", previousSql)}
 
-            ERROR: {error}
+            ERROR:
+            {PromptData.Fence("database error", error)}
 
             CRITICAL RULES:
             - Use ONLY column names listed in the schemas provided. Do NOT guess or infer column names.

@@ -8,7 +8,7 @@ import { formatDateTime, formatNumber } from '@/lib/format';
 import { useSearchFilter } from '@/lib/usePagedList';
 import { useAccess, useAuth } from '@/auth/useAuth';
 import { useRequirePermission } from '@/auth/useRequirePermission';
-import { useRolesQuery, useToggleUserEnabled, useUsersList, type UserEntry } from './queries';
+import { usePendingAdminGrants, useRolesQuery, useToggleUserEnabled, useUsersList, type UserEntry } from './queries';
 import { UserDialog } from './UserDialog';
 import { changeBlockedReason } from './userAdministration';
 
@@ -48,6 +48,7 @@ function UsersList() {
   const { isAdmin } = useAccess();
   const { data: me } = useAuth();
   const roles = useRolesQuery().data?.entries;
+  const pendingAdminGrants = usePendingAdminGrants();
 
   const entries = usersQuery.items;
   const totalCount = usersQuery.data?.totalCount ?? 0;
@@ -85,6 +86,7 @@ function UsersList() {
         <span className="inline-flex gap-1 flex-wrap">
           {u.roles.map(r => <Pill key={r.id} tone={roleLevelTone(r.level)}>{r.name}</Pill>)}
           {u.isSuperAdmin && <Pill tone="crit">Super Admin</Pill>}
+          {pendingAdminGrants.has(u.id) && <Pill tone="warn">Admin pending approval</Pill>}
         </span>
       ),
     },
@@ -113,7 +115,7 @@ function UsersList() {
       header: 'Last login',
       render: u => u.lastLoginAt ? formatDateTime(u.lastLoginAt) : <span className="text-text-muted">Never</span>,
     },
-  ], [toggle.isPending, isAdmin, me?.userName, roles]);
+  ], [toggle.isPending, isAdmin, me?.userName, roles, pendingAdminGrants]);
 
   return (
     <div className="flex flex-col gap-3 p-7">

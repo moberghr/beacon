@@ -193,6 +193,47 @@ public class DocChunkIndexingServiceTests
     }
 
     [Test]
+    public async Task ReindexAsync_AProjectThatTurnedSemanticRetrievalOff_IsNotIndexed()
+    {
+        var global = new McpSettingsData { EnableSemanticRetrieval = true, DocChunkWindowSentences = 3, DocChunkOverlapSentences = 1 };
+        var project = new McpSettingsData { EnableSemanticRetrieval = false, DocChunkWindowSentences = 3, DocChunkOverlapSentences = 1 };
+        var embeddings = new CapturingEmbeddingService();
+        var capturedChunks = new List<McpDocChunk>();
+        var capturedEmbeddings = new List<McpEmbedding>();
+        var service = BuildService(
+            global, embeddings, Mock.Of<ILlmProvider>(MockBehavior.Strict),
+            existingChunks: [], existingEmbeddings: [],
+            capturedChunks, capturedEmbeddings, removedChunks: [], removedEmbeddings: [],
+            projectSettings: project);
+
+        await service.ReindexAsync(CancellationToken.None);
+        await service.ReindexProjectAsync(ProjectId, CancellationToken.None);
+
+        capturedChunks.Should().BeEmpty();
+        capturedEmbeddings.Should().BeEmpty();
+        embeddings.BatchTexts.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task ReindexAsync_AProjectThatTurnedContextualRetrievalOff_GetsNoBlurbs()
+    {
+        var global = new McpSettingsData { EnableSemanticRetrieval = true, EnableContextualRetrieval = true, DocChunkWindowSentences = 3, DocChunkOverlapSentences = 1 };
+        var project = new McpSettingsData { EnableSemanticRetrieval = true, EnableContextualRetrieval = false, DocChunkWindowSentences = 3, DocChunkOverlapSentences = 1 };
+        var llm = new Mock<ILlmProvider>(MockBehavior.Strict);
+        var capturedChunks = new List<McpDocChunk>();
+        var service = BuildService(
+            global, new CapturingEmbeddingService(), llm.Object,
+            existingChunks: [], existingEmbeddings: [],
+            capturedChunks, capturedEmbeddings: [], removedChunks: [], removedEmbeddings: [],
+            projectSettings: project);
+
+        await service.ReindexProjectAsync(ProjectId, CancellationToken.None);
+
+        capturedChunks.Should().NotBeEmpty().And.OnlyContain(x => x.ContextualBlurb == null);
+        llm.Verify(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
     public async Task ReindexAsync_WhenEmbedderUnavailable_IsNoOpAndTouchesNoDatabaseOrLlm()
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>(MockBehavior.Strict);
@@ -491,7 +532,8 @@ public class DocChunkIndexingServiceTests
         FakeVectorColumnWriter? vectorWriter = null,
         ProjectDocSectionType sectionType = ProjectDocSectionType.ProjectOverview,
         ILlmRowDataEgress? egress = null,
-        bool forbidRowData = false)
+        bool forbidRowData = false,
+        McpSettingsData? projectSettings = null)
     {
         var documentation = new ProjectDocumentation
         {
@@ -554,7 +596,8 @@ public class DocChunkIndexingServiceTests
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(context);
 
-        var settingsProvider = SettingsProviderMock.Create();
+        var settingsProvider = SettingsProviderMock.Create(
+            projectSettings: projectSettings == null ? null : new Dictionary<int, McpSettingsData> { [ProjectId] = projectSettings });
         settingsProvider
             .Setup(x => x.GetSettingsAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(settings);

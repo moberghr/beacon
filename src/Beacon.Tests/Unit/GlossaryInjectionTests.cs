@@ -339,7 +339,7 @@ public class GlossaryInjectionTests
     }
 
     [Test]
-    public async Task CreatingEditingAndDeletingATerm_AreRecorded_ByIdAndFieldNames_NeverTheirText()
+    public async Task CreatingEditingAndDeletingATerm_AreRecorded_ByIdFieldNamesAndContentDigests_NeverTheirText()
     {
         var audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(3, "ext-ada"));
         var set = BuildDbSet(new List<McpGlossaryTerm>());
@@ -363,8 +363,15 @@ public class GlossaryInjectionTests
             SecurityAuditActions.GlossaryTermDeleted);
         audit.Ways.Should().Equal("saved", "staged", "staged");
         audit.Events.Should().OnlyContain(x => x.ProjectId == ProjectId && x.ResourceType == SecurityAuditResources.GlossaryTerm);
+        const string contentFields = "\"contentFields\":[\"term\",\"synonyms\",\"definition\",\"targetSchema\",\"targetTable\",\"targetColumn\",\"metricExpression\"]";
+        audit.Of(SecurityAuditActions.GlossaryTermCreated).Single().DetailsJson.Should().Be(
+            $"{{\"dataSourceId\":{DataSourceId},{contentFields},\"afterDigests\":{Digests("net revenue", null, "Sales minus refunds", null, null, null, null)}}}");
         audit.Of(SecurityAuditActions.GlossaryTermUpdated).Single().DetailsJson.Should().Be(
-            $"{{\"fields\":[\"definition\",\"isActive\"],\"dataSourceId\":{(term.DataSourceId?.ToString() ?? "null")},\"isActive\":false}}");
+            $"{{\"fields\":[\"definition\",\"isActive\"],\"dataSourceId\":{(term.DataSourceId?.ToString() ?? "null")},\"isActive\":false,{contentFields},"
+            + $"\"beforeDigests\":{Digests("revenue", term.Synonyms, "Total sales amount recognized", term.TargetSchema, term.TargetTable, term.TargetColumn, term.MetricExpression)},"
+            + $"\"afterDigests\":{Digests("revenue", term.Synonyms, "Sales recognized this period", term.TargetSchema, term.TargetTable, term.TargetColumn, term.MetricExpression)}}}");
+        audit.Of(SecurityAuditActions.GlossaryTermDeleted).Single().DetailsJson.Should().Be(
+            $"{{{contentFields},\"beforeDigests\":{Digests("revenue", term.Synonyms, "Sales recognized this period", term.TargetSchema, term.TargetTable, term.TargetColumn, term.MetricExpression)}}}");
         foreach (var auditEvent in audit.Events)
         {
             SecurityAuditTestKit.AssertNoPii(auditEvent, "revenue", "Sales minus refunds", "Sales recognized", "Total sales amount");
@@ -456,6 +463,12 @@ public class GlossaryInjectionTests
         var act = async () => await handler.Handle(new UpdateGlossaryTermCommand { Id = 1, Definition = " " }, CancellationToken.None);
 
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*definition cannot be blank*");
+    }
+
+    // The keyed digests an event holds of a term's text fields, as JSON, in the order of the event's contentFields.
+    private static string Digests(params string?[] values)
+    {
+        return "[" + string.Join(",", values.Select(x => $"\"{SecurityAuditTestKit.Integrity.Digest(x)}\"")) + "]";
     }
 
     private static IDbContextFactory<BeaconContext> BuildGlossaryHandlerFactory(params McpGlossaryTerm[] terms)

@@ -26,8 +26,10 @@ namespace Beacon.Core.Services;
 /// stored): while a previous key is configured it is counted as an unresolved key dependency and logged by id, until the
 /// recipient's pending change is decided (an approval writes the approved hash under the current key) or the recipient is
 /// saved back to its approved destination. Once a run reports no value left under a previous key, none unreadable and no
-/// unresolved key dependency, the previous keys can be removed from the configuration. The sample host runs it as a
-/// background job at startup while a previous key is configured.
+/// unresolved key dependency, the previous keys can be removed from the configuration. A value in the legacy v1 format
+/// (unauthenticated AES-CBC) is rewritten in the current format whichever configured key decrypts it, and counted in
+/// <see cref="StoredValueReEncryptionResult.LegacyFormat"/>; once a run finds none (and none unreadable),
+/// <c>Beacon:Encryption:AllowLegacyCbc</c> can be turned off. The sample host runs it as a background job at every start.
 /// </summary>
 public interface IStoredValueReEncryptionService
 {
@@ -60,8 +62,21 @@ public sealed record StoredValueReEncryptionResult(int UnderPreviousKeys, int Re
     /// </summary>
     public int UnresolvedKeyDependencies { get; init; }
 
+    /// <summary>
+    /// Values found in the legacy v1 format (unauthenticated AES-CBC), under the current or a previous key; a run rewrites
+    /// them in the current format (counted in <see cref="ReEncrypted"/> or <see cref="SkippedAsChanged"/> like the others).
+    /// </summary>
+    public int LegacyFormat { get; init; }
+
     /// <summary>True when nothing stored needs a previous key any more: the previous keys can be removed.</summary>
     public bool PreviousKeysRemovable => UnderPreviousKeys == 0 && Unreadable == 0 && Failed == 0 && UnresolvedKeyDependencies == 0;
+
+    /// <summary>
+    /// True when no value stored is in the legacy v1 format (and none is unreadable or failed):
+    /// <c>Beacon:Encryption:AllowLegacyCbc</c> can be turned off. The scan covers Beacon's own stored values only; a host
+    /// that stored values of its own through <see cref="IEncryptionService"/> must check those itself.
+    /// </summary>
+    public bool LegacyFormatReadRemovable => LegacyFormat == 0 && Unreadable == 0 && Failed == 0;
 }
 
 internal sealed class StoredValueReEncryptionService(
@@ -85,12 +100,13 @@ internal sealed class StoredValueReEncryptionService(
         }
 
         var result = await ScanAsync(new Run(encryption, logger, write: true), cancellationToken);
-        if (!result.PreviousKeysRemovable)
+        if (!result.PreviousKeysRemovable || !result.LegacyFormatReadRemovable)
         {
             logger.LogWarning(
                 ProjectAccessEvents.StoredValuesReEncrypted,
-                "Stored value re-encryption: {UnderPreviousKeys} under a previous key, {ReEncrypted} re-encrypted with the current key, {Skipped} changed meanwhile, {Unreadable} readable with no configured key, {Failed} failed, {Unresolved} keyed hashes that cannot be rewritten under the current key",
+                "Stored value re-encryption: {UnderPreviousKeys} under a previous key, {LegacyFormat} in the legacy format, {ReEncrypted} re-encrypted with the current key, {Skipped} changed meanwhile, {Unreadable} readable with no configured key, {Failed} failed, {Unresolved} keyed hashes that cannot be rewritten under the current key",
                 result.UnderPreviousKeys,
+                result.LegacyFormat,
                 result.ReEncrypted,
                 result.SkippedAsChanged,
                 result.Unreadable,
@@ -101,7 +117,7 @@ internal sealed class StoredValueReEncryptionService(
         {
             logger.LogInformation(
                 ProjectAccessEvents.StoredValuesReEncrypted,
-                "Stored value re-encryption: no value is under a previous key; Beacon:PreviousEncryptionKeys can be removed");
+                "Stored value re-encryption: no value of Beacon's own is under a previous key or in the legacy format (values a host stored through IEncryptionService are not scanned); Beacon:PreviousEncryptionKeys can be removed and Beacon:Encryption:AllowLegacyCbc turned off");
         }
 
         if (result.UnresolvedKeyDependencies > 0)
@@ -457,6 +473,7 @@ internal sealed class StoredValueReEncryptionService(
         public bool Writes => write;
 
         private int _underPreviousKeys;
+        private int _legacyFormat;
         private int _reEncrypted;
         private int _skipped;
         private int _unreadable;
@@ -480,7 +497,7 @@ internal sealed class StoredValueReEncryptionService(
             }
 
             var cipherText = stored[prefix.Length..];
-            var match = encryption.Identify(cipherText);
+            var match = encryption.Identify(cipherText, out var legacyFormat);
             if (match == EncryptionService.KeyMatch.None)
             {
                 _unreadable++;
@@ -498,19 +515,39 @@ internal sealed class StoredValueReEncryptionService(
                 return;
             }
 
-            if (match != EncryptionService.KeyMatch.Previous)
+            if (match != EncryptionService.KeyMatch.Previous && !legacyFormat)
             {
                 return;
             }
 
-            await RewriteAsync(kind, id, () => writeIfUnchanged(prefix + encryption.Encrypt(encryption.Decrypt(cipherText))), cancellationToken);
+            if (legacyFormat)
+            {
+                _legacyFormat++;
+            }
+
+            await RewriteAsync(
+                kind,
+                id,
+                () => writeIfUnchanged(prefix + encryption.Encrypt(encryption.Decrypt(cipherText))),
+                cancellationToken,
+                underPreviousKey: match == EncryptionService.KeyMatch.Previous);
         }
 
-        // A value found under a previous key (a cipher text, or a keyed hash) is counted and, with write, rewritten under the
-        // current key by writeIfUnchanged (a conditional update that answers the rows it wrote).
-        public async Task RewriteAsync(string kind, int id, Func<Task<int>> writeIfUnchanged, CancellationToken cancellationToken)
+        // A value found under a previous key (a cipher text, or a keyed hash) or in the legacy format is counted and, with
+        // write, rewritten under the current key in the current format by writeIfUnchanged (a conditional update that
+        // answers the rows it wrote).
+        public async Task RewriteAsync(
+            string kind,
+            int id,
+            Func<Task<int>> writeIfUnchanged,
+            CancellationToken cancellationToken,
+            bool underPreviousKey = true)
         {
-            _underPreviousKeys++;
+            if (underPreviousKey)
+            {
+                _underPreviousKeys++;
+            }
+
             if (!write)
             {
                 return;
@@ -593,7 +630,8 @@ internal sealed class StoredValueReEncryptionService(
         {
             return new StoredValueReEncryptionResult(_underPreviousKeys, _reEncrypted, _skipped, _unreadable, _failed)
             {
-                UnresolvedKeyDependencies = _unresolved
+                UnresolvedKeyDependencies = _unresolved,
+                LegacyFormat = _legacyFormat
             };
         }
     }

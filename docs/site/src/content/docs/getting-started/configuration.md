@@ -150,7 +150,7 @@ Bearer-token and external-login settings are code-only too, through `builder.Ser
 | `ConnectionStrings:{Name}` | string | none | The connection of a host-managed data source, which stores only the name and reads the string at call time |
 | `Beacon:Schema` | string | `beacon` | **Not configurable.** Any value other than `beacon` stops the host (see below). Leave it out |
 | `Beacon:BaseUrl` | string | none (the sample host falls back to `https://localhost:7187`) | Read by the sample host into `options.BaseUrl` |
-| `Beacon:PublicBaseUrl` | string (origin) | derived from the request | The origin advertised in the MCP discovery documents and the `WWW-Authenticate` challenge. Unset, it follows the request's `Host` header, which the client controls, and startup logs a Warning. Set it behind any proxy |
+| `Beacon:PublicBaseUrl` | string (origin) | derived from the request | The origin advertised in the MCP discovery documents and the `WWW-Authenticate` challenge. Unset, it follows the request's `Host` header, which the client controls, the documents are sent with `Cache-Control: no-store`, and startup logs a Warning. Set it behind any proxy |
 | `Beacon:OpenApi:Anonymous` | bool | `false` | Publishes the OpenAPI document (`MapBeaconOpenApi()`) to anonymous callers outside Development. Off, it needs a signed-in Beacon caller; list `/openapi` in `Beacon:Authentication:AdditionalPaths` so the Beacon session reaches it. |
 | `Beacon:ForwardedHeaders:Enabled` | bool | `false` | Sample host: apply `X-Forwarded-For` and `X-Forwarded-Proto` from known proxies |
 | `Beacon:ForwardedHeaders:KnownProxies` | string[] | empty | Sample host: proxy IP addresses to trust; entries that are not IP addresses are skipped, and an empty list trusts none |
@@ -166,7 +166,7 @@ Beacon only supports the 'beacon' schema, but 'tenant_a' was configured.
 Remove Beacon:Schema (or set it to 'beacon') and move any existing Beacon tables into 'beacon'.
 ```
 
-The obsolete overloads `.UsePostgreSql(connectionString, schema)` and `.UseSqlServer(connectionString, schema)` (removed in 6.0) accept a schema argument for the same reason only as `beacon`, and otherwise ignore it. On PostgreSQL the search path is `beacon,public`, so a pgvector extension installed in `public` resolves.
+The obsolete overloads `.UsePostgreSql(connectionString, schema)` and `.UseSqlServer(connectionString, schema)` (removed in 6.0) accept a schema argument for the same reason only as `beacon`, and otherwise ignore it. On PostgreSQL the search path is `beacon,public`, so a pgvector extension installed in `public` resolves. Startup logs a Warning when every role can create objects in `public` (the default before PostgreSQL 15); run `REVOKE CREATE ON SCHEMA public FROM PUBLIC` unless every role that can connect is trusted.
 
 ### Forwarded headers
 
@@ -227,7 +227,11 @@ export Beacon__EncryptionKey="<the new value>"
 export Beacon__PreviousEncryptionKeys__0="<the key configured until now>"
 ```
 
-`IStoredValueReEncryptionService` re-encrypts every stored value only a previous key decrypts (conditional writes, so a concurrent save wins). The sample host enqueues it as `ReEncryptStoredValuesJob` at every start while a previous key is listed; a host with its own jobs does the same. Startup also logs how many values remain under a previous key, how many no key decrypts, and how many recipient approval hashes cannot be recomputed. Remove the previous keys once none remain.
+`IStoredValueReEncryptionService` re-encrypts every stored value only a previous key decrypts (conditional writes, so a concurrent save wins). It also rewrites, in the current AES-GCM format, every value still in the legacy format written before it (unauthenticated AES-CBC), under whichever configured key. The sample host enqueues it as `ReEncryptStoredValuesJob` at every start; a host with its own jobs does the same. Startup also logs how many values remain under a previous key, how many no key decrypts, how many recipient approval hashes cannot be recomputed, and how many values are still in the legacy format. Remove the previous keys once none remain.
+
+### The legacy format
+
+Values in the legacy format stay readable while `Beacon:Encryption:AllowLegacyCbc` is `true` (the default); the first one read is logged once as a Warning. Once the re-encryption run reports none left in the legacy format (`StoredValueReEncryptionResult.LegacyFormatReadRemovable`), set it to `false`: a legacy value is then refused like one no key decrypts. The report covers Beacon's own stored values only (data sources, repository tokens, sensitive settings, recipients); values your host stored itself through `IEncryptionService` are not scanned, so check those before turning it off.
 
 Before changing the key, set `Beacon:Mcp:CallerHashKey` to the key in use now, so MCP audit rows keep grouping together across the change. The MCP audit's content hashes (`ContentHash`, `SqlHash`) come from the same secret and behave the same way. **Set `Beacon:Audit:IntegrityKey` before you change the key** too, so security audit events written from then on do not depend on it; events signed before keep verifying while their secret stays configured (see [Security audit trail](#security-audit-trail)).
 
@@ -434,6 +438,33 @@ refused. Replace each flagged connection, then set `EnforceOnExisting` to `true`
 local databases without TLS sets `AllowInsecure` in its Development configuration only.
 :::
 
+## Data-source driver options and hosts
+
+Each connector also refuses driver options that act on the Beacon host or sign in as it (the list per engine is in
+[Driver options and hosts](/features/data-sources/#driver-options-and-hosts)), on create, change and test connection;
+a stored source gets one Warning per process instead, and is refused under
+`Beacon:DataSources:Transport:EnforceOnExisting`; a host-managed source gets the host list only. `Beacon:DataSources:Transport:AllowInsecure` lifts the option rule,
+never the host list. Bound from `Beacon:DataSources`:
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `AllowedHosts` | string[] | `[]` | The hosts a data-source connection may reach: exact host names or IP addresses, or `*.example.com` for the hosts below `example.com` (ASCII; an internationalised name in its `xn--` form). Empty leaves hosts unrestricted. While set, a connection reaching an unlisted host, a host that is not a bare host name or IP address, or one whose hosts cannot be told, is refused; a BigQuery source needs `oauth2.googleapis.com`. Resolved addresses are not pinned. An entry with a scheme, port or path fails startup |
+| `AllowHostCredentials` | bool | `false` | Accepts connections that sign in as the Beacon host: integrated or Kerberos security, a managed, workload or default cloud identity, an AWS profile or IAM role, BigQuery application default credentials, a certificate store, a local socket or named pipe, a PostgreSQL pgpass file |
+
+```json
+{ "Beacon": { "DataSources": { "AllowedHosts": [ "*.db.example.com", "adb-1234567890123456.7.azuredatabricks.net" ] } } }
+```
+
+:::caution[Upgrading]
+New data sources that sign in as the Beacon host (for example SQL Server `Integrated Security=True`, CloudWatch with
+the host's IAM role, BigQuery without service account JSON) are refused unless `AllowHostCredentials` is `true`;
+stored ones keep working with a Warning. BigQuery sources whose service account JSON is not a service account key, or
+whose key names a token endpoint, universe or URL that is not Google's, stop connecting. New MySQL sources without a
+password are refused. PostgreSQL connections with a password no longer answer a server's Kerberos or SSPI request:
+set `Require Auth` yourself (and `AllowHostCredentials` for an Admin's source) if a password-carrying connection must
+sign in with Kerberos.
+:::
+
 ## Authorization
 
 Bound from `Beacon:Authorization`, validated at startup. Whether authorization is on at all is code-only (`options.Authorization.Enabled`). See [Authorization](/security/authorization/).
@@ -564,6 +595,12 @@ Bound from `Beacon:Subscriptions`, validated at startup.
 
 See [Subscriptions](/features/subscriptions/).
 
+### Reports (`Beacon:Reports`)
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `NeutralizeFormulas` | bool | `true` | A text cell of a CSV or XLSX attachment that starts with `=`, `+`, `-`, `@`, a tab or a carriage return is written so a spreadsheet reads it as text: a CSV cell gets a leading `'`, an XLSX cell the quote prefix. Numbers, dates and booleans are never touched. Set `false` only when the file is not opened in a spreadsheet |
+
 ## Data migration
 
 Bound from `Beacon:Migrations`, validated at startup. **A deployment lock**: only configuration turns it on.
@@ -600,6 +637,7 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
 | `CoversRecipientDestinations` | `true` | While the workflow is on, a new recipient or changed destination receives nothing until approved |
 | `CoversDataSourceConnections` | `false` | While the workflow is on, a new data source or a connection changed in anything but its secrets connects to nothing until approved |
 | `CoversLlmConnection` | `false` | While the workflow is on, a change of the stored LLM connection's provider, endpoint, region or authentication mode waits for a live Admin's approval; the stored connection stays in use meanwhile |
+| `CoversAdminRoleGrants` | `false` | While the workflow is on, giving a user the Admin role (a new user or a role change) waits until another live Admin approves it, whatever `AllowSelfApproval` says; removing it, and functional roles, apply at once |
 | `LlmConnectionRequestDays` | `7` | How long a staged LLM connection change waits for a decision before it expires and what it staged is wiped; held between 1 and 30 |
 
 The `Covers…` switches apply only while `Enabled` is on. Turning a switch, or the workflow, off releases what it held; startup warns with the counts. Startup also logs how changes are governed (a Warning outside Development while the workflow is off).
@@ -841,6 +879,35 @@ A write that contradicts an MCP lock answers `409` (`/errors/setting-locked`), a
 
 Other startup-validated keys (`Beacon:Authorization:*`, `Beacon:Authentication:*`, `Beacon:UserManagement:*`, `Beacon:ApiKeys:*`, `Beacon:Query:*`, `Beacon:Subscriptions:*`, `Beacon:Notifications:*`, `Beacon:EncryptionKey`, `Beacon:DataProtection:*`) have no runtime override either. Of the configuration values, only the base URL and the LLM settings can also be changed at runtime, in [Admin settings](/security/admin-settings/).
 
+## Regulated profile (`Beacon:Profile`)
+
+`Beacon:Profile: Regulated` turns on a preset of the settings a regulated deployment needs. Unset (or `None`) changes nothing; any other value fails startup. The profile reads the host's configuration keys: a key the host left unset is filled, a key the host set weaker than the profile requires is **never overridden** — the host fails to start with every such key listed in one message.
+
+| Key | Under the profile |
+|---|---|
+| `Beacon:Mcp:ForceReadOnly`, `Beacon:Mcp:ForcePiiDetection` | Already `true` by default; `false` fails startup |
+| `Beacon:Mcp:Audit:Required` | Unset: `true`. `false` fails startup |
+| `Beacon:Mcp:ForbidRowDataToLlm` | Unset: `true` (no sample values, value grounding or eval judge). `false` fails startup |
+| `Beacon:Mcp:Ceilings:MaxRowLimit`, `StatementTimeoutSeconds`, `MaxResultBytes`, `MaxConcurrentQueriesPerKey` | Unset: the built-in MCP settings defaults (1,000 rows, 30 s, 262,144 bytes, 4 queries per key), so an Admin cannot raise them. A value the host sets is kept |
+| `Beacon:Retention:Locked` | Unset: `true`, so `Beacon:Retention:Days`, `ContentDays`, every target and `Beacon:Mcp:Audit:RetentionDays` must be configured above zero (see [Data retention](#data-retention-beaconretention)). `false` fails startup. The profile sets no window itself: nothing is deleted that the host did not configure |
+| `Beacon:RateLimits:*:PermitLimit` (`Login`, `Api`, `Anonymous`, `Mcp`, `Ask`) and `Beacon:RateLimits:Lockout` | Already on by default; a limit of `0`, or a lockout turned off, fails startup (see [Request limits](#request-limits)) |
+| `Beacon:UserManagement:LocalLogin:Enabled` | Must be set to `false`; never filled, since it ends password sign-in for every account but the break-glass ones (`BreakGlassUserNames` stay allowed) |
+| `Beacon:Authentication:Oidc:RequireMfa` | With single sign-on on, must be set to `true`; never filled, since your identity provider must send the `amr`/`acr` claims first |
+
+```json
+{
+  "Beacon": {
+    "Profile": "Regulated",
+    "UserManagement": { "LocalLogin": { "Enabled": false, "BreakGlassUserNames": [ "admin" ] } },
+    "Authentication": { "Oidc": { "Enabled": true, "RequireMfa": true } },
+    "Retention": { "Days": 90, "ContentDays": 30 },
+    "Mcp": { "Audit": { "RetentionDays": 365 } }
+  }
+}
+```
+
+At startup Beacon logs one report of these checks (event 9130, Warning) naming each setting that is weaker than the profile requires, also when no profile is set; under the profile, once every check holds, one Information (9131) names the settings the profile filled. The report carries configuration names only, never a value. LLM concurrency and rate limits are Admin settings stored at runtime (see [AI / LLM](#ai--llm)), outside the profile.
+
 ## MCP (`Beacon:Mcp`)
 
 Validated at startup. Without the section, `ForceReadOnly` and `ForcePiiDetection` are on, nothing else is locked, and only the built-in length caps apply.
@@ -1029,7 +1096,7 @@ Not configurable, on every deployment:
 }
 ```
 
-Beacon logs identifiers and counts, never query text, connection strings, row data or tokens. Security log events are structured log events 7101 to 7123; route them to your log pipeline, together with the `Beacon.Audit` category, which carries the MCP audit events and a copy of every committed [security audit](/security/audit-trail/#shipping-to-a-siem) event (9104 to 9110).
+Beacon logs identifiers and counts, never query text, connection strings, row data or tokens. Security log events are structured log events 7101 to 7123; route them to your log pipeline, together with the `Beacon.Audit` category, which carries the MCP audit events and a copy of every committed [security audit](/security/audit-trail/#shipping-to-a-siem) event (9104 to 9112).
 
 ## Complete example
 

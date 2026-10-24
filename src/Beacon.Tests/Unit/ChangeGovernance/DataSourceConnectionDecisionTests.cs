@@ -434,7 +434,7 @@ public class DataSourceConnectionDecisionTests
         new(
             store.Factory(),
             Encryption,
-            providers ?? Mock.Of<IDataSourceProviderFactory>(),
+            providers ?? TestProviderFactory.Accepting(),
             new MemoryCache(new MemoryCacheOptions()),
             Mock.Of<ISchemaGraphService>(),
             new RecordingSecurityAudit(),

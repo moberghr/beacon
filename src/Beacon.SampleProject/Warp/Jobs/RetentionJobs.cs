@@ -8,7 +8,7 @@ namespace Beacon.SampleProject.Warp.Jobs;
 // Data retention (Beacon:Retention): deletes the run history and logs older than their windows (none unless
 // configured: 0 = keep forever) and clears content older than ContentDays. One run at a time, capped at an hour; a run
 // that fails is investigated, not retried (§6.4), and the next day's run picks up what it left.
-[Timeout(DataRetentionJob.TimeoutSeconds)]
+[Timeout(DataRetentionJob.TimeoutSeconds, Mode = TimeoutMode.Fail)]
 [Mutex(DataRetentionJob.Name)]
 public sealed class DataRetentionJob : IJob
 {

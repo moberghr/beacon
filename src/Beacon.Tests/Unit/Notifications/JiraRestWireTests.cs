@@ -40,7 +40,7 @@ public class JiraRestWireTests
 
         var request = _handler.Requests.Should().ContainSingle().Which;
         request.Method.Should().Be("GET");
-        request.Url.Should().Be("https://acme.atlassian.net/rest/api/3/search/jql?jql=project%20%3D%20SEC%20AND%20text%20~%20%22a%26b%20c%22&maxResults=5&startAt=0&fields=key%2Csummary%2Cdescription%2Cstatus%2Creporter%2Ccreated%2Cupdated");
+        request.Url.Should().Be("https://acme.atlassian.net/rest/api/3/search/jql?jql=project%20%3D%20SEC%20AND%20text%20~%20%22a%26b%20c%22&maxResults=5&startAt=0&fields=key%2Csummary%2Cdescription%2Cstatus%2Creporter%2Ccreated%2Cupdated%2Clabels");
         request.Authorization.Should().Be("Basic " + Convert.ToBase64String(Encoding.ASCII.GetBytes("svc@acme.eu:token")));
         request.Body.Should().BeNull();
 
@@ -96,7 +96,7 @@ public class JiraRestWireTests
         result.Should().Be(new CreateWorkItemResult("SEC-10", "https://acme.atlassian.net/browse/SEC-10", true));
         _handler.Requests.Should().HaveCount(2);
         _handler.Requests[0].Method.Should().Be("GET");
-        _handler.Requests[0].Url.Should().StartWith("https://acme.atlassian.net/rest/api/3/search/jql?jql=").And.EndWith("&maxResults=10&startAt=0&fields=key%2Csummary");
+        _handler.Requests[0].Url.Should().StartWith("https://acme.atlassian.net/rest/api/3/search/jql?jql=").And.EndWith("&maxResults=10&startAt=0&fields=key%2Csummary%2Clabels");
         var create = _handler.Requests[1];
         create.Method.Should().Be("POST");
         create.Url.Should().Be("https://acme.atlassian.net/rest/api/3/issue");

@@ -3,7 +3,13 @@ using Beacon.Core.Data.Enums;
 
 namespace Beacon.Core.Data.Entities.DataQuality;
 
-public class DataContractRule : BaseEntity
+/// <summary>
+/// One rule of a data contract. A save that replaces the contract's rules retires the ones it replaces (archives them,
+/// <see cref="ArchivableBaseEntity.ArchivedTime"/>) instead of deleting them, so the results of past evaluations keep the
+/// definition that produced them. Retired rules are left out of every read by the soft-delete filter, and are never
+/// evaluated again.
+/// </summary>
+public class DataContractRule : ArchivableBaseEntity
 {
     public int DataContractId { get; set; }
 
