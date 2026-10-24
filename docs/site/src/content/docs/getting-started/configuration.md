@@ -91,7 +91,7 @@ app.UseMiddleware<LoginFormAuthMiddleware>(beaconConfiguration, BeaconUiEndpoint
 app.UseMiddleware<FirstRunSetupMiddleware>(beaconConfiguration, BeaconUiEndpointRouteBuilderExtensions.BasePath); // with user management
 app.UseAntiforgery();
 
-app.MapOpenApi();                                            // /openapi/v1.json
+app.MapBeaconOpenApi();                                      // /openapi/v1.json
 app.MapBeaconApi();                                          // /beacon/api/* and the hub /beacon/api/hub
 app.MapLoginEndpoints("/beacon", beaconConfiguration);       // /beacon/api/auth/login, logout, sso
 app.MapSetupEndpoints("/beacon");                            // /beacon/api/setup/* (with user management)
@@ -109,7 +109,7 @@ The middleware order is load-bearing; keep it. `UseBeaconAuthentication()` takes
 | `/beacon/api/hub` | SignalR hub |
 | `/beacon/mcp` | MCP server |
 | `/.well-known/oauth-protected-resource`, `/.well-known/mcp/server-card.json` | MCP discovery (anonymous) |
-| `/openapi/v1.json` | OpenAPI document |
+| `/openapi/v1.json` | OpenAPI document (open in Development; signed-in callers only elsewhere unless `Beacon:OpenApi:Anonymous` is `true`) |
 | `/warp` | Warp dashboard (sample host, Admin only; listed in `Beacon:Authentication:AdditionalPaths`) |
 
 ## Code-only options
@@ -151,6 +151,7 @@ Bearer-token and external-login settings are code-only too, through `builder.Ser
 | `Beacon:Schema` | string | `beacon` | **Not configurable.** Any value other than `beacon` stops the host (see below). Leave it out |
 | `Beacon:BaseUrl` | string | none (the sample host falls back to `https://localhost:7187`) | Read by the sample host into `options.BaseUrl` |
 | `Beacon:PublicBaseUrl` | string (origin) | derived from the request | The origin advertised in the MCP discovery documents and the `WWW-Authenticate` challenge. Unset, it follows the request's `Host` header, which the client controls, and startup logs a Warning. Set it behind any proxy |
+| `Beacon:OpenApi:Anonymous` | bool | `false` | Publishes the OpenAPI document (`MapBeaconOpenApi()`) to anonymous callers outside Development. Off, it needs a signed-in Beacon caller; list `/openapi` in `Beacon:Authentication:AdditionalPaths` so the Beacon session reaches it. |
 | `Beacon:ForwardedHeaders:Enabled` | bool | `false` | Sample host: apply `X-Forwarded-For` and `X-Forwarded-Proto` from known proxies |
 | `Beacon:ForwardedHeaders:KnownProxies` | string[] | empty | Sample host: proxy IP addresses to trust; entries that are not IP addresses are skipped, and an empty list trusts none |
 | `AllowedHosts` | string | None | Standard ASP.NET Core host filtering |
