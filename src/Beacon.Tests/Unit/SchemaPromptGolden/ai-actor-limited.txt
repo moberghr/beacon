@@ -1,0 +1,26 @@
+**IMPORTANT: Always use fully qualified table names (schema.table_name) in SQL queries.**
+
+### sales.order_lines
+Columns:
+- order_id (integer) [PK, FK, NOT NULL]
+  → sales.orders.id
+- tenant_id (integer) [PK, FK, NOT NULL]
+  → sales.orders.tenant_id
+- line_no (smallint) [PK, NOT NULL]
+- sku (varchar) [NOT NULL]
+- status (text) [NOT NULL]
+- amount (numeric(12,2))
+- contact_email (varchar)
+- notes (text)
+
+### sales.orders
+Columns:
+- id (bigint) [PK, NOT NULL]
+- tenant_id (integer) [PK, NOT NULL]
+- customer_id (integer) [FK, NOT NULL]
+  → crm.customers.id
+- legacy_ref (integer) [FK]
+  → .
+- placed_at (timestamp with time zone) [NOT NULL]
+
+... and 1 more tables
