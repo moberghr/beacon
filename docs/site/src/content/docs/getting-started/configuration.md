@@ -770,7 +770,14 @@ Off by default, and a deployment lock: while `Enabled` is false no embed route i
 needed. On, a SecurityAdmin creates embed grants at `POST /beacon/api/embed-grants` (listed at `GET`, revoked at
 `POST /beacon/api/embed-grants/{id}/revoke`): one project, one saved query and its approved version, the frame origins,
 an expiry, and every query parameter fixed or locked. A grant's secret is shown once; only its SHA-256 is stored.
-Validated at startup.
+The host's backend exchanges it for a short-lived token at `POST /beacon/api/embed/tokens`
+(`Authorization: BeaconEmbedGrant <secret>`, body `{ "parameters": { … }, "ttlSeconds": … }`), and Beacon's embed page at
+`GET /beacon/embed/{publicId}` renders the query with it (`POST /beacon/api/embed/render`,
+`Authorization: BeaconEmbed <token>`). These three routes are anonymous to Beacon's cookie, API keys and bearer tokens:
+only the embed credential authenticates them, and every refusal gets the same `{"error":"embed_unavailable"}`. A render
+acts for the grant's creator (their live access and row entitlement), always masks PII and returns at most the smaller
+of the project's row limit and `MaxRows`. The embed page is served with a strict Content-Security-Policy whose
+`frame-ancestors` lists the grant's origins. An MCP gateway host serves no embed route. Validated at startup.
 
 | Key | Type | Default | What it does |
 |---|---|---|---|
@@ -781,6 +788,7 @@ Validated at startup.
 | `MaxGrantDays` | int | `90` | The longest a grant lives; 1–366 |
 | `MaxRows` | int | `1000` | 1–100,000 |
 | `MaxOrigins` | int | `10` | Frame origins per grant; 1–50. Origins are exact `https://host[:port]` (`http://localhost` only in Development) |
+| `MaxConcurrentRenders` | int | `8` | Embed renders running at once in the process, over every grant; one more is answered 503 at once. 1–256 |
 | `RateLimits:ExchangePerGrantPerMinute` | int | `60` | 1–10,000 |
 | `RateLimits:RenderPerGrantPerMinute` | int | `120` | 1–10,000 |
 | `RateLimits:RefusalsPerIpPerMinute` | int | `30` | 1–10,000 |

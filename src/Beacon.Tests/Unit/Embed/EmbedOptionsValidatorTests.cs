@@ -125,6 +125,8 @@ public class EmbedOptionsValidatorTests
     [TestCase(nameof(EmbedOptions.MaxGrantDays), 0)]
     [TestCase(nameof(EmbedOptions.MaxRows), 0)]
     [TestCase(nameof(EmbedOptions.MaxOrigins), 0)]
+    [TestCase(nameof(EmbedOptions.MaxConcurrentRenders), 0)]
+    [TestCase(nameof(EmbedOptions.MaxConcurrentRenders), 257)]
     public void ALimitOutOfRange_IsRefused_EvenWhileOff(string property, int value)
     {
         var options = new EmbedOptions();

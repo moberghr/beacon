@@ -23,6 +23,9 @@ public sealed class EmbedOptions
     /// <summary>The largest <see cref="MaxRows"/> accepted.</summary>
     public const int MaxAllowedRows = 100_000;
 
+    /// <summary>The largest <see cref="MaxConcurrentRenders"/> accepted.</summary>
+    public const int MaxAllowedConcurrentRenders = 256;
+
     /// <summary>Maps the embed routes and allows grants to be created. Default false.</summary>
     public bool Enabled { get; set; }
 
@@ -46,6 +49,12 @@ public sealed class EmbedOptions
 
     /// <summary>The most frame origins one grant may list. Default 10.</summary>
     public int MaxOrigins { get; set; } = 10;
+
+    /// <summary>
+    /// The most embed renders that run at once in this process, over every grant; one more is answered 503 at once. Default
+    /// 8, at most <see cref="MaxAllowedConcurrentRenders"/>.
+    /// </summary>
+    public int MaxConcurrentRenders { get; set; } = 8;
 
     public EmbedRateLimitOptions RateLimits { get; set; } = new();
 }
@@ -81,6 +90,7 @@ internal sealed class EmbedOptionsValidator(
         AddWhenOutside(failures, nameof(EmbedOptions.MaxGrantDays), options.MaxGrantDays, 1, EmbedOptions.MaxAllowedGrantDays);
         AddWhenOutside(failures, nameof(EmbedOptions.MaxRows), options.MaxRows, 1, EmbedOptions.MaxAllowedRows);
         AddWhenOutside(failures, nameof(EmbedOptions.MaxOrigins), options.MaxOrigins, 1, EmbedOptions.MaxAllowedOrigins);
+        AddWhenOutside(failures, nameof(EmbedOptions.MaxConcurrentRenders), options.MaxConcurrentRenders, 1, EmbedOptions.MaxAllowedConcurrentRenders);
         AddWhenOutside(failures, "RateLimits:" + nameof(EmbedRateLimitOptions.ExchangePerGrantPerMinute), options.RateLimits.ExchangePerGrantPerMinute, 1, 10_000);
         AddWhenOutside(failures, "RateLimits:" + nameof(EmbedRateLimitOptions.RenderPerGrantPerMinute), options.RateLimits.RenderPerGrantPerMinute, 1, 10_000);
         AddWhenOutside(failures, "RateLimits:" + nameof(EmbedRateLimitOptions.RefusalsPerIpPerMinute), options.RateLimits.RefusalsPerIpPerMinute, 1, 10_000);

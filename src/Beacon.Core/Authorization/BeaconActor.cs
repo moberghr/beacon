@@ -70,6 +70,15 @@ public sealed record BeaconActor(string? UserId, bool IsAdmin)
     internal int? ApiKeyId { get; init; }
 
     /// <summary>
+    /// The embed grant an <see cref="BeaconPrincipalKind.Embed"/> caller acts for (<c>EmbedGrants.Id</c>); null for any other
+    /// caller.
+    /// </summary>
+    internal int? EmbedGrantId { get; init; }
+
+    /// <summary>How an <see cref="BeaconPrincipalKind.Embed"/> caller presented its grant; null for any other caller.</summary>
+    internal Services.Embed.EmbedCredential? EmbedCredential { get; init; }
+
+    /// <summary>
     /// The one id access and security logs name the caller by: its <c>Users.Id</c>, or, without a stored user (a host
     /// principal, an Admin of a host without Beacon user management), the id its session presents
     /// (<see cref="UserId"/>); null for a caller without either.

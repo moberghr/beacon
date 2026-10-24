@@ -5,6 +5,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Helpers;
 using Beacon.Core.Mcp;
 using Beacon.Core.Services;
+using Beacon.Core.Services.Embed;
 
 namespace Beacon.Core.Authorization;
 
@@ -101,9 +102,22 @@ internal sealed class BeaconActorAccessor(
         ClaimsPrincipal? principal,
         IDbContextFactory<BeaconContext> contextFactory,
         CancellationToken cancellationToken,
-        bool beaconManagesUsers)
+        bool beaconManagesUsers,
+        TimeProvider? clock = null)
     {
         if (principal?.Identity?.IsAuthenticated != true)
+        {
+            return BeaconActor.Nobody;
+        }
+
+        // An embed principal first, before anything reads it as a user or a session: it acts for its grant's creator,
+        // read from the store. One that claims to be embed but does not read as Beacon's own embed principal is nobody.
+        if (EmbedPrincipal.TryRead(principal, out var grantId, out var credential))
+        {
+            return await ResolveEmbedAsync(grantId, credential, contextFactory, clock ?? TimeProvider.System, cancellationToken);
+        }
+
+        if (EmbedPrincipal.ClaimsToBeEmbed(principal))
         {
             return BeaconActor.Nobody;
         }
@@ -170,6 +184,60 @@ internal sealed class BeaconActorAccessor(
         };
 
         return WithClaims(actor, principal, isApiKey || isMcpCaller);
+    }
+
+    // An embed grant (its secret, or a token issued for it) acts for the grant's creator in the grant's one project, as the
+    // creator's live stored user: a revoked or expired grant, or a creator who is no longer an active user, is an embed
+    // caller without a user, which the project access evaluator gives nothing. It never names a user (no UserId), so no
+    // owner rule takes it for the creator, and it is never an Admin.
+    private static async Task<BeaconActor> ResolveEmbedAsync(
+        int grantId,
+        EmbedCredential credential,
+        IDbContextFactory<BeaconContext> contextFactory,
+        TimeProvider clock,
+        CancellationToken cancellationToken)
+    {
+        var refused = new BeaconActor(null, false)
+        {
+            Kind = BeaconPrincipalKind.Embed,
+            EmbedGrantId = grantId,
+            EmbedCredential = credential,
+            AllowedProjectIds = []
+        };
+
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        var grant = await context.EmbedGrants
+            .Where(x => x.Id == grantId)
+            .Select(x =>
+                new
+                {
+                    x.ProjectId,
+                    x.CreatedByUserId,
+                    x.RevokedTime,
+                    x.ExpiresTime
+                })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (grant == null
+            || grant.RevokedTime != null
+            || grant.ExpiresTime <= clock.GetUtcNow().UtcDateTime
+            || string.IsNullOrEmpty(grant.CreatedByUserId))
+        {
+            return refused;
+        }
+
+        var creator = await FindUserAsync(context, new BeaconUserLookup(null, null, grant.CreatedByUserId), cancellationToken);
+        if (creator is not { IsActive: true })
+        {
+            return refused with { AllowedProjectIds = [grant.ProjectId] };
+        }
+
+        return refused with
+        {
+            BeaconUserId = creator.Id,
+            IsActiveUser = true,
+            RoleLevel = creator.RoleLevel,
+            AllowedProjectIds = [grant.ProjectId]
+        };
     }
 
     // Archived and disabled users are read too, so their sessions never fall back to their own claim; an active row

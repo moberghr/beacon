@@ -54,6 +54,9 @@ public static class ServiceConfiguration
         // Login throttle ships with Beacon.Api so every host gets it, realtime on or off.
         services.TryAddSingleton<LoginRateLimiter>();
 
+        // The embed routes' own per-minute limits (used only while embedding is on).
+        services.TryAddSingleton<EmbedRateLimiter>();
+
         if (!options.Realtime)
         {
             services.TryAddScoped<IApprovalNotifier, RealtimeDisabledApprovalNotifier>();

@@ -56,6 +56,7 @@ internal sealed class EmbedTokenCodec(IOptions<EmbedOptions> options, TimeProvid
 
     private const string ParametersClaim = "prm";
     private const string ScopeClaim = "scp";
+    private const string FrameMarkerContext = "beacon-embed-frame:";
 
     public Task<EmbedTokenIssued> MintAsync(string grantPublicId, IReadOnlyDictionary<string, string> parameters, TimeSpan ttl)
     {
@@ -138,6 +139,33 @@ internal sealed class EmbedTokenCodec(IOptions<EmbedOptions> options, TimeProvid
         }
 
         return result.SecurityToken is JsonWebToken jwt ? PayloadOf(jwt) : EmbedTokenCheck.Refused(EmbedTokenRefusal.Malformed);
+    }
+
+    /// <summary>
+    /// The marker Beacon's embed page for <paramref name="grantPublicId"/> carries and sends back with every render: an HMAC
+    /// of the public id under the signing key. Only the page Beacon serves for the grant (with its frame headers) carries it,
+    /// so a copy of the page served any other way (a static file, without <c>frame-ancestors</c>) cannot render.
+    /// </summary>
+    public string FrameMarkerOf(string grantPublicId)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(grantPublicId);
+
+        var mac = HMACSHA256.HashData(SigningKey().Key, System.Text.Encoding.UTF8.GetBytes(FrameMarkerContext + grantPublicId));
+
+        return Convert.ToHexStringLower(mac)[..32];
+    }
+
+    /// <summary>Whether <paramref name="marker"/> is <paramref name="grantPublicId"/>'s frame marker (compared in fixed time).</summary>
+    public bool IsFrameMarkerOf(string grantPublicId, string? marker)
+    {
+        if (string.IsNullOrEmpty(marker))
+        {
+            return false;
+        }
+
+        return CryptographicOperations.FixedTimeEquals(
+            System.Text.Encoding.ASCII.GetBytes(FrameMarkerOf(grantPublicId)),
+            System.Text.Encoding.ASCII.GetBytes(marker));
     }
 
     /// <summary>The first 8 hex characters of the SHA-256 of <paramref name="key"/>'s bytes: the <c>kid</c> its tokens carry.</summary>
