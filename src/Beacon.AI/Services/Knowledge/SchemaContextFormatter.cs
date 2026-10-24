@@ -18,65 +18,101 @@ internal record SchemaColumn(
     string? ForeignKeySchema = null, bool SampleValuesComplete = false);
 
 /// <summary>
-/// Renders schema context for LLM grounding in an M-Schema-style structured format:
-/// per-column tuples (name: type, flags, description, Examples: [..]) plus an explicit
-/// Foreign Keys section per table.
+/// How a prompt lists a table's columns. Each prompt keeps its own wording: a change to it changes what the model reads.
+/// </summary>
+internal enum SchemaColumnLayout
+{
+    /// <summary><c>    - (name: type(length), PK, NOT NULL, description, Examples: [..])</c>, for SQL generation.</summary>
+    Tuple,
+
+    /// <summary><c>  - name type PK NOT NULL FK→table.column — description</c>.</summary>
+    Inline,
+
+    /// <summary><c>  - name (type) [PK] FK→table.column</c>, primary and foreign key columns only.</summary>
+    KeyColumns,
+
+    /// <summary><c>  - name (type) — description</c>.</summary>
+    Fields
+}
+
+/// <summary>
+/// The shape of one table block in a prompt: how its description and columns are introduced, whether a foreign-key section,
+/// a line naming every column, or a trailing blank line follow.
+/// </summary>
+internal sealed record SchemaTableLayout(
+    SchemaColumnLayout Columns,
+    string DescriptionPrefix,
+    string? ColumnsHeading,
+    bool ForeignKeySection,
+    bool ColumnNamesLine,
+    bool BlankLineAfter)
+{
+    /// <summary>The ask schema context: M-Schema-style column tuples plus an explicit Foreign Keys section.</summary>
+    public static SchemaTableLayout Ask { get; } = new(SchemaColumnLayout.Tuple, "  ", "  Columns:", ForeignKeySection: true, ColumnNamesLine: false, BlankLineAfter: true);
+
+    /// <summary>The documentation data model prompt; the caller appends indexes and enum values, then the blank line.</summary>
+    public static SchemaTableLayout DocumentationDataModel { get; } = new(SchemaColumnLayout.Inline, "Description: ", "Columns:", ForeignKeySection: false, ColumnNamesLine: false, BlankLineAfter: false);
+
+    /// <summary>The documentation business domains prompt: key columns, then every column's name.</summary>
+    public static SchemaTableLayout DocumentationDomains { get; } = new(SchemaColumnLayout.KeyColumns, "Description: ", ColumnsHeading: null, ForeignKeySection: false, ColumnNamesLine: true, BlankLineAfter: false);
+
+    /// <summary>The documentation API prompt: an endpoint's response fields.</summary>
+    public static SchemaTableLayout DocumentationApi { get; } = new(SchemaColumnLayout.Fields, "Description: ", "Response fields:", ForeignKeySection: false, ColumnNamesLine: false, BlankLineAfter: true);
+}
+
+/// <summary>
+/// Renders tables and columns into prompt text, for the ask schema context and the documentation prompts. Each caller
+/// picks its <see cref="SchemaTableLayout"/>; the formatter renders only what the columns carry (sample values only in the
+/// <see cref="SchemaColumnLayout.Tuple"/> layout, and only when the caller passed them). The AI actor's schema context
+/// (<c>AiActorPrompts.FormatSchemaContext</c>) keeps its own rendering: it is public and marks a foreign key by the stored
+/// flag with a preformatted reference, not by the target table the layouts here key on.
 /// </summary>
 internal static class SchemaContextFormatter
 {
     public static void AppendTableWithFullColumns(
         StringBuilder sb, string schemaName, string tableName, string? description,
-        IEnumerable<SchemaColumn> columns, bool isApi)
+        IEnumerable<SchemaColumn> columns, bool isApi) =>
+        AppendTable(sb, isApi ? tableName : $"{schemaName}.{tableName}", description, columns, SchemaTableLayout.Ask);
+
+    /// <summary>
+    /// Appends one table block: <c>### label</c>, the description, the columns in the layout's form, and the sections the
+    /// layout asks for.
+    /// </summary>
+    public static void AppendTable(
+        StringBuilder sb, string label, string? description, IEnumerable<SchemaColumn> columns, SchemaTableLayout layout)
     {
         var columnList = columns.ToList();
 
-        sb.AppendLine($"### {(isApi ? tableName : $"{schemaName}.{tableName}")}");
+        sb.AppendLine($"### {label}");
         if (description != null)
         {
-            sb.AppendLine($"  {description}");
+            sb.AppendLine($"{layout.DescriptionPrefix}{description}");
         }
 
-        sb.AppendLine("  Columns:");
+        if (layout.ColumnsHeading != null)
+        {
+            sb.AppendLine(layout.ColumnsHeading);
+        }
+
         foreach (var col in columnList)
         {
-            sb.Append($"    - ({col.ColumnName}: {FormatDataType(col)}");
-            if (col.IsPrimaryKey)
-            {
-                sb.Append(", PK");
-            }
-            if (!col.IsNullable)
-            {
-                sb.Append(", NOT NULL");
-            }
-            if (col.Description != null)
-            {
-                sb.Append($", {col.Description}");
-            }
-
-            var examples = DeserializeSampleValues(col.SampleValuesJson);
-            if (examples is { Count: > 0 })
-            {
-                sb.Append(col.SampleValuesComplete
-                    ? $", Values (all {examples.Count}): [{string.Join(", ", examples)}]"
-                    : $", Examples: [{string.Join(", ", examples)}]");
-            }
-
-            sb.AppendLine(")");
+            AppendColumn(sb, col, layout.Columns);
         }
 
-        var foreignKeys = columnList
-            .Where(x => x.ForeignKeyTable != null)
-            .ToList();
-        if (foreignKeys.Count > 0)
+        if (layout.ColumnNamesLine)
         {
-            sb.AppendLine("  Foreign Keys:");
-            foreach (var fk in foreignKeys)
-            {
-                sb.AppendLine($"    - {fk.ColumnName} → {fk.ForeignKeyTable}.{fk.ForeignKeyColumn}");
-            }
+            sb.AppendLine($"  Columns: {string.Join(", ", columnList.Select(x => x.ColumnName))}");
         }
 
-        sb.AppendLine();
+        if (layout.ForeignKeySection)
+        {
+            AppendForeignKeySection(sb, columnList);
+        }
+
+        if (layout.BlankLineAfter)
+        {
+            sb.AppendLine();
+        }
     }
 
     public static void AppendTableCompact(
@@ -196,6 +232,125 @@ internal static class SchemaContextFormatter
         foreach (var junction in junctions)
         {
             sb.AppendLine($"    [link table: {junction}]");
+        }
+    }
+
+    private static void AppendColumn(StringBuilder sb, SchemaColumn col, SchemaColumnLayout layout)
+    {
+        switch (layout)
+        {
+            case SchemaColumnLayout.Tuple:
+                AppendTupleColumn(sb, col);
+                break;
+            case SchemaColumnLayout.Inline:
+                AppendInlineColumn(sb, col);
+                break;
+            case SchemaColumnLayout.KeyColumns:
+                AppendKeyColumn(sb, col);
+                break;
+            case SchemaColumnLayout.Fields:
+                AppendField(sb, col);
+                break;
+            default:
+                throw new ArgumentOutOfRangeException(nameof(layout), layout, null);
+        }
+    }
+
+    private static void AppendInlineColumn(StringBuilder sb, SchemaColumn col)
+    {
+        sb.Append($"  - {col.ColumnName} {col.DataType}");
+        if (col.IsPrimaryKey)
+        {
+            sb.Append(" PK");
+        }
+        if (!col.IsNullable)
+        {
+            sb.Append(" NOT NULL");
+        }
+        if (col.ForeignKeyTable != null)
+        {
+            sb.Append($" FK→{col.ForeignKeyTable}.{col.ForeignKeyColumn}");
+        }
+        if (col.Description != null)
+        {
+            sb.Append($" — {col.Description}");
+        }
+
+        sb.AppendLine();
+    }
+
+    private static void AppendKeyColumn(StringBuilder sb, SchemaColumn col)
+    {
+        if (!col.IsPrimaryKey && col.ForeignKeyTable == null)
+        {
+            return;
+        }
+
+        sb.Append($"  - {col.ColumnName} ({col.DataType})");
+        if (col.IsPrimaryKey)
+        {
+            sb.Append(" [PK]");
+        }
+        if (col.ForeignKeyTable != null)
+        {
+            sb.Append($" FK→{col.ForeignKeyTable}.{col.ForeignKeyColumn}");
+        }
+
+        sb.AppendLine();
+    }
+
+    private static void AppendField(StringBuilder sb, SchemaColumn col)
+    {
+        sb.Append($"  - {col.ColumnName} ({col.DataType})");
+        if (col.Description != null)
+        {
+            sb.Append($" — {col.Description}");
+        }
+
+        sb.AppendLine();
+    }
+
+    private static void AppendTupleColumn(StringBuilder sb, SchemaColumn col)
+    {
+        sb.Append($"    - ({col.ColumnName}: {FormatDataType(col)}");
+        if (col.IsPrimaryKey)
+        {
+            sb.Append(", PK");
+        }
+        if (!col.IsNullable)
+        {
+            sb.Append(", NOT NULL");
+        }
+        if (col.Description != null)
+        {
+            sb.Append($", {col.Description}");
+        }
+
+        var examples = DeserializeSampleValues(col.SampleValuesJson);
+        if (examples is { Count: > 0 })
+        {
+            sb.Append(col.SampleValuesComplete
+                ? $", Values (all {examples.Count}): [{string.Join(", ", examples)}]"
+                : $", Examples: [{string.Join(", ", examples)}]");
+        }
+
+        sb.AppendLine(")");
+    }
+
+    private static void AppendForeignKeySection(StringBuilder sb, List<SchemaColumn> columns)
+    {
+        var foreignKeys = columns
+            .Where(x => x.ForeignKeyTable != null)
+            .ToList();
+        if (foreignKeys.Count == 0)
+        {
+            return;
+        }
+
+        sb.AppendLine("  Foreign Keys:");
+        foreach (var fk in foreignKeys)
+        {
+            sb.AppendLine($"    - {fk.ColumnName} → {fk.ForeignKeyTable}.{fk.ForeignKeyColumn}");
         }
     }
 

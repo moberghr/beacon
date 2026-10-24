@@ -424,9 +424,11 @@ internal sealed class ProjectDocumentationService(
                 Description = m.TableDescription,
                 Columns = m.Columns
                     .OrderBy(c => c.OrdinalPosition)
-                    .Select(c => new ColumnDetail(
-                        c.ColumnName, c.DataType, c.IsNullable, c.IsPrimaryKey,
-                        c.ForeignKeyTable, c.ForeignKeyColumn, c.Description, c.MaxLength))
+                    // No sample values: documentation prompts never carry them.
+                    .Select(c => new SchemaColumn(
+                        c.ColumnName, c.DataType, c.IsPrimaryKey, c.IsNullable,
+                        c.ForeignKeyTable, c.ForeignKeyColumn, c.Description, c.MaxLength,
+                        null, null, false))
                     .ToList(),
                 Indexes = m.Indexes
                     .Select(i => new IndexDetail(i.IndexName, string.Join(", ", i.Columns), i.IsUnique))
@@ -566,7 +568,7 @@ internal sealed class ProjectDocumentationService(
         "character varying", "character", "bpchar"
     };
 
-    private static bool IsEnumCandidate(ColumnDetail col)
+    private static bool IsEnumCandidate(SchemaColumn col)
     {
         if (col.IsPrimaryKey || col.ForeignKeyTable != null)
         {
@@ -699,11 +701,11 @@ internal sealed class ProjectDocumentationService(
 
                 var candidates = table.Columns
                     .Where(IsEnumCandidate)
-                    .Where(x => !SqlIdentifierGuard.HasUnsafeCharacters(x.Name))
-                    .Where(x => !ColumnValueExclusions.IsExcludedColumn(guardrail, x.Name, customPiiPatterns))
-                    .OrderByDescending(x => HasEnumNameHint(x.Name))
+                    .Where(x => !SqlIdentifierGuard.HasUnsafeCharacters(x.ColumnName))
+                    .Where(x => !ColumnValueExclusions.IsExcludedColumn(guardrail, x.ColumnName, customPiiPatterns))
+                    .OrderByDescending(x => HasEnumNameHint(x.ColumnName))
                     .Take(5)
-                    .Select(x => x.Name)
+                    .Select(x => x.ColumnName)
                     .ToList();
 
                 if (candidates.Count == 0)
@@ -926,14 +928,9 @@ internal sealed class ProjectDocumentationService(
         public string SchemaName { get; init; } = null!;
         public string TableName { get; init; } = null!;
         public string? Description { get; init; }
-        public List<ColumnDetail> Columns { get; init; } = new();
+        public List<SchemaColumn> Columns { get; init; } = new();
         public List<IndexDetail> Indexes { get; init; } = new();
     }
-
-    internal sealed record ColumnDetail(
-        string Name, string DataType, bool IsNullable, bool IsPrimaryKey,
-        string? ForeignKeyTable, string? ForeignKeyColumn, string? Description,
-        int? MaxLength);
 
     internal sealed record IndexDetail(string Name, string Columns, bool IsUnique);
 
