@@ -7,7 +7,7 @@ namespace Beacon.Core.Data;
 
 public static class BeaconSchema
 {
-    private static readonly Regex ValidIdentifier = new("^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.Compiled);
+    private static readonly Regex ValidIdentifier = new("^[A-Za-z_][A-Za-z0-9_]*$", RegexOptions.Compiled, TimeSpan.FromMilliseconds(250));
 
     public static string? Resolve(DbContext context)
     {

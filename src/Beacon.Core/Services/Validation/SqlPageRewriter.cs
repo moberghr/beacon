@@ -33,7 +33,7 @@ public static class SqlPageRewriter
 
     private static readonly Regex LeadingSelectPattern = new(
         @"\A\s*SELECT(?:\s+DISTINCT)?",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromMilliseconds(1000));
 
     private static readonly SqlPagePlan Unsupported = new(null, null, false);
 

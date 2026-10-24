@@ -60,7 +60,7 @@ internal sealed partial class HostEndpointToolDiscovery(
         typeof(PipeReader)
     };
 
-    [GeneratedRegex("^[a-z][a-z0-9_]{2,47}$")]
+    [GeneratedRegex("^[a-z][a-z0-9_]{2,47}$", RegexOptions.None, matchTimeoutMilliseconds: 250)]
     private static partial Regex NamePattern();
 
     /// <param name="authenticationSchemes">
