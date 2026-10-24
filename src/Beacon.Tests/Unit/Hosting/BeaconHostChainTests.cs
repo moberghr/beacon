@@ -39,9 +39,11 @@ public class BeaconHostChainTests
 
         app.UseBeaconPipeline();
 
-        // §1.9: the challenge decoration before any authentication, then API key → bearer JWT → UseAuthentication →
-        // Beacon.Auth cookie (UseBeaconAuthentication), authorization, the login-form and first-run redirects, antiforgery.
+        // §1.9: the problem responses for /beacon/api first, so every later middleware's exceptions are mapped, the challenge
+        // decoration before any authentication, then API key → bearer JWT → UseAuthentication → Beacon.Auth cookie
+        // (UseBeaconAuthentication), authorization, the login-form and first-run redirects, antiforgery.
         BeaconHostApplicationBuilderExtensions.PipelineStages(app).Should().Equal(
+            "UseBeaconApiExceptionHandler",
             "UseMcpResourceMetadataChallenge",
             "UseBeaconAuthentication",
             "UseAuthorization",
@@ -58,6 +60,7 @@ public class BeaconHostChainTests
         app.UseBeaconPipeline();
 
         BeaconHostApplicationBuilderExtensions.PipelineStages(app).Should().Equal(
+            "UseBeaconApiExceptionHandler",
             "UseMcpResourceMetadataChallenge",
             "UseBeaconAuthentication",
             "UseAuthorization",
@@ -74,7 +77,7 @@ public class BeaconHostChainTests
 
         again.Should().Throw<InvalidOperationException>()
             .WithMessage("UseBeaconPipeline() has already been called on this application*remove the second call*");
-        BeaconHostApplicationBuilderExtensions.PipelineStages(app).Should().HaveCount(4, "the second call added nothing");
+        BeaconHostApplicationBuilderExtensions.PipelineStages(app).Should().HaveCount(5, "the second call added nothing");
     }
 
     [Test]
