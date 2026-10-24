@@ -201,6 +201,9 @@ public static class ServiceConfiguration
         services.TryAddSingleton<SecurityAudit.SecurityAuditReadGate>();
         services.TryAddScoped<SecurityAudit.SecurityAuditReads>();
         services.TryAddTransient<SecurityAudit.ISecurityAuditVerificationService, SecurityAudit.SecurityAuditVerificationService>();
+        services.TryAddTransient<SecurityAudit.IMcpAuditVerificationService, SecurityAudit.McpAuditVerificationService>();
+        services.TryAddTransient<SecurityAudit.IMcpAuditSealSchema, SecurityAudit.McpAuditSealSchema>();
+        services.TryAddScoped<SecurityAudit.McpAuditSealingStartup>();
 
         // Keyed hashes of where governed recipients deliver: under a key derived from the encryption key for this purpose;
         // hashes written under a previous key keep matching until the re-encryption run rewrites them.

@@ -11,6 +11,7 @@ using Beacon.Core.Data.Entities;
 using Beacon.Core.Helpers;
 using Beacon.Core.Mcp;
 using Beacon.Core.SavedQueries;
+using Beacon.Core.SecurityAudit;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Retention;
 using Beacon.Core.Telemetry;
@@ -30,7 +31,8 @@ internal sealed partial class McpAuditService(
     IOptions<BeaconTelemetryOptions> telemetryOptions,
     ILoggerFactory loggerFactory,
     McpContentHasher contentHasher,
-    IMcpStatementLog statementLog)
+    IMcpStatementLog statementLog,
+    IMcpAuditSealSchema? sealSchema = null)
 {
     internal const string McpSessionIdHeader = "Mcp-Session-Id";
     internal static readonly EventId ToolAuditedEvent = new(9100, "McpToolAudited");
@@ -145,15 +147,56 @@ internal sealed partial class McpAuditService(
         }
         catch (Exception ex)
         {
-            // §1.7 — audit logging is non-optional. Swallow so a transient DB issue doesn't fail the
-            // tool call, but log at Error so a sustained audit-sink outage is operationally visible. The outcome
-            // flag lets McpAuditCallToolFilter withhold the result when the deployment requires the audit.
-            outcome.Failed = true;
-            logger.LogError("Failed to log MCP audit entry for tool {Tool} ({Failure})", BoundedToolName(tool), FailureCodes.Describe(ex));
+            // A schema the seal migration has not reached yet has no place for the seal: the row is written without it.
+            persisted = entry != null && await WrittenWithoutSealAsync(entry, ex, tool, ct);
+            if (persisted)
+            {
+                outcome.Written = true;
+            }
+            else
+            {
+                // §1.7 — audit logging is non-optional. Swallow so a transient DB issue doesn't fail the
+                // tool call, but log at Error so a sustained audit-sink outage is operationally visible. The outcome
+                // flag lets McpAuditCallToolFilter withhold the result when the deployment requires the audit.
+                outcome.Failed = true;
+                logger.LogError("Failed to log MCP audit entry for tool {Tool} ({Failure})", BoundedToolName(tool), FailureCodes.Describe(ex));
+            }
         }
 
         EmitTelemetry(entry, correlationId, persisted, retainContent, tool, userId, projectId, dataSourceId, executionTimeMs,
             resultRowCount, errorMessage, parameters);
+    }
+
+    // After a failed write: when the database has the MCP audit table but not the seal columns (new code before the
+    // migration), the row and its statements are written without the seal, as unsealed rows, and the row is kept.
+    private async Task<bool> WrittenWithoutSealAsync(McpAuditLog entry, Exception failure, string tool, CancellationToken ct)
+    {
+        if (sealSchema == null || failure is not (DbUpdateException or System.Data.Common.DbException))
+        {
+            return false;
+        }
+
+        try
+        {
+            if (await sealSchema.SealColumnsMissingAsync(ct) != true)
+            {
+                return false;
+            }
+
+            entry.Id = await sealSchema.WriteWithoutSealAsync(entry, ct);
+            logger.LogWarning(
+                "MCP audit row {AuditId} for tool {Tool} was written without its seal: the database lacks the seal columns; apply the Beacon migrations",
+                entry.Id,
+                BoundedToolName(tool));
+
+            return true;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError("Failed to write the MCP audit entry for tool {Tool} without its seal ({Failure})", BoundedToolName(tool), FailureCodes.Describe(ex));
+
+            return false;
+        }
     }
 
     // The statement rows, and after them, when the call ran more statements than the log keeps, a marker row whose row

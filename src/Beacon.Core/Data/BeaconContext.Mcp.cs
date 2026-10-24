@@ -31,6 +31,8 @@ public abstract partial class BeaconContext
             entity.Property(e => e.McpSessionId).HasMaxLength(128);
             entity.Property(e => e.UpstreamRequestId).HasMaxLength(128);
             entity.Property(e => e.ContentHash).HasMaxLength(64);
+            entity.Property(e => e.HmacKeyId).HasMaxLength(32);
+            entity.Property(e => e.Hmac).HasMaxLength(64);
 
             entity.HasOne(e => e.User)
                 .WithMany()
@@ -40,6 +42,7 @@ public abstract partial class BeaconContext
             entity.HasIndex(e => e.UserId);
             entity.HasIndex(e => e.CreatedTime);
             entity.HasIndex(e => e.Tool);
+            entity.HasIndex(e => e.AuditGuid).IsUnique();
         });
 
         modelBuilder.Entity<MaintenanceHeartbeat>(entity =>

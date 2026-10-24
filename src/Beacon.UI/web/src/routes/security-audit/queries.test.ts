@@ -80,6 +80,8 @@ describe('the catalogue', () => {
       'migrations.job_started',
       'migrations.job_run_ended',
       'audit.mcp_audit_read',
+      'audit.mcp_audit_verified',
+      'audit.mcp_audit_sealing_started',
       'audit.execution_log_read',
       'audit.execution_log_exported',
     ]));
