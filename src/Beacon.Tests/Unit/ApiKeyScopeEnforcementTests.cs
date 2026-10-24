@@ -98,6 +98,7 @@ public class ApiKeyScopeEnforcementTests
         "/beacon/api/data-sources/{dataSourceId:int}/relationships",
         "/beacon/api/data-sources/{dataSourceId:int}/schema-health",
         "/beacon/api/data-sources/{id:int}",
+        "/beacon/api/data-sources/{id:int}/metadata-refreshes/{taskId:int}",
         "/beacon/api/health",
         "/beacon/api/home/activity",
         "/beacon/api/home/migration-summary",

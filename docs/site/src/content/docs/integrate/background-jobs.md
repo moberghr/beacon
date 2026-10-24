@@ -31,15 +31,24 @@ public interface IBeaconScheduler
 
     // The members below have default bodies that throw NotImplementedException.
     // Implement them to enable the feature that calls them.
-    // EnqueueMetadataRefresh is the exception: its default returns null instead of throwing.
+    // EnqueueMetadataRefresh and EnqueueBackgroundTask are the exceptions: their defaults return null instead of throwing.
     Task AddOrUpdateDataQualityJob(int contractId, string contractName, string cron);   // data contracts
     Task RemoveDataQualityJob(int contractId, string contractName);
     Task<string> EnqueueProjectDocumentation(int projectId, int userId, string? notifyUserId); // AI documentation
     Task<string> EnqueueAiActorThinkCycle(int actorId, int subscriptionId);              // AI actors
     Task<string> EnqueueMcpEval(int runId);                                              // MCP evaluation runs
     Task<string?> EnqueueMetadataRefresh(int dataSourceId);                              // metadata re-scan after a connection target change
+    Task<string?> EnqueueBackgroundTask(int taskId, string? notifyUserId);               // a task a user started and follows (background metadata refresh)
 }
 ```
+
+`EnqueueBackgroundTask` is optional too. Beacon records long work a user starts from the UI (today: a forced metadata
+refresh) as a background task and hands its id to this method; your job calls `IBackgroundTaskService.ExecuteAsync(taskId, ct)`
+in a scope marked as system work; Beacon then runs it as the user who started it and re-checks their access first (a
+task they may no longer run is recorded as skipped, and the job succeeds). Return the job id (the UI follows
+`JobStatusChanged` for it, sent to `notifyUserId`: the id the SignalR hub addresses the caller by, a signed-in
+session's external id, or `null` for an API key or an MCP caller), or `null` (the default): Beacon then runs the task in
+the request that started it, as before.
 
 `EnqueueMetadataRefresh` is optional. Beacon calls it after a data source's connection is pointed at another target, to re-scan its metadata in the background. Return the job id, or `null` (the default) when your host runs no such job; Beacon then logs that the old schema stays until a manual refresh.
 
@@ -60,6 +69,7 @@ Each job opens a **new DI scope**, marks it as system work, and calls one Beacon
 | Project documentation | `IProjectDocumentationService.GenerateDocumentationAsync(projectId, userId, ct)` (Beacon.AI) | `EnqueueProjectDocumentation` |
 | AI actor think cycle | `IAiActorServiceExtended.ExecuteThinkCycleBackgroundAsync(actorId, subscriptionId)` (Beacon.AI) | `EnqueueAiActorThinkCycle` |
 | MCP evaluation run | `IJobService.RunMcpEval(runId, ct)` | `EnqueueMcpEval` |
+| Background task (metadata refresh) | `IBackgroundTaskService.ExecuteAsync(taskId, ct)` | `EnqueueBackgroundTask` |
 
 ### Recurring maintenance jobs
 
@@ -369,7 +379,7 @@ The filter reads the Beacon session, which applies to `/beacon` and the prefixes
 
 ### Live job status in the UI
 
-The reference host also pushes `JobStatusChanged` (Processing / Succeeded / Failed) to the user who started a documentation job, through the SignalR hub. It tags the job with `BeaconUserId` metadata and a second pipeline behaviour sends the event; see `src/Beacon.SampleProject/Warp/JobStatusChangedBehavior.cs`. Without it everything works; the UI just does not show live progress for those jobs.
+The reference host also pushes `JobStatusChanged` (Processing / Succeeded / Failed) to the user who started a documentation job or a background task, through the SignalR hub. It tags the job with `BeaconUserId` metadata and a second pipeline behaviour sends the event; see `src/Beacon.SampleProject/Warp/JobStatusChangedBehavior.cs`. Without it everything works; the UI just does not show live progress for those jobs.
 
 ## Other job runners
 

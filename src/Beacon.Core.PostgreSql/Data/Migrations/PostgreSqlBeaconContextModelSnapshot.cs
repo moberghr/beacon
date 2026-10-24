@@ -764,6 +764,68 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.ToTable("app_setting_history", "beacon");
                 });
 
+            modelBuilder.Entity("Beacon.Core.Data.Entities.BackgroundTask", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("failure_code");
+
+                    b.Property<DateTime?>("FinishedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("finished_time");
+
+                    b.Property<string>("JobId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("job_id");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer")
+                        .HasColumnName("kind");
+
+                    b.Property<int?>("RequestedByUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("requested_by_user_id");
+
+                    b.Property<DateTime?>("StartedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_time");
+
+                    b.Property<int>("State")
+                        .HasColumnType("integer")
+                        .HasColumnName("state");
+
+                    b.Property<int>("SubjectId")
+                        .HasColumnType("integer")
+                        .HasColumnName("subject_id");
+
+                    b.Property<int?>("WarningCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("warning_count");
+
+                    b.HasKey("Id")
+                        .HasName("pk_background_tasks");
+
+                    b.HasIndex("Kind", "SubjectId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_background_tasks_kind_subject_id")
+                        .HasFilter("state IN (0, 1)");
+
+                    b.ToTable("background_tasks", "beacon");
+                });
+
             modelBuilder.Entity("Beacon.Core.Data.Entities.BeaconRole", b =>
                 {
                     b.Property<int>("Id")
