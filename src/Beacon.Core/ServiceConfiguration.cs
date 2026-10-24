@@ -7,6 +7,7 @@ using Beacon.Core.Adapters.Jira;
 using Beacon.Core.Adapters.Mail;
 using Beacon.Core.Adapters.Slack;
 using Beacon.Core.Adapters.Teams;
+using Beacon.Core.Http;
 using Beacon.Core.Adapters.Webhook;
 using Beacon.Core.Authentication;
 using Beacon.Core.Authentication.Providers;
@@ -78,6 +79,7 @@ public static class ServiceConfiguration
         services.AddSingleton(configurationOptions);
 
         services.AddHttpClient();
+        services.AddBeaconOutboundHttpClients();
         services.AddMemoryCache();
 
         // Note: IBeaconUserContext is registered by the UI layer; Core provides the interfaces and implementations.
