@@ -234,6 +234,22 @@ When you upgrade:
 - [ ] **Scripts that create users through the API:** send a user name of at least 3 characters and a plain e-mail
       address (or none).
 
+### Security headers and an origin check on Beacon's routes
+
+Beacon's responses now carry `X-Content-Type-Options`, `X-Frame-Options: DENY`, `Referrer-Policy: strict-origin` and a
+`Permissions-Policy`, and responses under `/beacon` a Content-Security-Policy that allows scripts, styles and workers from
+Beacon's own origin only and no framing. A new origin check looks at state-changing, realtime-hub and anonymous Beacon
+requests and, in this release, only logs the ones from a foreign origin. `UseBeaconAuthentication()` adds both; your own
+routes are untouched. See [Security headers and the origin check](/integrate/host-setup/#security-headers-and-the-origin-check).
+
+When you upgrade:
+
+- [ ] **Hosts that frame Beacon or load it into another page's content:** `frame-ancestors 'none'` and `X-Frame-Options:
+      DENY` now refuse it. Send your own policy on those responses, or set `Beacon:Security:Csp` to `ReportOnly`.
+- [ ] **Behind a proxy:** set `Beacon:PublicBaseUrl` (or `Beacon:Security:AllowedOrigins`), watch the log for the origin
+      check's warnings, then set `Beacon:Security:OriginGuard` to `Enforce`. A later release is planned to make `Enforce` the default.
+- [ ] **Optional:** call `app.UseBeaconSecurityHeaders()` before `UseStaticFiles()` so the UI's files carry the headers too.
+
 ## Release notes
 
 The full list of changes is on the [5.0.0.0 release](https://github.com/moberghr/beacon/releases/tag/5.0.0.0).

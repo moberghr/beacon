@@ -269,6 +269,10 @@ else
     app.UseHttpsRedirection();
 }
 
+// Security headers on Beacon's routes (Beacon:Security): before UseStaticFiles so the SPA's files carry them too.
+// UseBeaconAuthentication adds them itself when a host does not call this. HSTS is the host's: UseHsts binds the whole host name.
+app.UseBeaconSecurityHeaders();
+
 app.UseStaticFiles();
 
 // Convert exceptions thrown inside /beacon/api/* into RFC 7807 problem+json responses.
