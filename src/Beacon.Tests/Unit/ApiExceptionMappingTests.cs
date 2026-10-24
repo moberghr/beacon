@@ -4,7 +4,7 @@ using Microsoft.AspNetCore.Http;
 using Microsoft.Extensions.Logging.Abstractions;
 using NUnit.Framework;
 using Beacon.Core.Models;
-using Beacon.SampleProject.Middleware;
+using Beacon.Api.Middleware;
 
 namespace Beacon.Tests.Unit;
 

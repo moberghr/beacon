@@ -16,7 +16,7 @@ using Beacon.Core.Mcp;
 using Beacon.Core.Models.UserManagement;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Security;
-using Beacon.SampleProject.Middleware;
+using Beacon.Api.Middleware;
 using Beacon.Tests.Common;
 using FluentAssertions;
 using MediatR;

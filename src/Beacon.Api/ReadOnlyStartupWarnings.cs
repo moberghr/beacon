@@ -232,7 +232,7 @@ internal sealed class ReadOnlyStartupWarnings(
             if (projectIds.Count > 0)
             {
                 logger.LogWarning(
-                    "{Section}:{Lock} is on: the stored documentation of projects {ProjectIds} has business domain, data model or glossary sections, which can list values discovered in the data. They are no longer sent to the LLM provider; regenerate the documentation so values discovered before the lock are no longer stored",
+                    "{Section}:{Lock} is on: the stored documentation of projects {ProjectIds} has business domain, data model or glossary sections, which can list values discovered in the data. They are no longer sent to the LLM provider; regenerate the documentation so values discovered before the lock are no longer stored (sections edited by hand are kept: edit them)",
                     McpDeploymentOptions.SectionName,
                     nameof(McpDeploymentOptions.ForbidRowDataToLlm),
                     projectIds);

@@ -267,7 +267,7 @@ internal static class HostModelReader
 
     private static bool IsHardExcluded(HostColumn column, HostDbContextOptions options)
     {
-        if (!SecretLikeColumnNames.IsSecretLike(column.Name) && !SecretLikeColumnNames.IsSecretLike(column.PropertyName))
+        if (!SecretLikeColumnNames.IsSecretLikeColumn(column))
         {
             return false;
         }

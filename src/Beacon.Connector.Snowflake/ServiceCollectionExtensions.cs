@@ -20,6 +20,7 @@ public static class ServiceCollectionExtensions
         ConnectorRegistry.RegisterDatabaseEngine(DatabaseEngineType.Snowflake, "Snowflake");
         builder.Services.AddTransient<IDatabaseMetadataExtractor, SnowflakeMetadataExtractor>();
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceTransportInspector, SnowflakeTransportInspector>());
+        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceConnectionOptionInspector, SnowflakeConnectionOptionInspector>());
         return builder;
     }
 }

@@ -85,7 +85,7 @@ Register these yourself at startup (the reference host's schedule):
 | `mcp-audit-retention` | `30 3 * * *` | `IMcpAuditRetentionService.PurgeExpiredAsync` | Purge MCP audit rows older than `Beacon:Mcp:Audit:RetentionDays` (no-op when unset or `0`). |
 | `data-retention` | `50 3 * * *` | `IDataRetentionService.RunAsync` | Delete run history and logs older than `Beacon:Retention:Days` (no-op while it and every target are `0`, the default) and clear content older than `Beacon:Retention:ContentDays` (content first). A run works at most 50 minutes, each step within its share, and the next run continues what it left. `[Timeout]` one hour, `[Mutex]` one run at a time. See [Data retention](/getting-started/configuration/#data-retention-beaconretention). |
 | `security-audit-retention` | `45 3 * * *` | `ISecurityAuditRetentionService.PurgeExpiredAsync` | Purge security audit events older than `Beacon:Audit:RetentionDays` (no-op when unset: events are kept forever). |
-| `security-audit-verify` | `15 * * * *` | `ISecurityAuditVerificationService.VerifyNewEventsAsync` | Check events written since the last run against their integrity hashes; failures are logged at Error. |
+| `security-audit-verify` | `15 * * * *` | `ISecurityAuditVerificationService.VerifyNewEventsAsync` | Check events, then MCP audit rows, written since the last run against their integrity hashes; failures are logged at Error. |
 | `mcp-embedding-reindex` | `0 */12 * * *` | `IJobService.ReindexEmbeddings` | Re-embed metadata and examples for semantic retrieval. Content that did not change since the last run (same text, model and version) is skipped, so a run costs what changed. |
 | `mcp-docchunk-reindex` | `0 */12 * * *` | `IJobService.ReindexDocChunks` | Re-chunk and re-embed project documentation. |
 
@@ -382,7 +382,7 @@ The filter reads the Beacon session, which applies to `/beacon` and the prefixes
 
 ### Live job status in the UI
 
-The reference host also pushes `JobStatusChanged` (Processing / Succeeded / Failed) to the user who started a documentation job or a background task, through the SignalR hub. It tags the job with `BeaconUserId` metadata and a second pipeline behaviour sends the event; see `src/Beacon.SampleProject/Warp/JobStatusChangedBehavior.cs`. Without it everything works; the UI just does not show live progress for those jobs.
+The reference host also pushes `JobStatusChanged` (Processing / Succeeded / Failed) to the user who started a documentation job or a background task, through the SignalR hub. It tags the job with `BeaconUserId` metadata (the `notifyUserId` Beacon passes: the enqueuing user's hub user id, their `Users.ExternalId`) and a second pipeline behaviour sends the event to `Clients.User` with it; see `src/Beacon.SampleProject/Warp/JobStatusChangedBehavior.cs`. Without it everything works; the UI just does not show live progress for those jobs.
 
 ## Other job runners
 

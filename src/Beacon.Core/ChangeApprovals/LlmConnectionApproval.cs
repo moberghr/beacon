@@ -63,24 +63,19 @@ internal sealed class LlmConnectionApproval(
     };
 
     /// <summary>
-    /// The settings a save of the LLM connection is judged against: while the workflow covers the LLM connection, the
-    /// stored settings as they are now (this process's cached copy can predate a change another process stored);
-    /// otherwise <paramref name="cached"/>.
+    /// The settings a save of the admin settings is judged against: the stored settings as they are now, never this
+    /// process's cached copy, which can predate a change another process stored.
     /// </summary>
-    public async Task<AppSettingsData> BaselineAsync(AppSettingsData cached, CancellationToken cancellationToken)
+    public async Task<AppSettingsData> StoredAsync(CancellationToken cancellationToken)
     {
-        if (!configuration.ApprovalWorkflow.Covers(Kind))
-        {
-            return cached;
-        }
-
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         return await stager.ReadStoredAsync(context, cancellationToken);
     }
 
     /// <summary>
-    /// Saves the admin settings <paramref name="next"/> (read from <paramref name="current"/>). Without the workflow covering
+    /// Saves the admin settings <paramref name="next"/> (read from <paramref name="current"/>, the stored settings,
+    /// <see cref="StoredAsync"/>). Without the workflow covering
     /// the LLM connection they are saved at once (under the LLM connection lock too); a save that changes the stored
     /// connection then supersedes the pending requests it makes moot. Under the workflow the change is judged against the
     /// stored connection inside the unit of work that writes it, under the LLM connection lock: a change of credentials or

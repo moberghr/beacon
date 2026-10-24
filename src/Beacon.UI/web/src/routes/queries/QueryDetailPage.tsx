@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
-import { Link, useParams, useSearchParams } from 'react-router-dom';
+import { Link, useLocation, useNavigate, useParams } from 'react-router-dom';
 import { AlertTriangle, Clock } from 'lucide-react';
 import { Banner } from '@/components/beacon';
 import { EmptyState } from '@/components/data/EmptyState';
@@ -89,19 +89,19 @@ export default function QueryDetailPage() {
     setAddSubOpen(true);
   }, []);
 
-  // Auto-run when arriving with ?run=1 (from NewQueryPage "Save & run").
-  const [searchParams, setSearchParams] = useSearchParams();
+  // Auto-run when NewQueryPage "Save & run" navigates here. The intent travels in router state, which a link
+  // from outside the app cannot set, so a crafted URL never runs a query.
+  const location = useLocation();
+  const navigate = useNavigate();
   const autoRunFiredRef = useRef(false);
   useEffect(() => {
     if (autoRunFiredRef.current) return;
-    if (searchParams.get('run') !== '1') return;
+    if ((location.state as { run?: boolean } | null)?.run !== true) return;
     if (!query) return;
     autoRunFiredRef.current = true;
-    const next = new URLSearchParams(searchParams);
-    next.delete('run');
-    setSearchParams(next, { replace: true });
+    navigate(`${location.pathname}${location.search}`, { replace: true, state: null });
     void onExecute();
-  }, [query, searchParams, setSearchParams, onExecute]);
+  }, [query, location, navigate, onExecute]);
 
   // Cmd/Ctrl+Enter triggers execute modal.
   useEffect(() => {

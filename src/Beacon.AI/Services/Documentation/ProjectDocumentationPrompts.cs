@@ -1,5 +1,6 @@
 using System.Globalization;
 using System.Text;
+using Beacon.AI.Services.Knowledge;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Services.Providers;
 using static Beacon.AI.Services.Documentation.ProjectDocumentationService;
@@ -270,20 +271,7 @@ internal static class ProjectDocumentationPrompts
             foreach (var table in group)
             {
                 var block = new StringBuilder();
-                block.AppendLine($"### {table.SchemaName}.{table.TableName}");
-                if (table.Description != null) block.AppendLine($"Description: {table.Description}");
-
-                // Key columns with FK relationships
-                foreach (var col in table.Columns.Where(c => c.IsPrimaryKey || c.ForeignKeyTable != null))
-                {
-                    block.Append($"  - {col.Name} ({col.DataType})");
-                    if (col.IsPrimaryKey) block.Append(" [PK]");
-                    if (col.ForeignKeyTable != null) block.Append($" FK→{col.ForeignKeyTable}.{col.ForeignKeyColumn}");
-                    block.AppendLine();
-                }
-
-                // All columns (brief)
-                block.AppendLine($"  Columns: {string.Join(", ", table.Columns.Select(c => c.Name))}");
+                SchemaContextFormatter.AppendTable(block, $"{table.SchemaName}.{table.TableName}", table.Description, table.Columns, SchemaTableLayout.DocumentationDomains);
 
                 var tableEnums = ctx.GetEnumValuesForTable(table.SchemaName, table.TableName);
                 if (tableEnums.Count > 0)
@@ -333,19 +321,7 @@ internal static class ProjectDocumentationPrompts
             foreach (var table in group)
             {
                 var block = new StringBuilder();
-                block.AppendLine($"### {table.SchemaName}.{table.TableName}");
-                if (table.Description != null) block.AppendLine($"Description: {table.Description}");
-
-                block.AppendLine("Columns:");
-                foreach (var col in table.Columns)
-                {
-                    block.Append($"  - {col.Name} {col.DataType}");
-                    if (col.IsPrimaryKey) block.Append(" PK");
-                    if (!col.IsNullable) block.Append(" NOT NULL");
-                    if (col.ForeignKeyTable != null) block.Append($" FK→{col.ForeignKeyTable}.{col.ForeignKeyColumn}");
-                    if (col.Description != null) block.Append($" — {col.Description}");
-                    block.AppendLine();
-                }
+                SchemaContextFormatter.AppendTable(block, $"{table.SchemaName}.{table.TableName}", table.Description, table.Columns, SchemaTableLayout.DocumentationDataModel);
 
                 if (table.Indexes.Count > 0)
                 {
@@ -413,7 +389,7 @@ internal static class ProjectDocumentationPrompts
             var fks = table.Columns.Where(c => c.ForeignKeyTable != null).ToList();
             if (fks.Count > 0)
             {
-                budget.TryAdd($"  - {table.SchemaName}.{table.TableName} → {string.Join(", ", fks.Select(c => $"{c.ForeignKeyTable} (via {c.Name})"))}{Environment.NewLine}");
+                budget.TryAdd($"  - {table.SchemaName}.{table.TableName} → {string.Join(", ", fks.Select(c => $"{c.ForeignKeyTable} (via {c.ColumnName})"))}{Environment.NewLine}");
             }
         }
 
@@ -561,16 +537,7 @@ internal static class ProjectDocumentationPrompts
             foreach (var endpoint in tables)
             {
                 var block = new StringBuilder();
-                block.AppendLine($"### {endpoint.TableName}");
-                if (endpoint.Description != null) block.AppendLine($"Description: {endpoint.Description}");
-                block.AppendLine("Response fields:");
-                foreach (var col in endpoint.Columns)
-                {
-                    block.Append($"  - {col.Name} ({col.DataType})");
-                    if (col.Description != null) block.Append($" — {col.Description}");
-                    block.AppendLine();
-                }
-                block.AppendLine();
+                SchemaContextFormatter.AppendTable(block, endpoint.TableName, endpoint.Description, endpoint.Columns, SchemaTableLayout.DocumentationApi);
                 budget.TryAdd(block.ToString());
             }
 
@@ -591,7 +558,7 @@ internal static class ProjectDocumentationPrompts
         sb.AppendLine("## Table and Column Names:");
         foreach (var table in ctx.Tables.Take(100))
         {
-            budget.TryAdd($"- {table.SchemaName}.{table.TableName}: {string.Join(", ", table.Columns.Select(c => c.Name))}{Environment.NewLine}");
+            budget.TryAdd($"- {table.SchemaName}.{table.TableName}: {string.Join(", ", table.Columns.Select(c => c.ColumnName))}{Environment.NewLine}");
         }
 
         if (ctx.EnumValues.Count > 0)

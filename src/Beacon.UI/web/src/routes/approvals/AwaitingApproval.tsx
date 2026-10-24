@@ -24,6 +24,7 @@ export const REJECTED_REMEDY: Record<ChangeApprovalKind, string> = {
   [ChangeApprovalKind.RecipientDestination]: 'Rejected — change it and save again',
   [ChangeApprovalKind.DataSourceConnection]: 'Rejected — replace the connection, or delete the data source',
   [ChangeApprovalKind.LlmConnection]: 'Rejected — the LLM connection stays as it was',
+  [ChangeApprovalKind.AdminRoleGrant]: 'Rejected — the user does not hold the Admin role',
 };
 
 const REJECTED_EFFECT: Record<ChangeApprovalKind, string> = {
@@ -34,6 +35,8 @@ const REJECTED_EFFECT: Record<ChangeApprovalKind, string> = {
     'A reviewer rejected this connection, so Beacon makes no connection with the data source until it holds an approved one. Replace it with the connection approved before (that applies at once) or with a new one (that waits for approval), or delete the data source.',
   [ChangeApprovalKind.LlmConnection]:
     'A reviewer rejected this change of the LLM connection, so the stored connection stays in use. Save the settings again to submit another change.',
+  [ChangeApprovalKind.AdminRoleGrant]:
+    'A reviewer rejected this grant of the Admin role, so the user does not hold it. Set the user’s roles again to submit another grant.',
 };
 
 // A resource that waits while no request of it is pending and its last request was not rejected (replaced by a newer
@@ -44,6 +47,7 @@ const NO_REQUEST_REMEDY: Record<ChangeApprovalKind, string> = {
   [ChangeApprovalKind.RecipientDestination]: 'No change request waits: save the recipient again to submit it for approval.',
   [ChangeApprovalKind.DataSourceConnection]: 'No change request waits: replace the connection to submit it for approval.',
   [ChangeApprovalKind.LlmConnection]: 'No change request waits: save the LLM settings again to submit the change for approval.',
+  [ChangeApprovalKind.AdminRoleGrant]: 'No change request waits: set the user’s roles again to submit the grant for approval.',
 };
 
 // What a pending change means for its resource, where the generic "waits for approval" says too little.
@@ -67,6 +71,7 @@ export function useCanOpenChange(kind: ChangeApprovalKind): boolean {
 
   switch (kind) {
     case ChangeApprovalKind.LlmConnection:
+    case ChangeApprovalKind.AdminRoleGrant:
       return access.isAdmin;
     case ChangeApprovalKind.RecipientDestination:
     case ChangeApprovalKind.DataSourceConnection:

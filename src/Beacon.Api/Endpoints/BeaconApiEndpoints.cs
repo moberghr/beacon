@@ -25,8 +25,8 @@ public static class BeaconApiEndpoints
     internal const string HubPath = "/beacon/api/hub";
 
     /// <summary>
-    /// Requires the <c>Execute</c> scope for scoped callers (§1.4): API keys minted by <c>ApiKeyAuthMiddleware</c> and
-    /// JWT callers on <c>/beacon/mcp</c> minted by <c>JwtBearerAuthMiddleware</c> (<c>auth_method=mcp_caller</c>, scope
+    /// Requires the <c>Execute</c> scope for scoped callers (§1.4): API keys minted by <c>ApiKeyAuthenticationHandler</c> and
+    /// JWT callers on <c>/beacon/mcp</c> minted by <c>BeaconJwtAuthenticationHandler</c> (<c>auth_method=mcp_caller</c>, scope
     /// decided by <see cref="IMcpCallerMapper"/>, never by the token). Interactive cookie/OIDC sessions and JWT callers
     /// on other routes carry no such marker and are not scope-gated — they are a full authenticated session governed
     /// by role. Every <c>/beacon/api</c> request that is not GET/HEAD/OPTIONS needs the same scope through
@@ -53,10 +53,9 @@ public static class BeaconApiEndpoints
 
         services.AddAuthorization(options =>
         {
-            // Scheme-agnostic on purpose: ApiKeyAuthMiddleware assigns context.User directly
-            // (no scheme registration), so pinning the policy to a single scheme would 403
-            // every API-key caller. RequireAuthenticatedUser() honours whatever identity the
-            // upstream middleware (cookie OR API key) has put on the context.
+            // Scheme-agnostic on purpose: UseBeaconAuthentication records the API key, bearer or cookie
+            // result on the request, and pinning the policy to one scheme would 403 every other
+            // caller. RequireAuthenticatedUser() honours whatever identity it has put on the context.
             options.AddPolicy(AuthPolicyName, new AuthorizationPolicyBuilder()
                 .RequireAuthenticatedUser()
                 .Build());
@@ -102,6 +101,12 @@ public static class BeaconApiEndpoints
                 }
             });
 
+        // The SPA's pages (MapBeaconUi): signed-in callers only while the login form is on, the host's FallbackPolicy while
+        // it is off. Post-configured, so the host's own FallbackPolicy is already set.
+        services.AddOptions<AuthorizationOptions>()
+            .PostConfigure<IServiceProvider>((options, serviceProvider) =>
+                BeaconUiPagePolicies.AddTo(options, serviceProvider.GetService<Beacon.Core.BeaconConfiguration>()));
+
         // Fails startup when Core would read no request's caller (its off-request principal is still registered).
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, RequestPrincipalStartupCheck>());
 
@@ -127,6 +132,10 @@ public static class BeaconApiEndpoints
         // Notes at startup which key seals security audit events (a Warning when it is derived) and how long they are kept.
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, SecurityAuditStartupNote>());
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, RetentionStartupNote>());
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, RetentionScheduleStartupCheck>());
+
+        // Warns once after startup when every role can create objects in the PostgreSQL public schema Beacon's connections search.
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, PublicSchemaStartupWarning>());
 
         // Reports at startup the security settings weaker than the regulated profile requires (Beacon:Profile).
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, DeploymentProfileStartupReport>());
@@ -226,6 +235,7 @@ public static class BeaconApiEndpoints
         group.MapTasksEndpoints();
         group.MapUsersEndpoints();
         group.MapSecurityAuditEndpoints();
+        group.MapExecutionLogEndpoints();
 
         // Mapped on `endpoints`, NOT on the group: the group carries the antiforgery filter,
         // which would reject the hub's negotiate handshake. Route and policy are the contract
@@ -238,7 +248,7 @@ public static class BeaconApiEndpoints
         // case, so the server never advertises a hub it did not map.
         // The hub also admits only callers who may use it (HubAccessPolicy), and a connection is closed when the
         // expiry its request reported passes: for a cookie session the session's next check against the user store
-        // (BeaconSessionEvents), capped at its absolute lifetime; for an API key the same interval (ApiKeyAuthMiddleware).
+        // (BeaconSessionEvents), capped at its absolute lifetime; for an API key the same interval (ApiKeyAuthenticator).
         // The client then reconnects, and is checked again.
         var options = endpoints.ServiceProvider.GetService<BeaconApiOptions>();
         if (options?.Realtime == true)

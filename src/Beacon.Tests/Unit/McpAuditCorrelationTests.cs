@@ -64,6 +64,30 @@ public class McpAuditCorrelationTests
     }
 
     [Test]
+    public async Task EveryRow_CarriesAServerMintedCorrelationId_WhateverTheRequestSends()
+    {
+        var context = Context(SessionId, RequestId, apiKeyId: null);
+        context.Request.Headers["Correlation-Id"] = "caller-chosen";
+        context.Request.Headers["traceparent"] = "00-0af7651916cd43dd8448eb211c80319c-b7ad6b7169203331-01";
+
+        var first = await LogAsync(context);
+        var second = await LogAsync(context);
+
+        first.CorrelationId.Should().MatchRegex("^[0-9a-f]{32}$");
+        first.CorrelationId.Should().NotBe(RequestId);
+        first.CorrelationId.Should().NotBe(second.CorrelationId, "each audited call gets its own id");
+        first.UpstreamRequestId.Should().Be(RequestId, "the caller's id stays a separate field");
+    }
+
+    [Test]
+    public async Task NoHttpContext_StillMintsACorrelationId()
+    {
+        var log = await LogAsync(null);
+
+        log.CorrelationId.Should().MatchRegex("^[0-9a-f]{32}$");
+    }
+
+    [Test]
     public async Task NoCurrentActivity_LeavesTraceAndSpanNull()
     {
         Activity.Current = null;

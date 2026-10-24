@@ -118,7 +118,7 @@ statistics, with the tabs **Recipients**, **Anomaly detection** (shown only when
 | Action | What it does | Needs |
 |---|---|---|
 | **Test now** | Runs the subscription once, now, and delivers to its recipients (`POST /beacon/api/subscriptions/{id}/execute`). It runs as you, not as the owner, and does not change the schedule. | Write and Run |
-| **Archive** | Stops the schedule and moves the subscription to the Archived list (`DELETE /beacon/api/subscriptions/{id}`). Its runs stay in the history. | Manage. The button is enabled for Admins; others with Manage use the API. |
+| **Archive** | Stops the schedule and moves the subscription to the Archived list (`DELETE /beacon/api/subscriptions/{id}`). Its runs stay in the history (listed with `subscriptionArchived: true`). | Manage. The button is enabled for Admins; others with Manage use the API. |
 | **Reactivate** | Puts an archived subscription back on its schedule (`POST /beacon/api/subscriptions/{id}/reactivate`). | Write. The button is enabled for Admins; others with Write use the API. |
 | **Change owner** | Assigns another owner (see below). | Admin or UserAdmin |
 | **Add recipient** / **Remove recipient** | On the **Recipients** tab (`POST /beacon/api/subscriptions/{id}/recipients`, `DELETE …/recipients/{recipientId}`). | Write |

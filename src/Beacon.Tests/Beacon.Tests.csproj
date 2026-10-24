@@ -31,6 +31,7 @@
         <None Include="Unit\ProjectAuthorization\FastPathGolden\*.sql" CopyToOutputDirectory="PreserveNewest" />
         <None Include="Unit\Documentation\PromptGolden\*.txt" CopyToOutputDirectory="PreserveNewest" />
         <None Include="Unit\AskSchemaContextGolden\*.txt" CopyToOutputDirectory="PreserveNewest" />
+        <None Include="Unit\SchemaPromptGolden\*.txt" CopyToOutputDirectory="PreserveNewest" />
         <None Include="Unit\LlmProviders\WireGolden\*.json" CopyToOutputDirectory="PreserveNewest" />
     </ItemGroup>
 
