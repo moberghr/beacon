@@ -52,6 +52,9 @@ internal sealed class ProjectAccessEvaluator(
 
     private static readonly IReadOnlySet<ProjectAction> ReadScopeActions = new HashSet<ProjectAction> { ProjectAction.Read };
 
+    // What an embed grant, and a token issued for it, may do in its project: read and run its saved query.
+    private static readonly IReadOnlySet<ProjectAction> EmbedActions = new HashSet<ProjectAction> { ProjectAction.Read, ProjectAction.Run };
+
     // What the owner of a query without steps may do with it (and with the work derived from it).
     private static readonly IReadOnlySet<ProjectAction> StepLessQueryOwnerActions = new HashSet<ProjectAction>
     {
@@ -277,6 +280,9 @@ internal sealed class ProjectAccessEvaluator(
             case BeaconPrincipalKind.Owner:
                 return await OwnerAsync(actor, cancellationToken);
 
+            case BeaconPrincipalKind.Embed:
+                return await EmbedAsync(actor, cancellationToken);
+
             default:
                 return AccessProfile.None;
         }
@@ -322,6 +328,36 @@ internal sealed class ProjectAccessEvaluator(
             ProjectList = actor.AllowedProjectIds,
             UsesMemberships = true,
             Actions = ScopeActions(actor.ScopeCeiling.Value)
+        };
+    }
+
+    // An embed grant (or a token issued for it) acts for the grant's creator in the grant's one project: read and run only,
+    // at most a Viewer and never above the creator's ceiling now (read through the ceiling source, never the request's
+    // authorization provider), through the creator's memberships, never with the Admin bypass and never in the openly
+    // reachable sources outside that project. A creator without an active stored user, or without a ceiling, gets nothing.
+    private async Task<AccessProfile> EmbedAsync(BeaconActor actor, CancellationToken cancellationToken)
+    {
+        if (actor.BeaconUserId == null || !actor.IsActiveUser || actor.AllowedProjectIds is not { Count: 1 })
+        {
+            return AccessProfile.None;
+        }
+
+        var creatorCeiling = await ceilingSource.GetCeilingAsync(actor, cancellationToken);
+        if (creatorCeiling == null)
+        {
+            return AccessProfile.None;
+        }
+
+        var ceiling = Min(ProjectRole.Viewer, creatorCeiling.Value);
+
+        return new AccessProfile
+        {
+            Ceiling = ceiling,
+            OpenGrant = OpenGrantOf(ceiling),
+            ReachesOpenSources = false,
+            ProjectList = actor.AllowedProjectIds,
+            UsesMemberships = true,
+            Actions = EmbedActions
         };
     }
 

@@ -37,4 +37,8 @@
     <Folder Include="Data\Migrations\" />
   </ItemGroup>
 
+  <ItemGroup>
+    <InternalsVisibleTo Include="Beacon.Tests" />
+  </ItemGroup>
+
 </Project>

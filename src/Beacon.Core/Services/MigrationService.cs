@@ -231,7 +231,7 @@ internal partial class MigrationService(
                 execution.DestinationRowsWritten = migrationResult.DestinationRowsWritten;
                 execution.RowsSkipped = migrationResult.RowsSkipped;
                 execution.RowsFailed = migrationResult.RowsFailed;
-                execution.ErrorMessage = migrationResult.ErrorMessage;
+                execution.ErrorMessage = CapErrorMessage(migrationResult.ErrorMessage);
                 warnings = migrationResult.Warnings;
             }
             catch (Exception ex)
@@ -243,7 +243,7 @@ internal partial class MigrationService(
                 var reported = ReportedFailure(ex);
                 failureCode = reported?.ReasonCode ?? (timedOut ? "timed_out" : null);
                 execution.Status = MigrationStatus.Failed;
-                execution.ErrorMessage = reported?.Message ?? (timedOut ? TimedOutMessage(timeout) : GetFullExceptionMessage(ex));
+                execution.ErrorMessage = CapErrorMessage(reported?.Message ?? (timedOut ? TimedOutMessage(timeout) : GetFullExceptionMessage(ex)));
 
                 logger.LogError("Failed migration job {Name} execution {ExecutionId} ({Failure}, timed out: {TimedOut})", migrationJob.Name, execution.Id, FailureCodes.Describe(ex), timedOut);
             }
@@ -277,7 +277,9 @@ internal partial class MigrationService(
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
+        // A run is a record of what was written: it stays listed after its job is archived.
         var query = context.MigrationExecutions
+            .IgnoreQueryFilters()
             .AsQueryable();
 
         // Apply filters
@@ -337,7 +339,10 @@ internal partial class MigrationService(
                 e.ErrorMessage,
                 e.RetryAttempt,
                 e.ParentExecutionId.HasValue
-            ))
+            )
+            {
+                JobArchived = e.MigrationJob.ArchivedTime != null
+            })
             .ToPagedListPreservingOrderAsync(request, cancellationToken);
     }
 
@@ -610,7 +615,7 @@ internal partial class MigrationService(
             var destinationRowsWritten = execution.DestinationRowsWritten;
             var rowsSkipped = execution.RowsSkipped;
             var rowsFailed = execution.RowsFailed;
-            var errorMessage = execution.ErrorMessage;
+            var errorMessage = CapErrorMessage(execution.ErrorMessage);
             await fresh.MigrationExecutions
                 .Where(x => x.Id == execution.Id)
                 .Where(x => x.Status == MigrationStatus.Running)
@@ -654,6 +659,13 @@ internal partial class MigrationService(
         return null;
     }
 
+    // The error column holds 4,000 characters: a longer text would fail the save and leave a committed run recorded as failed
+    // or still running.
+    internal const int ErrorMessageMaxLength = 4000;
+
+    internal static string? CapErrorMessage(string? message) =>
+        message is { Length: > ErrorMessageMaxLength } ? message[..ErrorMessageMaxLength] : message;
+
     private static string TimedOutMessage(TimeSpan timeout) =>
         $"The run timed out after {timeout.TotalMinutes:0} minutes (the job's timeout) and was stopped.";
 
@@ -675,7 +687,7 @@ internal partial class MigrationService(
             Status = MigrationStatus.Failed,
             ExecutedQuery = migrationJob.QueryText,
             QueryParameters = request.Parameters != null ? JsonSerializer.Serialize(request.Parameters) : null,
-            ErrorMessage = reason
+            ErrorMessage = CapErrorMessage(reason)
         };
         context.MigrationExecutions.Add(refused);
         await securityAudit.SaveWithEventsAsync(context, () => [JobRunEnded(migrationJob, refused, reasonCode)], cancellationToken);

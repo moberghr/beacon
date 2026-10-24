@@ -10,19 +10,26 @@ public interface ITaskService
     Task<int> CreateOrUpdateTask(int subscriptionId, int resultCount, CancellationToken cancellationToken);
     /// <summary>Resolves an open task, recording <paramref name="userId"/> as the resolver. A resolved task is never re-resolved: it throws.</summary>
     Task ResolveTask(int taskId, string? resolutionNotes, string? userId, CancellationToken cancellationToken);
+    [Obsolete("Use the MediatR query or command of the same name; removed in 6.0.")]
     Task<PagedList<TaskData>> GetTasks(GetTasksRequest request, CancellationToken cancellationToken);
+    [Obsolete("Use the MediatR query or command of the same name; removed in 6.0.")]
     Task<TaskDetailsData?> GetTaskDetails(int taskId, string? currentUserId, CancellationToken cancellationToken);
 
     /// <summary>The task's subscription's most recent runs, among those readable within <paramref name="runScope"/>.</summary>
+    [Obsolete("Use the MediatR query or command of the same name; removed in 6.0.")]
     Task<List<QueryExecutionSummary>> GetTaskExecutionHistory(int taskId, StoredRunScope runScope, CancellationToken cancellationToken);
 
     // Related tasks (tasks from same query)
+    [Obsolete("Use the MediatR query or command of the same name; removed in 6.0.")]
     Task<List<RelatedTaskSummary>> GetRelatedTasks(int taskId, CancellationToken cancellationToken);
 
     /// <summary>The result counts of the task's subscription's most recent runs readable within <paramref name="runScope"/>, oldest first.</summary>
+    [Obsolete("Use the MediatR query or command of the same name; removed in 6.0.")]
     Task<List<ResultCountDataPoint>> GetResultCountHistory(int taskId, StoredRunScope runScope, CancellationToken cancellationToken);
 
     // Comments
+    [Obsolete("Use the MediatR query or command of the same name; removed in 6.0.")]
     Task<List<CommentData>> GetTaskComments(int taskId, CancellationToken cancellationToken);
+    [Obsolete("Use the MediatR query or command of the same name; removed in 6.0.")]
     Task<int> AddTaskComment(int taskId, string content, string? userId, string? userName, CancellationToken cancellationToken);
 }

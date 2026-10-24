@@ -120,41 +120,51 @@ internal sealed class SchemaRelationshipSyncService(IDbContextFactory<BeaconCont
     }
 
     /// <summary>
-    /// Turns declared foreign keys into edges. The target is resolved schema-qualified; an unresolvable
-    /// target (dropped table, ambiguous unqualified name) yields no edge rather than a dangling one.
+    /// Turns declared foreign keys into edges: one per column pair of every foreign key, so a column in several keys (on its
+    /// own and inside a composite one) yields an edge for each. The target is resolved schema-qualified; an unresolvable
+    /// target (dropped table, ambiguous unqualified name) yields no edge rather than a dangling one. Two keys over the same
+    /// column pair yield one edge, the one first in constraint-name order.
     /// </summary>
     internal static IReadOnlyList<ProposedSchemaRelationship> DeriveForeignKeyRelationships(
         IReadOnlyList<TableMetadataDto> tables)
     {
         var edges = new List<ProposedSchemaRelationship>();
+        var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var table in tables)
         {
-            var foreignKeyColumns = table.Columns
-                .Where(x => !string.IsNullOrEmpty(x.ForeignKeyTable))
-                .Where(x => !string.IsNullOrEmpty(x.ForeignKeyColumn))
-                .ToList();
-
-            foreach (var column in foreignKeyColumns)
+            foreach (var column in table.Columns)
             {
-                var target = ForeignKeyTargetResolver.Resolve(tables, table.SchemaName, column);
-                if (target == null)
-                {
-                    continue;
-                }
+                var foreignKeys = ColumnForeignKeys.Of(column)
+                    .Where(x => !string.IsNullOrEmpty(x.TargetColumn))
+                    .ToList();
 
-                edges.Add(new ProposedSchemaRelationship(
-                    table.SchemaName,
-                    table.TableName,
-                    column.ColumnName,
-                    target.SchemaName,
-                    target.TableName,
-                    column.ForeignKeyColumn!,
-                    DeriveLabel(column.ColumnName),
-                    SchemaRelationshipOrigin.ForeignKey,
-                    DetermineCardinality(table, column.ColumnName),
-                    column.ForeignKeyConstraintName,
-                    Confidence: 1.0));
+                foreach (var foreignKey in foreignKeys)
+                {
+                    var target = ForeignKeyTargetResolver.Resolve(tables, table.SchemaName, foreignKey);
+                    if (target == null)
+                    {
+                        continue;
+                    }
+
+                    var edge = new ProposedSchemaRelationship(
+                        table.SchemaName,
+                        table.TableName,
+                        column.ColumnName,
+                        target.SchemaName,
+                        target.TableName,
+                        foreignKey.TargetColumn,
+                        DeriveLabel(column.ColumnName),
+                        SchemaRelationshipOrigin.ForeignKey,
+                        DetermineCardinality(table, column.ColumnName),
+                        foreignKey.ConstraintName,
+                        Confidence: 1.0);
+
+                    if (seen.Add(EdgeKey(edge)))
+                    {
+                        edges.Add(edge);
+                    }
+                }
             }
         }
 
@@ -387,7 +397,8 @@ internal sealed class SchemaRelationshipSyncService(IDbContextFactory<BeaconCont
                                 y.ForeignKeyTable,
                                 y.ForeignKeyColumn,
                                 y.ForeignKeySchema,
-                                y.ForeignKeyConstraintName
+                                y.ForeignKeyConstraintName,
+                                y.ForeignKeys
                             })
                         .ToList(),
                     Indexes = x.Indexes
@@ -424,7 +435,10 @@ internal sealed class SchemaRelationshipSyncService(IDbContextFactory<BeaconCont
                                 null,
                                 null,
                                 y.ForeignKeySchema,
-                                y.ForeignKeyConstraintName))
+                                y.ForeignKeyConstraintName)
+                            {
+                                ForeignKeys = ColumnForeignKeys.Deserialize(y.ForeignKeys)
+                            })
                         .ToList(),
                     x.Indexes
                         .Select(y =>

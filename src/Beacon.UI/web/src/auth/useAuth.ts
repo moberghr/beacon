@@ -35,6 +35,9 @@ export function useAuth() {
   return useQuery<CurrentUser>({
     queryKey: ['auth', 'me'],
     queryFn: async () => unwrap<CurrentUser>(await beaconApi().getCurrentUser()),
+    // Sign-in and sign-out reload the page or write this key directly, and a 401 resets it, so the default 30 s
+    // refetch on every mount only costs a round trip.
+    staleTime: 5 * 60_000,
   });
 }
 

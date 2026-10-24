@@ -23,6 +23,23 @@ internal sealed class ForcedMetadataRefreshCooldown(IMemoryCache cache, TimeProv
     public static string CacheKey(int dataSourceId) => $"metadata-forced-refresh:{dataSourceId}";
 
     /// <summary>
+    /// Why a forced refresh of the data source may not start now (it runs in this process, or the cooldown holds it back),
+    /// or null when it may; unlike <see cref="TryStart"/> it starts nothing. A cooldown of 0 never refuses.
+    /// </summary>
+    public string? Refusal(int dataSourceId, int cooldownMinutes, bool ignoreCooldown)
+    {
+        if (cooldownMinutes <= 0)
+        {
+            return null;
+        }
+
+        lock (_gate)
+        {
+            return RefusalWithinGate(dataSourceId, cooldownMinutes, ignoreCooldown);
+        }
+    }
+
+    /// <summary>
     /// Starts a forced refresh of the data source: null when it may run (it is then running until
     /// <see cref="Finish"/>), else why not. A cooldown of 0 never refuses; <paramref name="ignoreCooldown"/> refuses only
     /// while another refresh of the data source runs.
@@ -36,16 +53,10 @@ internal sealed class ForcedMetadataRefreshCooldown(IMemoryCache cache, TimeProv
 
         lock (_gate)
         {
-            if (_running.Contains(dataSourceId))
+            var refusal = RefusalWithinGate(dataSourceId, cooldownMinutes, ignoreCooldown);
+            if (refusal != null)
             {
-                return AlreadyRunningMessage;
-            }
-
-            if (!ignoreCooldown
-                && cache.TryGetValue(CacheKey(dataSourceId), out DateTimeOffset lastRefreshed)
-                && timeProvider.GetUtcNow() - lastRefreshed < TimeSpan.FromMinutes(cooldownMinutes))
-            {
-                return $"This data source's metadata was refreshed less than {cooldownMinutes} minutes ago; try again later.";
+                return refusal;
             }
 
             _running.Add(dataSourceId);
@@ -71,5 +82,22 @@ internal sealed class ForcedMetadataRefreshCooldown(IMemoryCache cache, TimeProv
         {
             _running.Remove(dataSourceId);
         }
+    }
+
+    private string? RefusalWithinGate(int dataSourceId, int cooldownMinutes, bool ignoreCooldown)
+    {
+        if (_running.Contains(dataSourceId))
+        {
+            return AlreadyRunningMessage;
+        }
+
+        if (!ignoreCooldown
+            && cache.TryGetValue(CacheKey(dataSourceId), out DateTimeOffset lastRefreshed)
+            && timeProvider.GetUtcNow() - lastRefreshed < TimeSpan.FromMinutes(cooldownMinutes))
+        {
+            return $"This data source's metadata was refreshed less than {cooldownMinutes} minutes ago; try again later.";
+        }
+
+        return null;
     }
 }

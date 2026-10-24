@@ -117,7 +117,7 @@ public static partial class LoginEndpoints
             // An administrator set the password: the user signs in by choosing a new one in the same request.
             if (result.PasswordChangeRequired && !string.IsNullOrEmpty(request.NewPassword))
             {
-                var users = context.RequestServices.GetService<IUserManagementService>();
+                var users = context.RequestServices.GetService<IUserManagementService>().OrNull();
                 result = users == null
                     ? AuthenticationResult.Failed(InvalidCredentials)
                     : await users.CompleteRequiredPasswordChangeAsync(request.Username, request.Password, request.NewPassword, context.RequestAborted);
@@ -208,6 +208,11 @@ public static partial class LoginEndpoints
         .Produces<LoginResponse>(StatusCodes.Status200OK)
         .Produces<LoginResponse>(StatusCodes.Status400BadRequest)
         .Produces<LoginResponse>(StatusCodes.Status401Unauthorized)
+        // Only with a valid antiforgery token, anonymous callers included (the SPA primes one from GET /csrf and sends it
+        // like on every mutation): a cross-site form POST cannot sign the browser in to another account. Refused (400)
+        // before the throttle or the password check; a caller authenticated by its Authorization header is not checked.
+        .AddEndpointFilter<AntiforgeryEndpointFilter>()
+        .WithMetadata(AntiforgeryForAnonymousCallers.Instance)
         .AddEndpointFilter<LoginRateLimitFilter>()
         .DisableAntiforgery();
     }

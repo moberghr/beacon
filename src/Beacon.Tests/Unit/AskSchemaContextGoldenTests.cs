@@ -61,6 +61,27 @@ public class AskSchemaContextGoldenTests
         MatchesGolden("large-schema.txt", result.FullContext);
     }
 
+    // The verified examples, the learned patterns and the glossary all search by the masked question: it is embedded once per
+    // ask. On a large schema the catalog search embeds the question as written once more (this question masks to itself).
+    [TestCase(false, 1)]
+    [TestCase(true, 2)]
+    public async Task AskContext_EmbedsTheMaskedQuestionOnce_ForEveryBlockThatSearchesByIt(bool largeSchema, int embeddings)
+    {
+        var tables = SalesTables();
+        if (largeSchema)
+        {
+            tables.AddRange(Enumerable.Range(1, 45).Select(x => Table(100 + x, "public", $"t{x:D4}", ("id", true), ("note", false))));
+        }
+
+        var embedder = new CountingEmbeddingService();
+
+        var result = await (await ServiceAsync(tables, serviceEmbedder: embedder)).GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, liveValueProbes: true, CancellationToken.None);
+
+        AssertEverySection(result.FullContext);
+        EmbeddingMaskingHelper.Mask(Question).Should().Be(Question);
+        embedder.Texts.Count(x => x == Question).Should().Be(embeddings);
+    }
+
     [Test]
     public async Task SmallSchemaContext_OverTheBudget_RanksTheTableTheQuestionNames_NotATableAnExampleKeywordNames()
     {
@@ -189,7 +210,8 @@ public class AskSchemaContextGoldenTests
         EncryptedConnectionData = "unused-in-test"
     };
 
-    private static async Task<KnowledgeGraphService> ServiceAsync(List<DatabaseMetadata> tables, int? budgetChars = null, LogRecorder? logs = null)
+    private static async Task<KnowledgeGraphService> ServiceAsync(
+        List<DatabaseMetadata> tables, int? budgetChars = null, LogRecorder? logs = null, IBeaconEmbeddingService? serviceEmbedder = null)
     {
         var embedder = new FakeEmbeddingService();
         var questionVector = await embedder.EmbedAsync(EmbeddingMaskingHelper.Mask(Question), CancellationToken.None);
@@ -273,7 +295,7 @@ public class AskSchemaContextGoldenTests
             factory.Object,
             settingsProvider.Object,
             SettingsProviderMock.Unshared(settingsProvider.Object),
-            embedder,
+            serviceEmbedder ?? embedder,
             Mock.Of<ISchemaGraphService>(x => x.GetGraphAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()) == Task.FromResult(graph)),
             Mock.Of<IValueGroundingService>(x => x.BuildValueMatchesBlockAsync(
                 It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<IReadOnlyList<ValueGroundingTable>>(), It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>())
@@ -363,6 +385,36 @@ public class AskSchemaContextGoldenTests
 
         public override Task<int> SaveChangesAsync(CancellationToken cancellationToken = default) =>
             Task.FromResult(0);
+    }
+
+    // The fake embedder, recording every text it embeds.
+    private sealed class CountingEmbeddingService : IBeaconEmbeddingService
+    {
+        private readonly FakeEmbeddingService _inner = new();
+        private readonly System.Collections.Concurrent.ConcurrentQueue<string> _texts = new();
+
+        public IReadOnlyCollection<string> Texts => _texts;
+
+        public int Dimensions => _inner.Dimensions;
+
+        public bool IsAvailable => _inner.IsAvailable;
+
+        public Task<float[]> EmbedAsync(string text, CancellationToken ct)
+        {
+            _texts.Enqueue(text);
+
+            return _inner.EmbedAsync(text, ct);
+        }
+
+        public Task<IReadOnlyList<float[]>> EmbedBatchAsync(IReadOnlyList<string> texts, CancellationToken ct)
+        {
+            foreach (var text in texts)
+            {
+                _texts.Enqueue(text);
+            }
+
+            return _inner.EmbedBatchAsync(texts, ct);
+        }
     }
 
     private sealed class NonNpgsqlDatabaseFacade : DatabaseFacade

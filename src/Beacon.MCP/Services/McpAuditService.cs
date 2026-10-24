@@ -97,7 +97,7 @@ internal sealed partial class McpAuditService(
                 loggedErrorMessage = Truncate(errorMessage);
             }
 
-            // Minted by JwtBearerAuthMiddleware from IMcpCallerMapper; token-supplied values are stripped there.
+            // Minted by Beacon's bearer authentication from IMcpCallerMapper; token-supplied values are stripped there.
             var caller = httpContextAccessor.HttpContext?.User;
             var callerKind = caller?.FindFirst(McpCallerClaimTypes.CallerKind)?.Value;
             var callerHash = caller?.FindFirst(McpCallerClaimTypes.CallerHash)?.Value;
@@ -347,7 +347,7 @@ internal sealed partial class McpAuditService(
     // fields only ever see a short, whitelisted name. Logs are not a cardinality problem, so this bound (charset +
     // length) is enough there. The DB row keeps the raw name.
     internal static string BoundedToolName(string? tool) =>
-        tool != null && ToolNamePattern().IsMatch(tool) ? tool : InvalidToolName;
+        tool != null && IsMatchOrFalse(ToolNamePattern(), tool) ? tool : InvalidToolName;
 
     // §1.11 — the gen_ai.tool.name METRIC tag is a cardinality risk a charset bound does not fix: a well-formed but
     // caller-chosen name (q_1, q_2, ... each a distinct saved-query name) would still open a new series per name.
@@ -392,13 +392,26 @@ internal sealed partial class McpAuditService(
     // §1.11 — a caller-supplied id reaches the table (and later the log stream) only when it is short and in a
     // whitelisted charset; anything else is dropped rather than truncated, which blocks log injection.
     private static string? SanitizeHeaderId(string? value) =>
-        value is { Length: > 0 and <= MaxHeaderIdLength } && HeaderIdPattern().IsMatch(value)
+        value is { Length: > 0 and <= MaxHeaderIdLength } && IsMatchOrFalse(HeaderIdPattern(), value)
             ? value
             : null;
 
-    [GeneratedRegex(@"^[A-Za-z0-9._:\-]+\z")]
+    // A match timeout must never short-circuit the audit (§1.7): the value is treated as invalid.
+    private static bool IsMatchOrFalse(Regex pattern, string value)
+    {
+        try
+        {
+            return pattern.IsMatch(value);
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            return false;
+        }
+    }
+
+    [GeneratedRegex(@"^[A-Za-z0-9._:\-]+\z", RegexOptions.None, matchTimeoutMilliseconds: 250)]
     private static partial Regex HeaderIdPattern();
 
-    [GeneratedRegex(@"^[A-Za-z0-9_.:\-]{1,200}\z")]
+    [GeneratedRegex(@"^[A-Za-z0-9_.:\-]{1,200}\z", RegexOptions.None, matchTimeoutMilliseconds: 250)]
     private static partial Regex ToolNamePattern();
 }

@@ -23,6 +23,9 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
 | `CoversMigrationJobs` | `true` | New and changed migration job definitions need approval before any run. |
 | `CoversCustomSqlRules` | `true` | New and changed Custom SQL rules of data contracts need approval before any evaluation. |
 | `CoversRecipientDestinations` | `true` | New recipients and changed destinations (type, address, headers) receive nothing until approved. |
+| `CoversDataSourceConnections` | `false` | New data sources, and connections changed in anything but their secrets, connect to nothing until approved. |
+| `CoversLlmConnection` | `false` | A change of the stored LLM connection's provider, endpoint, region or authentication mode is staged until a live Admin approves it. |
+| `LlmConnectionRequestDays` | `7` | Days a staged LLM connection change waits for a decision before it expires (held between 1 and 30). |
 
 The per-kind switches apply only while the workflow is enabled. Configuration is in code; there are no `appsettings` keys for it.
 
@@ -33,7 +36,8 @@ Decisions need the **Approver** [functional permission](/security/authorization/
 - The **requester never approves their own change**, however either of them signed in, and neither does anyone else who shaped it (for an AI actor's change: the plan's reviewer and whoever asked for its revisions). Admins are no exception.
 - Four eyes binds per Beacon user. Do not give one person two accounts that can approve.
 - API keys hold no functional permission and MCP has no approval tool, so neither can approve anything.
-- Approvers see every request on **Approvals** (`/beacon/approvals`), including requests for queries they otherwise cannot read; other users see the requests of resources they can read.
+- Approvers see every request on **Approvals** (`/beacon/approvals`), including requests for queries they otherwise cannot read; other users see the requests of resources they can read. A change of the LLM connection is the exception: only a live Admin reads and decides it, its requester included.
+- A decision on a change request (approving or rejecting) checks the reviewer again in the user store when it is made, after the lock on what it decides: a reviewer disabled, archived, signed out everywhere or stripped of the Admin role or the Approver permission while the decision waited is refused (`403`) and nothing is decided. A role change, a disable or an archive of the reviewer that starts meanwhile waits until the decision commits.
 
 ## Query changes
 
@@ -80,8 +84,14 @@ These are reviewed as **change requests** with the same rules: four eyes, one de
 | Migration job | New job, or a changed source, steps, destination, mode or transformation | Every run, manual or scheduled, is refused and recorded as failed. |
 | Custom SQL rule | New rule, or changed SQL or data source | The rule is left out of every evaluation. |
 | Recipient destination | New recipient, or changed type, destination or headers | Deliveries skip the recipient; each skip is logged. Attaching an existing recipient to a subscription is not reviewed. |
+| Data-source connection (`CoversDataSourceConnections`) | New data source, or any change of its connection but the secrets (host, port, database, login, any other setting) | The source stays listed but connects to nothing: every query, run and metadata scan of it is refused. A new source has no catalog until approved. |
+| LLM connection (`CoversLlmConnection`) | A change of the provider, endpoint, region or Bedrock authentication mode in [Admin settings](/security/admin-settings/), or a first stored provider over the host's `Beacon:LLM` | Nothing changes until approved: the stored connection and models stay in use. The change is staged, encrypted. |
 
 When a change lies only in a part the review shows masked (a token, a header value), the approval must carry a comment saying how it was checked.
+
+A data-source connection is reviewed by its host, port, database and login and the names of the other settings that changed, never a secret, with the projects the source is linked to now. A change of the secrets alone (a rotated password) applies at once; a connector that cannot read the connection setting by setting (BigQuery, Databricks, CloudWatch) shows only a fingerprint, so every change of such a source needs approval with a comment. Approving checks the server against the declared engine first, once the source still holds the connection the request proposes: a mismatch, a server that cannot be reached or whose engine cannot be read, and a disabled source (enable it first) answer `409` and the request stays pending. A source created under the workflow and never approved shows that it waits for its first approval to everyone who reads it, also when no request waits any more (its first request was rejected): save its connection again to submit it. A change that waits for approval needs a requester Beacon can name (`403` otherwise); a rename, a metadata option or a rotation of the secrets does not. After the approval the source's metadata is refreshed (an API source created while held imports its endpoints). Test connection stays outside the approval. A requester who is no Approver withdraws a held change by deleting the source or saving the approved connection back.
+
+An LLM connection change stages the whole resulting connection: the four governed fields, the models from the same save and every credential (a new one, or the stored one), encrypted with `Beacon:EncryptionKey`. The rest of the save (the base URL, the budget, the limits) applies at once. A change of credentials or models alone is not reviewed and applies at once, and so does testing the connection. Only a live Admin reads and decides it, the requester included, and never the requester while self-approval is off, so it needs a second Admin. The reviewer sees the provider, region, authentication mode and models, the endpoint as scheme and host with a fingerprint of the whole endpoint, a fingerprint of each credential and of the connection it was made from, and never a credential, the endpoint's path or the staged values; a change that lies only in the endpoint's path or query is approved with a comment. One change waits at a time: another person's save of the connection answers `409`, the requester's own earlier change is superseded. An approval applies only while the stored connection is still the one the change was made from (a key rotated since makes it stale: `409`, and the change is superseded), and only while its provider is installed. A save is judged against the stored connection, never a copy another Beacon process may still cache. Saves of the connection and decisions on its changes take one lock in Beacon's database (a transaction-scoped advisory lock on PostgreSQL, `sp_getapplock` on SQL Server) before they read it, so they run one after the other: a key rotated while an approval is being decided either lands first and makes the change stale, or waits and is judged against the connection approved. The approval writes the connection as the requester's change in the settings history, and applies it at once; when this process cannot apply it, the approval stands and answers `409` saying the previous connection stays in use here until Beacon restarts. What a change staged is wiped as soon as it can no longer be applied: approved, rejected, withdrawn, superseded, stale, or expired after `LlmConnectionRequestDays` (an expired change answers `409`). The re-encryption run moves the staged values to the current key; a waiting change made under a previous key keeps the previous key needed until it is decided or expires.
 
 Resources stored before Beacon reviewed their kind, or last saved while the switch was off, keep working as before.
 
@@ -97,10 +107,10 @@ While the workflow is on, whoever requested or approved the version a saved-quer
 | `GET /beacon/api/approvals/{id}` | Approver, or readers of the query | Request detail: proposal, active version, diff, `contentHash`, `mayApprove`. |
 | `POST /beacon/api/approvals/{id}/approve` | Approver | Body `{ "comment": "…", "expectedContentHash": "…" }`. |
 | `POST /beacon/api/approvals/{id}/reject` | Approver | Body `{ "comment": "…" }`. |
-| `GET /beacon/api/approvals/changes` | Approver, or readers of the resource | Change requests: migration jobs, Custom SQL rules, recipients. |
-| `GET /beacon/api/approvals/changes/{id}` | Approver, or readers of the resource | Change request detail with its payload hash. |
-| `POST /beacon/api/approvals/changes/{id}/approve` | Approver | Body `{ "comment": "…", "expectedPayloadHash": "…" }`. |
-| `POST /beacon/api/approvals/changes/{id}/reject` | Approver | Body `{ "comment": "…" }`. |
+| `GET /beacon/api/approvals/changes` | Approver, or readers of the resource | Change requests: migration jobs, Custom SQL rules, recipients, data-source connections; the LLM connection's for a live Admin only. |
+| `GET /beacon/api/approvals/changes/{id}` | Approver, or readers of the resource | Change request detail with its payload hash (`404` for an LLM connection change unless the caller is a live Admin). |
+| `POST /beacon/api/approvals/changes/{id}/approve` | Approver (a live Admin for an LLM connection change, `403` otherwise) | Body `{ "comment": "…", "expectedPayloadHash": "…" }`. |
+| `POST /beacon/api/approvals/changes/{id}/reject` | Approver (a live Admin for an LLM connection change, `403` otherwise) | Body `{ "comment": "…" }`. |
 
 The reviewer is always the signed-in caller, never an id in the request. Decisions push an `ApprovalUpdated` event to the requester and reviewer over the realtime hub.
 

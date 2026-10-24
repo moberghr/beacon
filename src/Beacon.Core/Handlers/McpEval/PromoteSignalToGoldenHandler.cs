@@ -50,6 +50,11 @@ internal sealed class PromoteSignalToGoldenHandler(
 
     public async Task<PromoteSignalToGoldenResult> Handle(PromoteSignalToGoldenCommand request, CancellationToken cancellationToken)
     {
+        if (request.Notes?.Length > InputLimits.GoldenNotesMaxLength)
+        {
+            throw new BeaconValidationException($"The notes are longer than {InputLimits.GoldenNotesMaxLength} characters.");
+        }
+
         var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
         if (actor.BeaconUserId == null)
         {

@@ -427,6 +427,8 @@ internal class ControlTowerService(
             return [];
         }
 
+        // The page's subscriptions only, and one latest-row pick per subscription (a single row-number pass, not one
+        // ordered sub-select per column).
         var rows = await context.QueryExecutionHistory
             .Where(x => pageIds.Contains(x.SubscriptionId))
             .GroupBy(x => x.SubscriptionId)
@@ -434,16 +436,24 @@ internal class ControlTowerService(
                 new
                 {
                     SubscriptionId = g.Key,
-                    NotificationStatus = g.OrderByDescending(y => y.CreatedTime).Select(y => y.NotificationStatus).First(),
-                    CreatedTime = g.OrderByDescending(y => y.CreatedTime).Select(y => y.CreatedTime).First(),
-                    ResultCount = g.OrderByDescending(y => y.CreatedTime).Select(y => y.ResultCount).First(),
-                    Comment = g.OrderByDescending(y => y.CreatedTime).Select(y => y.Comment).First()
+                    Latest = g
+                        .OrderByDescending(y => y.CreatedTime)
+                        .ThenByDescending(y => y.Id)
+                        .Select(y =>
+                            new
+                            {
+                                y.NotificationStatus,
+                                y.CreatedTime,
+                                y.ResultCount,
+                                y.Comment
+                            })
+                        .First()
                 })
             .ToListAsync(cancellationToken);
 
         return rows.ToDictionary(
             x => x.SubscriptionId,
-            x => (x.NotificationStatus, x.CreatedTime, x.ResultCount, x.Comment));
+            x => (x.Latest.NotificationStatus, x.Latest.CreatedTime, x.Latest.ResultCount, x.Latest.Comment));
     }
 
     private static async Task<Dictionary<int, List<AnomalySparklinePoint>>> LoadAnomalySparklines(

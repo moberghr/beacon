@@ -599,6 +599,66 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.ToTable("AppSettingHistory", "beacon");
                 });
 
+            modelBuilder.Entity("Beacon.Core.Data.Entities.BackgroundTask", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTime?>("FinishedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("HeartbeatTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("JobId")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("int");
+
+                    b.Property<string>("PermissionSource")
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
+                    b.Property<int?>("RequestedByUserId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("RequesterStampHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTime?>("StartedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("State")
+                        .HasColumnType("int");
+
+                    b.Property<int>("SubjectId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("WarningCount")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Kind", "SubjectId")
+                        .IsUnique()
+                        .HasFilter("[State] IN (0, 1)");
+
+                    b.ToTable("BackgroundTasks", "beacon");
+                });
+
             modelBuilder.Entity("Beacon.Core.Data.Entities.BeaconRole", b =>
                 {
                     b.Property<int>("Id")
@@ -663,6 +723,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<int>("FailedSignInCount")
+                        .HasColumnType("int");
+
                     b.Property<string>("IdentityProvider")
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
@@ -676,7 +739,13 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<bool>("IsSuperAdmin")
                         .HasColumnType("bit");
 
+                    b.Property<DateTime?>("LastFailedSignInTime")
+                        .HasColumnType("datetime2");
+
                     b.Property<DateTime?>("LastLoginAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("LockoutEndTime")
                         .HasColumnType("datetime2");
 
                     b.Property<bool>("MustChangePassword")
@@ -781,6 +850,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
 
+                    b.Property<string>("EncryptedPayload")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<int>("Kind")
                         .HasColumnType("int");
 
@@ -831,6 +903,10 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasColumnType("int");
 
                     b.HasKey("Id");
+
+                    b.HasIndex("Kind", "ResourceId")
+                        .IsUnique()
+                        .HasFilter("[Kind] = 5 AND [Status] = 1");
 
                     b.HasIndex("Status", "CreatedTime");
 
@@ -1325,6 +1401,10 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<bool>("AllowMigrationWrites")
                         .HasColumnType("bit");
 
+                    b.Property<string>("ApprovedTargetHash")
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
                     b.Property<DateTime?>("ArchivedTime")
                         .HasColumnType("datetime2");
 
@@ -1423,6 +1503,98 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .IsUnique();
 
                     b.ToTable("MaintenanceHeartbeats", "beacon");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.EmbedGrant", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AllowedOriginsJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime>("ExpiresTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("FixedParametersJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<DateTime?>("LastTokenIssuedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("LockedParameterNamesJson")
+                        .IsRequired()
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("ModifiedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime?>("ModifiedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int>("ProjectId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("PublicId")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .IsUnicode(false)
+                        .HasColumnType("char(32)")
+                        .IsFixedLength();
+
+                    b.Property<int>("QueryId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("QueryVersionId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("RevokedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime?>("RevokedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("SecretHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("char(64)")
+                        .IsFixedLength();
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("PublicId")
+                        .IsUnique();
+
+                    b.HasIndex("QueryId");
+
+                    b.HasIndex("QueryVersionId");
+
+                    b.HasIndex("SecretHash")
+                        .IsUnique();
+
+                    b.HasIndex("ProjectId", "RevokedTime");
+
+                    b.ToTable("EmbedGrants", "beacon");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.ManualQueryExecutionLog", b =>
@@ -1725,6 +1897,10 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasColumnType("int");
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ContentHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
 
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("datetime2");
@@ -2557,6 +2733,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<string>("ForeignKeys")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<bool>("IsForeignKey")
                         .HasColumnType("bit");
 
@@ -2788,6 +2967,8 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.HasIndex("QueryExecutionHistoryId");
 
                     b.HasIndex("RecipientId");
+
+                    b.HasIndex("SentAt");
 
                     b.HasIndex("TaskId");
 
@@ -4539,6 +4720,33 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .IsRequired();
 
                     b.Navigation("DataSource");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.EmbedGrant", b =>
+                {
+                    b.HasOne("Beacon.Core.Data.Entities.Projects.Project", "Project")
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Beacon.Core.Data.Entities.Query", "Query")
+                        .WithMany()
+                        .HasForeignKey("QueryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.HasOne("Beacon.Core.Data.Entities.QueryVersion", "QueryVersion")
+                        .WithMany()
+                        .HasForeignKey("QueryVersionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired();
+
+                    b.Navigation("Project");
+
+                    b.Navigation("Query");
+
+                    b.Navigation("QueryVersion");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.ManualQueryExecutionLog", b =>
