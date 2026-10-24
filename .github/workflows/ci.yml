@@ -55,3 +55,170 @@ jobs:
 
     - name: Run tests
       run: dotnet test --configuration Release --no-build --verbosity normal
+
+  # Packs every packable project from a clean checkout, the way the release build does, and checks the packages. A
+  # packing regression (static web assets, a stale obj/) otherwise shows up only at release time. Version is a
+  # throwaway; nothing is published or uploaded.
+  pack:
+    name: "Pack and verify packages"
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      with:
+        persist-credentials: false
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+      with:
+        dotnet-version: '10.0.x'
+
+    - name: Setup Node
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      with:
+        node-version: '22'
+        cache: npm
+        cache-dependency-path: src/Beacon.UI/web/package-lock.json
+
+    - name: Pin npm
+      run: npm install -g npm@11.11.0
+
+    - name: Restore dependencies
+      run: dotnet restore
+
+    # No --no-build: a no-build pack skips static web asset discovery (see w-build.yml).
+    - name: Pack packable projects
+      run: |
+        set -euo pipefail
+        PACKABLE_PROJECTS=""
+        for PROJECT in $(dotnet sln Beacon.slnx list | grep '\.csproj$'); do
+          if [ -f "$PROJECT" ] && grep -q "<IsPackable>true</IsPackable>" "$PROJECT"; then
+            PACKABLE_PROJECTS="$PACKABLE_PROJECTS $PROJECT"
+          fi
+        done
+        for PROJECT in $PACKABLE_PROJECTS; do
+          echo "Packing: $PROJECT"
+          dotnet pack "$PROJECT" -p:PackageVersion=0.0.0-ci --configuration Release --output artifacts
+        done
+        COUNT=$(find artifacts -maxdepth 1 -name '*.nupkg' | wc -l)
+        echo "Packed $COUNT package(s)"
+        if [ "$COUNT" -eq 0 ]; then
+          echo "::error::No packages were produced."
+          exit 1
+        fi
+
+    - name: Verify packages
+      run: |
+        set -euo pipefail
+        FAILED=0
+
+        UI_PACKAGES=$(find artifacts -maxdepth 1 -name '*Beacon.UI.*.nupkg')
+        if [ -z "$UI_PACKAGES" ]; then
+          echo "::error::The Beacon.UI package was not produced."
+          exit 1
+        fi
+        for PACKAGE in $UI_PACKAGES; do
+          LISTING=$(unzip -Z1 "$PACKAGE")
+          if ! grep -q '^staticwebassets/' <<< "$LISTING"; then
+            echo "::error::$PACKAGE has no staticwebassets/ entries."
+            FAILED=1
+          fi
+          if grep -q '^content/' <<< "$LISTING"; then
+            echo "::error::$PACKAGE ships a content/ layout, which PackageReference consumers never copy."
+            FAILED=1
+          fi
+        done
+
+        # Source maps would expose the UI bundle's sources. .pdb files are allowed: Beacon.Doctor is a dotnet tool,
+        # and a tool package carries its publish output including the pdbs (symbols are not secrets).
+        for PACKAGE in artifacts/*.nupkg; do
+          LISTING=$(unzip -Z1 "$PACKAGE")
+          if grep -qE '\.map$' <<< "$LISTING"; then
+            echo "::error::$PACKAGE contains .map files."
+            FAILED=1
+          fi
+        done
+
+        exit "$FAILED"
+
+  # Secret scan of the commits a change adds. History before this check is not rescanned.
+  secret-scan:
+    name: "Secret scan"
+    runs-on: ubuntu-latest
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      with:
+        fetch-depth: 0
+        persist-credentials: false
+
+    # The release binary, checked against the published sha256 of v8.30.1 before it runs.
+    - name: Install gitleaks
+      run: |
+        set -euo pipefail
+        curl -sSfL -o gitleaks.tar.gz https://github.com/gitleaks/gitleaks/releases/download/v8.30.1/gitleaks_8.30.1_linux_x64.tar.gz
+        echo "551f6fc83ea457d62a0d98237cbad105af8d557003051f41f3e7ca7b3f2470eb  gitleaks.tar.gz" | sha256sum -c -
+        mkdir -p "$RUNNER_TEMP/gitleaks"
+        tar -xzf gitleaks.tar.gz -C "$RUNNER_TEMP/gitleaks" gitleaks
+
+    - name: Scan the added commits
+      env:
+        EVENT_NAME: ${{ github.event_name }}
+        BASE_SHA: ${{ github.event.pull_request.base.sha }}
+        HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        BEFORE_SHA: ${{ github.event.before }}
+        AFTER_SHA: ${{ github.sha }}
+      run: |
+        set -euo pipefail
+        # Trusted baseline for a new or recreated branch (all-zero before): history up to it holds known findings
+        # handled outside CI. When it is not an ancestor, the full history reachable from the pushed commit is scanned.
+        BASELINE_SHA="0ecf936b094ad56483d71341b37b0e7878113a3e"
+        if [ "$EVENT_NAME" = "pull_request" ]; then
+          RANGE="$BASE_SHA..$HEAD_SHA"
+        elif [ "$BEFORE_SHA" != "0000000000000000000000000000000000000000" ]; then
+          RANGE="$BEFORE_SHA..$AFTER_SHA"
+        elif git merge-base --is-ancestor "$BASELINE_SHA" "$AFTER_SHA"; then
+          RANGE="$BASELINE_SHA..$AFTER_SHA"
+        else
+          RANGE="$AFTER_SHA"
+        fi
+        echo "Scanning $RANGE"
+        "$RUNNER_TEMP/gitleaks/gitleaks" git --redact --no-banner --log-opts="--diff-merges=first-parent $RANGE" .
+
+  # Advisory: reports known vulnerabilities in dependencies and never fails the run.
+  audit:
+    name: "Dependency audit (advisory)"
+    runs-on: ubuntu-latest
+    continue-on-error: true
+
+    steps:
+    - name: Checkout
+      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      with:
+        persist-credentials: false
+
+    - name: Setup .NET
+      uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+      with:
+        dotnet-version: '10.0.x'
+
+    - name: Setup Node
+      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      with:
+        node-version: '22'
+
+    - name: NuGet vulnerable packages
+      continue-on-error: true
+      run: |
+        dotnet restore
+        dotnet list Beacon.slnx package --vulnerable --include-transitive 2>&1 | tee nuget-audit.txt
+        if grep -q "has the following vulnerable packages" nuget-audit.txt; then
+          echo "::warning::NuGet reports vulnerable packages, see the step log."
+        fi
+
+    - name: npm audit
+      working-directory: src/Beacon.UI/web
+      continue-on-error: true
+      run: npm audit --omit=dev

@@ -40,7 +40,8 @@ internal sealed class HostDataSourceSynchronizer(
     IProjectMembershipSource membershipSource,
     IOptions<ProjectAuthorizationOptions> authorizationOptions,
     IHostReadOnlyLoginCheck loginCheck,
-    ILogger<HostDataSourceSynchronizer> logger)
+    ILogger<HostDataSourceSynchronizer> logger,
+    ICatalogSnapshotCache? catalogSnapshots = null)
 {
     public async Task SyncAllAsync(CancellationToken cancellationToken)
     {
@@ -156,6 +157,7 @@ internal sealed class HostDataSourceSynchronizer(
             await SyncRelationshipsAsync(dataSource.Id, cancellationToken);
             cache.Remove(DatabaseMetadataService.GetCacheKey(dataSource.Id));
             schemaGraphService.Invalidate(dataSource.Id);
+            catalogSnapshots?.Invalidate(dataSource.Id);
         }
 
         LogOutcome(registration, snapshot, merge, created);
@@ -345,6 +347,29 @@ internal sealed class HostDataSourceSynchronizer(
                 "Host data source {DataSourceName} lifts the secret-like hard-exclude for {Column} (IncludeSecretLikeColumn).",
                 registration.Name,
                 column);
+        }
+
+        if (registration.Options.AllowAll)
+        {
+            logger.LogWarning(
+                "Host data source {DataSourceName} exposes every table of {ContextType} (AllowAllTables): {TableCount} tables. Only ExcludeColumns and the best-effort secret-like hard-exclude keep columns out; prefer AllowTables and deny the secret columns to the read-only login.",
+                registration.Name,
+                registration.ContextType.Name,
+                snapshot.Tables.Count);
+        }
+
+        var excludedColumns = snapshot.Policy.Tables
+            .SelectMany(x => x.ExcludedColumns
+                .Order(StringComparer.OrdinalIgnoreCase)
+                .Select(y => $"{x.Schema}.{x.Name}.{y}"))
+            .ToList();
+        if (excludedColumns.Count > 0)
+        {
+            logger.LogInformation(
+                "Host data source {DataSourceName} excludes {ExcludedColumnCount} columns: {ExcludedColumns}.",
+                registration.Name,
+                excludedColumns.Count,
+                string.Join(", ", excludedColumns));
         }
 
         if (merge == null)

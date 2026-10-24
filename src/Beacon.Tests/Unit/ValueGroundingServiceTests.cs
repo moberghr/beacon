@@ -584,6 +584,185 @@ public class ValueGroundingServiceTests
             Times.Never);
     }
 
+    // Each probe keeps its own timeout, counted from its start: a probe slower than that matches nothing, the others keep
+    // their hits.
+    [Test]
+    public async Task BuildValueMatchesBlockAsync_AProbePastItsOwnTimeout_MatchesNothing_AndTheOtherHitsAreKept()
+    {
+        var provider = new Mock<IDataSourceProvider>();
+        provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.Is<string>(y => y.Contains("\"status\"")), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderQueryResult { Success = true, Rows = [new Dictionary<string, object?> { ["status"] = "REFUNDED" }] });
+        provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.Is<string>(y => y.Contains("\"country\"")), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .Returns(async (DataSource _, string _, Dictionary<string, object?> _, CancellationToken token) =>
+            {
+                await Task.Delay(Timeout.Infinite, token);
+
+                return new ProviderQueryResult { Success = true };
+            });
+        var (service, _) = BuildService(provider, probeTimeout: TimeSpan.FromMilliseconds(300));
+        var settings = NewSettings();
+        settings.ValueGroundingMaxProbes = 2;
+
+        var block = await service.BuildValueMatchesBlockAsync(
+            DataSourceId, ProjectId, "orders that were 'refunded'", TwoTables(), settings, CancellationToken.None);
+
+        block.Should().Contain("sales.orders.status = 'REFUNDED'").And.NotContain("crm.accounts");
+    }
+
+    // The timeout is per probe, not shared: probes that run one after another, each within its own timeout, all keep their
+    // hits however long they take together, so the same data gives the same block under any load.
+    [Test]
+    public async Task BuildValueMatchesBlockAsync_ProbesRunOneAfterAnother_EachWithinItsTimeout_AllKeepTheirHits()
+    {
+        var provider = new Mock<IDataSourceProvider>();
+        provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .Returns(async (DataSource _, string sql, Dictionary<string, object?> _, CancellationToken token) =>
+            {
+                await Task.Delay(200, token);
+
+                return new ProviderQueryResult { Success = true, Rows = [new Dictionary<string, object?> { ["v"] = sql.Contains("\"status\"") ? "REFUNDED" : "refunded late" }] };
+            });
+        var (service, _) = BuildService(provider, probeTimeout: TimeSpan.FromMilliseconds(300));
+
+        var block = await service.BuildValueMatchesBlockAsync(
+            DataSourceId, ProjectId, "orders that were 'refunded'", OneTableTwoColumns(), NewSettings(), CancellationToken.None);
+
+        block.Should().Contain("sales.orders.status = 'REFUNDED'; sales.orders.note = 'refunded late'");
+    }
+
+    // A safety net bounds all the probes of one ask together: a probe still running then is cut and matches nothing.
+    [Test]
+    public async Task BuildValueMatchesBlockAsync_ProbesPastTheSafetyCap_AreCut()
+    {
+        var provider = new Mock<IDataSourceProvider>();
+        provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.Is<string>(y => y.Contains("\"status\"")), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderQueryResult { Success = true, Rows = [new Dictionary<string, object?> { ["status"] = "REFUNDED" }] });
+        provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.Is<string>(y => y.Contains("\"country\"")), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .Returns(async (DataSource _, string _, Dictionary<string, object?> _, CancellationToken token) =>
+            {
+                await Task.Delay(Timeout.Infinite, token);
+
+                return new ProviderQueryResult { Success = true };
+            });
+        var (service, _) = BuildService(provider, probeTimeout: TimeSpan.FromSeconds(30), probeSafetyCap: TimeSpan.FromMilliseconds(300));
+        var settings = NewSettings();
+        settings.ValueGroundingMaxProbes = 2;
+        var started = System.Diagnostics.Stopwatch.StartNew();
+
+        var block = await service.BuildValueMatchesBlockAsync(
+            DataSourceId, ProjectId, "orders that were 'refunded'", TwoTables(), settings, CancellationToken.None);
+
+        started.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10), "the cap cuts the probe long before its own timeout");
+        block.Should().Contain("sales.orders.status = 'REFUNDED'").And.NotContain("crm.accounts");
+    }
+
+    // Without a free per-key slot the probes run one at a time, as one call's statements always did.
+    [Test]
+    public async Task BuildValueMatchesBlockAsync_WithoutAFreeSlot_ProbesRunOneAtATime()
+    {
+        var (provider, mostAtOnce) = SlowProbes();
+        var leases = new CountingLeases(available: 0);
+        var (service, _) = BuildService(provider, leases: leases);
+
+        var block = await service.BuildValueMatchesBlockAsync(
+            DataSourceId, ProjectId, "orders that were 'refunded'", OneTableTwoColumns(), NewSettings(), CancellationToken.None);
+
+        mostAtOnce().Should().Be(1);
+        block.Should().Contain("sales.orders.status = 'REFUNDED'; sales.orders.note = 'refunded late'");
+    }
+
+    // A probe that runs beside the call holds one of the caller's per-key slots, given back when the probes are done; their
+    // hits come back in the order the candidates were ranked, whichever probe finishes first.
+    [Test]
+    public async Task BuildValueMatchesBlockAsync_ProbesRunTogetherOnFreeSlots_AndTheirHitsKeepTheRankedOrder()
+    {
+        var (provider, mostAtOnce) = SlowProbes();
+        var leases = new CountingLeases(available: 5);
+        var (service, _) = BuildService(provider, leases: leases);
+        var settings = NewSettings();
+
+        var block = await service.BuildValueMatchesBlockAsync(
+            DataSourceId, ProjectId, "orders that were 'refunded'", OneTableTwoColumns(), settings, CancellationToken.None);
+
+        mostAtOnce().Should().Be(2);
+        leases.Taken.Should().Be(1, "two probes need one slot beside the call's own");
+        leases.Limits.Should().AllBeEquivalentTo(settings.MaxConcurrentQueriesPerKey);
+        leases.Outstanding.Should().Be(0);
+        block.Should().Contain("sales.orders.status = 'REFUNDED'; sales.orders.note = 'refunded late'");
+    }
+
+    private static ValueGroundingTable[] TwoTables() =>
+    [
+        new ValueGroundingTable("sales", "orders", new[] { new ValueGroundingColumn("status", "varchar", false, null, null) }),
+        new ValueGroundingTable("crm", "accounts", new[] { new ValueGroundingColumn("country", "varchar", false, null, null) })
+    ];
+
+    private static ValueGroundingTable[] OneTableTwoColumns() =>
+    [
+        new ValueGroundingTable("sales", "orders", new[]
+        {
+            new ValueGroundingColumn("status", "varchar", false, null, null),
+            new ValueGroundingColumn("note", "varchar", false, null, null)
+        })
+    ];
+
+    // Two probes; the first-ranked column (status) answers last. Reports the most probes that ran at once.
+    private static (Mock<IDataSourceProvider> Provider, Func<int> MostAtOnce) SlowProbes()
+    {
+        var running = 0;
+        var mostAtOnce = 0;
+        var provider = new Mock<IDataSourceProvider>();
+        provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .Returns(async (DataSource _, string sql, Dictionary<string, object?> _, CancellationToken token) =>
+            {
+                var now = Interlocked.Increment(ref running);
+                InterlockedMax(ref mostAtOnce, now);
+                var isStatus = sql.Contains("\"status\"");
+                await Task.Delay(isStatus ? 400 : 50, token);
+                Interlocked.Decrement(ref running);
+
+                return new ProviderQueryResult { Success = true, Rows = [new Dictionary<string, object?> { ["v"] = isStatus ? "REFUNDED" : "refunded late" }] };
+            });
+
+        return (provider, () => Volatile.Read(ref mostAtOnce));
+    }
+
+    private sealed class CountingLeases(int available) : IProbeConcurrencyLeases
+    {
+        private int _outstanding;
+
+        public int Taken { get; private set; }
+
+        public List<int> Limits { get; } = [];
+
+        public int Outstanding => Volatile.Read(ref _outstanding);
+
+        public IDisposable? TryAcquire(int limit)
+        {
+            Limits.Add(limit);
+            if (Taken >= available)
+            {
+                return null;
+            }
+
+            Taken++;
+            Interlocked.Increment(ref _outstanding);
+
+            return new Lease(this);
+        }
+
+        private sealed class Lease(CountingLeases owner) : IDisposable
+        {
+            public void Dispose() => Interlocked.Decrement(ref owner._outstanding);
+        }
+    }
+
     [Test]
     public async Task BuildValueMatchesBlockAsync_NoTables_ReturnsEmpty()
     {
@@ -614,7 +793,10 @@ public class ValueGroundingServiceTests
         DatabaseEngineType engine = DatabaseEngineType.PostgreSQL,
         string? configuredDatabase = null,
         string? hostManagedKey = null,
-        IMcpStatementLog? statementLog = null)
+        IMcpStatementLog? statementLog = null,
+        TimeSpan? probeTimeout = null,
+        TimeSpan? probeSafetyCap = null,
+        IProbeConcurrencyLeases? leases = null)
     {
         var dataSource = new DataSource
         {
@@ -648,9 +830,29 @@ public class ValueGroundingServiceTests
             TestRowSecurity.Resolver,
             new QueryGuardrailService(),
             statementLog ?? new McpStatementLog(),
-            NullLogger<ValueGroundingService>.Instance);
+            NullLogger<ValueGroundingService>.Instance,
+            leases)
+        {
+            ProbeTimeout = probeTimeout ?? ValueGroundingService.DefaultProbeTimeout,
+            ProbeSafetyCap = probeSafetyCap ?? ValueGroundingService.DefaultProbeSafetyCap
+        };
 
         return (service, factory);
+    }
+
+    private static void InterlockedMax(ref int target, int value)
+    {
+        var current = Volatile.Read(ref target);
+        while (value > current)
+        {
+            var seen = Interlocked.CompareExchange(ref target, value, current);
+            if (seen == current)
+            {
+                return;
+            }
+
+            current = seen;
+        }
     }
 
     private static Mock<DbSet<T>> BuildDbSet<T>(IEnumerable<T> data) where T : class

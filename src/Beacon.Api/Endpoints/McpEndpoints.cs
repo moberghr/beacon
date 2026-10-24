@@ -19,7 +19,8 @@ internal static class McpEndpoints
 
         // The settings (limits, PII detection and its custom patterns, prompts): an Auditor or a SecurityAdmin reads them, a
         // SecurityAdmin changes them.
-        mcp.MapGet("/settings", (IMediator m, CancellationToken ct) => m.Send(new GetMcpSettingsQuery(), ct))
+        // The handler answers with the resolved settings plus the stored values and the lock metadata.
+        mcp.MapGet("/settings", async (IMediator m, CancellationToken ct) => (GetMcpSettingsResult)await m.Send(new GetMcpSettingsQuery(), ct))
             .WithName("GetMcpSettings")
             .RequireBeaconPermission(BeaconPermissions.AuditorOrSecurityAdminPolicy);
 
@@ -102,6 +103,7 @@ internal static class McpEndpoints
         // the MCP route and the REST SQL endpoints, so a Read-scoped key can't run SQL through it.
         mcp.MapPost("/tools/run", (RunMcpToolCommand body, IMediator m, CancellationToken ct) => m.Send(body, ct))
             .WithName("RunMcpTool")
+            .WithBeaconLongRunning()
             .RequireAuthorization(BeaconApiEndpoints.ExecuteScopePolicyName);
 
         mcp.MapGet("/learning-stats", ([FromQuery] int? projectId, IMediator m, CancellationToken ct) =>

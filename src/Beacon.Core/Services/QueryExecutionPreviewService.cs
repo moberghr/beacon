@@ -1,3 +1,4 @@
+using Beacon.Core.Handlers.Queries;
 using Beacon.Core.Helpers;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Models;
@@ -13,8 +14,10 @@ public interface IQueryExecutionPreviewService
     /// One page of a query's result (the saved query, or <paramref name="draft"/> when given); a failure comes
     /// back as the result, with its cause.
     /// </summary>
+    [Obsolete("Send ExecuteQueryPreviewCommand through IMediator instead; removed in 6.0.")]
     Task<QueryPreviewResult?> ExecuteQueryPreview(int queryId, QueryDraft? draft, ListRequest paging, CancellationToken cancellationToken);
     /// <summary>One page of a single step's result, run on its own; from <paramref name="draft"/> when given.</summary>
+    [Obsolete("Send ExecuteStepPreviewCommand through IMediator instead; removed in 6.0.")]
     Task<QueryPreviewResult?> ExecuteStepPreview(int queryId, int stepOrder, List<ParameterValue>? parameters, QueryDraft? draft, ListRequest paging, CancellationToken cancellationToken);
     /// <summary>Runs <paramref name="queryData"/>'s steps once, in-process; no query is stored to run them.</summary>
     Task<QueryExecutionResult?> ExecuteTemporaryQueryPreview(QueryData queryData, CancellationToken cancellationToken, List<ParameterValue>? parameters = null);
@@ -45,38 +48,12 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
         _logger = logger;
     }
 
-    public async Task<QueryPreviewResult?> ExecuteQueryPreview(int queryId, QueryDraft? draft, ListRequest paging, CancellationToken cancellationToken)
+    public Task<QueryPreviewResult?> ExecuteQueryPreview(int queryId, QueryDraft? draft, ListRequest paging, CancellationToken cancellationToken)
     {
-        await DemandMayRunAsync(queryId, draft, cancellationToken);
-
-        try
-        {
-            if (draft != null)
-            {
-                return await _queryService.PreviewQuery(queryId, draft, paging, cancellationToken);
-            }
-
-            var snapshot = await LoadRunnableSnapshotAsync(queryId, cancellationToken);
-
-            return await _storedPreview.PreviewSnapshot(snapshot, paging, cancellationToken);
-        }
-        catch (OperationCanceledException)
-        {
-            _logger.LogDebug("Query preview for query {QueryId} was cancelled", queryId);
-            return null;
-        }
-        catch (Exception ex) when (!IsAccessRefusal(ex))
-        {
-            // The type and error code only (§1.11): the message can quote the SQL or row values.
-            _logger.LogWarning(
-                "Error executing query preview for query {QueryId}: {Failure}",
-                queryId,
-                FailureCodes.Describe(ex));
-            return Failed(ex);
-        }
+        return ExecuteQueryPreviewHandler.RunAsync(_queryService, _storedPreview, _authorizer, _logger, queryId, draft, paging, cancellationToken);
     }
 
-    public async Task<QueryPreviewResult?> ExecuteStepPreview(
+    public Task<QueryPreviewResult?> ExecuteStepPreview(
         int queryId,
         int stepOrder,
         List<ParameterValue>? parameters,
@@ -84,33 +61,7 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
         ListRequest paging,
         CancellationToken cancellationToken)
     {
-        await DemandMayRunAsync(queryId, draft, cancellationToken);
-
-        try
-        {
-            if (draft != null)
-            {
-                return await _queryService.PreviewQueryStepPaged(queryId, stepOrder, parameters, draft, paging, cancellationToken);
-            }
-
-            var snapshot = await LoadRunnableSnapshotAsync(queryId, cancellationToken);
-
-            return await _storedPreview.PreviewSnapshotStep(snapshot, stepOrder, parameters, paging, cancellationToken);
-        }
-        catch (OperationCanceledException)
-        {
-            _logger.LogDebug("Step preview for query {QueryId} step {StepOrder} was cancelled", queryId, stepOrder);
-            return null;
-        }
-        catch (Exception ex) when (!IsAccessRefusal(ex))
-        {
-            _logger.LogWarning(
-                "Error executing step preview for query {QueryId} step {StepOrder}: {Failure}",
-                queryId,
-                stepOrder,
-                FailureCodes.Describe(ex));
-            return Failed(ex);
-        }
+        return ExecuteStepPreviewHandler.RunAsync(_queryService, _storedPreview, _authorizer, _logger, queryId, stepOrder, parameters, draft, paging, cancellationToken);
     }
 
     public Task<QueryExecutionResult?> ExecuteTemporaryQueryPreview(QueryData queryData, CancellationToken cancellationToken, List<ParameterValue>? parameters = null)
@@ -196,18 +147,6 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
         };
     }
 
-    // Checked before anything is read, outside the catch that turns failures into results: the stored query needs Run
-    // (unreadable or missing is 404, a query without steps is its owner's), a draft's sources need Query (one project
-    // holding all of them, or all openly reachable). A draft runs exactly the steps it carries.
-    private Task DemandMayRunAsync(int queryId, QueryDraft? draft, CancellationToken cancellationToken)
-    {
-        var check = draft == null
-            ? new ProjectCheck(ProjectResource.Query(queryId), ProjectAction.Run)
-            : new ProjectCheck(ProjectResource.DataSources(draft.Steps?.Select(x => x.DataSourceId)), ProjectAction.Query);
-
-        return _authorizer.DemandAsync(check, cancellationToken);
-    }
-
     // Temporary steps are ad-hoc SQL with no saved query behind them: a caller other than system work (which, like an
     // Admin, is not checked) needs Query on each step's data source, each on its own. A step naming no data source is
     // refused as missing.
@@ -222,29 +161,4 @@ internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewServi
 
         return _authorizer.DemandAsync(checks, cancellationToken);
     }
-
-    // The stored steps that run are the ones authorized here, right before their SQL: the query is read once, detached,
-    // and the data sources of that snapshot need Run in one project holding all of them (or all openly reachable), so an
-    // edit saved after the check above cannot run a step on a source the caller may not run. A snapshot without steps
-    // runs no source SQL and needs nothing beyond that check.
-    private async Task<StoredQuerySnapshot> LoadRunnableSnapshotAsync(int queryId, CancellationToken cancellationToken)
-    {
-        var snapshot = await _storedPreview.LoadSnapshot(queryId, cancellationToken);
-        if (snapshot.Steps.Count > 0)
-        {
-            await _authorizer.DemandAsync(new ProjectCheck(ProjectResource.DataSources(snapshot.DataSourceIds), ProjectAction.Run), cancellationToken);
-        }
-
-        return snapshot;
-    }
-
-    // A refusal is the answer (404 or 403, already logged), never a failed preview.
-    private static bool IsAccessRefusal(Exception exception) =>
-        exception is BeaconNotFoundException or BeaconForbiddenException;
-
-    // A preview is run by the user who wrote the query, so the failure goes back to them as the result
-    // (the shell renders ErrorMessage) instead of null, which the handlers could only turn into
-    // "preview failed" — hiding the cause in a host log the user usually cannot see.
-    private static QueryPreviewResult Failed(Exception exception) =>
-        new() { Success = false, ErrorMessage = exception.Message };
 }

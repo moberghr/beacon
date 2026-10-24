@@ -122,8 +122,9 @@ public class ConnectTimeoutTests
     }
 
     // A connection string already within the bounds reaches the driver exactly as stored (MySql.Data then reports it in its
-    // own normalised form, as it does for any string).
-    [TestCase(DatabaseEngineType.PostgreSQL, "Host=db.internal;Database=sales;Username=reader;Password=pw;Timeout=20")]
+    // own normalised form, as it does for any string). The PostgreSQL one already sets how it signs in (see
+    // PostgreSqlHostIdentityTests for the defaults a string without them gets).
+    [TestCase(DatabaseEngineType.PostgreSQL, "Host=db.internal;Database=sales;Username=reader;Password=pw;Timeout=20;Require Auth=ScramSHA256;GSS Encryption Mode=Disable")]
     [TestCase(DatabaseEngineType.MSSQL, "Server=db.internal;Database=sales;User Id=reader;Password=pw;Encrypt=Mandatory;Connect Timeout=20")]
     [TestCase(DatabaseEngineType.MySQL, "Server=db.internal;Database=sales;Uid=reader;Pwd=pw;Connection Timeout=20")]
     public void AConnectionStringWithinTheBounds_IsUsedAsItIs(DatabaseEngineType engine, string connectionString)

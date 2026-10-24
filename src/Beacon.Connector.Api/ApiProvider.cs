@@ -33,6 +33,13 @@ public class ApiProvider(
     // The data sources whose replaced timeout was logged, so it is logged once per process.
     private static readonly ConcurrentDictionary<int, bool> ReplacedTimeoutLogged = new();
 
+    // The data sources warned about for sending their API key in the query string, so it is logged once per process.
+    private static readonly ConcurrentDictionary<int, bool> QueryKeyWarned = new();
+
+    /// <summary>What a new or changed configuration that sends the API key in the query string is told.</summary>
+    public const string QueryKeyRefusedMessage =
+        "Send the API key in a header (Auth.ApiKeyLocation Header): a key in the query string travels in every request URL, which servers and proxies log, and an API that echoes its URL returns it.";
+
     private static readonly JsonSerializerOptions JsonOptions = new()
     {
         PropertyNameCaseInsensitive = true
@@ -42,51 +49,35 @@ public class ApiProvider(
 
     public string GetQueryLanguageName() => "HTTP";
 
-    public async Task<ConnectionTestResult> TestConnectionAsync(
+    public Task<ConnectionTestResult> TestConnectionAsync(
         DataSource dataSource,
         CancellationToken cancellationToken = default)
     {
-        var stopwatch = Stopwatch.StartNew();
-
-        try
+        return ConnectorProviderSupport.TestConnectionAsync(logger, dataSource, "API", async () =>
         {
             var config = ParseConfiguration(dataSource);
-            var client = httpClientFactory.CreateClient();
+            var client = httpClientFactory.CreateClient(ApiConnectorHttpClient.Name);
             client.Timeout = TimeoutOf(dataSource, config);
 
-            // Test by fetching the OpenAPI spec URL; only its status is needed, so its body is never read.
-            var request = new HttpRequestMessage(HttpMethod.Get, config.OpenApiSpecUrl);
-            ApiHttpClientHelper.ApplyAuth(request, config.Auth);
+            // Test by fetching the OpenAPI spec URL; only its status is needed, so its body is never read. The data
+            // source's credentials go only to the base URL's origin: a description served elsewhere is fetched without them.
+            using var request = new HttpRequestMessage(HttpMethod.Get, config.OpenApiSpecUrl);
+            if (ApiHttpClientHelper.SameOrigin(config.OpenApiSpecUrl, config.BaseUrl))
+            {
+                ApiHttpClientHelper.ApplyAuth(request, config.Auth);
+            }
 
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
+            ApiHttpClientHelper.EnsureNotRedirected(response);
             response.EnsureSuccessStatusCode();
 
-            stopwatch.Stop();
-
-            return new ConnectionTestResult
+            return new Dictionary<string, object?>
             {
-                Success = true,
-                TestDurationMs = stopwatch.Elapsed.TotalMilliseconds,
-                ConnectionInfo = new Dictionary<string, object?>
-                {
-                    ["BaseUrl"] = config.BaseUrl,
-                    ["SpecUrl"] = config.OpenApiSpecUrl,
-                    ["StatusCode"] = (int)response.StatusCode
-                }
+                ["BaseUrl"] = config.BaseUrl,
+                ["SpecUrl"] = config.OpenApiSpecUrl,
+                ["StatusCode"] = (int)response.StatusCode
             };
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Connection test failed for API data source {DataSourceId}", dataSource.Id);
-            stopwatch.Stop();
-
-            return new ConnectionTestResult
-            {
-                Success = false,
-                ErrorMessage = ConnectionFailureDescriber.Describe(ex),
-                TestDurationMs = stopwatch.Elapsed.TotalMilliseconds
-            };
-        }
+        });
     }
 
     public async Task<ProviderQueryResult> ExecuteQueryAsync(
@@ -96,6 +87,7 @@ public class ApiProvider(
         CancellationToken cancellationToken = default)
     {
         var stopwatch = Stopwatch.StartNew();
+        var scrubber = ApiSecretScrubber.For(null);
 
         try
         {
@@ -105,6 +97,7 @@ public class ApiProvider(
             }
 
             var config = ParseConfiguration(dataSource);
+            scrubber = ApiSecretScrubber.For(config.Auth);
             var queryDef = JsonSerializer.Deserialize<ApiQueryDefinition>(query, JsonOptions)
                 ?? throw new BeaconException("Failed to parse API query definition");
 
@@ -116,8 +109,10 @@ public class ApiProvider(
                     $"HTTP method '{queryDef.Method}' is not permitted. Only read-only verbs (GET, HEAD, OPTIONS) are allowed.");
             }
 
+            WarnOnQueryKey(dataSource, config);
+
             var timeout = TimeoutOf(dataSource, config);
-            var client = httpClientFactory.CreateClient();
+            var client = httpClientFactory.CreateClient(ApiConnectorHttpClient.Name);
             client.Timeout = timeout;
 
             var request = ApiHttpClientHelper.CreateRequest(config, queryDef);
@@ -133,6 +128,7 @@ public class ApiProvider(
             try
             {
                 using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, timeoutCts.Token);
+                ApiHttpClientHelper.EnsureNotRedirected(response);
                 response.EnsureSuccessStatusCode();
                 statusCode = (int)response.StatusCode;
 
@@ -145,7 +141,9 @@ public class ApiProvider(
                 throw new BeaconException($"The API did not answer within {timeout.TotalSeconds:0} seconds.", ex);
             }
 
-            var rows = tabularizer.Tabularize(responseBody, queryDef.ResultMapping, out var truncated, out var totalAvailable);
+            // The data source's own credentials never reach the caller, also when the API echoes the request.
+            var rows = tabularizer.Tabularize(scrubber.Scrub(responseBody), queryDef.ResultMapping, out var truncated, out var totalAvailable);
+            scrubber.Scrub(rows);
 
             stopwatch.Stop();
 
@@ -187,7 +185,7 @@ public class ApiProvider(
                 TotalRows = 0,
                 ExecutionTimeMs = stopwatch.Elapsed.TotalMilliseconds,
                 Success = false,
-                ErrorMessage = ex.Message
+                ErrorMessage = scrubber.Scrub(ex.Message)
             };
         }
     }
@@ -202,6 +200,7 @@ public class ApiProvider(
             var endpoints = await openApiImportService.ImportAsync(
                 config.OpenApiSpecUrl,
                 config.EndpointFilter,
+                config,
                 cancellationToken);
 
             return new DataSourceMetadata
@@ -258,15 +257,51 @@ public class ApiProvider(
             errors.Add($"Invalid JSON: {ex.Message}");
         }
 
-        return Task.FromResult(new QueryValidationResult
+        return ConnectorProviderSupport.ValidationVerdict(errors, warnings);
+    }
+
+    /// <summary>
+    /// Refuses a new or changed configuration that sends the API key in the query string (<see cref="QueryKeyRefusedMessage"/>).
+    /// A stored one keeps working, with one Warning per data source per process.
+    /// </summary>
+    public void EnsureNewConnectionDataAllowed(string connectionData)
+    {
+        ApiConnectionConfig? config;
+        try
         {
-            IsValid = errors.Count == 0,
-            Errors = errors,
-            Warnings = warnings
-        });
+            config = JsonSerializer.Deserialize<ApiConnectionConfig>(connectionData, JsonOptions);
+        }
+        catch (JsonException)
+        {
+            // Not readable: the transport check refuses it, and a query on it fails on the same read.
+            return;
+        }
+
+        if (Uri.TryCreate(config?.BaseUrl, UriKind.Absolute, out var baseUri) && !string.IsNullOrEmpty(baseUri.UserInfo))
+        {
+            throw new InvalidOperationException("BaseUrl must not contain credentials (user:password@host); configure them in Auth.");
+        }
+
+        if (SendsKeyInQuery(config?.Auth))
+        {
+            throw new InvalidOperationException(QueryKeyRefusedMessage);
+        }
     }
 
     private static readonly string[] ReadOnlyMethods = ["GET", "HEAD", "OPTIONS"];
+
+    private static bool SendsKeyInQuery(ApiAuthConfig? auth) =>
+        auth is { Type: ApiAuthType.ApiKey, ApiKeyLocation: ApiKeyLocation.Query };
+
+    private void WarnOnQueryKey(DataSource dataSource, ApiConnectionConfig config)
+    {
+        if (SendsKeyInQuery(config.Auth) && QueryKeyWarned.TryAdd(dataSource.Id, true))
+        {
+            logger.LogWarning(
+                "API data source {DataSourceId} sends its API key in the query string; it keeps working, but a changed configuration must send the key in a header",
+                dataSource.Id);
+        }
+    }
 
     private static bool IsReadOnlyMethod(string? method) =>
         !string.IsNullOrWhiteSpace(method) && ReadOnlyMethods.Contains(method.ToUpperInvariant());
@@ -292,16 +327,10 @@ public class ApiProvider(
 
     private ApiConnectionConfig ParseConfiguration(DataSource dataSource)
     {
-        try
-        {
-            var decryptedJson = connectionResolver.GetConnectionData(dataSource);
-            var config = JsonSerializer.Deserialize<ApiConnectionConfig>(decryptedJson, JsonOptions)
-                ?? throw new BeaconException("Failed to parse API connection configuration");
-            return config;
-        }
-        catch (JsonException ex)
-        {
-            throw new BeaconException($"Invalid API configuration JSON: {ex.Message}", ex);
-        }
+        return ConnectorProviderSupport.ParseConfiguration<ApiConnectionConfig>(
+            connectionResolver.GetConnectionData(dataSource),
+            "Failed to parse API connection configuration",
+            "Invalid API configuration JSON: ",
+            JsonOptions);
     }
 }

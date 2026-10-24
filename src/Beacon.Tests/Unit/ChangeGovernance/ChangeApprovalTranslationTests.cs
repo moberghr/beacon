@@ -2,6 +2,7 @@ using System.Text.Json;
 using Beacon.Core.Authorization;
 using Beacon.Core.ChangeApprovals;
 using Beacon.Core.Data;
+using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.Approvals;
 using Beacon.Core.Models;
@@ -146,13 +147,14 @@ public class ChangeApprovalTranslationTests
         capture.Commands[3].Should().Contain("FROM beacon.data_sources AS d").And.Contain("d.encrypted_connection_data").And.Contain("d.archived_time IS NULL AND d.id = @resourceId");
     }
 
-    // An Approver who is no live Admin lists every kind but the LLM connection's, filtered in the SQL; a live Admin every one,
-    // once the LLM connection's requests past their expiry are superseded (the list's first statement).
-    [TestCase(false, false, "c.kind <> 5")]
+    // An Approver who is no live Admin lists every kind but the LLM connection's and the Admin role's grants, filtered in the
+    // SQL; a live Admin every one, once the LLM connection's requests past their expiry are superseded (the list's first
+    // statement).
+    [TestCase(false, false, "c.kind NOT IN (5, 6)")]
     [TestCase(false, true, null)]
-    [TestCase(true, false, "[c].[Kind] <> 5")]
+    [TestCase(true, false, "[c].[Kind] NOT IN (5, 6)")]
     [TestCase(true, true, null)]
-    public async Task TheApproversList_LeavesOutTheLlmConnectionsUnlessALiveAdminReads_Translates(bool sqlServer, bool isLiveAdmin, string? filter)
+    public async Task TheApproversList_LeavesOutTheLlmConnectionsAndAdminGrantsUnlessALiveAdminReads_Translates(bool sqlServer, bool isLiveAdmin, string? filter)
     {
         var capture = Capture(sqlServer).AnsweringCountsWithOne();
         var scope = ChangeApprovalScope.Approver with { IsLiveAdmin = isLiveAdmin };
@@ -163,7 +165,7 @@ public class ChangeApprovalTranslationTests
         {
             capture.Commands.Should().HaveCount(3);
             capture.Commands[0].Should().StartWith("UPDATE").And.MatchRegex(@"(?i)kind\]? = 5");
-            capture.Commands.Skip(1).Should().OnlyContain(x => !x.Contains("<> 5", StringComparison.Ordinal) && x.StartsWith("SELECT", StringComparison.Ordinal));
+            capture.Commands.Skip(1).Should().OnlyContain(x => !x.Contains("<> 5", StringComparison.Ordinal) && !x.Contains("NOT IN", StringComparison.Ordinal) && x.StartsWith("SELECT", StringComparison.Ordinal));
             return;
         }
 
@@ -244,10 +246,11 @@ public class ChangeApprovalTranslationTests
         capture.Commands.Should().ContainSingle().Which.Should().Contain(proposed).And.NotContain(payload);
     }
 
-    // An Approver who is no live Admin opens no LLM connection request by id: the detail's own SQL leaves them out.
-    [TestCase(false, "c.kind <> 5")]
-    [TestCase(true, "[c].[Kind] <> 5")]
-    public async Task TheDetail_ForAnApproverWhoIsNoLiveAdmin_LeavesOutTheLlmConnections_Translates(bool sqlServer, string filter)
+    // An Approver who is no live Admin opens no LLM connection request or Admin role grant by id: the detail's own SQL leaves
+    // them out.
+    [TestCase(false, "c.kind NOT IN (5, 6)")]
+    [TestCase(true, "[c].[Kind] NOT IN (5, 6)")]
+    public async Task TheDetail_ForAnApproverWhoIsNoLiveAdmin_LeavesOutTheLlmConnectionsAndAdminGrants_Translates(bool sqlServer, string filter)
     {
         var capture = Capture(sqlServer).ThenNoRows();
 
@@ -555,6 +558,71 @@ public class ChangeApprovalTranslationTests
 
     // A decision read up to its transaction: pending request 90 of resource 5 of the kind, requested by ext-ben, with the
     // definition hash given, and the reviewer's label.
+    // A grant of the Admin role: the user's row taken by a no-op update of its security stamp, then, under that lock, whether
+    // the user (not archived) holds the Admin role (or is a super admin), its security stamp and the Admin role's id; a user who holds it is not
+    // decided (409) and nothing is committed.
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task Approve_AnAdminRoleGrant_TakesTheUsersRowFirst_ThenReadsWhetherItHoldsTheRole_Translates(bool sqlServer)
+    {
+        var capture = Decision(sqlServer, ChangeApprovalKind.AdminRoleGrant, AdminRoleGrantApproval.Hash(5, 1, "stamp"))
+            .ThenRowsAffected(1)
+            .ThenRow(5, "Cid", "stamp", true)
+            .ThenRow(1);
+
+        var act = () => Service(capture).ApproveAsync(90, null, Payload, CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconConflictException>().WithMessage(AdminRoleGrantApproval.AlreadyAdminMessage);
+        capture.Commands.Should().HaveCount(5);
+        capture.Commits.Should().Be(0);
+        if (sqlServer)
+        {
+            capture.Commands[2].Should().Be("UPDATE [u]\nSET [u].[SecurityStamp] = [u].[SecurityStamp]\nFROM [beacon].[Users] AS [u]\nWHERE [u].[ArchivedTime] IS NULL AND [u].[Id] = @userId");
+            capture.Commands[3].Should().Contain("FROM [beacon].[Users] AS [u]").And.Contain("[u].[IsSuperAdmin]").And.Contain("[beacon].[UserRoles]").And.Contain("N'Admin'").And.Contain("[u].[ArchivedTime] IS NULL");
+            capture.Commands[4].Should().Contain("FROM [beacon].[Roles]").And.Contain("N'Admin'");
+            return;
+        }
+
+        capture.Commands[2].Should().Be("UPDATE beacon.users AS u\nSET security_stamp = u.security_stamp\nWHERE u.archived_time IS NULL AND u.id = @userId");
+        capture.Commands[3].Should().Contain("FROM beacon.users AS u").And.Contain("u.is_super_admin").And.Contain("beacon.user_roles").And.Contain("'Admin'").And.Contain("u.archived_time IS NULL");
+        capture.Commands[4].Should().Contain("FROM beacon.roles").And.Contain("'Admin'");
+    }
+
+    // A grant's submission reads whether a pending request already proposes it, by kind, user, status and definition.
+    [TestCase(false, "c.kind = 6", "c.resource_id = @userId", "c.status = 1", "c.definition_hash = @hash")]
+    [TestCase(true, "[c].[Kind] = 6", "[c].[ResourceId] = @userId", "[c].[Status] = 1", "[c].[DefinitionHash] = @hash")]
+    public async Task SubmittingAnAdminRoleGrant_ReadsThePendingGrantOfTheUser_Translates(bool sqlServer, string kind, string user, string pending, string hash)
+    {
+        var capture = Capture(sqlServer).ThenScalar(true);
+        await using var context = await capture.Factory().CreateDbContextAsync(CancellationToken.None);
+        var grants = new AdminRoleGrantApproval(TestChangeApprovals.Caller("ext-ada"), TestChangeApprovals.On(), NullLogger<AdminRoleGrantApproval>.Instance);
+
+        var submission = await grants.SubmitAsync(context, new ChangeRequester("ext-ada", null), new BeaconUser { Id = 5, SecurityStamp = "stamp" }, 1, CancellationToken.None);
+
+        submission.Request.Should().BeNull("a pending request already proposes the grant");
+        capture.Commands.Should().ContainSingle().Which.Should().Contain(kind).And.Contain(user).And.Contain(pending).And.Contain(hash);
+    }
+
+    // A new security stamp supersedes the user's pending grants: read by kind, user and status, then marked by a conditional
+    // update that touches pending requests only.
+    [TestCase(false, "c.kind = 6", "c.resource_id = @userId", "c.status = 1", "SET status = @p")]
+    [TestCase(true, "[c].[Kind] = 6", "[c].[ResourceId] = @userId", "[c].[Status] = 1", "SET [c].[Status] = @p")]
+    public async Task SupersedingTheAdminRoleGrantsOfAUser_Translates(bool sqlServer, string kind, string user, string pending, string superseded)
+    {
+        var capture = Capture(sqlServer)
+            .ThenRow(7, "ext-ben")
+            .ThenRowsAffected(1);
+        await using var context = await capture.Factory().CreateDbContextAsync(CancellationToken.None);
+        var grants = new AdminRoleGrantApproval(TestChangeApprovals.Caller("ext-ada"), TestChangeApprovals.On(), NullLogger<AdminRoleGrantApproval>.Instance);
+
+        var submission = await grants.SupersedePendingAsync(context, 5, CancellationToken.None);
+
+        submission.Superseded.Should().ContainSingle().Which.Should().Be(new SupersededChange(7, "ext-ben"));
+        capture.Commands.Should().HaveCount(2);
+        capture.Commands[0].Should().Contain(kind).And.Contain(user).And.Contain(pending);
+        capture.Commands[1].Should().StartWith("UPDATE").And.Contain(superseded).And.EndWith(pending);
+    }
+
     private static SqlCapture Decision(bool sqlServer, ChangeApprovalKind kind, string definitionHash)
     {
         return Capture(sqlServer)

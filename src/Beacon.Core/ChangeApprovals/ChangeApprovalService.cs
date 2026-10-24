@@ -17,14 +17,15 @@ using Beacon.Core.SecurityAudit;
 namespace Beacon.Core.ChangeApprovals;
 
 /// <summary>
-/// Change requests of migration jobs, data contracts' Custom SQL rules, recipients, data-source connections and the LLM
-/// connection: the pending ones, one with what it changes, and the decisions on them. The same rules as query approvals:
+/// Change requests of migration jobs, data contracts' Custom SQL rules, recipients, data-source connections, the LLM
+/// connection and grants of the Admin role: the pending ones, one with what it changes, and the decisions on them. The same rules as query approvals:
 /// the reviewer is the caller (<see cref="IBeaconActorAccessor"/>) and never the requester (unless
-/// <see cref="ApprovalWorkflowOptions.AllowSelfApproval"/>; a request without a recorded requester is only rejected); a
+/// <see cref="ApprovalWorkflowOptions.AllowSelfApproval"/>, which never applies to a grant of the Admin role; a request
+/// without a recorded requester is only rejected); a
 /// request is decided once, from Pending, by a conditional update in a transaction that takes the resource's row first; an
 /// approval names the payload the reviewer was shown and applies only while the resource still holds exactly the
-/// definition the request records. An Approver reads and decides every request but the LLM connection's, which only a
-/// live Admin reads and decides (the requester included); anyone else reads, like query approvals, the requests of the
+/// definition the request records. An Approver reads and decides every request but the LLM connection's and the Admin
+/// role's grants, which only a live Admin reads and decides (the requester included); anyone else reads, like query approvals, the requests of the
 /// migration jobs and data contracts it reads (<see cref="ChangeApprovalScope"/>), never a recipient's or a connection's.
 /// Who decides is checked again inside the decision's transaction, after the resource's lock, from the user store as it is
 /// then (<see cref="IReviewerAuthority"/>): a reviewer disabled, archived, signed out everywhere or stripped of the Admin
@@ -45,7 +46,8 @@ public interface IChangeApprovalService
     Task<ChangeApprovalDetail?> GetDetailAsync(int requestId, ChangeApprovalScope scope, CancellationToken cancellationToken);
 
     /// <summary>
-    /// Approves a pending request as the caller: 403 for a caller who is no live Admin on an LLM connection change, for its
+    /// Approves a pending request as the caller: 403 for a caller who is no live Admin on an LLM connection change or a grant
+    /// of the Admin role, for its
     /// requester (by any id the caller presents) or a caller without a user id, and for a request without a recorded
     /// requester, and for a reviewer who, read again under the resource's lock, is no longer an active user or no longer
     /// holds what the kind needs; 409 when it is no longer pending, when a data source's server is not the engine it declares (the request
@@ -56,14 +58,16 @@ public interface IChangeApprovalService
     /// (<see cref="ChangeApprovalDetail.CommentRequiredToApprove"/>). The resource then works with that definition. An LLM
     /// connection change is also refused (409) when it waited past its expiry or the stored connection changed since it
     /// was made (both supersede it and wipe what it staged), or when what it staged cannot be read, and (400) when its
-    /// provider is not installed (the request stays pending).
+    /// provider is not installed (the request stays pending). A grant of the Admin role is refused (409) once the user no
+    /// longer exists or already holds the role; approved, the user holds it and every session they hold ends.
     /// </summary>
     Task<ChangeApprovalDecision> ApproveAsync(int requestId, string? comment, string? expectedPayloadHash, CancellationToken cancellationToken);
 
     /// <summary>
     /// Rejects a pending request as the caller (its requester may withdraw it); 403 for a caller who is no live Admin on an
-    /// LLM connection change, the requester included, and for a reviewer who, read again under the resource's lock, is no
-    /// longer an active user or no longer holds what the kind needs; 409 when it is no longer pending, or is an LLM connection change past
+    /// LLM connection change or a grant of the Admin role, the requester included, and for a reviewer who, read again under
+    /// the resource's lock, is no longer an active user or no longer holds what the kind needs; 409 when it is no longer
+    /// pending, or is an LLM connection change past
     /// its expiry. The resource keeps the definition it holds, which stays inactive until it is changed back or changed and
     /// approved; a rejected LLM connection change's staged connection is wiped.
     /// </summary>
@@ -120,6 +124,9 @@ internal sealed class ChangeApprovalService(
 
     /// <summary>Why a reviewer whose account was disabled, archived or signed out everywhere does not decide a change request.</summary>
     internal const string ReviewerInactiveMessage = "This account can no longer decide change requests.";
+
+    /// <summary>Why a caller who is no live Admin cannot decide a grant of the Admin role.</summary>
+    internal const string AdminGrantLiveAdminRequiredMessage = "Only an Admin decides a grant of the Admin role.";
 
     /// <summary>Why an approval of the LLM connection that was committed but not applied in this process is not a plain success.</summary>
     internal const string ApprovedNotAppliedMessage =
@@ -206,7 +213,7 @@ internal sealed class ChangeApprovalService(
         var staleReason = StaleReason(request.Kind, state, request.DefinitionHash);
         var unreadable = !ProposalReadable(request.Kind, request.ProposedJson);
         var blocked = isPending
-            ? FourEyesRefusal(caller, request.RequestedByUserId) ?? (unreadable ? UnreadableProposalMessage : null) ?? staleReason
+            ? FourEyesRefusal(caller, request.RequestedByUserId, request.Kind) ?? (unreadable ? UnreadableProposalMessage : null) ?? staleReason
             : null;
         var names = await DataSourceNamesAsync(context, request.Kind, request.ProposedJson, request.PreviousJson, cancellationToken);
         var previousDestination = Read<RecipientDestinationView>(request.Kind, request.PreviousJson, ChangeApprovalKind.RecipientDestination);
@@ -248,6 +255,7 @@ internal sealed class ChangeApprovalService(
             ProposedDataSourceConnection = proposedConnection,
             PreviousLlmConnection = previousLlm,
             ProposedLlmConnection = proposedLlm,
+            ProposedAdminRoleGrant = Read<AdminRoleGrantView>(request.Kind, request.ProposedJson, ChangeApprovalKind.AdminRoleGrant),
             CurrentProjects = await CurrentProjectsAsync(context, request.Kind, request.ResourceId, cancellationToken),
             PayloadHash = request.PayloadHash,
             IsOwnRequest = caller.IsRecordedAs(request.RequestedByUserId),
@@ -271,7 +279,7 @@ internal sealed class ChangeApprovalService(
         EnsurePending(request.Status);
         await EnsureKindDecidableAsync(reviewer, request.Kind, requestId, cancellationToken);
         await RefuseIfExpiredAsync(context, request, requestId, cancellationToken);
-        var refusal = FourEyesRefusal(reviewer, request.RequestedByUserId);
+        var refusal = FourEyesRefusal(reviewer, request.RequestedByUserId, request.Kind);
         if (refusal != null)
         {
             throw AccessRefusal.Of(logger, reviewer, "change request", requestId, refusal);
@@ -413,6 +421,16 @@ internal sealed class ChangeApprovalService(
             throw;
         }
 
+        if (request.Kind == ChangeApprovalKind.AdminRoleGrant)
+        {
+            logger.LogInformation(
+                ProjectAccessEvents.UserRolesChanged,
+                "User roles changed: user {UserId}, the Admin role granted by the approval of change request {RequestId}, by user {ActorId}",
+                request.ResourceId,
+                requestId,
+                reviewer.LogId);
+        }
+
         var applied = await AfterApprovalAsync(requestId, request, appliedSettings, cancellationToken);
         await NotifyAsync(requestId, "approved", reviewer.UserId, request.RequestedByUserId, cancellationToken);
         if (!applied)
@@ -492,8 +510,8 @@ internal sealed class ChangeApprovalService(
         }
     }
 
-    // Who decides a request of this kind, checked before the four-eyes rule: a change of the LLM connection only a live
-    // Admin, whoever requested it (its requester too, so withdrawing it needs a live Admin as well).
+    // Who decides a request of this kind, checked before the four-eyes rule: a change of the LLM connection and a grant of the
+    // Admin role only a live Admin, whoever requested it (its requester too, so withdrawing it needs a live Admin as well).
     private async Task EnsureKindDecidableAsync(BeaconActor reviewer, ChangeApprovalKind kind, int requestId, CancellationToken cancellationToken)
     {
         var refusal = await KindRefusalAsync(kind, cancellationToken);
@@ -505,8 +523,9 @@ internal sealed class ChangeApprovalService(
 
     // Who decides, checked again inside the decision's transaction, after the resource's lock (a decision may wait for it),
     // from the user store as it is now: the reviewer's own row taken, then still an active user and still holding what the
-    // kind needs (a live Admin for the LLM connection; the Approver permission, or Admin, for every other kind wherever the
-    // route's permission filter demands it). A refusal rolls the attempt back; every retried attempt checks again.
+    // kind needs (a live Admin for the LLM connection and a grant of the Admin role; the Approver permission, or Admin, for
+    // every other kind wherever the route's permission filter demands it). A refusal rolls the attempt back; every retried
+    // attempt checks again.
     private async Task EnsureReviewerStillDecidesAsync(BeaconContext context, BeaconActor reviewer, ChangeApprovalKind kind, int requestId, CancellationToken cancellationToken)
     {
         var live = await reviewerAuthority.ReadLockedAsync(context, reviewer, cancellationToken);
@@ -534,6 +553,11 @@ internal sealed class ChangeApprovalService(
             return live.Permissions.IsAdmin ? null : LiveAdminRequiredMessage;
         }
 
+        if (kind == ChangeApprovalKind.AdminRoleGrant)
+        {
+            return live.Permissions.IsAdmin ? null : AdminGrantLiveAdminRequiredMessage;
+        }
+
         var approverRequired = configuration.Authorization.Enabled || configuration.UserManagement.Enabled;
 
         return approverRequired && !live.Permissions.Holds(BeaconPermissions.Approver) ? ApproverRequiredMessage : null;
@@ -549,12 +573,17 @@ internal sealed class ChangeApprovalService(
 
     private async Task<string?> KindRefusalAsync(ChangeApprovalKind kind, CancellationToken cancellationToken)
     {
-        if (kind != ChangeApprovalKind.LlmConnection)
+        if (kind is not (ChangeApprovalKind.LlmConnection or ChangeApprovalKind.AdminRoleGrant))
         {
             return null;
         }
 
-        return (await permissionAccessor.GetCurrentAsync(cancellationToken)).IsAdmin ? null : LiveAdminRequiredMessage;
+        if ((await permissionAccessor.GetCurrentAsync(cancellationToken)).IsAdmin)
+        {
+            return null;
+        }
+
+        return kind == ChangeApprovalKind.AdminRoleGrant ? AdminGrantLiveAdminRequiredMessage : LiveAdminRequiredMessage;
     }
 
     private static async Task<RequestToDecide> RequestToDecideAsync(BeaconContext context, int requestId, CancellationToken cancellationToken)
@@ -579,7 +608,8 @@ internal sealed class ChangeApprovalService(
 
     // The resource's row, by a no-op update that holds its lock on both providers until the transaction ends: submissions
     // and decisions on one resource run one after the other, in the same order. An archived or deleted resource matches
-    // no row. The LLM connection has no row: its lock is an application lock in the database every save of it takes too.
+    // no row. The LLM connection has no row: its lock is an application lock in the database every save of it takes too. A
+    // grant of the Admin role takes the user's row.
     private Task<int> LockResourceAsync(BeaconContext context, ChangeApprovalKind kind, int resourceId, CancellationToken cancellationToken)
     {
         return kind switch
@@ -595,6 +625,7 @@ internal sealed class ChangeApprovalService(
                 .ExecuteUpdateAsync(x => x.SetProperty(y => y.ApprovedDestinationHash, y => y.ApprovedDestinationHash), cancellationToken),
             ChangeApprovalKind.DataSourceConnection => DataSourceService.LockAsync(context, resourceId, cancellationToken),
             ChangeApprovalKind.LlmConnection => LockLlmConnectionAsync(context, cancellationToken),
+            ChangeApprovalKind.AdminRoleGrant => AdminRoleGrantApproval.LockUserAsync(context, resourceId, cancellationToken),
             _ => Task.FromResult(0)
         };
     }
@@ -740,6 +771,26 @@ internal sealed class ChangeApprovalService(
                     return new GovernedState(true, LlmConnectionApproval.ResourceName, current, current, []);
                 }
 
+            case ChangeApprovalKind.AdminRoleGrant:
+                {
+                    // The grant applies while the user exists, is not archived, does not hold the Admin role yet and holds the
+                    // security stamp the grant was submitted with.
+                    var user = await AdminRoleGrantApproval.StateAsync(context, resourceId, cancellationToken);
+                    if (user == null)
+                    {
+                        return GovernedState.Missing;
+                    }
+
+                    if (user.HoldsAdmin)
+                    {
+                        return new GovernedState(true, user.Label, AdminRoleGrantApproval.AlreadyAdminState, null, []);
+                    }
+
+                    var grant = user.GrantHash(resourceId);
+
+                    return new GovernedState(true, user.Label, grant, grant, []);
+                }
+
             default:
                 return GovernedState.Missing;
         }
@@ -747,7 +798,8 @@ internal sealed class ChangeApprovalService(
 
     // Approved: the resource works with the definition the request records. For a data contract, each rule that waited
     // gets the hash of its own SQL; for a data source, the hash of its definition under the current key; for the LLM
-    // connection, the staged connection is written (its settings save, whose event and after-commit step are returned).
+    // connection, the staged connection is written (its settings save, whose event and after-commit step are returned); for
+    // a grant of the Admin role, the user holds the role named by a proposal that records exactly the granted definition.
     private async Task<StagedAppSettings?> ApplyAsync(
         BeaconContext context,
         int requestId,
@@ -785,6 +837,23 @@ internal sealed class ChangeApprovalService(
                 break;
             case ChangeApprovalKind.LlmConnection when llmProposal != null:
                 return await llmConnections.ApplyAsync(context, requestId, llmProposal, request.RequestedByUserId, cancellationToken);
+            case ChangeApprovalKind.AdminRoleGrant
+                when Read<AdminRoleGrantView>(request.Kind, request.ProposedJson, ChangeApprovalKind.AdminRoleGrant) is { } grant
+                    && grant.UserId == request.ResourceId:
+                {
+                    // The role recorded as assigned by the requester; the event (by the reviewer) commits with the decision.
+                    var rolesChanged = await AdminRoleGrantApproval.ApplyAsync(
+                        context,
+                        grant.UserId,
+                        grant.RoleId,
+                        request.DefinitionHash,
+                        request.RequestedByUserId,
+                        DateTime.UtcNow,
+                        cancellationToken);
+                    await securityAudit.StageAsync(context, rolesChanged, cancellationToken);
+                    break;
+                }
+
             default:
                 // Never a silent approval: what is not applied is refused, and the decision rolls back with it.
                 logger.LogWarning("Change request of kind {Kind} refused: this version does not apply it", request.Kind);
@@ -853,9 +922,14 @@ internal sealed class ChangeApprovalService(
             return kind switch
             {
                 ChangeApprovalKind.DataSourceConnection => UnreadableConnectionMessage,
-                ChangeApprovalKind.LlmConnection => UnreadableProposalMessage,
+                ChangeApprovalKind.LlmConnection or ChangeApprovalKind.AdminRoleGrant => UnreadableProposalMessage,
                 _ => UnreadableMessage
             };
+        }
+
+        if (kind == ChangeApprovalKind.AdminRoleGrant && state.DefinitionHash == AdminRoleGrantApproval.AlreadyAdminState)
+        {
+            return AdminRoleGrantApproval.AlreadyAdminMessage;
         }
 
         return string.Equals(state.DefinitionHash, definitionHash, StringComparison.Ordinal) ? null : ChangedSinceSubmittedMessage;
@@ -863,15 +937,16 @@ internal sealed class ChangeApprovalService(
 
     // Four eyes, as for query changes: the requester never approves their own change, whichever way either signed in (a
     // recorded id is compared with every id the reviewer's request presents); a request without a recorded requester cannot
-    // be told apart from the reviewer's own, so it is only rejected. Null when the reviewer may approve.
-    private string? FourEyesRefusal(BeaconActor reviewer, string? requestedByUserId)
+    // be told apart from the reviewer's own, so it is only rejected. A host that allows self-approval lifts the rule, except
+    // for a grant of the Admin role. Null when the reviewer may approve.
+    private string? FourEyesRefusal(BeaconActor reviewer, string? requestedByUserId, ChangeApprovalKind kind)
     {
         if (reviewer.UserId == null)
         {
             return QueryApprovalService.UnidentifiedReviewerMessage;
         }
 
-        if (configuration.ApprovalWorkflow.AllowSelfApproval)
+        if (configuration.ApprovalWorkflow.AllowSelfApproval && kind != ChangeApprovalKind.AdminRoleGrant)
         {
             return null;
         }
@@ -975,11 +1050,13 @@ internal sealed class ChangeApprovalService(
             ChangeApprovalKind.RecipientDestination => Read<RecipientDestinationView>(kind, proposedJson, kind) != null,
             ChangeApprovalKind.DataSourceConnection => Read<DataSourceConnectionView>(kind, proposedJson, kind) != null,
             ChangeApprovalKind.LlmConnection => Read<LlmConnectionView>(kind, proposedJson, kind) != null,
+            ChangeApprovalKind.AdminRoleGrant => Read<AdminRoleGrantView>(kind, proposedJson, kind) != null,
             _ => false
         };
     }
 
-    // The requests the scope reads: for an Approver every one but the LLM connection's, which only a live Admin reads; for
+    // The requests the scope reads: for an Approver every one but the LLM connection's and the Admin role's grants, which
+    // only a live Admin reads; for
     // anyone else, like query approvals, those of the migration jobs whose source and destination it reads and of the data
     // contracts whose data source it reads — never a recipient's (recipients are project-less) or a connection's, nor one
     // of a resource that no longer exists.
@@ -989,7 +1066,9 @@ internal sealed class ChangeApprovalService(
         {
             return scope.IsLiveAdmin
                 ? context.ChangeApprovalRequests
-                : context.ChangeApprovalRequests.Where(x => x.Kind != ChangeApprovalKind.LlmConnection);
+                : context.ChangeApprovalRequests
+                    .Where(x => x.Kind != ChangeApprovalKind.LlmConnection)
+                    .Where(x => x.Kind != ChangeApprovalKind.AdminRoleGrant);
         }
 
         var jobs = context.MigrationJobs
@@ -1110,17 +1189,18 @@ internal sealed class ChangeApprovalService(
 }
 
 /// <summary>
-/// Who reads change requests: an Approver (an Admin holds the permission) reads every one but the LLM connection's, which
-/// only a live Admin (<see cref="IsLiveAdmin"/>) reads; anyone else the requests of the migration jobs and data contracts
+/// Who reads change requests: an Approver (an Admin holds the permission) reads every one but the LLM connection's and the
+/// Admin role's grants, which only a live Admin (<see cref="IsLiveAdmin"/>) reads; anyone else the requests of the migration jobs and data contracts
 /// whose data sources <see cref="Readable"/> reaches.
 /// </summary>
 public sealed record ChangeApprovalScope(ProjectSet Readable, bool IsApprover)
 {
-    /// <summary>An Approver's: every change request but the LLM connection's.</summary>
+    /// <summary>An Approver's: every change request but the LLM connection's and the Admin role's grants.</summary>
     public static ChangeApprovalScope Approver { get; } = new(ProjectSet.All, true);
 
     /// <summary>
-    /// The caller is an Admin by their live permissions, so they also read the LLM connection's change requests. False by
+    /// The caller is an Admin by their live permissions, so they also read the LLM connection's change requests and the Admin
+    /// role's grants. False by
     /// default: a scope built without it reads none of them.
     /// </summary>
     public bool IsLiveAdmin { get; init; }

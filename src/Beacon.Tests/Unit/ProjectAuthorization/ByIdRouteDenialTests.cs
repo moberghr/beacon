@@ -110,6 +110,7 @@ public class ByIdRouteDenialTests
             "RejectDocumentationPatch",
             "UpdateDocumentationSection",
             "GenerateProjectDocumentation",
+            "StartProjectDocumentationGeneration",
             "VerifySchemaRelationship");
 
         await using var asEditor = await StartAsync(ResolvedProjectResource.InProject(ReadOnlyProject), Editor);
@@ -166,7 +167,7 @@ public class ByIdRouteDenialTests
             }
         }
 
-        curationRoutes.Should().HaveCount(6);
+        curationRoutes.Should().HaveCount(7);
         failures.Should().BeEmpty();
     }
 
