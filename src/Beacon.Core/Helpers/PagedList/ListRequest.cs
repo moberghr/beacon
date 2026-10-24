@@ -28,6 +28,9 @@ public abstract record ListRequest
     /// </summary>
     public const int LegacyUnpagedCap = 10_000;
 
+    /// <summary>The longest search term a list uses; a longer one is cut to it.</summary>
+    public const int MaxSearchLength = 200;
+
     public int? Page { get; init; }
 
     public int? PageSize { get; init; }
@@ -42,6 +45,12 @@ public abstract record ListRequest
     public int PageOrDefault => Math.Clamp(Page ?? 0, 0, MaxPage);
 
     public int PageSizeOrDefault => Math.Clamp(PageSize ?? DefaultPageSize, 1, MaxPageSize);
+
+    public static string? ClampSearch(string? search)
+    {
+        var trimmed = search?.Trim();
+        return string.IsNullOrEmpty(trimmed) ? null : trimmed.Length > MaxSearchLength ? trimmed[..MaxSearchLength] : trimmed;
+    }
 
     /// <summary>A method rather than a property, so the query binder never treats it as a parameter.</summary>
     public IReadOnlyList<SortCriterion> SortCriteria() => ParseSort(Sort);

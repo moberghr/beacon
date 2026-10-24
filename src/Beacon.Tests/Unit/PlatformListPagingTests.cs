@@ -1,5 +1,7 @@
+using Beacon.Core.Handlers.DataQuality.GetDataQualityOverview;
 using Beacon.Core.Handlers.McpEval;
 using Beacon.Core.Handlers.McpGlossary;
+using Beacon.Core.Handlers.QueryFolders;
 using Beacon.Core.Helpers;
 using Beacon.Tests.Common;
 using FluentAssertions;
@@ -113,6 +115,39 @@ public class PlatformListPagingTests
 
         LegacyListTruncation.Apply(items, truncation, null, "test").Should().HaveCount(ListRequest.LegacyUnpagedCap);
         truncation.IsTruncated.Should().BeFalse();
+    }
+
+    [Test]
+    public async Task TheUnpagedDataQualityOverview_ReadsAllScoresInOneQuery_UpToTheSafetyCap()
+    {
+        var commands = await new ListHandlerHarness(TestProjectAccess.FastPath).SendAsync(new GetDataQualityOverviewQuery());
+
+        commands.Should().HaveCount(2, "the scores of every source, then the contract counts; never a query per source");
+        commands[0].Should().NotContain("data_contracts").And.Contain("LIMIT @");
+    }
+
+    [Test]
+    public async Task ThePagedDataQualityOverview_ReadsTheTableScoresOfAllItsSourcesInOneQuery()
+    {
+        var commands = await new ListHandlerHarness(TestProjectAccess.FastPath).SendAsync(new ListDataQualityOverviewQuery { PageSize = 50 });
+
+        commands.Should().HaveCountLessThanOrEqualTo(4, "count, page, contracts and one table score query");
+    }
+
+    [Test]
+    public void ASearchTerm_IsTrimmedAndCutToTheMaximumLength()
+    {
+        ListRequest.ClampSearch(new string('a', 500)).Should().HaveLength(ListRequest.MaxSearchLength);
+        ListRequest.ClampSearch("  rev ").Should().Be("rev");
+        ListRequest.ClampSearch("   ").Should().BeNull();
+    }
+
+    [Test]
+    public async Task TheFolderPage_CanBeNarrowedToOneFolderById()
+    {
+        var commands = await new ListHandlerHarness(TestProjectAccess.FastPath).SendAsync(new ListQueryFoldersQuery { FolderId = 5 });
+
+        commands.Should().OnlyContain(x => x.Contains("q.id = @") || x.Contains(".id = @"));
     }
 
     private static SqlCapture Capture(bool sqlServer) => sqlServer ? SqlCapture.OnSqlServer() : new SqlCapture();

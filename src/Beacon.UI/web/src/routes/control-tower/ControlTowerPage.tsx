@@ -1,5 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
+import { useQuery } from '@tanstack/react-query';
 import {
   Activity,
   AlertTriangle,
@@ -12,6 +13,7 @@ import {
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
 import { SearchPicker } from '@/components/data/SearchPicker';
+import { fetchPagedList } from '@/lib/paging';
 import {
   Banner,
   Button,
@@ -100,6 +102,14 @@ export default function ControlTowerPage() {
   const [selectedSubscriptionId, setSelectedSubscriptionId] = useState<number | null>(null);
 
   const folderId = filters.folderId === '' ? undefined : Number(filters.folderId);
+  // The selected folder's name, fetched by id so a reload or a shared link shows it before anyone searches.
+  const selectedFolder = useQuery({
+    queryKey: ['query-folders', 'selected', folderId],
+    queryFn: () => fetchPagedList<{ id: number; name: string; path?: string | null }>('/beacon/api/query-folders/paged', { folderId, pageSize: 1 }),
+    enabled: folderId != null,
+    staleTime: 5 * 60_000,
+  });
+  const selectedFolderItem = selectedFolder.data?.items[0];
   const healthFilter = filters.healthStatus;
   const onlyOpenTasks = filters.openTasks === 'true';
   const timeRange = filters.timeRangeDays;
@@ -347,7 +357,7 @@ export default function ControlTowerPage() {
                 path="/beacon/api/query-folders/paged"
                 queryKey={['query-folders']}
                 value={folderId}
-                selectedLabel={folderId == null ? undefined : `Folder #${folderId}`}
+                selectedLabel={folderId == null ? undefined : (selectedFolderItem?.path ?? selectedFolderItem?.name ?? `Folder #${folderId}`)}
                 getId={f => f.id}
                 getLabel={f => f.path ?? f.name}
                 onSelect={f => setFolderId(f?.id)}

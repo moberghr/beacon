@@ -18,11 +18,13 @@ internal sealed class ListGlossaryTermsHandler(IDbContextFactory<BeaconContext> 
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
+        var search = ListRequest.ClampSearch(request.Search);
+
         return await context.McpGlossaryTerms
             .Where(x => x.ProjectId == request.ProjectId)
             .WhereIf(request.DataSourceId.HasValue, x => x.DataSourceId == request.DataSourceId!.Value)
             .WhereIf(request.IncludeInactive != true, x => x.IsActive)
-            .WhereIf(!string.IsNullOrWhiteSpace(request.Search), x => x.Term.Contains(request.Search!))
+            .WhereIf(search != null, x => x.Term.Contains(search!))
             .Select(x =>
                 new GlossaryTermItem
                 {

@@ -62,28 +62,29 @@ internal sealed class ListDataQualityOverviewHandler(
                 })
             .ToListAsync(cancellationToken);
 
+        var tableScores = await context.DataQualityScores
+            .Where(x => sourceIds.Contains(x.DataSourceId))
+            .Where(x => context.DataQualityScores
+                .Count(y => y.DataSourceId == x.DataSourceId && (y.Score < x.Score || (y.Score == x.Score && y.Id < x.Id))) < TableScoreLimit)
+            .OrderBy(x => x.Score)
+            .ThenBy(x => x.Id)
+            .Select(x =>
+                new DataQualityScoreData
+                {
+                    Id = x.Id,
+                    DataSourceId = x.DataSourceId,
+                    SchemaName = x.SchemaName,
+                    TableName = x.TableName,
+                    Score = x.Score,
+                    EvaluatedAt = x.EvaluatedAt,
+                    TrendDirection = x.TrendDirection,
+                    PreviousScore = x.PreviousScore
+                })
+            .ToListAsync(cancellationToken);
+
         var overviews = new List<DataQualityOverviewData>();
         foreach (var row in page.Items)
         {
-            var tableScores = await context.DataQualityScores
-                .Where(x => x.DataSourceId == row.DataSourceId)
-                .OrderBy(x => x.Score)
-                .ThenBy(x => x.Id)
-                .Take(TableScoreLimit)
-                .Select(x =>
-                    new DataQualityScoreData
-                    {
-                        Id = x.Id,
-                        DataSourceId = x.DataSourceId,
-                        SchemaName = x.SchemaName,
-                        TableName = x.TableName,
-                        Score = x.Score,
-                        EvaluatedAt = x.EvaluatedAt,
-                        TrendDirection = x.TrendDirection,
-                        PreviousScore = x.PreviousScore
-                    })
-                .ToListAsync(cancellationToken);
-
             var contracts = contractCounts.FirstOrDefault(x => x.DataSourceId == row.DataSourceId);
 
             overviews.Add(new DataQualityOverviewData
@@ -97,6 +98,8 @@ internal sealed class ListDataQualityOverviewHandler(
                 ActiveContracts = contracts?.Count ?? 0,
                 OwnerNotAuthorizedContracts = contracts?.OwnerNotAuthorized ?? 0,
                 TableScores = tableScores
+                    .Where(x => x.DataSourceId == row.DataSourceId)
+                    .ToList()
             });
         }
 

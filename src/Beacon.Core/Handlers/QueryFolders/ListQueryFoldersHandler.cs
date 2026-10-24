@@ -23,8 +23,11 @@ internal sealed class ListQueryFoldersHandler(IDbContextFactory<BeaconContext> c
 
         var readableQuery = ProjectAccessQueryableExtensions.AllSourcesInOneProjectOf<Query>(context, readable, x => x.Steps.Select(y => y.DataSourceId), x => x.OwnerUserId);
 
+        var search = ListRequest.ClampSearch(request.Search);
+
         return await context.QueryFolders
-            .WhereIf(!string.IsNullOrWhiteSpace(request.Search), x => x.Name.Contains(request.Search!) || x.Path.Contains(request.Search!))
+            .WhereIf(request.FolderId.HasValue, x => x.Id == request.FolderId!.Value)
+            .WhereIf(search != null, x => x.Name.Contains(search!) || x.Path.Contains(search!))
             .Select(x =>
                 new QueryFolderData
                 {
@@ -46,4 +49,7 @@ internal sealed class ListQueryFoldersHandler(IDbContextFactory<BeaconContext> c
 public record ListQueryFoldersQuery : ListRequest, IRequest<PagedList<QueryFolderData>>, IProjectFilteredRequest
 {
     public string? Search { get; init; }
+
+    [ProjectScopeExempt("filter only: folders are project-less")]
+    public int? FolderId { get; init; }
 }
