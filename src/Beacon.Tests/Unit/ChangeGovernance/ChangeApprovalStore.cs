@@ -55,6 +55,15 @@ internal sealed class ChangeApprovalStore
 
     public List<Recipient> Recipients { get; } = [];
 
+    /// <summary>
+    /// What reads of the contract rules see instead of <see cref="Rules"/> (bulk writes match through it too): a view for a
+    /// test that changes the stored rules between two reads.
+    /// </summary>
+    public IEnumerable<DataContractRule>? RuleReads { get; set; }
+
+    /// <summary>The stored rule results of past evaluations.</summary>
+    public List<DataQualityRuleResult> Results { get; } = [];
+
     public List<ChangeApprovalRequest> Requests { get; } = [];
 
     public List<BeaconUser> Users { get; } = [];
@@ -105,13 +114,13 @@ internal sealed class ChangeApprovalStore
             [typeof(DatabaseMetadata)] = RecordingBeaconContext.MemorySet(Metadata, Saved),
             [typeof(AppSetting)] = RecordingBeaconContext.MemorySet(Settings, Saved),
             [typeof(ColumnMetadata)] = RecordingBeaconContext.MemorySet(new List<ColumnMetadata>(), Saved),
-            [typeof(DataQualityRuleResult)] = RecordingBeaconContext.MemorySet(new List<DataQualityRuleResult>(), Saved),
+            [typeof(DataQualityRuleResult)] = RecordingBeaconContext.MemorySet(Results, Saved),
             [typeof(DataQualityScore)] = RecordingBeaconContext.MemorySet(new List<DataQualityScore>(), Saved),
         };
         if (!trackContracts)
         {
             sets[typeof(DataContract)] = RecordingBeaconContext.MemorySet(Contracts, Saved);
-            sets[typeof(DataContractRule)] = RecordingBeaconContext.MemorySet(Rules, Saved);
+            sets[typeof(DataContractRule)] = RecordingBeaconContext.MemorySet(Rules, Saved, RuleReads);
         }
 
         var factory = new Mock<IDbContextFactory<BeaconContext>>();

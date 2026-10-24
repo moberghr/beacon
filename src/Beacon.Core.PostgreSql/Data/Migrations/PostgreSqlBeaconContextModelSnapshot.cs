@@ -1544,6 +1544,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("character varying(64)")
                         .HasColumnName("approved_sql_hash");
 
+                    b.Property<DateTime?>("ArchivedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("archived_time");
+
                     b.Property<string>("ColumnName")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")

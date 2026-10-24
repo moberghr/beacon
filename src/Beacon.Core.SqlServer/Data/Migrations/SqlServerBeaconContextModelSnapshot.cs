@@ -1211,6 +1211,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
 
+                    b.Property<DateTime?>("ArchivedTime")
+                        .HasColumnType("datetime2");
+
                     b.Property<string>("ColumnName")
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");

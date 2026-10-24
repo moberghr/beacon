@@ -315,9 +315,12 @@ The contract page (`/beacon/data-quality/{id}`) shows the KPIs **Latest score**,
 **Evaluate now**, **Edit**, **Change owner** (Admins and UserAdmins) and **Delete** sit in the header. Deleting a contract
 archives it and removes its scheduled job.
 
-:::caution
-**Editing a contract replaces its whole rule set.** Stored per-rule results of the old rules are removed with the update;
-evaluation summaries and their overall scores remain. Export rule-level history first if you need it.
+:::note
+**Editing a contract replaces its rule set.** A rule whose definition is unchanged stays as it is; the changed and removed rules are retired, not deleted: they are never evaluated
+again and no longer show on the contract, but they stay stored with their definition (a Custom SQL rule's SQL included),
+and the per-rule results of past evaluations stay in the **Evaluations** history under the name of the rule that produced
+them. Moving the contract to another data source retires every rule and removes their stored results, so the history never shows one source's results under another. Beacon purges nothing else, so a retired rule is kept as long as the evaluation results that point at it. A save that
+finds its rules already replaced by another save is refused with a conflict (409): reload the contract and save again.
 :::
 
 ## REST API
