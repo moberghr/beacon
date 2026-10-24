@@ -222,6 +222,23 @@ public class McpPlaygroundServiceTests
     }
 
     [Test]
+    public async Task ARefusal_IsAudited_EvenWhenTheRequestIsCancelled()
+    {
+        var service = new McpPlaygroundService(BuildServiceProvider(withRequest: false), new BeaconMcpOptions());
+        using var cancelled = new CancellationTokenSource();
+        await cancelled.CancelAsync();
+
+        var result = await service.ExecuteToolAsync(
+            "dry_run",
+            new Dictionary<string, object?> { ["datasource_id"] = DataSourceId, ["sql"] = ValidSql },
+            ProjectId,
+            cancelled.Token);
+
+        result.Text.Should().Be(McpPlaygroundService.NoRequestMessage);
+        _recorded.OfType<McpAuditLog>().Should().ContainSingle("a decided refusal is written whatever the browser does");
+    }
+
+    [Test]
     public async Task Playground_UsesTheCallersProjectAccess_NonMemberOfARestrictedProjectIsDenied()
     {
         // A member of another project only: the restricted project is not in the caller's scope.
@@ -443,7 +460,9 @@ public class McpPlaygroundServiceTests
         var auditFactory = new Mock<IDbContextFactory<BeaconContext>>();
         auditFactory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(() => new PlaygroundTestContext(_recorded, auditSaveThrows));
+            .Returns<CancellationToken>(x => x.IsCancellationRequested
+                ? Task.FromCanceled<BeaconContext>(x)
+                : Task.FromResult<BeaconContext>(new PlaygroundTestContext(_recorded, auditSaveThrows)));
         var deploymentOptions = Options.Create(new McpDeploymentOptions { Audit = new McpAuditOptions { Required = auditRequired } });
 
         var settingsProvider = SettingsProviderMock.Create();

@@ -11,8 +11,10 @@ namespace Beacon.MCP.Services;
 /// threw — the audit row synchronously through <see cref="McpAuditService"/> (so the fail-closed audit sees whether it was
 /// written), then the signal when there is one. The playground's calls go through the same path.
 /// <para>
-/// A tool that still writes its own audit row (<see cref="McpAuditService.LogToolCallAsync"/>) leaves the recorder
-/// unused; when that row was attempted, <see cref="WriteAsync"/> writes nothing, so a call never gets two rows.
+/// The record is written only after the tool returned or threw, never by the tool itself, so the row always holds the
+/// call's final outcome. A tool that still writes its own audit row (<see cref="McpAuditService.LogToolCallAsync"/>) and
+/// leaves the recorder unused gets no second row once its row was written; when its write failed,
+/// <see cref="WriteAsync"/> writes the row again.
 /// </para>
 /// </summary>
 internal sealed class McpToolCallRecorder(
@@ -30,6 +32,7 @@ internal sealed class McpToolCallRecorder(
     private string? _signalError;
     private bool _signalSucceeded;
     private bool _written;
+    private bool _inInvocation;
     private int? _signalId;
 
     public string? Tool { get; private set; }
@@ -55,6 +58,9 @@ internal sealed class McpToolCallRecorder(
 
     /// <summary>The call has its outcome: <see cref="Succeed"/> or <see cref="Fail"/> was called.</summary>
     public bool IsCompleted { get; private set; }
+
+    /// <summary>The SQL whose known names stay readable when a database error is redacted.</summary>
+    internal string? RedactionSql => _signal?.GeneratedSql ?? _signalSql;
 
     /// <summary>Starts the call's record and its clock. One call per scope: a second start is a programming error.</summary>
     public McpToolCallRecorder Start(string tool, int? userId, string? parameters = null)
@@ -143,47 +149,60 @@ internal sealed class McpToolCallRecorder(
         Fail(
             string.IsNullOrEmpty(exception.Message) ? exception.GetType().Name : exception.Message,
             Tables,
-            DatabaseErrorRedactor.ForCaller(exception.Message, _signal?.GeneratedSql ?? _signalSql, redact: true, logger));
+            DatabaseErrorRedactor.ForCaller(exception.Message, RedactionSql, redact: true, logger));
     }
+
+    // The tool is running: the record cannot be written until it returned or threw (McpAuditCallToolFilter).
+    internal void BeginInvocation() => _inInvocation = true;
+
+    internal void EndInvocation() => _inInvocation = false;
 
     /// <summary>
     /// Writes the audit row, then the signal when there is one, once; a second call returns the first one's signal id.
-    /// Returns the persisted signal's id (for a tool that surfaces it), or null. Writes nothing when this scope's audit
-    /// row was already attempted directly by the tool. A call not completed is written as failed.
+    /// Returns the persisted signal's id, or null. Called by <see cref="McpAuditCallToolFilter"/> after the tool returned
+    /// or threw (and for a refusal decided before any tool ran); a call from inside the running tool is refused, so an
+    /// early write can never leave a row whose outcome the call later changed. When this scope's audit row was already
+    /// written directly by the tool only the signal is written; a direct write that failed is written again. A call not
+    /// completed is written as failed.
     /// </summary>
     public async Task<int?> WriteAsync(CancellationToken cancellationToken)
     {
+        if (_inInvocation)
+        {
+            throw new InvalidOperationException("A recorded tool call is written after the tool returns, never by the tool.");
+        }
+
         if (!HasCall || _written)
         {
             return _signalId;
         }
 
         _written = true;
-        if (outcome.Written || outcome.Failed)
-        {
-            logger.LogWarning(
-                "MCP tool {Tool} wrote its audit row directly; the recorded call is not written a second time",
-                McpAuditService.BoundedToolName(Tool));
-
-            return null;
-        }
-
         if (!IsCompleted)
         {
             Fail(McpAuditCallToolFilter.IncompleteCallMessage);
         }
 
-        await auditService.LogToolCallAsync(
-            UserId,
-            Tool!,
-            Parameters,
-            DataSourceId,
-            ProjectId,
-            ExecutionTimeMs,
-            ResultRowCount,
-            ErrorMessage,
-            Tables,
-            cancellationToken);
+        if (outcome.Written)
+        {
+            logger.LogWarning(
+                "MCP tool {Tool} wrote its audit row directly; the recorded call is not written a second time",
+                McpAuditService.BoundedToolName(Tool));
+        }
+        else
+        {
+            await outcome.WriteAsync(() => auditService.LogToolCallAsync(
+                UserId,
+                Tool!,
+                Parameters,
+                DataSourceId,
+                ProjectId,
+                ExecutionTimeMs,
+                ResultRowCount,
+                ErrorMessage,
+                Tables,
+                cancellationToken));
+        }
 
         if (_signal == null)
         {

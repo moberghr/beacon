@@ -1,4 +1,6 @@
+using System.Data.Common;
 using System.Diagnostics;
+using System.Runtime.ExceptionServices;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -6,6 +8,9 @@ using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Beacon.Core.Configuration;
+using Beacon.Core.Services;
+using Beacon.Core.Services.Retention;
+using Beacon.Core.Services.Security;
 using Beacon.Core.Telemetry;
 using Beacon.MCP.Tools;
 
@@ -20,8 +25,9 @@ namespace Beacon.MCP.Services;
 /// It runs the tool first (audit and signal are never short-circuited), then writes the call the tool kept on the scoped
 /// <see cref="McpToolCallRecorder"/>: the audit row synchronously, then the signal for a SQL-carrying tool, on the success
 /// and the failure path alike. A tool that threw after starting its record is recorded as failed and answers the
-/// caller-safe error. A tool that writes its own row directly (not yet on the recorder) is not written a second time; one
-/// that threw without any audit row gets one here, and its exception propagates unchanged.
+/// caller-safe error. A tool that writes its own row directly (not yet on the recorder) is not written a second time (its
+/// signal still is); one that threw without a written audit row — a protocol error such as an unknown tool included —
+/// gets one here, and its exception propagates unchanged.
 /// </para>
 /// <para>
 /// Only then, when the audit is required and this request's audit row could not be written — or a successful result
@@ -58,30 +64,50 @@ internal static class McpAuditCallToolFilter
         CancellationToken cancellationToken)
     {
         var recorder = services?.GetService<McpToolCallRecorder>();
-        CallToolResult result;
+        CallToolResult? result = null;
+        Exception? thrown = null;
+        recorder?.BeginInvocation();
         try
         {
             result = await tool(cancellationToken);
         }
-        catch (Exception ex) when (ex is not McpProtocolException)
+        catch (Exception ex)
+        {
+            thrown = ex;
+        }
+        finally
+        {
+            recorder?.EndInvocation();
+        }
+
+        if (thrown != null)
         {
             if (recorder?.HasCall != true)
             {
-                await AuditUnrecordedFailureAsync(services, toolName, ex);
-                throw;
+                await AuditUnrecordedFailureAsync(services, toolName, thrown);
+                ExceptionDispatchInfo.Throw(thrown);
             }
 
-            result = RecordedFailure(services, recorder, ex);
+            recorder.FailWith(thrown);
+
+            // A protocol error stays a protocol error (the SDK answers it as a JSON-RPC error), written first.
+            if (thrown is McpProtocolException)
+            {
+                await recorder.WriteAsync(CancellationToken.None);
+                ExceptionDispatchInfo.Throw(thrown);
+            }
+
+            result = await RecordedFailureAsync(services, recorder, thrown);
         }
 
         // Written once: the audit row synchronously, never queued, so the decision below sees whether it was written.
         if (recorder?.HasCall == true)
         {
-            CompleteFrom(recorder, result);
+            CompleteFrom(recorder, result!);
             await recorder.WriteAsync(CancellationToken.None);
         }
 
-        if (!ShouldWithhold(services, result.IsError == true, toolName))
+        if (!ShouldWithhold(services, result!.IsError == true, toolName))
         {
             return result;
         }
@@ -148,11 +174,10 @@ internal static class McpAuditCallToolFilter
     }
 
     // The tool threw after starting its record: the record keeps the exception, the call answers what the tools' own
-    // catch blocks answer — the caller-safe message, the exception's type in the log, the detail in the audit log only.
-    private static CallToolResult RecordedFailure(IServiceProvider? services, McpToolCallRecorder recorder, Exception exception)
+    // catch blocks answer — the caller-safe message, a database error's text through the database error redactor (it can
+    // quote row values), the exception's type in the log, the detail in the audit log only.
+    private static async Task<CallToolResult> RecordedFailureAsync(IServiceProvider? services, McpToolCallRecorder recorder, Exception exception)
     {
-        recorder.FailWith(exception);
-
         var logger = services?
             .GetService<ILoggerFactory>()?
             .CreateLogger(typeof(McpAuditCallToolFilter));
@@ -161,30 +186,71 @@ internal static class McpAuditCallToolFilter
             McpAuditService.BoundedToolName(recorder.Tool),
             exception.GetType().Name);
 
-        return ToolHelper.Error(ToolHelper.CallerSafeMessage(exception, recorder.Tool!));
+        if (exception is not DbException)
+        {
+            return ToolHelper.Error(ToolHelper.CallerSafeMessage(exception, recorder.Tool!));
+        }
+
+        var redact = await RedactsDatabaseErrorsAsync(services, recorder.ProjectId);
+        var error = DatabaseErrorRedactor.ForCaller(exception.Message, recorder.RedactionSql, redact, logger);
+
+        return ToolHelper.Error($"Query failed: {error}");
     }
 
-    // A tool that threw without any audit row and without a record is audited all the same (§1.7): the tool name and the
-    // caller's Beacon user, with the exception's message (redacted there as retention decides). A row the tool already
-    // attempted is not written twice.
+    // A database error's text reaches the caller unredacted only while the project's PII detection is off and the
+    // deployment does not force it on; a setting that cannot be read redacts.
+    private static async Task<bool> RedactsDatabaseErrorsAsync(IServiceProvider? services, int? projectId)
+    {
+        if (services?.GetService<IOptions<McpDeploymentOptions>>()?.Value.ForcePiiDetection != false)
+        {
+            return true;
+        }
+
+        var settingsProvider = services.GetService<IMcpSettingsProvider>();
+        if (settingsProvider == null)
+        {
+            return true;
+        }
+
+        try
+        {
+            var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId ?? 0, CancellationToken.None);
+
+            return settings.EnablePiiDetection;
+        }
+        catch (Exception)
+        {
+            return true;
+        }
+    }
+
+    // A tool that threw without a record is audited all the same (§1.7), protocol errors (an unknown tool) included: the
+    // tool name and the caller's Beacon user. The exception's message is kept only where the call's project is known (its
+    // retention then decides, in the audit service); without one the row holds the error's class only. A row the tool
+    // already wrote is not written twice; one whose write failed is written again.
     private static async Task AuditUnrecordedFailureAsync(IServiceProvider? services, string? toolName, Exception exception)
     {
         var audit = services?.GetService<McpAuditService>();
         var outcome = services?.GetService<McpAuditOutcome>();
-        if (audit == null || outcome == null || outcome.Written || outcome.Failed)
+        if (audit == null || outcome == null || outcome.Written)
         {
             return;
         }
 
-        await audit.LogToolCallAsync(
-            userId: services!.GetService<IProjectContext>()?.UserId,
+        var projectContext = services!.GetService<IProjectContext>();
+        var projectId = projectContext?.ActiveProjectId;
+        var message = string.IsNullOrEmpty(exception.Message) ? exception.GetType().Name : exception.Message;
+        var error = projectId != null ? message : McpContentRedactor.ErrorClassOf(message) ?? exception.GetType().Name;
+
+        await outcome.WriteAsync(() => audit.LogToolCallAsync(
+            userId: projectContext?.UserId,
             tool: toolName ?? McpAuditService.InvalidToolName,
             parameters: null,
             dataSourceId: null,
-            projectId: null,
+            projectId: projectId,
             executionTimeMs: 0,
             resultRowCount: null,
-            errorMessage: string.IsNullOrEmpty(exception.Message) ? exception.GetType().Name : exception.Message,
-            ct: CancellationToken.None);
+            errorMessage: error,
+            ct: CancellationToken.None));
     }
 }

@@ -31,7 +31,7 @@ internal sealed class McpPlaygroundService(IServiceProvider serviceProvider, Bea
         var httpUser = sp.GetRequiredService<IHttpContextAccessor>().HttpContext?.User;
         if (httpUser == null)
         {
-            await AuditRefusalAsync(sp, toolName, null, NoRequestMessage, ct);
+            await AuditRefusalAsync(sp, toolName, null, NoRequestMessage);
             return new McpPlaygroundResult(NoRequestMessage, true);
         }
 
@@ -41,7 +41,7 @@ internal sealed class McpPlaygroundService(IServiceProvider serviceProvider, Bea
         {
             var unknown = $"Unknown tool: {toolName}";
             var unknownCaller = await sp.GetRequiredService<IBeaconActorAccessor>().GetCurrentAsync(ct);
-            await AuditRefusalAsync(sp, toolName, unknownCaller.BeaconUserId, unknown, ct);
+            await AuditRefusalAsync(sp, toolName, unknownCaller.BeaconUserId, unknown);
             return new McpPlaygroundResult(unknown, true);
         }
 
@@ -53,7 +53,7 @@ internal sealed class McpPlaygroundService(IServiceProvider serviceProvider, Bea
         {
             var refusal = $"Access denied: you do not have access to project {projectId}.";
             var refusedCaller = await sp.GetRequiredService<IBeaconActorAccessor>().GetCurrentAsync(ct);
-            await AuditRefusalAsync(sp, toolName, refusedCaller.BeaconUserId, refusal, ct);
+            await AuditRefusalAsync(sp, toolName, refusedCaller.BeaconUserId, refusal);
             return new McpPlaygroundResult(refusal, true);
         }
 
@@ -151,7 +151,7 @@ internal sealed class McpPlaygroundService(IServiceProvider serviceProvider, Bea
 
     // A playground call refused before any tool ran is a tool invocation all the same: one audit row with the tool name,
     // the caller's Beacon user and the refusal, written from the scope's call record as the tools' calls are.
-    private static async Task AuditRefusalAsync(IServiceProvider sp, string toolName, int? userId, string refusal, CancellationToken ct)
+    private static async Task AuditRefusalAsync(IServiceProvider sp, string toolName, int? userId, string refusal)
     {
         var recorder = sp.GetService<McpToolCallRecorder>();
         if (recorder == null)
@@ -161,7 +161,9 @@ internal sealed class McpPlaygroundService(IServiceProvider serviceProvider, Bea
 
         recorder.Start(toolName, userId);
         recorder.Fail(refusal);
-        await recorder.WriteAsync(ct);
+
+        // Written whatever the browser does now: the refusal is decided.
+        await recorder.WriteAsync(CancellationToken.None);
     }
 
     // HTTP playground callers arrive via System.Text.Json, so argument values are JsonElement,

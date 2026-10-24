@@ -331,7 +331,7 @@ logged when either:
 - the audit row for that call failed to write, or
 - the tool returned a **successful** result and no audit row was written for it at all.
 
-An error result that was not audited (for example *Unknown tool*) passes through unchanged; it carries no data.
+An error result that was not audited passes through unchanged; it carries no data.
 With `Required = false` (the default), results are always returned unchanged regardless of the audit outcome.
 
 This is enforced **after execution**: the underlying query has already run by the time the filter withholds the
@@ -341,10 +341,13 @@ result, and the audit and signal writes are never skipped. The guarantee is *no 
 The audit row itself is written synchronously, before the filter answers, never through a queue: a tool keeps its
 call on the request's `McpToolCallRecorder` (tool, caller, input, project, data source, rows or error, tables, and
 for `ask`, `query` and `dry_run` only, the learning signal), and the filter writes the row and then the signal after
-the tool returned or threw. A tool that throws after starting its record is recorded as failed and answers the same
-caller-safe error the tools' own error handling gives. A tool that writes its own row is never given a second one,
-and a tool that throws before any row was written still gets one (tool, caller and the error), its exception
-unchanged.
+the tool returned or threw, never while it runs, so the row holds the call's final outcome. A tool that throws after
+starting its record is recorded as failed and answers the same caller-safe error the tools' own error handling gives
+(a database error's text through the database error redactor while PII detection is on); a protocol error is written
+first and then answered as the protocol error it is. A tool that wrote its own row is never given a second one (its
+signal still is), and one whose own write failed is written again. A tool that throws before any row was written,
+including a call to an unknown tool, still gets one (tool, caller and the error, the error's text only when the
+call's project is known and its content retention keeps it), its exception unchanged.
 
 The Playground and the "run tool" REST path (`POST /beacon/api/mcp/tools/run`, `RunMcpToolHandler` →
 `McpPlaygroundService`) call tools directly, not through the SDK's request pipeline, so they run them through the same
