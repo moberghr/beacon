@@ -347,14 +347,16 @@ public class RequestRateLimitTests
         var serviceProvider = new Mock<IServiceProvider>();
         serviceProvider.Setup(x => x.GetService(typeof(McpRateLimiter))).Returns(limiter);
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
+        var recorder = TestToolCalls.Recorder(
+            new McpAuditService(auditFactory, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog()),
+            new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance));
         var tool = new ProjectAskTool(
             Mock.Of<IKnowledgeGraphService>(),
             settingsProvider.Object,
             SettingsProviderMock.Unshared(settingsProvider.Object),
             serviceProvider.Object,
             new McpProjectContext { UserId = 1, ApiKeyId = apiKeyId, AllowedProjectIds = [7], QueryProjectIds = [7] },
-            new McpAuditService(auditFactory, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog()),
-            new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance),
+            recorder,
             Mock.Of<IAskSqlPipeline>(),
             Mock.Of<IAskSqlExecutor>(),
             Mock.Of<IIntentClassifier>(),
@@ -366,7 +368,7 @@ public class RequestRateLimitTests
             TimeProvider.System,
             NullLogger<ProjectAskTool>.Instance);
 
-        return await tool.ExecuteAsync("How many orders were placed?", cancellationToken: CancellationToken.None);
+        return await TestToolCalls.InvokeAsync(recorder, () => tool.ExecuteAsync("How many orders were placed?", cancellationToken: CancellationToken.None));
     }
 
     private static string TextOf(ModelContextProtocol.Protocol.CallToolResult result)

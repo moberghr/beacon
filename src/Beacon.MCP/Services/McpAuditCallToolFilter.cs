@@ -25,7 +25,10 @@ namespace Beacon.MCP.Services;
 /// It runs the tool first (audit and signal are never short-circuited), then writes the call the tool kept on the scoped
 /// <see cref="McpToolCallRecorder"/>: the audit row synchronously, then the signal for a SQL-carrying tool, on the success
 /// and the failure path alike. A tool that threw after starting its record is recorded as failed and answers the
-/// caller-safe error. A tool that writes its own row directly (not yet on the recorder) is not written a second time (its
+/// caller-safe error; one that recorded the caller's cancellation (<see cref="McpToolCallRecorder.FailCancelled"/>) keeps
+/// that outcome and its cancellation propagates. A successful answer that names its learning signal
+/// (<see cref="McpToolCallRecorder.AnswerWithSignalId"/>) is rebuilt with the persisted signal's id. A tool that writes its
+/// own row directly (the saved-query and host endpoint tools) is not written a second time (its
 /// signal still is); one that threw without a written audit row — a protocol error such as an unknown tool included —
 /// gets one here, and its exception propagates unchanged.
 /// </para>
@@ -88,10 +91,14 @@ internal static class McpAuditCallToolFilter
                 ExceptionDispatchInfo.Throw(thrown);
             }
 
-            recorder.FailWith(thrown);
+            if (!recorder.RethrowsRecordedFailure)
+            {
+                recorder.FailWith(thrown);
+            }
 
-            // A protocol error stays a protocol error (the SDK answers it as a JSON-RPC error), written first.
-            if (thrown is McpProtocolException)
+            // A protocol error stays a protocol error (the SDK answers it as a JSON-RPC error), and the caller's own
+            // cancellation a cancellation: written first.
+            if (thrown is McpProtocolException || recorder.RethrowsRecordedFailure)
             {
                 await recorder.WriteAsync(CancellationToken.None);
                 ExceptionDispatchInfo.Throw(thrown);
@@ -104,7 +111,11 @@ internal static class McpAuditCallToolFilter
         if (recorder?.HasCall == true)
         {
             CompleteFrom(recorder, result!);
-            await recorder.WriteAsync(CancellationToken.None);
+            var signalId = await recorder.WriteAsync(CancellationToken.None);
+            if (thrown == null)
+            {
+                result = recorder.AnswerFor(signalId) ?? result;
+            }
         }
 
         if (!ShouldWithhold(services, result!.IsError == true, toolName))

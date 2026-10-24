@@ -1,5 +1,4 @@
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Text.Json.Nodes;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
@@ -22,8 +21,7 @@ internal sealed class ProjectAskTool(
     ISharedSourceSettings sharedSourceSettings,
     IServiceProvider serviceProvider,
     IProjectContext projectContext,
-    McpAuditService auditService,
-    McpSignalService signalService,
+    McpToolCallRecorder recorder,
     IAskSqlPipeline askSqlPipeline,
     IAskSqlExecutor askSqlExecutor,
     IIntentClassifier intentClassifier,
@@ -48,21 +46,24 @@ internal sealed class ProjectAskTool(
         bool execute = true,
         CancellationToken cancellationToken = default)
     {
-        var sw = Stopwatch.StartNew();
+        // Written by McpAuditCallToolFilter after the tool returns or throws (§1.7); the signal too, on every outcome (§9.5).
+        recorder.Start("ask", projectContext.UserId, question ?? "");
 
         var signal = new McpSignalBuilder()
             .SetTool("ask")
             .SetQuestion(question ?? "")
             .SetUserId(projectContext.UserId);
+        recorder.WithSignal(signal);
 
         if (string.IsNullOrEmpty(question))
-            return await FailAsync(signal, sw, null, question ?? "", "Missing required parameter: question", cancellationToken);
+            return Fail(null, "Missing required parameter: question");
 
         var resolveError = ToolHelper.ResolveProjectId(projectContext, "ask", project_id, out var projectId);
         if (resolveError != null)
-            return await FailAsync(signal, sw, null, question, resolveError, cancellationToken);
+            return Fail(null, resolveError);
 
         signal.SetProjectId(projectId);
+        recorder.WithProject(projectId);
 
         // Beacon:RateLimits:Ask, per caller, MCP and playground alike: refused at once and audited like every other
         // refusal (§1.7/§9.5). The limiter is registered with the MCP server; without it the application's stand-in applies.
@@ -73,7 +74,7 @@ internal sealed class ProjectAskTool(
                 McpRateLimiter.AskRefusalFormat,
                 Beacon.Core.Services.Security.RateLimitPartitions.RetryAfterSeconds(retryAfter));
 
-            return await FailAsync(signal, sw, projectId, question, refusal, cancellationToken);
+            return Fail(projectId, refusal);
         }
 
         // After project resolution so the audit row is attributed to the authorized project and that project's
@@ -82,8 +83,7 @@ internal sealed class ProjectAskTool(
         var maxQuestionChars = ceilings.EffectiveMaxQuestionChars;
         if (question.Length > maxQuestionChars)
         {
-            return await FailAsync(signal, sw, projectId, question,
-                $"Question is {question.Length} characters long; the limit is {maxQuestionChars}.", cancellationToken);
+            return Fail(projectId, $"Question is {question.Length} characters long; the limit is {maxQuestionChars}.");
         }
 
         // The whole call — LLM calls, metadata reads and SQL alike — runs under the deployment's time budget, linked to the
@@ -103,8 +103,7 @@ internal sealed class ProjectAskTool(
             var llmProvider = serviceProvider.GetService(typeof(ILlmProvider)) as ILlmProvider;
             if (llmProvider == null)
             {
-                return await FailAsync(signal, sw, projectId, question,
-                    "AI features not configured. Add LLM configuration to use the 'ask' tool.", CancellationToken.None);
+                return Fail(projectId, "AI features not configured. Add LLM configuration to use the 'ask' tool.");
             }
 
             var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId, askToken);
@@ -113,7 +112,7 @@ internal sealed class ProjectAskTool(
             using var lease = concurrencyLimiter.TryAcquire(McpQueryConcurrencyLimiter.CallerKeyOf(projectContext), settings.MaxConcurrentQueriesPerKey);
             if (lease == null)
             {
-                return await FailAsync(signal, sw, projectId, question, McpQueryConcurrencyLimiter.RefusalMessage, cancellationToken);
+                return Fail(projectId, McpQueryConcurrencyLimiter.RefusalMessage);
             }
 
             // Classify intent — data query vs knowledge question
@@ -125,11 +124,7 @@ internal sealed class ProjectAskTool(
             {
                 llmBudget.Consume();
                 var knowledgeResult = await knowledgeAnswerService.AnswerAsync(llmProvider, projectId, question, settings, askToken);
-                sw.Stop();
-                signal.SetResult(null, (int)sw.ElapsedMilliseconds, true);
-                await auditService.LogToolCallAsync(projectContext.UserId, "ask",
-                    question, null, projectId, (int)sw.ElapsedMilliseconds, null, null, ct: cancellationToken);
-                await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
+                recorder.Succeed();
                 return ToolHelper.Success(knowledgeResult);
             }
 
@@ -137,8 +132,7 @@ internal sealed class ProjectAskTool(
 
             if (dataSources.Count == 0)
             {
-                return await FailAsync(signal, sw, projectId, question,
-                    "This project has no data sources configured.", cancellationToken);
+                return Fail(projectId, "This project has no data sources configured.");
             }
 
             // Route to the right data source(s); the router asks the LLM only when there is more than one to choose from.
@@ -154,16 +148,13 @@ internal sealed class ProjectAskTool(
 
             if (routing.Sources.Count == 0)
             {
-                return await FailAsync(signal, sw, projectId, question,
-                    "Could not determine which data source to query for this question.", cancellationToken);
+                return Fail(projectId, "Could not determine which data source to query for this question.");
             }
 
             // A question that spans more sources than one ask joins is refused, never answered from some of them.
             if (routing.DroppedSourceCount > 0)
             {
-                return await FailAsync(signal, sw, projectId, question,
-                    $"This question spans {routing.Sources.Count + routing.DroppedSourceCount} data sources; ask can join at most {RoutingResult.MaxSources}. Narrow the question to fewer sources.",
-                    cancellationToken);
+                return Fail(projectId, $"This question spans {routing.Sources.Count + routing.DroppedSourceCount} data sources; ask can join at most {RoutingResult.MaxSources}. Narrow the question to fewer sources.");
             }
 
             // SQL runs with the strictest guardrails of the live projects that link the routed data sources.
@@ -224,54 +215,31 @@ internal sealed class ProjectAskTool(
                 generatedSql = signal.GeneratedSql;
             }
 
-            sw.Stop();
-            signal.SetResult(null, (int)sw.ElapsedMilliseconds, askSucceeded);
-            await auditService.LogToolCallAsync(projectContext.UserId, "ask",
-                question, auditedDataSourceId, projectId, (int)sw.ElapsedMilliseconds, auditedRowCount, null, auditedTables, ct: cancellationToken);
-            var signalId = await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
-            if (signalId is { } id)
-            {
-                text += $"\n\n_signal_id: {id}_";
-            }
-            return ToolHelper.Success(text, BuildAskStructuredContent(signalId, generatedSql, correctedSql, resultPayload));
+            recorder
+                .WithDataSource(auditedDataSourceId)
+                .Succeed(auditedRowCount, auditedTables, askSucceeded, signalCountsRows: false);
+
+            // The answer names its persisted signal for the feedback tool; the signal is written after the tool returns.
+            return recorder.AnswerWithSignalId(signalId =>
+                ToolHelper.Success(
+                    signalId is { } id ? $"{text}\n\n_signal_id: {id}_" : text,
+                    BuildAskStructuredContent(signalId, generatedSql, correctedSql, resultPayload)));
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
-            // The caller's own cancellation stays a cancellation; the call is still audited and signalled (§1.7/§9.5), and
-            // a failure to record it never replaces the cancellation.
-            try
-            {
-                await FailAsync(signal, sw, projectId, question, CallerCancelledMessage, CancellationToken.None);
-            }
-            catch (Exception recordingFailure)
-            {
-                logger.LogWarning("MCP tool {Tool} could not record a cancelled call ({ExceptionType})", "ask", recordingFailure.GetType().Name);
-            }
+            // The caller's own cancellation stays a cancellation; the call is still audited and signalled (§1.7/§9.5).
+            recorder.FailCancelled(CallerCancelledMessage);
 
             throw;
         }
         catch (AskLlmBudgetExceededException ex)
         {
-            return await FailAsync(signal, sw, projectId, question, ex.Message, CancellationToken.None);
+            return Fail(projectId, ex.Message);
         }
         catch (Exception) when (timeBudget?.IsCancellationRequested == true && !cancellationToken.IsCancellationRequested)
         {
             // Whatever the cancellation surfaced as (an OperationCanceledException or a provider's wrapper around one).
-            return await FailAsync(signal, sw, projectId, question,
-                $"ask exceeded its time budget of {timeoutSeconds} s; narrow the question or ask again.", CancellationToken.None);
-        }
-        catch (Exception ex)
-        {
-            sw.Stop();
-            // The stored signal never holds an error's raw text, which can quote row values.
-            signal.SetExecutionFailed(DatabaseErrorRedactor.ForCaller(ex.Message, signal.GeneratedSql, redact: true, logger));
-            signal.SetResult(null, (int)sw.ElapsedMilliseconds, false);
-            await auditService.LogToolCallAsync(projectContext.UserId, "ask",
-                question, null, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, ct: CancellationToken.None);
-            await signalService.RecordSignalAsync(signal.Build(), CancellationToken.None);
-            // §1.11 — ex.Message can quote user input; type only here, full detail is in the audit log.
-            logger.LogError("MCP tool {Tool} failed with {ExceptionType} (detail in MCP audit log)", "ask", ex.GetType().Name);
-            return ToolHelper.Error(ToolHelper.CallerSafeMessage(ex, "ask"));
+            return Fail(projectId, $"ask exceeded its time budget of {timeoutSeconds} s; narrow the question or ask again.");
         }
         finally
         {
@@ -363,21 +331,14 @@ internal sealed class ProjectAskTool(
             outcome.TablesUsed);
     }
 
-    // §9.5 — audit + signal must be recorded on every outcome, including pre-generation failures
-    private async Task<CallToolResult> FailAsync(
-        McpSignalBuilder signal,
-        Stopwatch sw,
-        int? projectId,
-        string question,
-        string error,
-        CancellationToken cancellationToken)
+    // §9.5 — audit + signal must be recorded on every outcome, including pre-generation failures; the recorder writes
+    // the error on the signal too.
+    private CallToolResult Fail(int? projectId, string error)
     {
-        sw.Stop();
-        signal.SetExecutionFailed(error);
-        signal.SetResult(null, (int)sw.ElapsedMilliseconds, false);
-        await auditService.LogToolCallAsync(projectContext.UserId, "ask",
-            question, null, projectId, (int)sw.ElapsedMilliseconds, null, error, ct: cancellationToken);
-        await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
+        recorder
+            .WithProject(projectId)
+            .Fail(error);
+
         return ToolHelper.Error(error);
     }
 

@@ -513,14 +513,13 @@ public class ProjectAskToolRepairFlowTests
 
         // Audit + signal services are best-effort (§1.7): a bare factory keeps their paths runnable without a DB.
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
-        var tool = new ProjectAskTool(
+        var tool = TestToolCalls.Track(recorder => new ProjectAskTool(
             Mock.Of<IKnowledgeGraphService>(),
             settingsProvider.Object,
             SettingsProviderMock.Unshared(settingsProvider.Object),
             serviceProvider.WithoutAskLimit().Object,
             new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId] },
-            new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog()),
-            new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance),
+            recorder,
             Mock.Of<IAskSqlPipeline>(),
             _executor.Object,
             intentClassifier.Object,
@@ -530,9 +529,9 @@ public class ProjectAskToolRepairFlowTests
             Options.Create(new McpDeploymentOptions()),
             new McpQueryConcurrencyLimiter(),
             TimeProvider.System,
-            NullLogger<ProjectAskTool>.Instance);
+            NullLogger<ProjectAskTool>.Instance), () => TestToolCalls.Recorder(new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog()), new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance)));
 
-        var result = await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(Question, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         handed.Should().NotBeNull();
@@ -573,14 +572,13 @@ public class ProjectAskToolRepairFlowTests
             .Callback<ILlmProvider, int, int, string, McpSettingsData, IAskSqlExecutor, AskSqlPipelineOptions, CancellationToken>((_, _, _, _, settings, _, _, _) => handed = settings)
             .ThrowsAsync(new InvalidOperationException("stopped after the settings were handed over"));
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
-        var tool = new ProjectAskTool(
+        var tool = TestToolCalls.Track(recorder => new ProjectAskTool(
             knowledgeGraph.Object,
             settingsProvider.Object,
             sharedSources,
             serviceProvider.WithoutAskLimit().Object,
             new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId] },
-            new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog()),
-            new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance),
+            recorder,
             pipeline.Object,
             _executor.Object,
             intentClassifier.Object,
@@ -590,9 +588,9 @@ public class ProjectAskToolRepairFlowTests
             Options.Create(new McpDeploymentOptions()),
             new McpQueryConcurrencyLimiter(),
             TimeProvider.System,
-            NullLogger<ProjectAskTool>.Instance);
+            NullLogger<ProjectAskTool>.Instance), () => TestToolCalls.Recorder(new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog()), new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance)));
 
-        await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
+        await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(Question, cancellationToken: CancellationToken.None));
 
         handed.Should().NotBeNull();
         handed!.MaxRowLimit.Should().Be(5);
@@ -608,7 +606,7 @@ public class ProjectAskToolRepairFlowTests
         var intentClassifier = new Mock<IIntentClassifier>();
         var tool = CreateAuditedTool(auditLogs, signals, serviceProvider, intentClassifier);
 
-        var result = await tool.ExecuteAsync(new string('q', 4_001), cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(new string('q', 4_001), cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeTrue();
         var error = result.Content.OfType<TextContentBlock>().Single().Text;
@@ -637,7 +635,7 @@ public class ProjectAskToolRepairFlowTests
         var signals = new List<McpQuerySignal>();
         var tool = CreateAuditedTool(auditLogs, signals, new Mock<IServiceProvider>(), new Mock<IIntentClassifier>(), userId: 17);
 
-        var result = await tool.ExecuteAsync(new string('q', 4_001), cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(new string('q', 4_001), cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeTrue();
         auditLogs.Should().ContainSingle().Which.UserId.Should().Be(17);
@@ -661,7 +659,7 @@ public class ProjectAskToolRepairFlowTests
             .ReturnsAsync("Notifications go out after each run.");
         var tool = CreateAuditedTool(auditLogs, signals, serviceProvider, intentClassifier, userId: 17, knowledgeAnswer: knowledgeAnswer.Object);
 
-        var result = await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(Question, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         auditLogs.Should().ContainSingle().Which.Should().Match<McpAuditLog>(x => x.UserId == 17 && x.ErrorMessage == null);
@@ -675,7 +673,7 @@ public class ProjectAskToolRepairFlowTests
         var tool = CreateAuditedTool([], [], serviceProvider, new Mock<IIntentClassifier>());
 
         // No ILlmProvider is registered, so the call fails one step later — proving the length check let it through.
-        var result = await tool.ExecuteAsync(new string('q', 4_000), cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(new string('q', 4_000), cancellationToken: CancellationToken.None));
 
         result.Content.OfType<TextContentBlock>().Single().Text.Should().Contain("AI features not configured");
         serviceProvider.Verify(x => x.GetService(typeof(ILlmProvider)), Times.Once);
@@ -688,8 +686,8 @@ public class ProjectAskToolRepairFlowTests
         var serviceProvider = new Mock<IServiceProvider>();
         var tool = CreateAuditedTool([], [], serviceProvider, new Mock<IIntentClassifier>(), options);
 
-        var rejected = await tool.ExecuteAsync(new string('q', 11), cancellationToken: CancellationToken.None);
-        var accepted = await tool.ExecuteAsync(new string('q', 10), cancellationToken: CancellationToken.None);
+        var rejected = await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(new string('q', 11), cancellationToken: CancellationToken.None));
+        var accepted = await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(new string('q', 10), cancellationToken: CancellationToken.None));
 
         (rejected.IsError ?? false).Should().BeTrue();
         rejected.Content.OfType<TextContentBlock>().Single().Text.Should().Contain("11").And.Contain("10");
@@ -732,14 +730,13 @@ public class ProjectAskToolRepairFlowTests
                 It.IsAny<IAskSqlExecutor>(), It.IsAny<AskSqlPipelineOptions>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(canned);
 
-        var tool = new ProjectAskTool(
+        var tool = TestToolCalls.Track(recorder => new ProjectAskTool(
             Mock.Of<IKnowledgeGraphService>(),
             SettingsProviderMock.Create().Object,
             SettingsProviderMock.Unshared(SettingsProviderMock.Create().Object),
             new Mock<IServiceProvider>().WithoutAskLimit().Object,
             Mock.Of<IProjectContext>(),
-            null!,
-            null!,
+            recorder,
             pipeline.Object,
             _executor.Object,
             Mock.Of<IIntentClassifier>(),
@@ -749,7 +746,7 @@ public class ProjectAskToolRepairFlowTests
             Options.Create(new McpDeploymentOptions()),
             new McpQueryConcurrencyLimiter(),
             TimeProvider.System,
-            NullLogger<ProjectAskTool>.Instance);
+            NullLogger<ProjectAskTool>.Instance), () => TestToolCalls.Recorder(null!, null!));
 
         var signal = new McpSignalBuilder().SetTool("ask").SetQuestion(Question);
 
@@ -817,14 +814,13 @@ public class ProjectAskToolRepairFlowTests
                 It.IsAny<IAskSqlExecutor>(), It.IsAny<AskSqlPipelineOptions>(), It.IsAny<CancellationToken>()))
             .ReturnsAsync(canned);
 
-        var tool = new ProjectAskTool(
+        var tool = TestToolCalls.Track(recorder => new ProjectAskTool(
             Mock.Of<IKnowledgeGraphService>(),
             SettingsProviderMock.Create().Object,
             SettingsProviderMock.Unshared(SettingsProviderMock.Create().Object),
             new Mock<IServiceProvider>().WithoutAskLimit().Object,
             Mock.Of<IProjectContext>(),
-            null!,
-            null!,
+            recorder,
             pipeline.Object,
             _executor.Object,
             Mock.Of<IIntentClassifier>(),
@@ -834,7 +830,7 @@ public class ProjectAskToolRepairFlowTests
             Options.Create(new McpDeploymentOptions()),
             new McpQueryConcurrencyLimiter(),
             TimeProvider.System,
-            NullLogger<ProjectAskTool>.Instance);
+            NullLogger<ProjectAskTool>.Instance), () => TestToolCalls.Recorder(null!, null!));
 
         var signal = new McpSignalBuilder().SetTool("ask").SetQuestion(Question);
 
@@ -1096,7 +1092,7 @@ public class ProjectAskToolRepairFlowTests
         serviceProvider.Setup(x => x.GetService(typeof(ILlmProvider))).Returns(_llmProvider.Object);
         var tool = CreateAuditedTool(auditLogs, signals, serviceProvider, ClassifierCallingTheProvider(), timeProvider: clock);
 
-        var call = tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
+        var call = TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(Question, cancellationToken: CancellationToken.None));
         await llmCalled.Task.WaitAsync(TimeSpan.FromSeconds(10));
         clock.Advance(TimeSpan.FromSeconds(120));
         var result = await call.WaitAsync(TimeSpan.FromSeconds(10));
@@ -1149,7 +1145,7 @@ public class ProjectAskToolRepairFlowTests
         var tool = CreateAuditedTool([], [], serviceProvider, intentClassifier, deployment, timeProvider: clock,
             pipeline: pipeline.Object, knowledgeGraph: knowledgeGraph.Object, router: router.Object);
 
-        var call = tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
+        var call = TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(Question, cancellationToken: CancellationToken.None));
         await pipelineEntered.Task.WaitAsync(TimeSpan.FromSeconds(10));
         clock.Advance(TimeSpan.FromSeconds(4));
         handed.IsCancellationRequested.Should().BeFalse();
@@ -1183,7 +1179,7 @@ public class ProjectAskToolRepairFlowTests
             timeProvider: new Microsoft.Extensions.Time.Testing.FakeTimeProvider());
         using var caller = new CancellationTokenSource();
 
-        var call = tool.ExecuteAsync(Question, cancellationToken: caller.Token);
+        var call = TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(Question, cancellationToken: caller.Token));
         await llmCalled.Task.WaitAsync(TimeSpan.FromSeconds(10));
         await caller.CancelAsync();
 
@@ -1217,7 +1213,7 @@ public class ProjectAskToolRepairFlowTests
         var tool = CreateAuditedTool(auditLogs, signals, serviceProvider, intentClassifier, deployment,
             knowledgeGraph: knowledgeGraph.Object, router: router.Object);
 
-        var result = await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(Question, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeTrue();
         var error = result.Content.OfType<TextContentBlock>().Single().Text;
@@ -1242,7 +1238,7 @@ public class ProjectAskToolRepairFlowTests
         var deployment = new McpDeploymentOptions { Ceilings = new McpCeilingOptions { AskMaxLlmCalls = 1 } };
         var tool = CreateAuditedTool(auditLogs, signals, serviceProvider, intentClassifier, deployment, knowledgeAnswer: knowledgeAnswer.Object);
 
-        var result = await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(Question, cancellationToken: CancellationToken.None));
 
         var error = result.Content.OfType<TextContentBlock>().Single().Text;
         error.Should().Contain("limit of 1 LLM call");
@@ -1267,12 +1263,40 @@ public class ProjectAskToolRepairFlowTests
             .ReturnsAsync(new RoutingResult { Sources = [new RoutedSource { DataSourceId = DataSourceId, DataSourceName = "orders" }] });
         var tool = DataQueryTool([DataSourceId], pipeline: pipeline.Object, router: router.Object);
 
-        var result = await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(Question, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         handed!.LlmBudget.Should().NotBeNull();
         handed.LlmBudget!.MaxCalls.Should().Be(12);
         handed.LlmBudget.Used.Should().Be(1, "the intent classification only: one source needs no routing call");
+    }
+
+    [Test]
+    public async Task ExecuteAsync_ThroughTheAuditFilter_AnswersThePersistedSignalId_AndTheSignalStoresNoRowCount()
+    {
+        var auditLogs = new List<McpAuditLog>();
+        var signals = new List<McpQuerySignal>();
+        var outcome = CannedOutcome() with { Execution = new AskExecutionResult("| id |", null, 3, true) };
+        var pipeline = new Mock<IAskSqlPipeline>();
+        pipeline
+            .Setup(x => x.RunAsync(It.IsAny<ILlmProvider>(), DataSourceId, ProjectId, Question, It.IsAny<McpSettingsData>(),
+                It.IsAny<IAskSqlExecutor>(), It.IsAny<AskSqlPipelineOptions>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(outcome);
+        var router = new Mock<IDataSourceRouter>();
+        router
+            .Setup(x => x.RouteAsync(It.IsAny<ILlmProvider>(), It.IsAny<List<DataSourceKnowledge>>(), Question, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new RoutingResult { Sources = [new RoutedSource { DataSourceId = DataSourceId, DataSourceName = "orders" }] });
+        var tool = DataQueryTool([DataSourceId], auditLogs, signals, pipeline.Object, router.Object);
+
+        var result = await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(Question, cancellationToken: CancellationToken.None));
+
+        (result.IsError ?? false).Should().BeFalse();
+        var signal = signals.Should().ContainSingle().Subject;
+        signal.Id.Should().Be(AuditCaptureContext.PersistedSignalIdBase);
+        result.Content.OfType<TextContentBlock>().Single().Text.Should().EndWith($"_signal_id: {signal.Id}_");
+        result.StructuredContent!.Value.GetProperty("signal_id").GetInt32().Should().Be(signal.Id);
+        signal.ResultRowCount.Should().BeNull("an ask signal stores no row count");
+        auditLogs.Should().ContainSingle().Which.ResultRowCount.Should().Be(3);
     }
 
     [Test]
@@ -1298,7 +1322,7 @@ public class ProjectAskToolRepairFlowTests
             });
         var tool = DataQueryTool([1, 2], router: router.Object, crossSource: crossSource.Object);
 
-        var result = await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(Question, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         handed.Should().NotBeNull();
@@ -1319,7 +1343,7 @@ public class ProjectAskToolRepairFlowTests
             .ThrowsAsync(new InvalidOperationException("provider failed", new OperationCanceledException()));
         var tool = DataQueryTool([DataSourceId], auditLogs, pipeline: pipeline.Object, timeProvider: clock);
 
-        var result = await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(Question, cancellationToken: CancellationToken.None));
 
         var error = result.Content.OfType<TextContentBlock>().Single().Text;
         error.Should().Be("ask exceeded its time budget of 120 s; narrow the question or ask again.");
@@ -1335,7 +1359,7 @@ public class ProjectAskToolRepairFlowTests
         SetupRealPipelineExecution(() => clock.Advance(TimeSpan.FromSeconds(120)));
         var tool = DataQueryTool([DataSourceId], auditLogs, signals, pipeline: CreatePipeline(), timeProvider: clock);
 
-        var result = await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(Question, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeTrue();
         result.Content.OfType<TextContentBlock>().Single().Text.Should().Be("ask exceeded its time budget of 120 s; narrow the question or ask again.");
@@ -1351,7 +1375,7 @@ public class ProjectAskToolRepairFlowTests
         SetupRealPipelineExecution(caller.Cancel);
         var tool = DataQueryTool([DataSourceId], auditLogs, pipeline: CreatePipeline());
 
-        var act = () => tool.ExecuteAsync(Question, cancellationToken: caller.Token);
+        var act = () => TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(Question, cancellationToken: caller.Token));
 
         await act.Should().ThrowAsync<OperationCanceledException>();
         auditLogs.Should().ContainSingle().Which.ErrorMessage.Should().Be("Cancelled by the caller.");
@@ -1368,7 +1392,7 @@ public class ProjectAskToolRepairFlowTests
         var tool = DataQueryTool([1, 2, 3, 4, 5], auditLogs, signals, pipeline: pipeline.Object,
             router: new DataSourceRouter(NullLogger<DataSourceRouter>.Instance), crossSource: crossSource.Object);
 
-        var result = await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(Question, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeTrue();
         var error = result.Content.OfType<TextContentBlock>().Single().Text;
@@ -1390,7 +1414,7 @@ public class ProjectAskToolRepairFlowTests
             .ReturnsAsync(("joined", true));
         var tool = DataQueryTool([1, 2, 3, 4, 5], router: new DataSourceRouter(NullLogger<DataSourceRouter>.Instance), crossSource: crossSource.Object);
 
-        var result = await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(Question, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         crossSource.Verify(x => x.ExecuteAsync(It.IsAny<ILlmProvider>(), It.Is<List<RoutedSource>>(y => y.Count == 4), ProjectId, Question,
@@ -1642,14 +1666,13 @@ public class ProjectAskToolRepairFlowTests
             .ReturnsAsync(() => new AuditCaptureContext(auditLogs, signals));
         var settingsProvider = SettingsProviderMock.Create();
 
-        return new ProjectAskTool(
+        return TestToolCalls.Track(recorder => new ProjectAskTool(
             knowledgeGraph ?? Mock.Of<IKnowledgeGraphService>(),
             settingsProvider.Object,
             SettingsProviderMock.Unshared(settingsProvider.Object),
             serviceProvider.WithoutAskLimit().Object,
             new McpProjectContext { UserId = userId, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId] },
-            new McpAuditService(factory.Object, settingsProvider.Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog()),
-            new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance),
+            recorder,
             pipeline ?? Mock.Of<IAskSqlPipeline>(),
             _executor.Object,
             intentClassifier.Object,
@@ -1659,11 +1682,13 @@ public class ProjectAskToolRepairFlowTests
             Options.Create(deploymentOptions ?? new McpDeploymentOptions()),
             new McpQueryConcurrencyLimiter(),
             timeProvider ?? TimeProvider.System,
-            NullLogger<ProjectAskTool>.Instance);
+            NullLogger<ProjectAskTool>.Instance), () => TestToolCalls.Recorder(new McpAuditService(factory.Object, settingsProvider.Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog()), new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance)));
     }
 
     private sealed class AuditCaptureContext : BeaconContext
     {
+        public const int PersistedSignalIdBase = 900;
+
         private static readonly DbContextOptions<AuditCaptureContext> Options =
             new DbContextOptionsBuilder<AuditCaptureContext>()
                 .UseNpgsql("Host=localhost;Database=unused")
@@ -1680,7 +1705,11 @@ public class ProjectAskToolRepairFlowTests
                 .Callback<McpAuditLog>(auditLogs.Add);
             _signalSet
                 .Setup(x => x.Add(It.IsAny<McpQuerySignal>()))
-                .Callback<McpQuerySignal>(signals.Add);
+                .Callback<McpQuerySignal>(x =>
+                {
+                    x.Id = PersistedSignalIdBase + signals.Count;
+                    signals.Add(x);
+                });
         }
 
         public override DbSet<TEntity> Set<TEntity>() where TEntity : class
