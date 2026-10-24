@@ -34,7 +34,7 @@ public static class ServiceCollectionExtensions
     {
         BeaconDatabaseConfiguration.RequireSupportedSchema(schema);
 
-        builder.Services.AddDbContextFactory<SqlServerBeaconContext>((sp, options) =>
+        builder.Services.AddPooledDbContextFactory<SqlServerBeaconContext>((sp, options) =>
             options.UseSqlServer(connectionString,
                     b => b.MigrationsHistoryTable("__EFMigrationsHistory", schema))
                 .AddInterceptors(sp.GetRequiredService<ContentRetentionInterceptor>(), sp.GetRequiredService<SecurityAuditInterceptor>())

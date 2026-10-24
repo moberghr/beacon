@@ -201,6 +201,25 @@ public class McpEvalServiceJudgeGateTests
         captured[0].GeneratedSql.Should().Be(fixedSql);
     }
 
+    // The schema context is built once per case, by the pipeline; the eval reads the relevant tables from the pipeline's
+    // outcome instead of building the same context a second time.
+    [Test]
+    public async Task RunAsync_BuildsTheSchemaContextOncePerCase()
+    {
+        var llm = new Mock<ILlmProvider>();
+        var knowledge = new Mock<IKnowledgeGraphService>();
+
+        var captured = new List<McpEvalResult>();
+        var (service, _, _) = BuildService(llm, judgeEnabled: false, capturedResults: captured, knowledgeOverride: knowledge);
+
+        await service.RunAsync(RunId, CancellationToken.None);
+
+        captured.Should().ContainSingle();
+        knowledge.Verify(
+            x => x.GetSmartContextForAskAsync(DataSourceId, It.IsAny<int>(), It.IsAny<string>(), true, It.IsAny<CancellationToken>()),
+            Times.Once);
+    }
+
     [Test]
     public async Task RunAsync_ARunWithoutAProject_IsRefused_BeforeAnyCaseRuns()
     {
@@ -237,7 +256,7 @@ public class McpEvalServiceJudgeGateTests
     private static (McpEvalService Service, McpEvalRun Run, Mock<IDataSourceProvider> Provider) BuildService(
         Mock<ILlmProvider> llm, bool judgeEnabled, List<McpEvalResult> capturedResults, string goldSql = "SELECT 1 AS n",
         Mock<ISqlGenerationService>? sqlGenOverride = null, (string Sql, string Error)? failingExecution = null,
-        bool retainQueryContent = true, ILlmRowDataEgress? egress = null)
+        bool retainQueryContent = true, ILlmRowDataEgress? egress = null, Mock<IKnowledgeGraphService>? knowledgeOverride = null)
     {
         var run = new McpEvalRun { Id = RunId, ProjectId = 1, Status = "Running" };
         var evalCase = new McpEvalCase
@@ -269,7 +288,7 @@ public class McpEvalServiceJudgeGateTests
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(context);
 
-        var knowledge = new Mock<IKnowledgeGraphService>();
+        var knowledge = knowledgeOverride ?? new Mock<IKnowledgeGraphService>();
         knowledge
             .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, It.IsAny<int>(), It.IsAny<string>(), true, It.IsAny<CancellationToken>()))
             .ReturnsAsync(new SmartSchemaContext { FullContext = "schema", DatabaseDialect = "PostgreSql" });
@@ -357,7 +376,6 @@ public class McpEvalServiceJudgeGateTests
 
         var service = new McpEvalService(
             factory.Object,
-            knowledge.Object,
             pipeline,
             providerFactory.Object,
             guardrail.Object,

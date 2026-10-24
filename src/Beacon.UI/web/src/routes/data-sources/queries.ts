@@ -6,6 +6,8 @@ import { fetchPagedList } from '@/lib/paging';
 import { usePagedList } from '@/lib/usePagedList';
 import { DatabaseEngineType, type ChangeApprovalKind, type DataSourceType } from '@/lib/enums';
 import { createSimpleMutation } from '@/lib/mutations';
+import { useBackgroundTaskStatus } from '@/lib/useBackgroundTask';
+import type { BackgroundTaskStatus, BackgroundTaskTicket } from '@/api/generated/beacon-api';
 
 export const DATABASE_ENGINE_LABEL: Record<DatabaseEngineType, string> = {
   [DatabaseEngineType.PostgreSQL]: 'PostgreSQL',
@@ -335,17 +337,21 @@ export function useDataSourceMetadataQuery(dataSourceId: number | null | undefin
   });
 }
 
-export function useRefreshDataSourceMetadata() {
-  const qc = useQueryClient();
-  // Keeps `qc.setQueryData` semantics (cache write, not invalidate) — outside
-  // the createSimpleMutation factory which only invalidates.
+/**
+ * Starts a forced metadata refresh as a background task (202 with its ticket). Its progress is followed with
+ * useDataSourceMetadataRefreshStatus; the refresh in the request (refreshDataSourceMetadata) stays for API callers.
+ */
+export function useStartDataSourceMetadataRefresh() {
   return useMutation({
     mutationFn: async (dataSourceId: number) =>
-      unwrap<DatabaseMetadataSnapshot>(await beaconApi().refreshDataSourceMetadata(dataSourceId)),
-    onSuccess: (snapshot, dataSourceId) => {
-      qc.setQueryData(['data-sources', dataSourceId, 'metadata'] as const, snapshot);
-    },
+      unwrap<BackgroundTaskTicket>(await beaconApi().startDataSourceMetadataRefresh(dataSourceId)),
   });
+}
+
+export function useDataSourceMetadataRefreshStatus(dataSourceId: number, ticket: BackgroundTaskTicket | null) {
+  return useBackgroundTaskStatus(['data-sources', dataSourceId, 'metadata-refresh'] as const, ticket, async (taskId) =>
+    unwrap<BackgroundTaskStatus>(await beaconApi().getDataSourceMetadataRefresh(dataSourceId, taskId)),
+  );
 }
 
 export function useDeleteDataSource() {

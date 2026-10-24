@@ -41,10 +41,13 @@ public class ProjectAuthorizationCoverageTests
         ["DeleteGlossaryTerm"] = "Admin: glossary curation",
         ["UpdateGlossaryTerm"] = "Admin: glossary curation",
         ["GetEvalResults"] = "Admin: eval curation",
+        ["ListEvalResults"] = "Admin: eval curation",
         ["UpdateGoldenCase"] = "Admin: eval curation",
         ["DeleteMigrationJob"] = "MigrationOperator: data migration",
         ["GetMigrationJob"] = "MigrationOperator: data migration",
+        ["GetMigrationJobRun"] = "MigrationOperator: data migration; the handler checks the run's demands on the job, and a task of another job is not found",
         ["RunMigrationJob"] = "MigrationOperator: data migration; the handler checks Run on the source and Write on the destination",
+        ["StartMigrationJobRun"] = "MigrationOperator: data migration; the handler checks Run on the source and Write on the destination, and its task checks them again",
         ["DeleteQueryFolder"] = "query folders are project-less; delete demands Write on every query held",
         ["UpdateQueryFolder"] = "query folders are project-less",
         ["DeleteRecipient"] = "SecurityAdmin: recipients are project-less",
@@ -66,7 +69,8 @@ public class ProjectAuthorizationCoverageTests
         ["UpdateRepositoryToken"] = "SecurityAdmin: repository credential",
         ["SetProjectAccessMode"] = "UserAdmin: restricting or opening a project",
         ["UnlinkProjectDataSource"] = "Admin: unlinking a data source from a project",
-        ["SetQueryMcpTool"] = "SecurityAdmin: publishing a saved query as an MCP tool"
+        ["SetQueryMcpTool"] = "SecurityAdmin: publishing a saved query as an MCP tool",
+        ["RevokeEmbedGrant"] = "SecurityAdmin: revoking any embed grant (incident response)"
     };
 
     [Test]

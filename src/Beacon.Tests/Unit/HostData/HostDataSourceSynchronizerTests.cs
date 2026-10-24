@@ -144,6 +144,21 @@ public class HostDataSourceSynchronizerTests
         FakeEncryption.Instance.Decrypt(stored).Should().Be("{\"hostConnectionStringName\":\"BeaconReadOnly\"}");
     }
 
+    // The host's model is the stored catalog of a host source: a sync that rewrites it drops the source's catalog snapshots,
+    // a sync that leaves it as it was does not.
+    [Test]
+    public async Task SyncAsync_InvalidatesTheCatalogSnapshots_OnlyWhenItRewritesTheMetadata()
+    {
+        var store = new HostSyncStore();
+        var snapshots = new Mock<ICatalogSnapshotCache>();
+        var (synchronizer, registration) = Build(store, x => x.AllowTables("Customer", "lending.Loan"), snapshots: snapshots.Object);
+
+        var first = await synchronizer.SyncAsync(registration, CancellationToken.None);
+        await synchronizer.SyncAsync(registration, CancellationToken.None);
+
+        snapshots.Verify(x => x.Invalidate(first.DataSourceId), Times.Once);
+    }
+
     [Test]
     public async Task SyncAsync_SecondRunWithSameModel_SkipsMetadataRewrite()
     {
@@ -585,7 +600,8 @@ public class HostDataSourceSynchronizerTests
         string projectName = "Netgiro Admin",
         IProjectMembershipSource? membershipSource = null,
         LogRecorder? logs = null,
-        IHostReadOnlyLoginCheck? loginCheck = null)
+        IHostReadOnlyLoginCheck? loginCheck = null,
+        ICatalogSnapshotCache? snapshots = null)
     {
         var registry = BuildRegistry(configure, projectName);
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
@@ -605,7 +621,8 @@ public class HostDataSourceSynchronizerTests
             membershipSource ?? BeaconMembership(factory.Object),
             Options.Create(new ProjectAuthorizationOptions()),
             loginCheck ?? new RecordingHostLoginCheck(),
-            logs?.For<HostDataSourceSynchronizer>() ?? NullLogger<HostDataSourceSynchronizer>.Instance);
+            logs?.For<HostDataSourceSynchronizer>() ?? NullLogger<HostDataSourceSynchronizer>.Instance,
+            snapshots);
 
         return (synchronizer, registry.Registrations.Single());
     }
