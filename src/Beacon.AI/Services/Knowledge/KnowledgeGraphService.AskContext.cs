@@ -669,10 +669,11 @@ internal sealed partial class KnowledgeGraphService
             // structure, not literals.
             var maskedVector = await questionVector.GetAsync(ct);
 
-            // Data-source-scoped (projectId omitted) — same NN helpers, GoldenCase owner type.
+            // The data source AND the caller's project, so another project's cases on a shared data source never take
+            // the top-k slots. A vector indexed before vectors carried their project is stamped by a migration (and by the re-index).
             var hits = context.Database.ProviderName == NpgsqlProviderName
-                ? await GetNearestPostgresAsync(context, maskedVector, [dataSourceId], GoldenCaseOwnerTypes, limit, ct)
-                : await GetNearestInMemoryAsync(context, maskedVector, [dataSourceId], GoldenCaseOwnerTypes, limit, ct);
+                ? await GetNearestPostgresAsync(context, maskedVector, [dataSourceId], GoldenCaseOwnerTypes, limit, ct, projectId: projectId)
+                : await GetNearestInMemoryAsync(context, maskedVector, [dataSourceId], GoldenCaseOwnerTypes, limit, ct, projectId: projectId);
 
             if (hits.Count == 0)
             {
