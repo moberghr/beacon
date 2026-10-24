@@ -67,7 +67,7 @@ internal static partial class ChannelText
         return FenceRun().Replace(escaped, x => string.Join('\u200B', x.Value.AsEnumerable()));
     }
 
-    [GeneratedRegex("`{3,}")]
+    [GeneratedRegex("`{3,}", RegexOptions.None, matchTimeoutMilliseconds: 1000)]
     private static partial Regex FenceRun();
 
     /// <summary>Text for a Teams card's markdown: markup characters are backslash-escaped, so no link, emphasis or tag is formed.</summary>

@@ -4,17 +4,17 @@
     "net10.0": {
       "AWSSDK.BedrockRuntime": {
         "type": "Direct",
-        "requested": "[4.0.101.8, )",
-        "resolved": "4.0.101.8",
-        "contentHash": "UmGGBapOEgH4086W+BYw8ZTxlt1rG8Ry/fAlNuVJo1tUMAZ61g5TKLhAhhmeH544T9y3O4B2DSU/LMdh7E/afw==",
+        "requested": "[4.0.101.13, )",
+        "resolved": "4.0.101.13",
+        "contentHash": "1fNkyD6LHG2AQXSOgSXeBN08mkHIUL8NTrH6FDPsmgSxpvqGKQna/HNVRil02dv7hfmtC8lhBs9kzX4VRJmm9A==",
         "dependencies": {
-          "AWSSDK.Core": "[4.0.102.8, 5.0.0)"
+          "AWSSDK.Core": "[4.0.102.13, 5.0.0)"
         }
       },
       "AWSSDK.Core": {
         "type": "Transitive",
-        "resolved": "4.0.102.8",
-        "contentHash": "90B9Skhl+ORbtWNXrrmGdGhGvAfZiPmZafRYrB/xHelZjePIwPvXioqz9UiiF1vo21eDLzTnXh5EC4RjbNWsFQ=="
+        "resolved": "4.0.102.13",
+        "contentHash": "vaYs/kwfB+Lv9PeVKYE4g2mQlzVtHImXLWgfTG8UgeCybUAPkew5kwb8GS6RhuzwvImbolyLHT+IM34WoM9lJg=="
       },
       "ClosedXML.Parser": {
         "type": "Transitive",
@@ -308,7 +308,7 @@
       "Moberg.Beacon.AI": {
         "type": "Project",
         "dependencies": {
-          "Markdig": "[0.45.0, )",
+          "Markdig": "[1.5.0, )",
           "Moberg.Beacon.Core": "[1.0.0, )"
         }
       },
@@ -365,9 +365,9 @@
       },
       "Markdig": {
         "type": "CentralTransitive",
-        "requested": "[0.45.0, )",
-        "resolved": "0.45.0",
-        "contentHash": "ObNLcA1b+0lpNNoEg256g9faMeJZi35wZW0AnKJ4nGPJe+5qkwnV26kUvQTHuanFnSX9SdvPzOO41BVJ6XarAg=="
+        "requested": "[1.5.0, )",
+        "resolved": "1.5.0",
+        "contentHash": "oEm6N4PYFPUZiJ5e89993AE6hfC8EWRGD5M8nyoSJbwD4GgW818mjlQCk++SdTV4godaN50Ybcmm4j2Dp76oIQ=="
       },
       "MediatR": {
         "type": "CentralTransitive",

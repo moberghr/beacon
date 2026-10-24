@@ -101,6 +101,12 @@ public static class BeaconApiEndpoints
                 }
             });
 
+        // The SPA's pages (MapBeaconUi): signed-in callers only while the login form is on, the host's FallbackPolicy while
+        // it is off. Post-configured, so the host's own FallbackPolicy is already set.
+        services.AddOptions<AuthorizationOptions>()
+            .PostConfigure<IServiceProvider>((options, serviceProvider) =>
+                BeaconUiPagePolicies.AddTo(options, serviceProvider.GetService<Beacon.Core.BeaconConfiguration>()));
+
         // Fails startup when Core would read no request's caller (its off-request principal is still registered).
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, RequestPrincipalStartupCheck>());
 
@@ -130,6 +136,9 @@ public static class BeaconApiEndpoints
 
         // Warns once after startup when every role can create objects in the PostgreSQL public schema Beacon's connections search.
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, PublicSchemaStartupWarning>());
+
+        // Reports at startup the security settings weaker than the regulated profile requires (Beacon:Profile).
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, DeploymentProfileStartupReport>());
 
         // Applies the stored Admin settings (base URL, LLM provider configuration) once the host has started.
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, StoredSettingsStartupApplier>());

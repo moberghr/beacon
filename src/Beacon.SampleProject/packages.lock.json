@@ -112,8 +112,8 @@
       },
       "AWSSDK.Core": {
         "type": "Transitive",
-        "resolved": "4.0.102.8",
-        "contentHash": "90B9Skhl+ORbtWNXrrmGdGhGvAfZiPmZafRYrB/xHelZjePIwPvXioqz9UiiF1vo21eDLzTnXh5EC4RjbNWsFQ=="
+        "resolved": "4.0.102.13",
+        "contentHash": "vaYs/kwfB+Lv9PeVKYE4g2mQlzVtHImXLWgfTG8UgeCybUAPkew5kwb8GS6RhuzwvImbolyLHT+IM34WoM9lJg=="
       },
       "AWSSDK.S3": {
         "type": "Transitive",
@@ -288,8 +288,8 @@
       },
       "Json.More.Net": {
         "type": "Transitive",
-        "resolved": "2.0.2",
-        "contentHash": "izscdjjk8EAHDBCjyz7V7n77SzkrSjh/hUGV6cyR6PlVdjYDh5ohc8yqvwSqJ9+6Uof8W6B24dIHlDKD+I1F8A=="
+        "resolved": "3.0.1",
+        "contentHash": "fRctF2J2SILYG6wqP21drmeEODmCVkVQ/b3MndDu2fT1swfySyUgq7ePCk+aENGlDcIm05fyfjh9vcuqDEfv3w=="
       },
       "K4os.Compression.LZ4": {
         "type": "Transitive",
@@ -740,14 +740,14 @@
       "Moberg.Beacon.AI": {
         "type": "Project",
         "dependencies": {
-          "Markdig": "[0.45.0, )",
+          "Markdig": "[1.5.0, )",
           "Moberg.Beacon.Core": "[1.0.0, )"
         }
       },
       "Moberg.Beacon.AI.Bedrock": {
         "type": "Project",
         "dependencies": {
-          "AWSSDK.BedrockRuntime": "[4.0.101.8, )",
+          "AWSSDK.BedrockRuntime": "[4.0.101.13, )",
           "Moberg.Beacon.AI": "[1.0.0, )"
         }
       },
@@ -771,7 +771,7 @@
       "Moberg.Beacon.Connector.Api": {
         "type": "Project",
         "dependencies": {
-          "JsonPath.Net": "[1.1.6, )",
+          "JsonPath.Net": "[3.0.2, )",
           "Microsoft.OpenApi": "[2.12.0, )",
           "Microsoft.OpenApi.YamlReader": "[2.12.0, )",
           "Moberg.Beacon.Core": "[1.0.0, )"
@@ -795,7 +795,7 @@
       "Moberg.Beacon.Connector.CloudWatch": {
         "type": "Project",
         "dependencies": {
-          "AWSSDK.CloudWatchLogs": "[4.0.105, )",
+          "AWSSDK.CloudWatchLogs": "[4.0.106.1, )",
           "Moberg.Beacon.Core": "[1.0.0, )"
         }
       },
@@ -870,6 +870,16 @@
           "Moberg.Beacon.Core": "[1.0.0, )"
         }
       },
+      "Moberg.Beacon.Gateway": {
+        "type": "Project",
+        "dependencies": {
+          "Moberg.Beacon.AI": "[1.0.0, )",
+          "Moberg.Beacon.Api": "[1.0.0, )",
+          "Moberg.Beacon.Core": "[1.0.0, )",
+          "Moberg.Beacon.MCP": "[1.0.0, )",
+          "Moberg.Beacon.UI": "[1.0.0, )"
+        }
+      },
       "Moberg.Beacon.MCP": {
         "type": "Project",
         "dependencies": {
@@ -883,20 +893,20 @@
       },
       "AWSSDK.BedrockRuntime": {
         "type": "CentralTransitive",
-        "requested": "[4.0.101.8, )",
-        "resolved": "4.0.101.8",
-        "contentHash": "UmGGBapOEgH4086W+BYw8ZTxlt1rG8Ry/fAlNuVJo1tUMAZ61g5TKLhAhhmeH544T9y3O4B2DSU/LMdh7E/afw==",
+        "requested": "[4.0.101.13, )",
+        "resolved": "4.0.101.13",
+        "contentHash": "1fNkyD6LHG2AQXSOgSXeBN08mkHIUL8NTrH6FDPsmgSxpvqGKQna/HNVRil02dv7hfmtC8lhBs9kzX4VRJmm9A==",
         "dependencies": {
-          "AWSSDK.Core": "[4.0.102.8, 5.0.0)"
+          "AWSSDK.Core": "[4.0.102.13, 5.0.0)"
         }
       },
       "AWSSDK.CloudWatchLogs": {
         "type": "CentralTransitive",
-        "requested": "[4.0.105, )",
-        "resolved": "4.0.105",
-        "contentHash": "9Mdho7fiovOVOwOo/qJZzNKOEJvmnOJyW1nYbLrJXtOL5mAzZtCNb0fyu4dIb/+cxEbu/NZUFqnoXopmDTpFrQ==",
+        "requested": "[4.0.106.1, )",
+        "resolved": "4.0.106.1",
+        "contentHash": "byXgE8O9bAK2h5D2vs2PjQL/dzcOXM/1+TE6qtu8uDgYgBXscBWkXdOOXxtVeeSbYo+ZyFS8g9fwZwKV5cA7rA==",
         "dependencies": {
-          "AWSSDK.Core": "[4.0.102.8, 5.0.0)"
+          "AWSSDK.Core": "[4.0.102.13, 5.0.0)"
         }
       },
       "ClosedXML": {
@@ -952,18 +962,18 @@
       },
       "JsonPath.Net": {
         "type": "CentralTransitive",
-        "requested": "[1.1.6, )",
-        "resolved": "1.1.6",
-        "contentHash": "FQLbFJdjIa70GdYGR3RpdGkLTMZwQCqcd8gC35yx6aGofVEP3QxMvSuXHn75N30jj9SS6yvsPPTDzJmPMt/Mdw==",
+        "requested": "[3.0.2, )",
+        "resolved": "3.0.2",
+        "contentHash": "Cmt2mvPYOLljjqSfM1xUYZYTPf8MPbwv2XpCpPxxq9u23/CGrz/fljgd1fJUNujd3+E1adNOyF1TLwppbyQwxg==",
         "dependencies": {
-          "Json.More.Net": "2.0.2"
+          "Json.More.Net": "3.0.1"
         }
       },
       "Markdig": {
         "type": "CentralTransitive",
-        "requested": "[0.45.0, )",
-        "resolved": "0.45.0",
-        "contentHash": "ObNLcA1b+0lpNNoEg256g9faMeJZi35wZW0AnKJ4nGPJe+5qkwnV26kUvQTHuanFnSX9SdvPzOO41BVJ6XarAg=="
+        "requested": "[1.5.0, )",
+        "resolved": "1.5.0",
+        "contentHash": "oEm6N4PYFPUZiJ5e89993AE6hfC8EWRGD5M8nyoSJbwD4GgW818mjlQCk++SdTV4godaN50Ybcmm4j2Dp76oIQ=="
       },
       "MediatR": {
         "type": "CentralTransitive",

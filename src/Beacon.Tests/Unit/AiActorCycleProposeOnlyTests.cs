@@ -38,7 +38,7 @@ namespace Beacon.Tests.Unit;
 /// executed archive fails the test, and the query / subscription sets record any insert.
 /// </summary>
 [TestFixture]
-public class AiActorCycleProposeOnlyTests
+public partial class AiActorCycleProposeOnlyTests
 {
     private const int ActorId = 5;
     private const int DataSourceId = 1;
