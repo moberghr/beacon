@@ -9,13 +9,18 @@ namespace Beacon.Core.Services.Retention;
 
 /// <summary>
 /// Clears the content of the content stores' rows (<see cref="McpRetentionDenyList.ContentStores"/>) in place, keeping the
-/// rows and their structure: every property the registry classifies as content or error text becomes <c>null</c> (or
-/// <c>""</c> where the column is required). Rows are read in batches of ids that still hold content, so a cleared row is
-/// never rewritten.
+/// rows and their structure: every property the registry classifies as content becomes <c>null</c> (or <c>""</c> where
+/// the column is required), and error text becomes its error class, as the write-time lock writes it. Rows are read in
+/// batches of ids past the last batch that still hold content (an error already reduced to its class holds none), so a
+/// cleared row is never read or rewritten again. A cancelled token between two batches ends a store with the count so far.
 /// </summary>
 internal static class ContentExpiry
 {
     internal static readonly string[] ResultSnapshotProperties = [nameof(QueryExecutionHistory.Results)];
+
+    private static readonly string[] ErrorClassValues = McpContentRedactor.ErrorClasses
+        .Order(StringComparer.Ordinal)
+        .ToArray();
 
     private static readonly ContentStore[] Stores =
     [
@@ -60,7 +65,10 @@ internal static class ContentExpiry
             .Select(x => x.Property)
             .ToList();
 
-    /// <summary>The rows the expiry clears: created before the cutoff and still holding content in one of the properties.</summary>
+    /// <summary>
+    /// The rows the expiry clears: created before the cutoff and still holding content, a non-empty value in a content
+    /// property or error text that is not yet an error class.
+    /// </summary>
     internal static IQueryable<T> Expired<T>(IQueryable<T> source, DateTime cutoff, IReadOnlyList<string> properties)
         where T : BaseEntity
     {
@@ -73,10 +81,18 @@ internal static class ContentExpiry
         where T : BaseEntity
     {
         var properties = only ?? ContentProperties(typeof(T));
+        var content = properties
+            .Where(x => !IsErrorClass(typeof(T), x))
+            .ToList();
+        var errors = properties
+            .Where(x => IsErrorClass(typeof(T), x))
+            .ToList();
         var cleared = 0;
-        while (true)
+        var after = 0;
+        while (!cancellationToken.IsCancellationRequested)
         {
             var ids = await Expired(set.AsNoTracking(), cutoff, properties)
+                .Where(x => x.Id > after)
                 .OrderBy(x => x.Id)
                 .Select(x => x.Id)
                 .Take(RetentionBatches.BatchSize)
@@ -86,15 +102,57 @@ internal static class ContentExpiry
                 return cleared;
             }
 
-            var batch = await set
-                .Where(x => ids.Contains(x.Id))
-                .ExecuteUpdateAsync(x => SetCleared(x, properties), cancellationToken);
-            if (batch == 0)
+            after = ids[^1];
+            if (content.Count > 0)
+            {
+                await set
+                    .Where(x => ids.Contains(x.Id))
+                    .ExecuteUpdateAsync(x => SetCleared(x, content), cancellationToken);
+            }
+
+            foreach (var property in errors)
+            {
+                await ReplaceWithErrorClassAsync(set, ids, property, cancellationToken);
+            }
+
+            cleared += ids.Count;
+            if (ids.Count < RetentionBatches.BatchSize)
             {
                 return cleared;
             }
+        }
 
-            cleared += batch;
+        return cleared;
+    }
+
+    // The class is computed in process (McpContentRedactor.ErrorClassOf, as the interceptor does), then written with one
+    // update per class. The error text read here never leaves this method.
+    private static async Task ReplaceWithErrorClassAsync<T>(DbSet<T> set, List<int> ids, string property, CancellationToken cancellationToken)
+        where T : BaseEntity
+    {
+        var rows = await set
+            .AsNoTracking()
+            .Where(x => ids.Contains(x.Id))
+            .Where(x => EF.Property<string?>(x, property) != null)
+            .Select(x =>
+                new
+                {
+                    x.Id,
+                    Value = EF.Property<string?>(x, property)
+                })
+            .ToListAsync(cancellationToken);
+        var byClass = rows
+            .Select(x => (x.Id, x.Value, Class: McpContentRedactor.ErrorClassOf(x.Value)))
+            .Where(x => !string.Equals(x.Value, x.Class, StringComparison.Ordinal))
+            .GroupBy(x => x.Class);
+        foreach (var group in byClass)
+        {
+            var classIds = group
+                .Select(x => x.Id)
+                .ToList();
+            await set
+                .Where(x => classIds.Contains(x.Id))
+                .ExecuteUpdateAsync(x => x.SetProperty(y => EF.Property<string?>(y, property), group.Key), cancellationToken);
         }
     }
 
@@ -108,7 +166,11 @@ internal static class ContentExpiry
         }
     }
 
-    // x => (x.A != null && x.A != "") || (x.B != null && x.B != "") || ...
+    private static bool IsErrorClass(Type entity, string property) =>
+        McpRetentionDenyList.RulesFor(entity)
+            .Any(x => x.Property == property && x.Kind == RetentionKind.ErrorClass);
+
+    // x => (x.A != null && x.A != "") || (x.E != null && x.E != "" && !classes.Contains(x.E)) || ...
     private static Expression<Func<T, bool>> HoldsContent<T>(IReadOnlyList<string> properties)
     {
         var row = Expression.Parameter(typeof(T), "x");
@@ -116,9 +178,20 @@ internal static class ContentExpiry
         foreach (var property in properties)
         {
             var value = Expression.Property(row, property);
-            var holds = Expression.AndAlso(
+            Expression holds = Expression.AndAlso(
                 Expression.NotEqual(value, Expression.Constant(null, typeof(string))),
                 Expression.NotEqual(value, Expression.Constant(string.Empty)));
+            if (IsErrorClass(typeof(T), property))
+            {
+                var isClass = Expression.Call(
+                    typeof(Enumerable),
+                    nameof(Enumerable.Contains),
+                    [typeof(string)],
+                    Expression.Constant(ErrorClassValues),
+                    value);
+                holds = Expression.AndAlso(holds, Expression.Not(isClass));
+            }
+
             any = any == null ? holds : Expression.OrElse(any, holds);
         }
 

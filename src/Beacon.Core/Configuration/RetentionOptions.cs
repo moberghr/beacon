@@ -23,6 +23,12 @@ public sealed class RetentionOptions
     public const int RecommendedRegulatedContentDays = 30;
 
     /// <summary>
+    /// The longest one run of the data retention job works: 50 minutes, under the sample host's one-hour job timeout. A
+    /// host that schedules the job itself gives it a longer timeout; what a run leaves, the next run continues.
+    /// </summary>
+    public const int RunBudgetMinutes = 50;
+
+    /// <summary>
     /// Days the rows of every retention target are kept; <c>0</c> (the default) keeps them forever, so an upgrade deletes
     /// nothing. <see cref="RecommendedDays"/> is the recommended window.
     /// </summary>
@@ -43,10 +49,11 @@ public sealed class RetentionOptions
     public int ContentDays { get; set; }
 
     /// <summary>
-    /// The deployment lock: no retention window may keep data forever (<see cref="Days"/>, every target,
-    /// <see cref="ContentDays"/> and <c>Beacon:Mcp:Audit:RetentionDays</c> must be set and greater than zero, or the host
-    /// fails to start), and the one window Admins edit at runtime, the learning-signal retention, never resolves to more
-    /// than <see cref="Days"/>.
+    /// The deployment lock: no retention window may keep data forever (<see cref="Days"/>, also while every target sets its
+    /// own window, every target, <see cref="ContentDays"/> and <c>Beacon:Mcp:Audit:RetentionDays</c> must be set and greater
+    /// than zero, or the host fails to start), and the one window Admins edit at runtime, the learning-signal retention,
+    /// never resolves to more than <see cref="Days"/>. The stores in <see cref="RetentionLock.ExemptStores"/> are not run
+    /// history and are outside it by design.
     /// </summary>
     public bool Locked { get; set; }
 
@@ -82,7 +89,7 @@ internal sealed class RetentionOptionsValidator(
         {
             failures.AddRange(KeptForever(options, known, mcpOptions.Value)
                 .Distinct(StringComparer.Ordinal)
-                .Select(x => $"{RetentionOptions.SectionName}:{nameof(RetentionOptions.Locked)} is on, so {x} must be greater than zero: no data may be kept forever."));
+                .Select(x => $"{RetentionOptions.SectionName}:{nameof(RetentionOptions.Locked)} is on, so {x} must be greater than zero: no run history or log may be kept forever (outside the lock by design: {RetentionLock.ExemptStores})."));
         }
 
         return failures.Count > 0
@@ -92,6 +99,12 @@ internal sealed class RetentionOptionsValidator(
 
     private static IEnumerable<string> KeptForever(RetentionOptions options, IEnumerable<string> targets, McpDeploymentOptions mcpOptions)
     {
+        // Days also caps the learning-signal retention, so it is required even when every target sets its own window.
+        if (options.Days == 0)
+        {
+            yield return $"{RetentionOptions.SectionName}:{nameof(RetentionOptions.Days)}";
+        }
+
         foreach (var target in targets.Order(StringComparer.Ordinal))
         {
             if (options.DaysFor(target) == 0)
@@ -125,6 +138,16 @@ internal sealed class RetentionOptionsValidator(
 /// <summary>What <see cref="RetentionOptions.Locked"/> does to the settings Admins edit at runtime.</summary>
 internal static class RetentionLock
 {
+    /// <summary>
+    /// What the lock does not purge, by design: records that are configuration or governance, not run history. The query
+    /// step change history is the record of how a saved query's SQL changed and who or which AI actor run changed it; it
+    /// goes with its query, and the executions and plans it names are kept for it.
+    /// </summary>
+    internal const string ExemptStores =
+        "the security audit trail (its own Beacon:Audit:RetentionDays), learning signals (their own window, capped by Days), "
+        + "the query step change history, settings history, and configuration: projects, data sources, metadata, queries, "
+        + "subscriptions, tasks, glossary, golden eval cases and learned patterns";
+
     /// <summary>Under the lock the learning-signal retention ceiling is at most <see cref="RetentionOptions.Days"/>.</summary>
     internal static void CapLearningSignals(McpDeploymentOptions mcp, RetentionOptions retention)
     {

@@ -490,7 +490,7 @@ public static class ServiceConfiguration
         services.TryAddTransient<IMcpAuditRetentionService, McpAuditRetentionService>();
 
         // Data retention (Beacon:Retention): one job over every registered IRetentionTarget (0 = keep forever, the
-        // default: nothing is deleted unless the host sets a window) plus the content expiry of the content stores. ValidateOnStart so an unknown target name, a
+        // default: nothing is deleted unless the host sets a window) plus the content expiry of the content stores, content first, each step within its share of the run's time budget. ValidateOnStart so an unknown target name, a
         // negative window or a keep-forever window under the lock fails the host at boot. A component adds a store with
         // one more TryAddEnumerable target. Scheduled by the host (the sample's Warp job data-retention).
         services.AddOptions<Configuration.RetentionOptions>()
@@ -500,9 +500,14 @@ public static class ServiceConfiguration
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IRetentionTarget, SubscriptionRunsRetentionTarget>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IRetentionTarget, NotificationsRetentionTarget>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IRetentionTarget, AnomalyBaselinesRetentionTarget>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IRetentionTarget, AnomalyEventsRetentionTarget>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IRetentionTarget, AiActorExecutionsRetentionTarget>());
+
+        // After the executions: a plan whose execution that target just deleted can go in the same run.
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IRetentionTarget, AiActorPlansRetentionTarget>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IRetentionTarget, MigrationRunsRetentionTarget>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IRetentionTarget, McpEvalRunsRetentionTarget>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IRetentionTarget, ExecutionLogRetentionTarget>());
         services.TryAddTransient<IDataRetentionService, DataRetentionService>();
 
         // Under the retention lock the learning-signal window Admins edit at runtime resolves to at most Retention:Days.

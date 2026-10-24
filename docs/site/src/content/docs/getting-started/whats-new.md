@@ -221,12 +221,12 @@ When you upgrade:
 ### Retention by default
 
 A new data retention job can keep run history and logs bounded (see [Data retention](/getting-started/configuration/#data-retention-beaconretention)):
-with `Beacon:Retention:Days` set it deletes rows of subscription runs, notifications, anomaly baselines, AI actor runs,
-migration runs and MCP eval runs older than the window (90 days recommended; the MCP audit's own window, 365 days
+with `Beacon:Retention:Days` set it deletes rows of subscription runs, notifications, anomaly baselines and events, AI
+actor runs and plans, migration runs, MCP eval runs and the execution log older than the window (90 days recommended; the MCP audit's own window, 365 days
 recommended). `Beacon:Retention:ContentDays` (30 recommended for regulated deployments) clears the SQL text, result
 snapshots and model output of older rows, and `Beacon:Retention:Locked` refuses any window that keeps data forever.
 Every window defaults to keep forever. The content lock
-(`RetainQueryContent` off, `Beacon:Mcp:ForceNoContentRetention`) now also covers those stores outside MCP.
+(`RetainQueryContent` off globally, `Beacon:Mcp:ForceNoContentRetention`) now also covers those stores outside MCP.
 
 When you upgrade:
 

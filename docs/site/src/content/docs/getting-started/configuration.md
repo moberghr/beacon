@@ -686,9 +686,10 @@ A missing required key fails the send, not the startup. These keys belong to the
 ## Data retention (`Beacon:Retention`)
 
 One job, `IDataRetentionService.RunAsync`, keeps Beacon's run history and logs bounded. The sample host runs it daily as
-the Warp job `data-retention` (one run at a time, at most an hour); a host embedding Beacon schedules it itself. It
-deletes the rows of every retention target older than the target's window, then clears the **content** of the content
-stores' rows older than `ContentDays`, keeping the rows and their structure (counts, timings, statuses, ids).
+the Warp job `data-retention` (one run at a time, at most an hour); a host embedding Beacon schedules it itself, with a
+timeout longer than the run's 50-minute budget. It first clears the **content** of the content stores' rows older than
+`ContentDays`, keeping the rows and their structure (counts, timings, statuses, ids), then deletes the rows of every
+retention target older than the target's window.
 
 ```json
 {
@@ -708,26 +709,48 @@ stores' rows older than `ContentDays`, keeping the rows and their structure (cou
 | `Days` | int | `0` (keep forever) | Days the rows of every target are kept; `0` keeps them forever. `90` is recommended |
 | `Targets:{name}` | int | `Days` | One target's own window; `0` keeps its rows forever. An unknown name stops the host at startup |
 | `ContentDays` | int | `0` (off) | Days the content of the content stores is kept: SQL text, result snapshots, model output and error text become empty. `30` is recommended for regulated deployments |
-| `Locked` | bool | `false` | Deployment lock: `Days`, every target, `ContentDays` and `Beacon:Mcp:Audit:RetentionDays` must be greater than 0, or the host fails to start; the learning-signal retention Admins edit at runtime never resolves above `Days` |
+| `Locked` | bool | `false` | Deployment lock: `Days` (also when every target sets its own window), every target, `ContentDays` and `Beacon:Mcp:Audit:RetentionDays` must be greater than 0, or the host fails to start; the learning-signal retention Admins edit at runtime never resolves above `Days`. What it leaves out by design is listed below |
 
 | Target | Store | Kept anyway |
 |---|---|---|
-| `subscription-runs` | Subscription run history, with each run's notifications | |
+| `subscription-runs` | Subscription run history, with each run's notifications | Each subscription's newest run that was not skipped: the baseline its trigger compares the next result count with |
 | `notifications` | Delivered notifications | |
 | `anomaly-baselines` | Anomaly detection baselines | The longest configured look-back beyond the window |
+| `anomaly-events` | Detected anomaly events | The longest configured look-back beyond the window |
 | `ai-actor-executions` | AI actor executions and conversation turns | An execution a query change or a newer turn still names |
+| `ai-actor-plans` | AI actor plans | Plans awaiting approval or executing; a plan an execution, a query change or a revision still names |
 | `migration-runs` | Data migration runs | Queued or running runs, and a run a retry names as its parent |
 | `mcp-eval-runs` | MCP eval runs and their per-case results | Running evals; the golden cases are never purged |
+| `execution-log` | The execution log of previews and ad-hoc runs | |
+
+What goes with a purged row: a task keeps its row, but its notifications (the runs that raised it) go with their window;
+a plan that named a deleted AI actor execution has that id cleared; an anomaly event that named a deleted notification
+keeps no link to it.
 
 The content stores are the subscription run history, notifications, the execution log of previews and ad-hoc runs, AI
-actor executions and conversations, and migration runs. While the content lock is on (`RetainQueryContent` off in the
-global MCP settings, or `Beacon:Mcp:ForceNoContentRetention`), Beacon writes no content to them, and each run also
-clears the result snapshots they stored before, whatever their age.
+actor executions and conversations, and migration runs. Clearing a row's content empties its SQL text, result snapshot
+and model output, and reduces its error text to an error class (`schema`, `timeout`, ...), as the write-time lock does.
+While the content lock is on (`RetainQueryContent` off in the **global** MCP settings, or
+`Beacon:Mcp:ForceNoContentRetention`), Beacon writes no content to them, and each run also clears the result snapshots
+they stored before, whatever their age. The content lock reaches these stores only globally: a project's own
+`RetainQueryContent` override does not, because their rows belong to no single project (a multi-step preview logs no
+data source, notifications and AI actor turns carry none, and a data source can be linked to several projects, or to
+others after the row was written). Turn content retention off globally, or set `ForceNoContentRetention`, where any
+project needs it off for them.
 
-The windows are read once at startup. Each target runs on its own; a target that fails is logged (event 9121, the
-target's name and a failure code) and the others still run, then the job fails. Each purge logs its count (9120, 9122) to
-the `Beacon.Audit` category. The MCP audit (`Beacon:Mcp:Audit:RetentionDays`), the security audit trail
+The windows are read once at startup. Each step (the content, then each target) gets an equal share of the time left in
+the run's 50-minute budget; a step whose share runs out stops there (event 9124, the step's name), the run still
+succeeds, and the next run continues it, so a large first backlog takes several runs and never starves the steps after
+it. A target that fails is logged (event 9121, the target's name and a failure code) and the others still run, then the
+job fails. Each purge logs its count (9120, 9122) to the `Beacon.Audit` category. The MCP audit (`Beacon:Mcp:Audit:RetentionDays`), the security audit trail
 (`Beacon:Audit:RetentionDays`) and learning signals keep their own purges; the security audit is never a retention target.
+
+Outside the lock by design, because they are configuration or governance records rather than run history: the security
+audit trail (its own `Beacon:Audit:RetentionDays`), learning signals (their own window, which the lock caps at `Days`),
+the query step change history (the record of how a saved query's SQL changed and who, or which AI actor run, changed it;
+it goes with its query, and the AI actor executions and plans it names are kept for it), the settings change history, and
+configuration itself: projects, data sources, metadata, queries, subscriptions, tasks, the glossary, golden eval cases
+and learned patterns.
 
 :::note[Upgrading]
 Nothing is deleted unless you configure it: every window defaults to keep forever, so an upgrade keeps all existing data.

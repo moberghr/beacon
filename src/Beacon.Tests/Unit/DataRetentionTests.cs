@@ -87,6 +87,107 @@ public class DataRetentionTests
         capture.Commands[0].Should().Contain($"'{McpEvalRunsRetentionTarget.RunningStatus}'", "a running eval keeps its run");
     }
 
+    [TestCase(false, "notification_status", "subscription_id")]
+    [TestCase(true, "[NotificationStatus]", "[SubscriptionId]")]
+    public void SubscriptionRuns_EachSubscriptionsNewestCountedRunIsKept_Translates(bool sqlServer, string status, string subscription)
+    {
+        using BeaconContext context = sqlServer ? SqlServerTestContext.Create() : NpgsqlTestContext.Create();
+
+        var sql = SubscriptionRunsRetentionTarget.Expired(context, context.QueryExecutionHistory, Cutoff).ToQueryString();
+
+        sql.Should().Contain("EXISTS", "a run goes only when a newer counted run of its subscription remains as the trigger's baseline");
+        sql.Should().Contain(subscription);
+        CountOf(sql, status).Should().BeGreaterThanOrEqualTo(2, "a skipped run is never a baseline, so it may go, and only a counted run can replace one");
+    }
+
+    [TestCase(false, "ai_actor_executions", "query_step_change_history", "parent_plan_id", "status")]
+    [TestCase(true, "[AiActorExecutions]", "[QueryStepChangeHistory]", "[ParentPlanId]", "[Status]")]
+    public void AiActorPlans_DecidedAndUnreferencedOnly_Translates(bool sqlServer, string executions, string changeHistory, string parent, string status)
+    {
+        using BeaconContext context = sqlServer ? SqlServerTestContext.Create() : NpgsqlTestContext.Create();
+
+        var sql = AiActorPlansRetentionTarget.Expired(context, context.AiActorPlans, Cutoff).ToQueryString();
+
+        sql.Should().Contain("NOT EXISTS").And.Contain(executions).And.Contain(changeHistory).And.Contain(parent).And.Contain(status);
+    }
+
+    [TestCase(false, "ai_actor_plans", "ai_actor_execution_id")]
+    [TestCase(true, "[AiActorPlans]", "[AiActorExecutionId]")]
+    public async Task AiActorExecutions_APlanNamingADeletedExecutionLosesTheId_Translates(bool sqlServer, string plans, string executionId)
+    {
+        var capture = Capture(sqlServer)
+            .ThenNoRows()
+            .ThenRows([8])
+            .ThenRowsAffected(1)
+            .ThenRowsAffected(1)
+            .ThenNoRows();
+        await using var context = await capture.Factory().CreateDbContextAsync();
+
+        var deleted = await new AiActorExecutionsRetentionTarget().DeleteExpiredAsync(context, Cutoff, CancellationToken.None);
+
+        deleted.Should().Be(1);
+        capture.Commands[2].Should().Contain("DELETE");
+        capture.Commands[3].Should().StartWith("UPDATE").And.Contain(plans).And.Contain(executionId).And.Contain("NOT EXISTS", "only a plan whose execution is really gone loses the id");
+    }
+
+    [TestCase(false, "manual_query_execution_logs")]
+    [TestCase(true, "[ManualQueryExecutionLogs]")]
+    public async Task ExecutionLog_DeletesOldRows_Translates(bool sqlServer, string table)
+    {
+        var capture = Capture(sqlServer)
+            .ThenRows([2])
+            .ThenRowsAffected(1)
+            .ThenNoRows();
+        await using var context = await capture.Factory().CreateDbContextAsync();
+
+        var deleted = await new ExecutionLogRetentionTarget().DeleteExpiredAsync(context, Cutoff, CancellationToken.None);
+
+        deleted.Should().Be(1);
+        capture.Commands[1].Should().Contain("DELETE").And.Contain(table);
+        capture.CommandParameters[0].Values.Should().Contain(Cutoff);
+    }
+
+    [Test]
+    public async Task AnomalyEvents_KeepTheLongestLookBackBeyondTheWindow()
+    {
+        var capture = new SqlCapture()
+            .ThenScalar(30)
+            .ThenNoRows();
+        await using var context = await capture.Factory().CreateDbContextAsync();
+
+        await new AnomalyEventsRetentionTarget().DeleteExpiredAsync(context, Cutoff, CancellationToken.None);
+
+        capture.Commands[1].Should().Contain("anomaly_events");
+        capture.CommandParameters[1].Values.Should().Contain(Cutoff.AddDays(-30));
+    }
+
+    [Test]
+    public async Task ContentExpiry_ReducesErrorTextToItsClass_AndReadsPastTheLastBatch()
+    {
+        var capture = new SqlCapture()
+            .ThenNoRows()
+            .ThenNoRows()
+            .ThenRows([4])
+            .ThenRowsAffected(1)
+            .ThenRow(4, "relation \"orders\" does not exist")
+            .ThenRowsAffected(1)
+            .ThenNoRows()
+            .ThenNoRows()
+            .ThenNoRows();
+        await using var context = await capture.Factory().CreateDbContextAsync();
+
+        var cleared = await ContentExpiry.ClearAsync(context, Cutoff, CancellationToken.None);
+
+        cleared[nameof(Beacon.Core.Data.Entities.ManualQueryExecutionLog)].Should().Be(1);
+        var read = capture.Commands[2];
+        read.Should().Contain("manual_query_execution_logs").And.Contain("error_message");
+        read.Should().Contain($"'{McpContentRedactor.ClassSchema}'", "an error already reduced to its class holds no content and is not read again");
+        read.Should().Contain(".id >", "each batch reads past the last one");
+        capture.Commands[3].Should().StartWith("UPDATE").And.Contain("query_text").And.NotContain("error_message");
+        capture.Commands[5].Should().StartWith("UPDATE").And.Contain("error_message");
+        capture.CommandParameters[5].Values.Should().Contain(McpContentRedactor.ClassSchema, "error text becomes its class, as the write-time lock writes it");
+    }
+
     [Test]
     public async Task AnomalyBaselines_KeepTheLongestLookBackBeyondTheWindow()
     {
@@ -112,14 +213,13 @@ public class DataRetentionTests
             .ThenNoRows()
             .ThenNoRows()
             .ThenNoRows()
-            .ThenNoRows()
             .ThenNoRows();
         await using var context = await capture.Factory().CreateDbContextAsync();
 
         var cleared = await ContentExpiry.ClearAsync(context, Cutoff, CancellationToken.None);
 
         cleared[nameof(Beacon.Core.Data.Entities.QueryExecutionHistory)].Should().Be(1);
-        capture.Commands.Should().HaveCount(8, "one batch on the run history, then one empty read per store");
+        capture.Commands.Should().HaveCount(7, "one short batch on the run history is its last, then one empty read per store");
         capture.Commands[0].Should().Contain(sql).And.Contain(results);
         var update = capture.Commands[1];
         update.Should().StartWith("UPDATE").And.Contain(sql).And.Contain(results);
@@ -156,6 +256,79 @@ public class DataRetentionTests
         keptForever.Verify(x => x.DeleteExpiredAsync(It.IsAny<BeaconContext>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()), Times.Never);
         run.Deleted.Should().BeEquivalentTo(new Dictionary<string, int> { ["defaulted"] = 1, ["configured"] = 1 });
         run.ContentCleared.Should().Be(0);
+        run.Incomplete.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task Run_ClearsContentBeforeAnyTarget()
+    {
+        var capture = new SqlCapture()
+            .ThenNoRows()
+            .ThenNoRows()
+            .ThenNoRows()
+            .ThenNoRows()
+            .ThenNoRows()
+            .ThenNoRows();
+        var commandsBeforeTarget = -1;
+        var target = Target("any");
+        target
+            .Setup(x => x.DeleteExpiredAsync(It.IsAny<BeaconContext>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .Callback(() => commandsBeforeTarget = capture.Commands.Count)
+            .ReturnsAsync(0);
+        var service = new DataRetentionService(
+            capture.Factory(), [target.Object], Options.Create(new RetentionOptions { Days = 90, ContentDays = 30 }), Unlocked(), new FakeTimeProvider(Now), NullLoggerFactory.Instance);
+
+        await service.RunAsync(CancellationToken.None);
+
+        commandsBeforeTarget.Should().Be(6, "every content store was read before the first target ran");
+    }
+
+    [Test]
+    public async Task Run_ATargetPastItsShareOfTheRunStops_TheNextTargetStillRuns_AndTheRunSucceeds()
+    {
+        var time = new FakeTimeProvider(Now);
+        var slow = Target("slow");
+        slow
+            .Setup(x => x.DeleteExpiredAsync(It.IsAny<BeaconContext>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .Returns<BeaconContext, DateTime, CancellationToken>((_, _, token) =>
+            {
+                // The share is half of the run's budget (two steps left); a statement still running past it is cancelled.
+                time.Advance(TimeSpan.FromMinutes(RetentionOptions.RunBudgetMinutes / 2 + 1));
+                token.ThrowIfCancellationRequested();
+
+                return Task.FromResult(1);
+            });
+        var after = Target("after");
+        var service = new DataRetentionService(
+            new SqlCapture().Factory(), [slow.Object, after.Object], Options.Create(new RetentionOptions { Days = 30 }), Unlocked(), time, NullLoggerFactory.Instance);
+
+        var run = await service.RunAsync(CancellationToken.None);
+
+        run.Incomplete.Should().Equal("slow");
+        run.Deleted["after"].Should().Be(1);
+        after.Verify(x => x.DeleteExpiredAsync(It.IsAny<BeaconContext>(), It.IsAny<DateTime>(), It.Is<CancellationToken>(y => !y.IsCancellationRequested)), Times.Once);
+    }
+
+    [Test]
+    public async Task Run_ATargetThatStopsBetweenBatchesAtItsShare_KeepsItsCount_AndIsIncomplete()
+    {
+        var time = new FakeTimeProvider(Now);
+        var batched = Target("batched");
+        batched
+            .Setup(x => x.DeleteExpiredAsync(It.IsAny<BeaconContext>(), It.IsAny<DateTime>(), It.IsAny<CancellationToken>()))
+            .Returns<BeaconContext, DateTime, CancellationToken>((_, _, _) =>
+            {
+                time.Advance(TimeSpan.FromMinutes(RetentionOptions.RunBudgetMinutes));
+
+                return Task.FromResult(RetentionBatches.BatchSize);
+            });
+
+        var run = await new DataRetentionService(
+            new SqlCapture().Factory(), [batched.Object], Options.Create(new RetentionOptions { Days = 30 }), Unlocked(), time, NullLoggerFactory.Instance)
+            .RunAsync(CancellationToken.None);
+
+        run.Deleted["batched"].Should().Be(RetentionBatches.BatchSize);
+        run.Incomplete.Should().Equal("batched");
     }
 
     [Test]
@@ -194,7 +367,7 @@ public class DataRetentionTests
         capture.Commands[0].Should().Contain("results").And.NotContain("compiled_sql", "only the result snapshot goes whatever its age");
         capture.CommandParameters[0].Values.Should().Contain(Now.UtcDateTime);
         capture.Commands[1].Should().StartWith("UPDATE").And.Contain("query_execution_history");
-        capture.Commands[3].Should().Contain("notifications");
+        capture.Commands[2].Should().Contain("notifications");
     }
 
     [Test]
@@ -273,6 +446,22 @@ public class DataRetentionTests
         result.Failed.Should().BeTrue();
         result.Failures.Should().ContainSingle()
             .Which.Should().Contain(setting).And.Contain("Locked is on");
+    }
+
+    [Test]
+    public void Validation_UnderTheLock_RequiresDaysEvenWhenEveryTargetSetsItsOwnWindow()
+    {
+        var options = new RetentionOptions { ContentDays = 30, Locked = true };
+        foreach (var target in Targets())
+        {
+            options.Targets[target.Name] = 30;
+        }
+
+        var result = Validate(options, new McpDeploymentOptions { Audit = new McpAuditOptions { RetentionDays = 365 } });
+
+        result.Failed.Should().BeTrue("Days also caps the learning-signal retention under the lock");
+        result.Failures.Should().ContainSingle()
+            .Which.Should().Contain("Beacon:Retention:Days").And.Contain("query step change history", "the message names what the lock leaves out by design");
     }
 
     [Test]
@@ -361,18 +550,30 @@ public class DataRetentionTests
     private static DataRetentionService Service(RetentionOptions options, IContentRetentionPolicy policy, params IRetentionTarget[] targets) =>
         new(new SqlCapture().Factory(), targets, Options.Create(options), policy, new FakeTimeProvider(Now), NullLoggerFactory.Instance);
 
-    private static ValidateOptionsResult Validate(RetentionOptions options, McpDeploymentOptions? mcp = null)
-    {
-        IRetentionTarget[] targets =
-        [
-            new SubscriptionRunsRetentionTarget(),
-            new NotificationsRetentionTarget(),
-            new AnomalyBaselinesRetentionTarget(),
-            new AiActorExecutionsRetentionTarget(),
-            new MigrationRunsRetentionTarget(),
-            new McpEvalRunsRetentionTarget()
-        ];
+    private static ValidateOptionsResult Validate(RetentionOptions options, McpDeploymentOptions? mcp = null) =>
+        new RetentionOptionsValidator(Targets(), Options.Create(mcp ?? new McpDeploymentOptions())).Validate(null, options);
 
-        return new RetentionOptionsValidator(targets, Options.Create(mcp ?? new McpDeploymentOptions())).Validate(null, options);
+    private static IRetentionTarget[] Targets() =>
+    [
+        new SubscriptionRunsRetentionTarget(),
+        new NotificationsRetentionTarget(),
+        new AnomalyBaselinesRetentionTarget(),
+        new AnomalyEventsRetentionTarget(),
+        new AiActorExecutionsRetentionTarget(),
+        new AiActorPlansRetentionTarget(),
+        new MigrationRunsRetentionTarget(),
+        new McpEvalRunsRetentionTarget(),
+        new ExecutionLogRetentionTarget()
+    ];
+
+    private static int CountOf(string text, string value)
+    {
+        var count = 0;
+        for (var index = text.IndexOf(value, StringComparison.Ordinal); index >= 0; index = text.IndexOf(value, index + value.Length, StringComparison.Ordinal))
+        {
+            count++;
+        }
+
+        return count;
     }
 }
