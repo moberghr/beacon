@@ -266,6 +266,34 @@ describe('McpSettingsPage', () => {
     expect(body!.data).toEqual(GLOBAL);
   });
 
+  it('global Save sends the stored values back, a locked field as the lock pins it, and names a ceiling that applies', async () => {
+    let body: { data: Record<string, unknown> } | undefined;
+    mswServer.use(
+      http.get('*/beacon/api/mcp/settings', () =>
+        HttpResponse.json({
+          ...GLOBAL,
+          maxRowLimit: 2000,
+          enforceReadOnly: true,
+          stored: { ...GLOBAL, maxRowLimit: 9000, enforceReadOnly: false },
+          lockedFields: ['EnforceReadOnly'],
+          clampedFields: ['MaxRowLimit'],
+        }),
+      ),
+      http.put('*/beacon/api/mcp/settings', async ({ request }) => {
+        body = (await request.json()) as typeof body;
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+
+    await renderPage();
+    fireEvent.click(screen.getByText('Guardrails'));
+    expect(screen.getByText(/Saved above a deployment ceiling/).textContent).toContain('maxRowLimit (2000)');
+    fireEvent.click(screen.getByText('Save settings'));
+
+    await waitFor(() => expect(body).toBeDefined());
+    expect(body!.data).toEqual({ ...GLOBAL, maxRowLimit: 9000, enforceReadOnly: true });
+  });
+
   describe('row data sent to the LLM provider', () => {
     it('shows sample-value collection and value grounding on the Guardrails tab, and saves a change', async () => {
       let body: { data: Record<string, unknown> } | undefined;

@@ -8,8 +8,10 @@ customer's loans, a lookup by id. `AddHostEndpointTools` turns the endpoints you
 **in-process, through the endpoint's real pipeline** (model binding, action filters, authorization policies), as a
 host identity built for the MCP caller, never as Beacon, and never with the caller's own token.
 
-Every exposed endpoint **declares** whether it is read-only. The HTTP verb is never trusted, because back offices
-read over POST (Kendo grids, `[FromForm]` filters). By default only read-only endpoints are exposed; endpoints that
+Every exposed endpoint **declares** whether it is read-only; Beacon never infers it from the HTTP verb, because
+back offices read over POST (Kendo grids, `[FromForm]` filters). A read-only endpoint on any verb other than GET or
+HEAD is named in a startup Warning; set `AllowReadOnlyPost = false` to expose read-only tools on GET and HEAD only.
+By default only read-only endpoints are exposed; endpoints that
 change data become tools only when the host opts in with `AllowWriteTools` (see [Write tools](#write-tools)).
 
 ## Quick start
@@ -22,6 +24,10 @@ builder.Services.AddBeaconMcp()
         o.MaxResponseBytes = 1_048_576;                // default 1 MiB
         o.NamedToolLimit = 20;                         // above this: search_api + call_api
         o.RequestTimeout = TimeSpan.FromSeconds(30);   // default 30 s
+        o.MaxConcurrentCalls = 64;                     // default 64 calls in flight in total
+        o.MaxConcurrentCallsPerCaller = 16;            // default 16 per MCP caller
+        o.QueueWait = TimeSpan.FromSeconds(5);         // how long a call over a limit waits before it is refused
+        // o.AllowReadOnlyPost = false;              // default true; false: read-only tools on GET/HEAD only
         // o.TrustedAuthenticationSchemes = ["..."];   // default none; see "Authentication schemes" below
         // o.AllowWriteTools = true;                   // default false; see "Write tools" below
         // o.DescriptionNote = tool => "...";          // default Beacon's note; see "Description" below
@@ -79,6 +85,13 @@ permission check implemented as a filter (like the `[Permission]` filter above) 
 neither `[Authorize]` on its controllers nor a fallback policy puts `[Authorize]` on every exposed action, next to
 `[BeaconTool]` and its own permission filter, as above.
 
+An exposed endpoint whose only requirement is an authenticated user (`[Authorize]` or `RequireAuthorization()` with
+no policy or roles, under the default policy, or a fallback policy that only requires authentication) is logged as a
+startup **Warning** naming it: every mapped MCP caller of the project can call it. It is still exposed, since a
+permission filter like `[Permission]` may check the rest; give it a policy or roles if nothing does. A tool that binds
+an argument from the caller ([Arguments the caller fills](#arguments-the-caller-fills)) is the self-service pattern
+and is not warned.
+
 ### Authentication schemes
 
 Beacon authorizes the dispatched call against the host principal it built for the MCP caller; it never runs an
@@ -107,6 +120,14 @@ MFA or partner scheme.
   [Write tools](#write-tools)). So do bad or duplicate names, `Destructive = true` on a read-only tool, file-upload parameters,
   `[AsParameters]`, an endpoint with no authorization at all, and an endpoint whose policy names an authentication
   scheme that is not in `TrustedAuthenticationSchemes` (see above).
+- `ReadOnly = true` on a verb other than GET or HEAD (GET is used when the endpoint takes several verbs) logs a
+  startup Warning naming the endpoint. With `AllowReadOnlyPost` on (the default) it is still exposed; with it off it
+  is not. A read-only endpoint on PUT, PATCH or DELETE most likely changes data: declare it a write tool.
+- Each tool name has one owner, checked once the pipeline is built. A name the saved-query tools (`q_<name>`,
+  `search_saved_queries`, `run_saved_query`, while saved-query tools are served) and the endpoint tools (the `api_<name>`
+  tools discovered, or `search_api` / `call_api` in catalog mode) both claim **fails startup**, naming it. An attribute
+  tool the host adds with such a name only logs a warning: calls to that name reach the attribute tool. In `tools/list`
+  the saved-query tools come before the endpoint tools (`AddBeaconMcp()` first, then `AddHostEndpointTools`).
 - Endpoints are discovered when the host's pipeline is built (they do not exist at DI time), from the
   `EndpointDataSource`. Parameters come from **ApiExplorer** when it describes the endpoint (`[ApiController]`
   controllers, or `AddEndpointsApiExplorer()` for minimal APIs), otherwise from the action's parameters and binding
@@ -304,11 +325,18 @@ System identity host claims, in configuration (the value is the integer `AdminPe
 ## How a call is dispatched
 
 1. The caller, project and arguments are checked; the host principal is built.
+   The call then takes a slot: at most `MaxConcurrentCallsPerCaller` calls per MCP caller and `MaxConcurrentCalls`
+   in total are in flight. A call past either limit waits up to `QueueWait` (5 s) for a slot, then is refused ("Too many host endpoint
+   calls are in progress; retry shortly.") and audited. The slot is held until the endpoint really ends, so an
+   endpoint that ignores its `RequestAborted` token keeps it after a timeout.
 2. A **new DI scope** and a new `HttpContext` are created. The request carries the method, the route filled from the
    endpoint's route pattern, the query string, the declared headers only, and a JSON or
    `application/x-www-form-urlencoded` body. **Nothing of the MCP request is forwarded**: no `Authorization` header,
    no cookies, no connection info. It also sends an `Accept` header preferring JSON (`application/json, text/plain;q=0.9, */*;q=0.1`) and `X-Requested-With: XMLHttpRequest`.
-3. The endpoint and route values are set as routing would set them.
+3. The endpoint and route values are set as routing would set them, and checked as routing would check them first:
+   a value that fails the route's constraints (`{id:int}`, `{slug:regex(...)}`, a custom `IRouteConstraint`,
+   evaluated without an `HttpContext`), a `/` in a single-segment value, or a `.` or `..` segment in any route value
+   is refused as invalid arguments before anything runs.
 4. **Authorization** runs before the endpoint, exactly as the authorization middleware would, against the host
    principal: the endpoint's `[Authorize]` / policy / requirement metadata combined through the host's
    `IAuthorizationPolicyProvider`, evaluated with `IPolicyEvaluator`. `[AllowAnonymous]` is honoured. No
@@ -322,7 +350,9 @@ System identity host claims, in configuration (the value is the integer `AdminPe
 6. The endpoint's `RequestDelegate` runs; for MVC that is the whole action pipeline: model binding, validation,
    authorization/action/exception filters, the result.
 7. The response is captured into a buffer capped at `MaxResponseBytes`; the request is aborted after
-   `RequestTimeout` or when the MCP call is cancelled.
+   `RequestTimeout` or when the MCP call is cancelled. Aborting signals `RequestAborted`; an endpoint that ignores it
+   keeps running, with its DI scope and its call slot, until it ends, so slow endpoints that do not flow their
+   cancellation token are bounded by the concurrency limits, not by the timeout.
 
 Host code that reads `IHttpContextAccessor` sees the dispatched request. The dispatch runs in its own execution
 context, so the MCP request's context (and the audit identity) is untouched.
@@ -366,7 +396,7 @@ internal sealed class HostIdentityMiddleware : IHostEndpointDispatchMiddleware
 
 ### Antiforgery
 
-Beacon **mints a real antiforgery token pair** for the host principal with the host's own `IAntiforgery` and puts it
+For a call with a body (a write tool, or a read-only tool over POST), Beacon **mints a real antiforgery token pair** for the host principal with the host's own `IAntiforgery` and puts it
 on the dispatched request (the cookie token as a cookie, the request token in the configured header, or the form
 field when the header is disabled). The host's own validation (`[ValidateAntiForgeryToken]`, a global
 `AutoValidateAntiforgeryTokenAttribute`, minimal API form endpoints) therefore runs and passes. For minimal API

@@ -66,4 +66,25 @@ describe('McpPlaygroundPage feedback', () => {
 
     await waitFor(() => expect(sent).toMatchObject({ toolName: 'get_context', projectId: 1 }));
   });
+
+  it('sends max_rows within 1..1000 and cuts an oversized answer', async () => {
+    let sent: { arguments?: { max_rows?: number } } | null = null;
+    mswServer.use(
+      http.get('*/beacon/api/mcp/tools', () => HttpResponse.json({ toolNames: ['query'] })),
+      http.post('*/beacon/api/mcp/tools/run', async ({ request }) => {
+        sent = (await request.json()) as typeof sent;
+        return HttpResponse.json({ text: 'x'.repeat(150_000), isError: false });
+      }),
+    );
+
+    renderWithProviders(<McpPlaygroundPage />);
+    fireEvent.click(await screen.findByRole('button', { name: 'Project' }));
+    fireEvent.click(await screen.findByRole('option', { name: 'Acme Analytics' }));
+    fireEvent.change(screen.getByRole('spinbutton'), { target: { value: '999999' } });
+    fireEvent.change(screen.getByPlaceholderText(/SELECT/i), { target: { value: 'SELECT 1' } });
+    fireEvent.click(screen.getByRole('button', { name: 'Send' }));
+
+    await waitFor(() => expect(sent?.arguments?.max_rows).toBe(1000));
+    expect(await screen.findByText(/output cut at 100,000 characters/)).toBeInTheDocument();
+  });
 });

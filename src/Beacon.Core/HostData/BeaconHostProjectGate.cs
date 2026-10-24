@@ -172,7 +172,7 @@ public static class BeaconHostProjectGateServiceCollectionExtensions
 {
     /// <summary>
     /// Registers the gate that syncs the host project <see cref="BeaconHostSyncOptions.ProjectName"/> the first time it is
-    /// needed (see <see cref="IBeaconHostProjectGate"/>).
+    /// needed (see <see cref="IBeaconHostProjectGate"/>). Without a project name the host fails when it starts.
     /// </summary>
     public static IServiceCollection AddBeaconHostProjectGate(this IServiceCollection services, Action<BeaconHostSyncOptions> configure)
     {
@@ -180,7 +180,8 @@ public static class BeaconHostProjectGateServiceCollectionExtensions
 
         services.AddOptions<BeaconHostSyncOptions>()
             .Configure(configure)
-            .Validate(x => !string.IsNullOrWhiteSpace(x.ProjectName), "The host project name is required.");
+            .Validate(x => !string.IsNullOrWhiteSpace(x.ProjectName), "The host project name is required.")
+            .ValidateOnStart();
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddSingleton<IBeaconHostSynchronizer, BeaconHostSynchronizer>();
         services.TryAddSingleton<IBeaconHostProjectGate, BeaconHostProjectGate>();

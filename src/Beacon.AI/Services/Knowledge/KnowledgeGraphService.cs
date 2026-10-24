@@ -31,7 +31,8 @@ internal sealed partial class KnowledgeGraphService(
     IQueryGuardrailService guardrail,
     ILogger<KnowledgeGraphService> logger,
     WithheldGroundingLog? withheldLog = null,
-    IOptions<McpDeploymentOptions>? deploymentOptions = null) : IKnowledgeGraphService
+    IOptions<McpDeploymentOptions>? deploymentOptions = null,
+    CatalogSnapshotCache? catalogSnapshots = null) : IKnowledgeGraphService
 {
     // Grounding a prompt leaves out is logged once per row and interval (the singleton in the host; per instance in tests).
     private readonly WithheldGroundingLog _withheld = withheldLog ?? new WithheldGroundingLog();
@@ -434,10 +435,77 @@ internal sealed partial class KnowledgeGraphService(
             .Where(pds => pds.ProjectId == projectId)
             .Select(pds => pds.DataSourceId)
             .ToListAsync(ct);
+        if (dsIds.Count == 0)
+        {
+            return [];
+        }
+
+        // One query of each kind for all the sources the project links, not one round of them per source. A linked source
+        // that is not found (archived) fails the call, as it did when each source was read on its own.
+        var dataSources = await context.DataSources
+            .Where(x => dsIds.Contains(x.Id))
+            .Select(x =>
+                new
+                {
+                    x.Id,
+                    x.Name,
+                    x.DataSourceType,
+                    x.DatabaseEngineType
+                })
+            .ToListAsync(ct);
+
+        var schemaTableCounts = await context.DatabaseMetadata
+            .Where(x => dsIds.Contains(x.DataSourceId))
+            .GroupBy(x => new { x.DataSourceId, x.SchemaName })
+            .Select(x =>
+                new
+                {
+                    x.Key.DataSourceId,
+                    x.Key.SchemaName,
+                    TableCount = x.Count()
+                })
+            .ToListAsync(ct);
+
+        var schemaQuality = await context.DataQualityScores
+            .Where(x => dsIds.Contains(x.DataSourceId))
+            .GroupBy(x => new { x.DataSourceId, x.SchemaName })
+            .Select(x =>
+                new
+                {
+                    x.Key.DataSourceId,
+                    x.Key.SchemaName,
+                    AverageScore = x.Average(y => (double?)y.Score),
+                    ScoreCount = x.Count()
+                })
+            .ToListAsync(ct);
+
+        // Code references and documentation belong to the project: the same for each of its sources.
+        var codeRefCount = await context.CodeReferences
+            .Where(x => x.GitHubRepository.ProjectId == projectId)
+            .CountAsync(ct);
+
+        var hasDoc = await context.ProjectDocumentations
+            .Where(x => x.ProjectId == projectId)
+            .AnyAsync(ct);
 
         var results = new List<DataSourceKnowledge>();
         foreach (var dsId in dsIds)
-            results.Add(await DataSourceKnowledgeAsync(dsId, projectId, ct));
+        {
+            var dataSource = dataSources
+                .Where(x => x.Id == dsId)
+                .FirstOrDefault()
+                ?? throw new InvalidOperationException($"Data source {dsId} not found");
+            var tableCounts = schemaTableCounts
+                .Where(x => x.DataSourceId == dsId)
+                .Select(x => (x.SchemaName, x.TableCount))
+                .ToList();
+            var quality = schemaQuality
+                .Where(x => x.DataSourceId == dsId)
+                .Select(x => (x.SchemaName, x.AverageScore, x.ScoreCount))
+                .ToList();
+
+            results.Add(DataSourceKnowledgeOf(dsId, dataSource.Name, dataSource.DataSourceType, dataSource.DatabaseEngineType, tableCounts, quality, codeRefCount, hasDoc));
+        }
 
         return results;
     }
@@ -662,6 +730,28 @@ internal sealed partial class KnowledgeGraphService(
                 .Where(x => x.ProjectId == projectId)
                 .AnyAsync(ct);
 
+        return DataSourceKnowledgeOf(
+            dataSourceId,
+            dataSource.Name,
+            dataSource.DataSourceType,
+            dataSource.DatabaseEngineType,
+            schemaTableCounts.Select(x => (x.SchemaName, x.TableCount)).ToList(),
+            schemaQuality.Select(x => (x.SchemaName, x.AverageScore, x.ScoreCount)).ToList(),
+            codeRefCount,
+            hasDoc);
+    }
+
+    // A data source's overview from its per-schema table counts and quality scores.
+    private static DataSourceKnowledge DataSourceKnowledgeOf(
+        int dataSourceId,
+        string name,
+        DataSourceType dataSourceType,
+        DatabaseEngineType? databaseEngineType,
+        List<(string SchemaName, int TableCount)> schemaTableCounts,
+        List<(string SchemaName, double? AverageScore, int ScoreCount)> schemaQuality,
+        int codeRefCount,
+        bool hasDoc)
+    {
         // DataQualityScore property is Score, not OverallScore
         var schemas = schemaTableCounts
             .Select(x => new SchemaOverview(
@@ -679,11 +769,11 @@ internal sealed partial class KnowledgeGraphService(
         return new DataSourceKnowledge
         {
             DataSourceId = dataSourceId,
-            Name = dataSource.Name,
-            DataSourceType = dataSource.DataSourceType,
-            DatabaseEngine = dataSource.DataSourceType == DataSourceType.Api
+            Name = name,
+            DataSourceType = dataSourceType,
+            DatabaseEngine = dataSourceType == DataSourceType.Api
                 ? ConnectorRegistry.GetDisplayName(DataSourceType.Api)
-                : dataSource.DatabaseEngineType?.ToString(),
+                : databaseEngineType?.ToString(),
             TableCount = schemaTableCounts.Sum(x => x.TableCount),
             OverallQualityScore = totalScoreCount != 0
                 ? schemaQuality.Sum(x => (x.AverageScore ?? 0) * x.ScoreCount) / totalScoreCount
@@ -693,4 +783,76 @@ internal sealed partial class KnowledgeGraphService(
             Schemas = schemas
         };
     }
+
+    // The stored catalog of dataSourceId, from the snapshot cache when the host has one. The caller has checked that projectId
+    // links the source and may read it; the snapshot is keyed by both (CatalogSnapshotCache).
+    private Task<StoredCatalog> StoredCatalogAsync(BeaconContext context, int dataSourceId, int projectId, CancellationToken ct)
+    {
+        return catalogSnapshots == null
+            ? LoadStoredCatalogAsync(context, dataSourceId, ct)
+            : catalogSnapshots.GetOrLoadAsync(
+                projectId,
+                dataSourceId,
+                x => LoadStoredCatalogAsync(context, dataSourceId, x),
+                ApproximateBytes,
+                ct);
+    }
+
+    // What a stored catalog takes in memory, roughly: its strings (two bytes a character) and a fixed overhead per table
+    // and column. Stored sample values dominate on a sampled source.
+    internal static long ApproximateBytes(StoredCatalog catalog)
+    {
+        const int TableOverhead = 96;
+        const int ColumnOverhead = 160;
+        long bytes = 0;
+        foreach (var table in catalog.Tables)
+        {
+            bytes += TableOverhead + Chars(table.SchemaName) + Chars(table.TableName) + Chars(table.TableDescription);
+            foreach (var column in table.Columns)
+            {
+                bytes += ColumnOverhead
+                    + Chars(column.ColumnName)
+                    + Chars(column.DataType)
+                    + Chars(column.Description)
+                    + Chars(column.SampleValuesJson)
+                    + Chars(column.ForeignKeySchema)
+                    + Chars(column.ForeignKeyTable)
+                    + Chars(column.ForeignKeyColumn);
+            }
+        }
+
+        return bytes;
+
+        static long Chars(string? value) => 2L * (value?.Length ?? 0);
+    }
+
+    // All tables and columns of the data source in one query, as stored (samples not screened).
+    private static async Task<StoredCatalog> LoadStoredCatalogAsync(BeaconContext context, int dataSourceId, CancellationToken ct)
+    {
+        var tables = await context.DatabaseMetadata
+            .Where(x => x.DataSourceId == dataSourceId)
+            .OrderBy(x => x.SchemaName)
+            .ThenBy(x => x.TableName)
+            .Select(x =>
+                new CatalogTable(
+                    x.SchemaName,
+                    x.TableName,
+                    x.TableDescription,
+                    x.Columns
+                        .Select(y =>
+                            new SchemaColumn(
+                                y.ColumnName, y.DataType, y.IsPrimaryKey, y.IsNullable,
+                                y.ForeignKeyTable, y.ForeignKeyColumn, y.Description,
+                                y.MaxLength, y.SampleValues, y.ForeignKeySchema, y.SampleValuesComplete))
+                        .ToList()))
+            .ToListAsync(ct);
+
+        return new StoredCatalog(tables);
+    }
 }
+
+// A data source's stored catalog as the ask path reads it: tables in schema and name order, stored sample values not yet
+// screened. Cached as it is (CatalogSnapshotCache), so never changed in place.
+internal sealed record StoredCatalog(IReadOnlyList<CatalogTable> Tables);
+
+internal sealed record CatalogTable(string SchemaName, string TableName, string? TableDescription, IReadOnlyList<SchemaColumn> Columns);

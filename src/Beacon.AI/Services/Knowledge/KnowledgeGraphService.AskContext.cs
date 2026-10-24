@@ -34,24 +34,10 @@ internal sealed partial class KnowledgeGraphService
         var mcpSettings = await sharedSourceSettings.GetEffectiveSettingsAsync(projectId, [dataSourceId], ct);
         var valueGroundingSettings = ValueGroundingSettings(mcpSettings, liveValueProbes);
 
-        // Load all tables + columns in one query
-        var allTables = await context.DatabaseMetadata
-            .Where(m => m.DataSourceId == dataSourceId)
-            .OrderBy(m => m.SchemaName).ThenBy(m => m.TableName)
-            .Select(m => new
-            {
-                m.SchemaName,
-                m.TableName,
-                m.TableDescription,
-                Columns = m.Columns.Select(c => new SchemaColumn(
-                    c.ColumnName, c.DataType, c.IsPrimaryKey, c.IsNullable,
-                    c.ForeignKeyTable, c.ForeignKeyColumn, c.Description,
-                    c.MaxLength, c.SampleValues, c.ForeignKeySchema, c.SampleValuesComplete
-                )).ToList()
-            })
-            .ToListAsync(ct);
-
-        allTables = allTables
+        // The stored catalog (from the snapshot cache, read only after the link check above); the stored samples are
+        // screened under this project's settings on every ask, never cached screened.
+        var storedCatalog = await StoredCatalogAsync(context, dataSourceId, projectId, ct);
+        var allTables = storedCatalog.Tables
             .Select(x => x with { Columns = WithStoredSamples(x.Columns, mcpSettings) })
             .ToList();
 
@@ -83,37 +69,44 @@ internal sealed partial class KnowledgeGraphService
             var joinPaths = new StringBuilder();
             SchemaContextFormatter.AppendJoinPaths(joinPaths, allPaths);
 
+            // The grounding blocks are built at once (each on its own context), the masked question embedded once for all.
+            var questionVector = new MaskedQuestionVector(embeddingService, question);
+
             // Item 5: ask-time value grounding — real values found for literal-looking words in the
             // question, injected right before the golden exemplars so the model sees them alongside the
             // schema. Skipped for API sources (no SQL to probe) and gated by EnableValueGrounding.
-            var valueMatches = "";
+            var valueMatchesTask = Task.FromResult("");
             if (mcpSettings.EnableValueGrounding && !isApi)
             {
                 var valueGroundingTables = allTables
                     .Select(t => new ValueGroundingTable(t.SchemaName, t.TableName, ToValueGroundingColumns(t.Columns)))
                     .ToList();
-                valueMatches = await BuildValueMatchesBlockAsync(dataSourceId, projectId, question, valueGroundingTables, valueGroundingSettings, ct);
+                valueMatchesTask = BuildValueMatchesBlockAsync(dataSourceId, projectId, question, valueGroundingTables, valueGroundingSettings, ct);
             }
 
             // Part A: inject human-verified golden query examples ABOVE the mined learned patterns — they are
             // human-verified, so they outrank machine-mined patterns. Empty (behaviour-preserving) when
             // disabled, the embedder is off, or no golden case is near.
-            var goldenExemplars = await BuildGoldenExemplarBlockAsync(dataSourceId, projectId, question, mcpSettings, dialect, ct);
+            var goldenExemplarsTask = BuildGoldenExemplarBlockAsync(dataSourceId, projectId, question, mcpSettings, dialect, questionVector, ct);
 
             // Inject learned patterns
-            var learnedPatternsBlock = "";
+            var learnedPatternsTask = Task.FromResult("");
             if (mcpSettings.EnableLearning)
             {
                 var allTableNames = allTables.Select(t => $"{t.SchemaName}.{t.TableName}").ToList();
-                var learnedPatterns = await GetRelevantPatternsAsync(dataSourceId, projectId, allTableNames, question,
-                    maxPatterns: 10, budgetChars: mcpSettings.LearningInjectionBudgetChars, dialect, ct);
-                learnedPatternsBlock = FormatLearnedPatternsForLlm(learnedPatterns);
+                learnedPatternsTask = LearnedPatternsBlockAsync(dataSourceId, projectId, allTableNames, question, mcpSettings, dialect, questionVector, ct);
             }
 
             // Tier-3 ⑪: append the business-glossary block after the learned patterns. Empty (nothing
             // injected) when the embedder is off, semantic retrieval is disabled, or no term is near —
             // behaviour-preserving relative to pre-glossary output.
-            var glossary = await BuildGlossaryBlockAsync(projectId, question, mcpSettings, dialect, ct);
+            var glossaryTask = BuildGlossaryBlockAsync(projectId, question, mcpSettings, dialect, questionVector, ct);
+
+            await Task.WhenAll(valueMatchesTask, goldenExemplarsTask, learnedPatternsTask, glossaryTask);
+            var valueMatches = await valueMatchesTask;
+            var goldenExemplars = await goldenExemplarsTask;
+            var learnedPatternsBlock = await learnedPatternsTask;
+            var glossary = await glossaryTask;
 
             // Over the budget the tables the question names come first, then the catalogue order.
             var budgeted = BudgetedContext(
@@ -204,33 +197,39 @@ internal sealed partial class KnowledgeGraphService
 
         // Item 5: ask-time value grounding, scoped to the detailed tables only (same set rendered with
         // full columns above) — same gating as the fast path.
-        var smartValueMatches = "";
+        // Built at once, the masked question embedded once for all (as on the fast path).
+        var smartQuestionVector = new MaskedQuestionVector(embeddingService, question);
+        var smartValueMatchesTask = Task.FromResult("");
         if (mcpSettings.EnableValueGrounding && !isApi)
         {
             var valueGroundingTables = allTables
                 .Where(t => detailedTables.Contains($"{t.SchemaName}.{t.TableName}"))
                 .Select(t => new ValueGroundingTable(t.SchemaName, t.TableName, ToValueGroundingColumns(t.Columns)))
                 .ToList();
-            smartValueMatches = await BuildValueMatchesBlockAsync(dataSourceId, projectId, question, valueGroundingTables, valueGroundingSettings, ct);
+            smartValueMatchesTask = BuildValueMatchesBlockAsync(dataSourceId, projectId, question, valueGroundingTables, valueGroundingSettings, ct);
         }
 
         // Part A: inject human-verified golden query examples ABOVE the mined learned patterns (same
         // behaviour-preserving fallback as the fast path — empty string when nothing to inject).
-        var smartGoldenExemplars = await BuildGoldenExemplarBlockAsync(dataSourceId, projectId, question, mcpSettings, dialect, ct);
+        var smartGoldenExemplarsTask = BuildGoldenExemplarBlockAsync(dataSourceId, projectId, question, mcpSettings, dialect, smartQuestionVector, ct);
 
         // Inject learned patterns for relevant tables
-        var smartPatternsBlock = "";
+        var smartPatternsTask = Task.FromResult("");
         if (mcpSettings.EnableLearning)
         {
             var relevantTableNames = detailedTables.ToList();
-            var smartPatterns = await GetRelevantPatternsAsync(dataSourceId, projectId, relevantTableNames, question,
-                maxPatterns: 10, budgetChars: mcpSettings.LearningInjectionBudgetChars, dialect, ct);
-            smartPatternsBlock = FormatLearnedPatternsForLlm(smartPatterns);
+            smartPatternsTask = LearnedPatternsBlockAsync(dataSourceId, projectId, relevantTableNames, question, mcpSettings, dialect, smartQuestionVector, ct);
         }
 
         // Tier-3 ⑪: append the business-glossary block after the learned patterns (same behaviour-preserving
         // fallback as the fast path — empty string when nothing to inject).
-        var smartGlossary = await BuildGlossaryBlockAsync(projectId, question, mcpSettings, dialect, ct);
+        var smartGlossaryTask = BuildGlossaryBlockAsync(projectId, question, mcpSettings, dialect, smartQuestionVector, ct);
+
+        await Task.WhenAll(smartValueMatchesTask, smartGoldenExemplarsTask, smartPatternsTask, smartGlossaryTask);
+        var smartValueMatches = await smartValueMatchesTask;
+        var smartGoldenExemplars = await smartGoldenExemplarsTask;
+        var smartPatternsBlock = await smartPatternsTask;
+        var smartGlossary = await smartGlossaryTask;
 
         // Over the budget the tables the question names come first, then the tables retrieval ranked for the question, then
         // the relevant tables and the other tables in catalogue order.
@@ -329,24 +328,21 @@ internal sealed partial class KnowledgeGraphService
 
     public async Task<Dictionary<string, HashSet<string>>> GetSchemaCatalogAsync(int dataSourceId, int projectId, CancellationToken ct = default)
     {
-        // Same catalog GetSmartContextForAskAsync computes (shared BuildSchemaCatalog), but loading
-        // only table/column names — none of the LLM-context assembly (search, join paths, exemplars).
-        // Empty when the caller's project does not link the data source (§1.12).
+        // Same catalog GetSmartContextForAskAsync computes (shared BuildSchemaCatalog), from the same stored-catalog
+        // snapshot — none of the LLM-context assembly (search, join paths, exemplars). Empty when the caller's project
+        // does not link the data source (§1.12); the link is checked live, before the snapshot is read.
         await using var context = await contextFactory.CreateDbContextAsync(ct);
-        var projectSourceIds = ProjectSourceIds(context, projectId);
-        var tables = await context.DatabaseMetadata
-            .Where(x => x.DataSourceId == dataSourceId)
-            .Where(x => projectSourceIds.Contains(x.DataSourceId))
-            .Select(x =>
-                new
-                {
-                    x.SchemaName,
-                    x.TableName,
-                    ColumnNames = x.Columns.Select(y => y.ColumnName).ToList()
-                })
-            .ToListAsync(ct);
+        var linked = await ProjectSourceIds(context, projectId)
+            .Where(x => x == dataSourceId)
+            .AnyAsync(ct);
+        if (!linked)
+        {
+            return BuildSchemaCatalog([]);
+        }
 
-        return BuildSchemaCatalog(tables.Select(x => (x.SchemaName, x.TableName, (IEnumerable<string>)x.ColumnNames)));
+        var storedCatalog = await StoredCatalogAsync(context, dataSourceId, projectId, ct);
+
+        return BuildSchemaCatalog(storedCatalog.Tables.Select(x => (x.SchemaName, x.TableName, x.Columns.Select(y => y.ColumnName))));
     }
 
     public async Task<IReadOnlyList<DocChunkHit>> GetRelevantDocChunksAsync(int projectId, string question, int topK, CancellationToken ct = default)
@@ -517,7 +513,13 @@ internal sealed partial class KnowledgeGraphService
     // dialect of the data source being asked (<paramref name="dialect"/>; without one, an expression holding a comment marker
     // is left out). An expression that cannot be shown that way is left out — the term keeps its definition — and logged by
     // term id, once per interval.
-    internal async Task<string> BuildGlossaryBlockAsync(int projectId, string question, McpSettingsData settings, string? dialect, CancellationToken ct)
+    internal Task<string> BuildGlossaryBlockAsync(int projectId, string question, McpSettingsData settings, string? dialect, CancellationToken ct)
+    {
+        return BuildGlossaryBlockAsync(projectId, question, settings, dialect, new MaskedQuestionVector(embeddingService, question), ct);
+    }
+
+    private async Task<string> BuildGlossaryBlockAsync(
+        int projectId, string question, McpSettingsData settings, string? dialect, MaskedQuestionVector questionVector, CancellationToken ct)
     {
         if (!embeddingService.IsAvailable || !settings.EnableSemanticRetrieval)
         {
@@ -536,7 +538,7 @@ internal sealed partial class KnowledgeGraphService
 
             // Mask the question exactly as the terms were embedded at index time (Mask(term + synonyms)) so
             // similarity keys on structure, not literals.
-            var maskedVector = await embeddingService.EmbedAsync(EmbeddingMaskingHelper.Mask(question), ct);
+            var maskedVector = await questionVector.GetAsync(ct);
 
             // Same provider branch as the doc-chunk path, scoped by project_id and filtered to GlossaryTerm.
             var hits = context.Database.ProviderName == NpgsqlProviderName
@@ -644,7 +646,13 @@ internal sealed partial class KnowledgeGraphService
     /// case whose SQL or question cannot be shown that way is left out, and logged by id once per interval. Internal for
     /// unit tests.
     /// </summary>
-    internal async Task<string> BuildGoldenExemplarBlockAsync(int dataSourceId, int projectId, string question, McpSettingsData settings, string? dialect, CancellationToken ct)
+    internal Task<string> BuildGoldenExemplarBlockAsync(int dataSourceId, int projectId, string question, McpSettingsData settings, string? dialect, CancellationToken ct)
+    {
+        return BuildGoldenExemplarBlockAsync(dataSourceId, projectId, question, settings, dialect, new MaskedQuestionVector(embeddingService, question), ct);
+    }
+
+    private async Task<string> BuildGoldenExemplarBlockAsync(
+        int dataSourceId, int projectId, string question, McpSettingsData settings, string? dialect, MaskedQuestionVector questionVector, CancellationToken ct)
     {
         if (!settings.EnableGoldenExemplars || !embeddingService.IsAvailable || !settings.EnableSemanticRetrieval)
         {
@@ -659,7 +667,7 @@ internal sealed partial class KnowledgeGraphService
 
             // Mask the question exactly as golden cases were embedded at index time so similarity keys on
             // structure, not literals.
-            var maskedVector = await embeddingService.EmbedAsync(EmbeddingMaskingHelper.Mask(question), ct);
+            var maskedVector = await questionVector.GetAsync(ct);
 
             // Data-source-scoped (projectId omitted) — same NN helpers, GoldenCase owner type.
             var hits = context.Database.ProviderName == NpgsqlProviderName
@@ -828,7 +836,7 @@ internal sealed partial class KnowledgeGraphService
     // Stored sample values are served only while sample-value collection is on for every live project that links the
     // data source, and only those that pass the PII screen of those projects as it is now (StoredSampleScreen): samples
     // stored before a stricter project linked the source, or before its patterns changed, are screened again here.
-    private List<SchemaColumn> WithStoredSamples(List<SchemaColumn> columns, McpSettingsData settings)
+    private List<SchemaColumn> WithStoredSamples(IEnumerable<SchemaColumn> columns, McpSettingsData settings)
     {
         return columns
             .Select(x => WithStoredSamples(x, settings))
@@ -921,7 +929,7 @@ internal sealed partial class KnowledgeGraphService
         }
 
         return System.Text.RegularExpressions.Regex
-            .Split(query, "[^A-Za-z0-9]+")
+            .Split(query, "[^A-Za-z0-9]+", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1))
             .Where(x => x.Length > 2)
             .Select(x => x.ToLowerInvariant())
             .Where(x => !StopWords.Contains(x))
@@ -950,14 +958,33 @@ internal sealed partial class KnowledgeGraphService
         int dataSourceId, int projectId, List<string> tableNames, string? question = null,
         int maxPatterns = 10, int budgetChars = 1500, CancellationToken ct = default)
     {
-        return GetRelevantPatternsAsync(dataSourceId, projectId, tableNames, question, maxPatterns, budgetChars, DialectOfAsync, ct);
+        return GetRelevantPatternsAsync(dataSourceId, projectId, tableNames, question, maxPatterns, budgetChars, DialectOfAsync, questionVector: null, ct);
     }
 
     internal Task<List<LearnedPatternInfo>> GetRelevantPatternsAsync(
         int dataSourceId, int projectId, List<string> tableNames, string? question,
         int maxPatterns, int budgetChars, string? dialect, CancellationToken ct)
     {
-        return GetRelevantPatternsAsync(dataSourceId, projectId, tableNames, question, maxPatterns, budgetChars, (_, _, _) => Task.FromResult(dialect), ct);
+        return GetRelevantPatternsAsync(dataSourceId, projectId, tableNames, question, maxPatterns, budgetChars, (_, _, _) => Task.FromResult(dialect), questionVector: null, ct);
+    }
+
+    // The learned-patterns block of an ask context, ranked by the ask's shared question vector.
+    private async Task<string> LearnedPatternsBlockAsync(
+        int dataSourceId, int projectId, List<string> tableNames, string question, McpSettingsData settings, string? dialect,
+        MaskedQuestionVector questionVector, CancellationToken ct)
+    {
+        var patterns = await GetRelevantPatternsAsync(
+            dataSourceId,
+            projectId,
+            tableNames,
+            question,
+            maxPatterns: 10,
+            budgetChars: settings.LearningInjectionBudgetChars,
+            (_, _, _) => Task.FromResult(dialect),
+            questionVector,
+            ct);
+
+        return FormatLearnedPatternsForLlm(patterns);
     }
 
     // Example SQL comes back as a prompt shows it: without its comments, read in the data source's dialect
@@ -966,7 +993,8 @@ internal sealed partial class KnowledgeGraphService
     // logged by pattern id once per interval.
     private async Task<List<LearnedPatternInfo>> GetRelevantPatternsAsync(
         int dataSourceId, int projectId, List<string> tableNames, string? question,
-        int maxPatterns, int budgetChars, Func<BeaconContext, int, CancellationToken, Task<string?>> dialectOf, CancellationToken ct)
+        int maxPatterns, int budgetChars, Func<BeaconContext, int, CancellationToken, Task<string?>> dialectOf, MaskedQuestionVector? questionVector,
+        CancellationToken ct)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
@@ -1020,7 +1048,7 @@ internal sealed partial class KnowledgeGraphService
             try
             {
                 var semanticRanked = await BuildSemanticRankingAsync(
-                    context, patterns, lowerTables, question!, dataSourceId, projectId, settings.ExemplarTopK, ct);
+                    context, patterns, lowerTables, questionVector ?? new MaskedQuestionVector(embeddingService, question!), dataSourceId, projectId, settings.ExemplarTopK, ct);
                 if (semanticRanked != null)
                 {
                     return ApplyBudget(semanticRanked, maxPatterns, budgetChars);
@@ -1055,10 +1083,10 @@ internal sealed partial class KnowledgeGraphService
     // next re-index; the project-filtered bank mapping below is the isolation backstop either way.
     private async Task<List<PatternCandidate>?> BuildSemanticRankingAsync(
         BeaconContext context, List<PatternCandidate> patterns, HashSet<string> lowerTables,
-        string question, int dataSourceId, int projectId, int exemplarTopK, CancellationToken ct)
+        MaskedQuestionVector questionVector, int dataSourceId, int projectId, int exemplarTopK, CancellationToken ct)
     {
         var topK = Math.Max(1, exemplarTopK);
-        var maskedVector = await embeddingService.EmbedAsync(EmbeddingMaskingHelper.Mask(question), ct);
+        var maskedVector = await questionVector.GetAsync(ct);
 
         var hits = context.Database.ProviderName == NpgsqlProviderName
             ? await GetNearestPostgresAsync(context, maskedVector, [dataSourceId], ExemplarOwnerTypes, topK, ct, projectId: projectId)

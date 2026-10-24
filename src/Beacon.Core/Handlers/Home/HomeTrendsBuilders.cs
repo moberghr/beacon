@@ -39,10 +39,11 @@ internal static class HomeTrendsBuilders
     }
 
     /// <summary>
-    /// Bucketizes query-execution durations per day into avg/p50/p95/p99.
+    /// Bucketizes query-execution durations per day into avg/p50/p95/p99, from durations already counted per day (<c>Count</c> executions took <c>Ms</c>), so the
+    /// percentiles are exact without one row per execution.
     /// </summary>
     public static List<HomePerfBucket> BuildPerfBuckets(
-        IReadOnlyList<(DateTime Date, double Ms)> execs,
+        IReadOnlyList<(DateTime Date, double Ms, int Count)> execs,
         int numDays,
         DateTime now)
     {
@@ -53,43 +54,51 @@ internal static class HomeTrendsBuilders
             var label = $"d-{i}";
             var dayExecs = execs
                 .Where(x => x.Date == day)
-                .Select(x => x.Ms)
-                .OrderBy(x => x)
+                .OrderBy(x => x.Ms)
                 .ToList();
+            var total = dayExecs.Sum(x => x.Count);
 
-            if (dayExecs.Count == 0)
+            if (total == 0)
             {
                 result.Add(new HomePerfBucket(label, 0m, 0m, 0m, 0m));
                 continue;
             }
 
-            var avg = (decimal)dayExecs.Average();
-            var p50 = (decimal)Percentile(dayExecs, 0.50);
-            var p95 = (decimal)Percentile(dayExecs, 0.95);
-            var p99 = (decimal)Percentile(dayExecs, 0.99);
+            var avg = (decimal)(dayExecs.Sum(x => x.Ms * x.Count) / total);
+            var p50 = (decimal)Percentile(dayExecs, total, 0.50);
+            var p95 = (decimal)Percentile(dayExecs, total, 0.95);
+            var p99 = (decimal)Percentile(dayExecs, total, 0.99);
             result.Add(new HomePerfBucket(label, Math.Round(avg, 1), Math.Round(p50, 1), Math.Round(p95, 1), Math.Round(p99, 1)));
         }
         return result;
     }
 
-    /// <summary>
-    /// Linear-interpolation percentile over a pre-sorted ascending list.
-    /// </summary>
-    public static double Percentile(List<double> sorted, double p)
+    private static double Percentile(List<(DateTime Date, double Ms, int Count)> sorted, int total, double p)
     {
-        if (sorted.Count == 0)
-        {
-            return 0;
-        }
-
-        var idx = p * (sorted.Count - 1);
+        var idx = p * (total - 1);
         var lo = (int)Math.Floor(idx);
         var hi = (int)Math.Ceiling(idx);
+        var loValue = ValueAtRank(sorted, lo);
         if (lo == hi)
         {
-            return sorted[lo];
+            return loValue;
         }
 
-        return sorted[lo] + (sorted[hi] - sorted[lo]) * (idx - lo);
+        return loValue + (ValueAtRank(sorted, hi) - loValue) * (idx - lo);
+    }
+
+    private static double ValueAtRank(List<(DateTime Date, double Ms, int Count)> sorted, int rank)
+    {
+        var seen = 0;
+        foreach (var group in sorted)
+        {
+            seen += group.Count;
+            if (rank < seen)
+            {
+                return group.Ms;
+            }
+        }
+
+        return sorted[^1].Ms;
     }
 }

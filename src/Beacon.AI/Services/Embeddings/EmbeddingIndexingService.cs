@@ -207,20 +207,46 @@ internal sealed class EmbeddingIndexingService(
 
         var existingByKey = existing.ToDictionary(x => (x.OwnerType, x.OwnerId));
         var dimensions = embeddingService.Dimensions;
+        var fingerprint = embeddingService.ModelFingerprint;
 
         var toAdd = new List<McpEmbedding>();
         // (Row, vector) pairs to push into the DB-managed pgvector column after SaveChanges assigns ids.
         var vectorWrites = new List<(McpEmbedding Row, float[] Vector)>();
-        if (inputs.Count > 0)
+        // Rows whose content hash is stored only once their vector is fully written (see below).
+        var hashes = new List<(McpEmbedding Row, string Hash)>();
+        var unchanged = 0;
+
+        // Skip what is already indexed: same content hash (which covers the model's fingerprint), model, version and dimensions means the stored
+        // vector is still the right one. A model or version change (or a row from before hashes were
+        // stored) still re-embeds.
+        var changedInputs = new List<(EmbeddingInput Input, string Hash)>();
+        foreach (var input in inputs)
         {
-            var texts = inputs
-                .Select(x => x.Text)
+            var hash = EmbeddingContentHash.Compute(input.Text, fingerprint);
+            if (existingByKey.TryGetValue((input.OwnerType, input.OwnerId), out var current)
+                && current.ContentHash == hash
+                && current.Model == EmbeddingModelName
+                && current.EmbeddingVersion == CurrentEmbeddingVersion
+                && current.Dimensions == dimensions)
+            {
+                current.ProjectId = input.ProjectId;
+                unchanged++;
+                continue;
+            }
+
+            changedInputs.Add((input, hash));
+        }
+
+        if (changedInputs.Count > 0)
+        {
+            var texts = changedInputs
+                .Select(x => x.Input.Text)
                 .ToList();
             var vectors = await embeddingService.EmbedBatchAsync(texts, ct);
 
-            for (var i = 0; i < inputs.Count; i++)
+            for (var i = 0; i < changedInputs.Count; i++)
             {
-                var input = inputs[i];
+                var (input, hash) = changedInputs[i];
                 var bytes = EmbeddingCodec.ToBytes(vectors[i]);
 
                 if (existingByKey.TryGetValue((input.OwnerType, input.OwnerId), out var row))
@@ -229,10 +255,12 @@ internal sealed class EmbeddingIndexingService(
                     row.Model = EmbeddingModelName;
                     row.Dimensions = dimensions;
                     row.EmbeddingVersion = CurrentEmbeddingVersion;
+                    row.ContentHash = null;
                     // R5/C1: keeps the project stamp current on every re-index — also heals exemplar
                     // rows indexed before ProjectId stamping existed (metadata/golden inputs carry null).
                     row.ProjectId = input.ProjectId;
                     vectorWrites.Add((row, vectors[i]));
+                    hashes.Add((row, hash));
                 }
                 else
                 {
@@ -249,6 +277,7 @@ internal sealed class EmbeddingIndexingService(
                     };
                     toAdd.Add(newRow);
                     vectorWrites.Add((newRow, vectors[i]));
+                    hashes.Add((newRow, hash));
                 }
             }
         }
@@ -272,9 +301,21 @@ internal sealed class EmbeddingIndexingService(
             vectorWrites.Select(x => (x.Row.Id, x.Vector)).ToList(),
             ct);
 
+        // The hash is stored last: a failed vector write leaves the rows without one, so the next run
+        // embeds them again instead of skipping a row whose pgvector column was never filled.
+        if (hashes.Count > 0)
+        {
+            foreach (var (row, hash) in hashes)
+            {
+                row.ContentHash = hash;
+            }
+
+            await context.SaveChangesAsync(ct);
+        }
+
         logger.LogInformation(
-            "Indexed {Count} MCP embeddings for data source {DataSourceId} ({Added} new, {Pruned} stale vector(s) pruned)",
-            inputs.Count, dataSourceId, toAdd.Count, staleRows.Count);
+            "Indexed {Count} MCP embeddings for data source {DataSourceId} ({Added} new, {Unchanged} unchanged and not re-embedded, {Pruned} stale vector(s) pruned)",
+            inputs.Count, dataSourceId, toAdd.Count, unchanged, staleRows.Count);
     }
 
     private static List<EmbeddingInput> BuildEmbeddingInputs(List<TableSource> tables, List<ExemplarSource> exemplars, List<GoldenCaseSource> goldenCases)

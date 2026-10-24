@@ -77,6 +77,11 @@ public sealed class BeaconSchemaOptionsExtension : IDbContextOptionsExtension
 
 public static class BeaconSchemaDbContextOptionsBuilderExtensions
 {
+    /// <summary>
+    /// Sets the schema a <see cref="BeaconContext"/> maps to. Beacon's schema is fixed to <c>beacon</c> and Beacon's
+    /// providers no longer call this; a context built with it keeps the schema it names, as before.
+    /// </summary>
+    [Obsolete("Beacon's schema is fixed to 'beacon' (UsePostgreSql/UseSqlServer map it); this call is removed in 6.0.")]
     public static DbContextOptionsBuilder UseBeaconSchema(this DbContextOptionsBuilder builder, string schema)
     {
         ((IDbContextOptionsBuilderInfrastructure)builder).AddOrUpdateExtension(new BeaconSchemaOptionsExtension(schema));

@@ -22,6 +22,7 @@ public class QueryPathLogConventionTests
         "src/Beacon.Core/Services/Providers/DatabaseProvider.cs",
         "src/Beacon.Core/Services/GatedSqlRunner.cs",
         "src/Beacon.Core/Services/QueryExecutionPreviewService.cs",
+        "src/Beacon.Core/Handlers/Queries/Execute*PreviewHandler.cs",
         "src/Beacon.Core/Services/InMemoryDatabaseManager.cs",
         "src/Beacon.Core/Services/VirtualTableManager.cs",
         "src/Beacon.Core/Services/DataSourceService.cs",
