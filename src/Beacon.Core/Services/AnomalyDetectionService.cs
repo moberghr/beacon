@@ -198,6 +198,9 @@ public class AnomalyDetectionService : IAnomalyDetectionService
         return newConfig.Id;
     }
 
+    // lookbackDays is clamped to 1..MaxChartDays: a smaller value reads one day, a larger one is cut to a year.
+    private const int MaxChartDays = 365;
+
     public async Task<AnomalyChartData> GetAnomalyChartDataAsync(
         int subscriptionId,
         int lookbackDays,
@@ -219,7 +222,8 @@ public class AnomalyDetectionService : IAnomalyDetectionService
             };
         }
 
-        var cutoffDate = DateTime.UtcNow.AddDays(-lookbackDays);
+        // The window is bounded: an unbounded one would load every stored run of the subscription.
+        var cutoffDate = DateTime.UtcNow.AddDays(-Math.Clamp(lookbackDays, 1, MaxChartDays));
 
         // Get query execution history with result counts: the stored runs the caller may read (StoredRunAccess)
         var executionHistory = await context.QueryExecutionHistory
@@ -256,26 +260,22 @@ public class AnomalyDetectionService : IAnomalyDetectionService
                 ? CalculateThresholds(historicalMetrics, config)
                 : (null, null, null);
 
-        // Build data points and calculate rolling baseline
-        var dataPoints = new List<AnomalyChartPoint>();
-        var rollingBaseline = new List<decimal>();
-        var rollingUpperThreshold = new List<decimal>();
-        var rollingLowerThreshold = new List<decimal>();
-
-        // Get baseline data for rolling calculation, bounded to the earliest point any
-        // execution in the chart window can look back to (windowStart - lookback)
-        var baselineCutoff = cutoffDate.AddDays(-config.LookbackDays);
-        var allBaselines = await context.AnomalyBaselines
-            .Where(x => x.SubscriptionId == subscriptionId)
-            .Where(x => x.ExecutionTime >= baselineCutoff)
-            .OrderBy(x => x.ExecutionTime)
-            .Select(x => new { x.ExecutionTime, x.MetricValue })
-            .ToListAsync(cancellationToken);
+        // Both lists are ordered by time, so the first event within a minute of a run is found with one forward pass.
+        var dataPoints = new List<AnomalyChartPoint>(executionHistory.Count);
+        var firstCandidate = 0;
 
         foreach (var execution in executionHistory)
         {
-            var anomalyEvent = anomalyEvents.FirstOrDefault(x =>
-                Math.Abs((x.DetectedTime - execution.CreatedTime).TotalMinutes) < 1);
+            while (firstCandidate < anomalyEvents.Count
+                && (anomalyEvents[firstCandidate].DetectedTime - execution.CreatedTime).TotalMinutes <= -1)
+            {
+                firstCandidate++;
+            }
+
+            var anomalyEvent = firstCandidate < anomalyEvents.Count
+                && (anomalyEvents[firstCandidate].DetectedTime - execution.CreatedTime).TotalMinutes < 1
+                    ? anomalyEvents[firstCandidate]
+                    : null;
 
             dataPoints.Add(new AnomalyChartPoint
             {
@@ -286,28 +286,6 @@ public class AnomalyDetectionService : IAnomalyDetectionService
                 AnomalySeverity = anomalyEvent?.Severity,
                 QueryExecutionHistoryId = execution.Id
             });
-
-            // Calculate rolling baseline for this point using historical data up to this point
-            var historicalCutoff = execution.CreatedTime.AddDays(-config.LookbackDays);
-            var rollingHistoricalData = allBaselines
-                .Where(x => x.ExecutionTime < execution.CreatedTime && x.ExecutionTime >= historicalCutoff)
-                .Select(x => x.MetricValue)
-                .ToList();
-
-            if (rollingHistoricalData.Count >= config.MinimumDataPoints)
-            {
-                var (rollingMean, rollingUpper, rollingLower) = CalculateThresholds(rollingHistoricalData, config);
-                rollingBaseline.Add(rollingMean!.Value);
-                rollingUpperThreshold.Add(rollingUpper ?? rollingMean!.Value);
-                rollingLowerThreshold.Add(rollingLower ?? rollingMean!.Value);
-            }
-            else
-            {
-                // Not enough data points yet - use current value
-                rollingBaseline.Add(execution.ResultCount);
-                rollingUpperThreshold.Add(execution.ResultCount);
-                rollingLowerThreshold.Add(execution.ResultCount);
-            }
         }
 
         return new AnomalyChartData
@@ -316,9 +294,6 @@ public class AnomalyDetectionService : IAnomalyDetectionService
             BaselineMean = baselineMean,
             UpperThreshold = upperThreshold,
             LowerThreshold = lowerThreshold,
-            RollingBaseline = rollingBaseline.Any() ? rollingBaseline : null,
-            RollingUpperThreshold = rollingUpperThreshold.Any() && config.AlertOnIncrease ? rollingUpperThreshold : null,
-            RollingLowerThreshold = rollingLowerThreshold.Any() && config.AlertOnDecrease ? rollingLowerThreshold : null,
             HasAnomalyDetection = true,
             DetectionMethod = config.DetectionMethod.ToString(),
             Sensitivity = config.Sensitivity.ToString()

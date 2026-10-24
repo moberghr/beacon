@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Models;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Retention;
 using Beacon.Core.Authorization;
@@ -42,6 +43,16 @@ internal sealed class RecordQueryFeedbackHandler(
 
     public async Task<RecordQueryFeedbackResult> Handle(RecordQueryFeedbackCommand request, CancellationToken cancellationToken)
     {
+        if (request.CorrectedSql?.Length > InputLimits.FeedbackCorrectedSqlMaxLength)
+        {
+            throw new BeaconValidationException($"The corrected SQL is longer than {InputLimits.FeedbackCorrectedSqlMaxLength} characters.");
+        }
+
+        if (request.Note?.Length > InputLimits.FeedbackNoteMaxLength)
+        {
+            throw new BeaconValidationException($"The note is longer than {InputLimits.FeedbackNoteMaxLength} characters.");
+        }
+
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var signal = await context.McpQuerySignals

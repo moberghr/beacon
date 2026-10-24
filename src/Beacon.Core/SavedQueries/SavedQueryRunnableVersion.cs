@@ -112,8 +112,15 @@ public static class SavedQueryRunnableVersion
                 new RunnableVersionInfo(
                     x.ActiveVersion!.Id,
                     x.ActiveVersion.VersionNumber,
-                    x.ActiveVersion.StepsJson));
+                    x.ActiveVersion.StepsJson)
+                {
+                    FinalQuery = x.ActiveVersion.FinalQuery
+                });
     }
 }
 
-public sealed record RunnableVersionInfo(int VersionId, int VersionNumber, string StepsJson);
+public sealed record RunnableVersionInfo(int VersionId, int VersionNumber, string StepsJson)
+{
+    /// <summary>The version's final query over its steps' results (an in-memory join), or null when it has none.</summary>
+    public string? FinalQuery { get; init; }
+}

@@ -29,7 +29,7 @@ builder.Services.AddBeaconServices(builder.Configuration, options => { /* … */
 ```
 
 - Tables are **default-deny**; unknown names fail startup.
-- Columns whose names look like secrets (`password`, `token`, `apikey`, `hash`, `otp`, …) are always excluded unless you lift one explicitly with `IncludeSecretLikeColumn("Table.Column")`.
+- Columns whose names look like secrets (`password`, `token`, `apikey`, `hash`, `otp`, `credential`, `securitystamp`, …) and every column of credential tables (`AspNetUserTokens`, `DataProtectionKeys`, `*Keys`, `*Tokens`) are always excluded unless you lift one explicitly with `IncludeSecretLikeColumn("Table.Column")`.
 - The connection string is **never stored**. Beacon keeps only its name and reads it from configuration when it connects.
 - SQL Server and PostgreSQL models are supported.
 - Every statement is checked against the exposed slice in the execution gate and again in the provider; masked columns are masked by output position.
@@ -78,6 +78,8 @@ app.MapGet("/api/orders/{id:int}", (int id, OrderService orders) => orders.Find(
 Or on a controller action, or on a handler class whose framework copies class attributes into its endpoint (a Moberg Warp handler): `[BeaconTool("customer_orders", Description = "…", ReadOnly = true)]`.
 
 - `ReadOnly` must be declared explicitly; Beacon never infers it from the HTTP verb.
+- A read-only tool on a verb other than GET or HEAD (a POST grid or search read) is named in a startup Warning; `AllowReadOnlyPost = false` exposes read-only tools on GET and HEAD only.
+- Route values pass the route's constraints, and calls are capped per caller (`MaxConcurrentCallsPerCaller`, 16) and in total (`MaxConcurrentCalls`, 64); a call over a limit queues up to `QueueWait` (5 s) before it is refused.
 - The endpoint must carry authorization metadata (or your host has a fallback policy); otherwise startup refuses it.
 - Calls run in-process through your endpoint's own pipeline, as a host principal built for the MCP caller (`IMcpHostPrincipalFactory`).
 - Only mapped Entra callers (users or systems) of the host project can call them; API-key callers cannot.

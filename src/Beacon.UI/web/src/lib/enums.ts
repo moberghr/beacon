@@ -6,12 +6,15 @@
  * and import it from '@/lib/enums' in route code.
  */
 export {
+  AiActorActionType,
   AiActorExecutionPhase,
+  AiActorPlanStatus,
   AiActorStatus,
   AiProvider,
   AnomalyDetectionMethod,
   AnomalySensitivity,
   ApprovalStatus,
+  BackgroundTaskState,
   BedrockAuthMode,
   ChangeApprovalKind,
   ChangeSource,
@@ -23,6 +26,7 @@ export {
   GroundingRecheckKind,
   HealthStatus,
   McpDocPatchStatus,
+  McpEvalFailureTag,
   McpDocPatchTarget,
   McpPatternStatus,
   McpPatternType,

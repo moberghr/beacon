@@ -1,13 +1,23 @@
-import { describe, it, expect, vi } from 'vitest';
+import { beforeEach, describe, it, expect, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { mswServer } from '../../../vitest.setup';
 import { renderWithProviders } from '@/test/render';
 import { functionalOnly } from '@/test/permissions';
 import { AccessReady } from '@/test/AccessReady';
+import { toast } from 'sonner';
 import { AddDataSourceDialog } from './AddDataSourceDialog';
 
+vi.mock('sonner', () => ({
+  toast: { success: vi.fn(), error: vi.fn(), info: vi.fn(), warning: vi.fn() },
+}));
+
 describe('AddDataSourceDialog (multi-engine)', () => {
+  beforeEach(() => {
+    vi.mocked(toast.info).mockClear();
+    vi.mocked(toast.success).mockClear();
+  });
+
   it('switches engine sections to reveal kind-specific fields', async () => {
     const onClose = vi.fn();
     renderWithProviders(<AddDataSourceDialog open onClose={onClose} />);
@@ -66,6 +76,22 @@ describe('AddDataSourceDialog (multi-engine)', () => {
       connectionString: 'Host=db;Database=app;Username=u;Password=p',
       projectIds: [],
     });
+  });
+
+  it('says a held data source connects to nothing until approved, instead of announcing it as created', async () => {
+    mswServer.use(
+      http.post('*/beacon/api/data-sources', () =>
+        HttpResponse.json({ success: true, message: 'Submitted for approval: analytics connects to nothing until approved.', awaitingApproval: true })),
+    );
+    const onClose = vi.fn();
+    renderWithProviders(<AddDataSourceDialog open onClose={onClose} />);
+    await advanceToTestStep();
+
+    fireEvent.click(screen.getByRole('button', { name: /create data source/i }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(toast.info).toHaveBeenCalledWith('Submitted for approval: analytics connects to nothing until approved.');
+    expect(toast.success).not.toHaveBeenCalled();
   });
 
   it('links the new data source into the projects picked on the last step', async () => {
@@ -166,3 +192,55 @@ async function advanceToTestStep() {
   fireEvent.click(screen.getByTestId('stepper-next'));
   await screen.findByRole('button', { name: /test connection/i });
 }
+
+describe('AddDataSourceDialog (API authentication)', () => {
+  async function createApiSource(fill: () => void, authType: string) {
+    let captured: { connectionString: string } | null = null;
+    mswServer.use(
+      http.post('*/beacon/api/data-sources', async ({ request }) => {
+        captured = (await request.json()) as { connectionString: string };
+        return HttpResponse.json({ success: true, message: 'Created.' });
+      }),
+    );
+
+    const onClose = vi.fn();
+    renderWithProviders(<AddDataSourceDialog open onClose={onClose} />);
+
+    fireEvent.change(screen.getByLabelText(/data source type/i), { target: { value: 'Api' } });
+    fireEvent.click(screen.getByTestId('stepper-next'));
+
+    fireEvent.input(await screen.findByLabelText(/^Name/), { target: { value: 'payments' } });
+    fireEvent.input(screen.getByLabelText(/^Base URL/), { target: { value: 'https://api.example.test' } });
+    fireEvent.input(screen.getByLabelText(/^OpenAPI spec URL/), { target: { value: 'https://api.example.test/openapi.json' } });
+    fireEvent.change(screen.getByLabelText(/^Authentication/), { target: { value: authType } });
+    fill();
+    fireEvent.click(screen.getByTestId('stepper-next'));
+
+    await screen.findByRole('button', { name: /create data source/i });
+    fireEvent.click(screen.getByRole('button', { name: /create data source/i }));
+
+    await waitFor(() => {
+      expect(onClose).toHaveBeenCalled();
+    });
+
+    expect(captured).not.toBeNull();
+    return JSON.parse(captured!.connectionString) as { Auth: Record<string, unknown> };
+  }
+
+  it('sends a bearer token with the default key location, never null', async () => {
+    const config = await createApiSource(() => {
+      fireEvent.input(screen.getByLabelText(/^Bearer token/), { target: { value: 'token-value' } });
+    }, 'bearer');
+
+    expect(config.Auth).toMatchObject({ Type: 'Bearer', Token: 'token-value', ApiKeyLocation: 'header' });
+  });
+
+  it('sends basic credentials with the default key location, never null', async () => {
+    const config = await createApiSource(() => {
+      fireEvent.input(screen.getByLabelText(/^Username/), { target: { value: 'reader' } });
+      fireEvent.input(screen.getByLabelText(/^Password/), { target: { value: 'pass-value' } });
+    }, 'basic');
+
+    expect(config.Auth).toMatchObject({ Type: 'Basic', Username: 'reader', Password: 'pass-value', ApiKeyLocation: 'header' });
+  });
+});

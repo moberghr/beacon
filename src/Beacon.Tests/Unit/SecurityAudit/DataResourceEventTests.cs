@@ -369,12 +369,14 @@ public class DataResourceEventTests
         return new DataSourceService(
             factory.Object,
             encryption.Object,
-            Mock.Of<IDataSourceProviderFactory>(),
+            TestProviderFactory.Accepting(),
             new MemoryCache(new MemoryCacheOptions()),
             Mock.Of<ISchemaGraphService>(),
             _audit,
             TestTransport.Policy(),
             TestEngineVerifier.Passing,
+            TestChangeApprovals.Submitter(),
+            TestTransport.Hasher(),
             NullLogger<DataSourceService>.Instance);
     }
 

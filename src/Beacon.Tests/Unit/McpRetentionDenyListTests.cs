@@ -33,6 +33,32 @@ public class McpRetentionDenyListTests
     }
 
     [Test]
+    public void EveryStringPropertyOfEveryContentStore_IsClassified()
+    {
+        McpRetentionDenyList.ContentStores.Should().HaveCount(6);
+
+        var unclassified = McpRetentionDenyList.UnclassifiedProperties(McpRetentionDenyList.ContentStores);
+
+        unclassified.Should().BeEmpty("every string property of a content store must be registered: {0}", string.Join(", ", unclassified));
+    }
+
+    [Test]
+    public void ContentStores_ClassifyQueryTextResultsAndModelOutputAsContent()
+    {
+        KindOf<QueryExecutionHistory>(nameof(QueryExecutionHistory.CompiledSql)).Should().Be(RetentionKind.Content);
+        KindOf<QueryExecutionHistory>(nameof(QueryExecutionHistory.Results)).Should().Be(RetentionKind.Content);
+        KindOf<QueryExecutionHistory>(nameof(QueryExecutionHistory.Comment)).Should().Be(RetentionKind.Structural);
+        KindOf<Notification>(nameof(Notification.Results)).Should().Be(RetentionKind.Content);
+        KindOf<ManualQueryExecutionLog>(nameof(ManualQueryExecutionLog.QueryText)).Should().Be(RetentionKind.Content);
+        KindOf<ManualQueryExecutionLog>(nameof(ManualQueryExecutionLog.ErrorMessage)).Should().Be(RetentionKind.ErrorClass);
+        KindOf<AiActorExecution>(nameof(AiActorExecution.DetailedAnalysis)).Should().Be(RetentionKind.Content);
+        KindOf<AiActorConversation>(nameof(AiActorConversation.MessageContent)).Should().Be(RetentionKind.Content);
+        KindOf<Beacon.Core.Data.Entities.DataMigration.MigrationExecutionHistory>(nameof(Beacon.Core.Data.Entities.DataMigration.MigrationExecutionHistory.ExecutedQuery))
+            .Should().Be(RetentionKind.Content);
+        McpRetentionDenyList.ProjectIdSelector(typeof(QueryExecutionHistory)).Should().BeNull("content stores take the global decision");
+    }
+
+    [Test]
     public void EveryRule_NamesAWritableStringPropertyOfItsEntity()
     {
         var dangling = McpRetentionDenyList.Rules
@@ -68,13 +94,16 @@ public class McpRetentionDenyListTests
     }
 
     [Test]
-    public void RequiredStringProperties_CoverTheThreeNonNullableContentColumns()
+    public void RequiredStringProperties_CoverTheNonNullableContentColumns()
     {
         McpRetentionDenyList.IsRequiredString(typeof(McpQuerySignal), nameof(McpQuerySignal.Question)).Should().BeTrue();
         McpRetentionDenyList.IsRequiredString(typeof(McpEvalCase), nameof(McpEvalCase.Question)).Should().BeTrue();
         McpRetentionDenyList.IsRequiredString(typeof(McpEvalCase), nameof(McpEvalCase.GoldSql)).Should().BeTrue();
         McpRetentionDenyList.IsRequiredString(typeof(McpQuerySignal), nameof(McpQuerySignal.GeneratedSql)).Should().BeFalse();
-        McpRetentionDenyList.RequiredStringProperties.Should().HaveCount(3);
+        McpRetentionDenyList.IsRequiredString(typeof(QueryExecutionHistory), nameof(QueryExecutionHistory.CompiledSql)).Should().BeTrue();
+        McpRetentionDenyList.IsRequiredString(typeof(ManualQueryExecutionLog), nameof(ManualQueryExecutionLog.QueryText)).Should().BeTrue();
+        McpRetentionDenyList.IsRequiredString(typeof(AiActorConversation), nameof(AiActorConversation.MessageContent)).Should().BeTrue();
+        McpRetentionDenyList.RequiredStringProperties.Should().HaveCount(7);
     }
 
     [Test]

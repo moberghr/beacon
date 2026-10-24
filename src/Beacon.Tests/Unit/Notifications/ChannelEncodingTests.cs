@@ -247,8 +247,8 @@ public class ChannelEncodingTests
     {
         string? subject = null;
         var mail = new Mock<IEmailAdapter>();
-        mail.Setup(x => x.SendEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<QueryResultFile?>()))
-            .Callback<string, string, string, QueryResultFile?>((_, s, _, _) => subject = s)
+        mail.Setup(x => x.SendEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<QueryResultFile?>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, string, QueryResultFile?, CancellationToken>((_, s, _, _, _) => subject = s)
             .Returns(Task.CompletedTask);
         var padding = new string('a', 200 - "[Beacon] ".Length - 1);
 

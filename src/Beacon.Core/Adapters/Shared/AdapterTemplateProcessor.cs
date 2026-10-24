@@ -9,7 +9,10 @@ namespace Beacon.Core.Adapters.Shared;
 /// </summary>
 internal static partial class AdapterTemplateProcessor
 {
-    [GeneratedRegex(@"\{\{([^}]+)\}\}", RegexOptions.Compiled)]
+    private static readonly JsonSerializerOptions IndentedJson = new() { WriteIndented = true };
+    private static readonly JsonSerializerOptions CompactJson = new() { WriteIndented = false };
+
+    [GeneratedRegex(@"\{\{([^}]+)\}\}", RegexOptions.Compiled, matchTimeoutMilliseconds: 1000)]
     private static partial Regex PlaceholderRegex();
 
     private const int MaxOutputLength = 1_048_576;
@@ -161,19 +164,13 @@ internal static partial class AdapterTemplateProcessor
         // Check if placeholder specifically requests pretty formatting
         if (placeholder.EndsWith("_Pretty", StringComparison.OrdinalIgnoreCase))
         {
-            return JsonSerializer.Serialize(value, new JsonSerializerOptions
-            {
-                WriteIndented = true
-            });
+            return JsonSerializer.Serialize(value, IndentedJson);
         }
 
         // For collections and complex objects, serialize as JSON
         if (value is System.Collections.IEnumerable && value is not string)
         {
-            return JsonSerializer.Serialize(value, new JsonSerializerOptions
-            {
-                WriteIndented = false
-            });
+            return JsonSerializer.Serialize(value, CompactJson);
         }
 
         // For DateTime, use ISO 8601 format

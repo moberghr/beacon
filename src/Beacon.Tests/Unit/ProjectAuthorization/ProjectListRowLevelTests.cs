@@ -64,6 +64,14 @@ public class ProjectListRowLevelTests
             .Select(x => x.ToList())
             .ToList();
 
+        // The pending-plan count counts what the caller may decide, and deciding a plan writes through its actor's source.
+        if (request is GetPendingPlanCountQuery)
+        {
+            idLists.Should().Contain(x => x.SequenceEqual(new[] { 1 }), "a plan is decided only where the caller may write");
+            idLists.Should().NotContain(x => x.SequenceEqual(new[] { 1, 3 }), "reading a project does not let the caller decide its plans");
+            return;
+        }
+
         idLists.Should().Contain(x => x.SequenceEqual(new[] { 1, 3 }), "the list is filtered by the projects the caller may read");
         idLists.Should().NotContain(x => x.SequenceEqual(new[] { 1 }), "the projects the caller may write are not the ones it reads");
     }
