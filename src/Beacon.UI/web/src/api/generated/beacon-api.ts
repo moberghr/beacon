@@ -18091,6 +18091,15 @@ export enum ChangeSource {
   Import = 3,
 }
 
+export interface ColumnForeignKeyReference {
+  constraintName: string | null;
+  targetSchema: string | null;
+  targetTable: string;
+  targetColumn: string;
+
+  [key: string]: any;
+}
+
 export interface ColumnMetadataDto {
   columnName: string;
   dataType: string;
@@ -18107,6 +18116,7 @@ export interface ColumnMetadataDto {
   foreignKeySchema?: string | null;
   foreignKeyConstraintName?: string | null;
   sampleValuesComplete?: boolean;
+  foreignKeys?: ColumnForeignKeyReference[] | null;
 
   [key: string]: any;
 }

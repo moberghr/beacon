@@ -270,6 +270,19 @@ When you upgrade:
       result snapshots, the SQL text of runs and of the execution log, AI actor output and migration statements are no
       longer stored, and result snapshots stored before are cleared by the retention job.
 
+### Every declared foreign key becomes a relationship
+
+A column that takes part in more than one foreign key (for example `tenant_id`, referencing `tenants` on its own and
+`x` together with `x_id`) now yields a relationship for each of them, so the composite key keeps both of its column
+pairs. Before, Beacon kept one foreign key per column, and which one depended on the order the catalog returned. This
+applies to SQL Server, Azure Synapse, PostgreSQL and MySQL sources. The column's own foreign-key fields keep naming one
+target: the foreign key whose constraint name sorts first.
+
+When you upgrade:
+
+- [ ] **Data sources with overlapping foreign keys:** more foreign-key relationships appear after the next metadata
+      refresh. Nothing changes until a source is refreshed, and no relationship is removed.
+
 ## Release notes
 
 The full list of changes is on the [5.0.0.0 release](https://github.com/moberghr/beacon/releases/tag/5.0.0.0).

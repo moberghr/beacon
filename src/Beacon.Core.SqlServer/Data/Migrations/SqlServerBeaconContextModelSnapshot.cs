@@ -2702,6 +2702,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<string>("ForeignKeys")
+                        .HasColumnType("nvarchar(max)");
+
                     b.Property<bool>("IsForeignKey")
                         .HasColumnType("bit");
 

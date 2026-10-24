@@ -90,7 +90,7 @@ public class MetadataExtractorAssembleTests
         table.Description.Should().BeNull();
         table.Columns.Select(x => (x.ColumnName, x.IsPrimaryKey, x.IsForeignKey)).Should().Equal(("id", true, false), ("name", false, false));
         table.Columns.Select(x => x.OrdinalPosition).Should().Equal(1, 2);
-        table.Columns.Should().OnlyContain(x => x.ForeignKeyTable == null && x.ForeignKeyColumn == null && x.ForeignKeySchema == null && x.ForeignKeyConstraintName == null);
+        table.Columns.Should().OnlyContain(x => x.ForeignKeyTable == null && x.ForeignKeyColumn == null && x.ForeignKeySchema == null && x.ForeignKeyConstraintName == null && x.ForeignKeys == null);
     }
 
     [TestCaseSource(nameof(ForeignKeyEngines))]
@@ -131,11 +131,9 @@ public class MetadataExtractorAssembleTests
     }
 
     [TestCaseSource(nameof(ForeignKeyEngines))]
-    public void TwoForeignKeysOnOneColumnKeepExactlyOneTarget(string engine)
+    public void TwoForeignKeysOnOneColumnCarryBothAndTheLowestConstraintFillsTheSingleTargetFields(string engine)
     {
-        // Today the extractor keeps the first row of the column's group (g.First()), and the catalog queries have no ORDER BY,
-        // so which target survives is not deterministic on a real database. This pins "one of the valid targets, all fields from
-        // the same constraint". A later change that carries every foreign key replaces this fixture on purpose.
+        // The rows arrive with the higher constraint name first: the order is decided by the constraint name, not the row order.
         var tables = Assemble(
             engine,
             [C("tenants", "id", 1, pk: true), C("orgs", "id", 1, pk: true), C("users", "tenant_id", 1)],
@@ -147,10 +145,34 @@ public class MetadataExtractorAssembleTests
 
         var column = tables.Single(x => x.TableName == "users").Columns.Single();
         column.IsForeignKey.Should().BeTrue();
-        column.ForeignKeyTable.Should().BeOneOf("tenants", "orgs");
-        column.ForeignKeyConstraintName.Should().Be(column.ForeignKeyTable == "tenants" ? "fk_users_tenants" : "fk_users_orgs");
+        column.ForeignKeyTable.Should().Be("orgs");
+        column.ForeignKeyConstraintName.Should().Be("fk_users_orgs");
         column.ForeignKeyColumn.Should().Be("id");
         column.ForeignKeySchema.Should().Be("app");
+        column.ForeignKeys.Should().Equal(
+            new ColumnForeignKeyReference("fk_users_orgs", "app", "orgs", "id"),
+            new ColumnForeignKeyReference("fk_users_tenants", "app", "tenants", "id"));
+    }
+
+    [TestCaseSource(nameof(ForeignKeyEngines))]
+    public void ColumnInASingleAndACompositeForeignKeyCarriesBoth(string engine)
+    {
+        var tables = Assemble(
+            engine,
+            [C("tenants", "id", 1, pk: true), C("x", "tenant_id", 1, pk: true), C("x", "id", 2, pk: true), C("orders", "tenant_id", 1), C("orders", "x_id", 2)],
+            [
+                new Fk("app", "orders", "x_id", "app", "x", "id", "fk_orders_x"),
+                new Fk("app", "orders", "tenant_id", "app", "x", "tenant_id", "fk_orders_x"),
+                new Fk("app", "orders", "tenant_id", "app", "tenants", "id", "fk_orders_tenants")
+            ],
+            []);
+
+        var columns = tables.Single(x => x.TableName == "orders").Columns;
+        columns.Single(x => x.ColumnName == "tenant_id").ForeignKeys.Should().Equal(
+            new ColumnForeignKeyReference("fk_orders_tenants", "app", "tenants", "id"),
+            new ColumnForeignKeyReference("fk_orders_x", "app", "x", "tenant_id"));
+        columns.Single(x => x.ColumnName == "x_id").ForeignKeys.Should().Equal(
+            new ColumnForeignKeyReference("fk_orders_x", "app", "x", "id"));
     }
 
     [TestCaseSource(nameof(ForeignKeyEngines))]

@@ -388,7 +388,9 @@ row data, so:
 Loaded metadata tells Beacon what tables exist; **schema relationships** tell it how to join them. Open a data source
 and click **Relationships** (`/beacon/data-sources/{id}/relationships`) to review and curate them.
 
-- **Foreign key** relationships come from the database's declared constraints and are verified by default.
+- **Foreign key** relationships come from the database's declared constraints and are verified by default: one per
+  column pair of every constraint, so a column in several foreign keys (on its own and inside a composite key) gets one
+  for each.
 - **Inferred** relationships are proposed from column naming with a confidence score. Click **Discover** to preview
   proposals without saving, then accept the ones that are correct.
 - **Manual** relationships are declared by hand. One is verified only when its creator may
