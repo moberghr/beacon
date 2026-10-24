@@ -505,6 +505,34 @@ public static class ServiceConfiguration
         // the host as a Warp recurring job (Beacon.SampleProject/Warp/Jobs/McpMaintenanceJobs.cs).
         services.TryAddTransient<IMcpAuditRetentionService, McpAuditRetentionService>();
 
+        // Data retention (Beacon:Retention): one job over every registered IRetentionTarget (0 = keep forever, the
+        // default: nothing is deleted unless the host sets a window) plus the content expiry of the content stores, content first, each step within its share of the run's time budget. ValidateOnStart so an unknown target name, a
+        // negative window or a keep-forever window under the lock fails the host at boot. A component adds a store with
+        // one more TryAddEnumerable target. Scheduled by the host (the sample's Warp job data-retention).
+        services.AddOptions<Configuration.RetentionOptions>()
+            .Bind(configuration.GetSection(Configuration.RetentionOptions.SectionName))
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.RetentionOptions>, Configuration.RetentionOptionsValidator>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IRetentionTarget, SubscriptionRunsRetentionTarget>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IRetentionTarget, NotificationsRetentionTarget>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IRetentionTarget, AnomalyBaselinesRetentionTarget>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IRetentionTarget, AnomalyEventsRetentionTarget>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IRetentionTarget, AiActorExecutionsRetentionTarget>());
+
+        // After the executions: a plan whose execution that target just deleted can go in the same run.
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IRetentionTarget, AiActorPlansRetentionTarget>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IRetentionTarget, MigrationRunsRetentionTarget>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IRetentionTarget, McpEvalRunsRetentionTarget>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IRetentionTarget, ExecutionLogRetentionTarget>());
+        services.TryAddTransient<IDataRetentionService, DataRetentionService>();
+
+        // Under the retention lock the learning-signal window Admins edit at runtime resolves to at most Retention:Days.
+        // Bound from the section directly: the retention validator reads the MCP options, so IOptions here would loop.
+        services.AddOptions<Configuration.McpDeploymentOptions>()
+            .PostConfigure(x => Configuration.RetentionLock.CapLearningSignals(
+                x,
+                configuration.GetSection(Configuration.RetentionOptions.SectionName).Get<Configuration.RetentionOptions>() ?? new Configuration.RetentionOptions()));
+
         // Telemetry (Beacon:Telemetry). An absent section = no content on spans.
         services.AddOptions<Configuration.BeaconTelemetryOptions>()
             .Bind(configuration.GetSection(Configuration.BeaconTelemetryOptions.SectionName));

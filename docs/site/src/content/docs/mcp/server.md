@@ -412,6 +412,8 @@ While content is retained, the audit keeps the SQL of **every statement** a call
 
 Retention is **not retro-active**: rows written before you turned the lock on keep their content until they age out of the retention window. A row that is *updated* after the lock is on is cleaned up by the interceptor.
 
+**Outside MCP.** Turned off globally (or pinned off with `Beacon:Mcp:ForceNoContentRetention`), the same rule covers Beacon's other content stores: the SQL and stored result snapshot of a subscription run and its notifications, the statement text of the execution log (its error text becomes an error class), the analysis, findings and conversation of an AI actor, and the statement of a migration run. A project override does not reach them: they belong to no single project. The [data retention job](/getting-started/configuration/#data-retention-beaconretention) clears result snapshots stored before the lock, and with `Beacon:Retention:ContentDays` the content of older rows.
+
 ## SQL accuracy stack
 
 Natural-language questions through the `ask` tool don't go through a naive prompt-to-SQL pipe. Every generated query passes a layered accuracy stack:

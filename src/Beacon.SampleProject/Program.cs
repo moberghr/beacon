@@ -116,6 +116,9 @@ builder.Services.AddWarpServer<WarpDbContext>(opt =>
     // Enforce the [Timeout] / [Mutex] attributes on the jobs (Warp/Jobs/*.cs); without these the attributes are inert.
     opt.AddConcurrency();
     opt.AddTimeout();
+
+    // Completed jobs (and their arguments) are kept a week, then cleaned up; failed jobs are never expired.
+    opt.JobExpirationTimeout = TimeSpan.FromDays(7);
 });
 
 // Host-level identity + SignalR plumbing (claims transformer, job status → SignalR bridge,
@@ -386,9 +389,13 @@ using (var warpStartupScope = app.Services.CreateScope())
     await recurringJobPublisher.AddOrUpdateRecurringJob(new AggregateLearnedPatternsJob(), "mcp-learning-aggregate", "0 */6 * * *").WaitAsync(bootToken);
     await recurringJobPublisher.AddOrUpdateRecurringJob(new CleanupOldSignalsJob(), "mcp-learning-cleanup", "0 3 * * *").WaitAsync(bootToken);
 
-    // MCP Audit: purge rows older than Beacon:Mcp:Audit:RetentionDays daily (no-op when unset). Consumer
+    // MCP Audit: purge rows older than Beacon:Mcp:Audit:RetentionDays daily (no-op unless set). Consumer
     // hosts (e.g. Netgiro) schedule this themselves.
     await recurringJobPublisher.AddOrUpdateRecurringJob(new PurgeExpiredMcpAuditLogsJob(), "mcp-audit-retention", "30 3 * * *").WaitAsync(bootToken);
+
+    // Data retention: delete run history and logs older than Beacon:Retention:Days (0, the default, keeps
+    // everything) and clear content older than Beacon:Retention:ContentDays, daily. Consumer hosts schedule this themselves.
+    await recurringJobPublisher.AddOrUpdateRecurringJob(new DataRetentionJob(), DataRetentionJob.Name, "50 3 * * *").WaitAsync(bootToken);
 
     // Security audit: purge events older than Beacon:Audit:RetentionDays daily (no-op while unset: kept forever).
     // Consumer hosts schedule this themselves.
