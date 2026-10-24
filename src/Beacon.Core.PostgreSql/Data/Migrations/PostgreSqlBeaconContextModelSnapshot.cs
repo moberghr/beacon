@@ -3232,6 +3232,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("foreign_key_table");
 
+                    b.Property<string>("ForeignKeys")
+                        .HasColumnType("text")
+                        .HasColumnName("foreign_keys");
+
                     b.Property<bool>("IsForeignKey")
                         .HasColumnType("boolean")
                         .HasColumnName("is_foreign_key");

@@ -266,7 +266,10 @@ public class DatabaseMetadataService(
                         c.ForeignKeySchema,
                         c.ForeignKeyConstraintName,
                         c.SampleValuesComplete
-                    )).ToList(),
+                    )
+                    {
+                        ForeignKeys = ColumnForeignKeys.Deserialize(c.ForeignKeys)
+                    }).ToList(),
                 loadTableNamesOnly ? new List<IndexMetadataDto>() : m.Indexes.Select(i => new IndexMetadataDto(
                     i.IndexName,
                     i.IsUnique,
@@ -339,6 +342,7 @@ public class DatabaseMetadataService(
                     ForeignKeyColumn = column.ForeignKeyColumn,
                     ForeignKeySchema = column.ForeignKeySchema,
                     ForeignKeyConstraintName = column.ForeignKeyConstraintName,
+                    ForeignKeys = ColumnForeignKeys.Serialize(column.ForeignKeys),
                     DefaultValue = column.DefaultValue,
                     MaxLength = column.MaxLength,
                     Description = column.Description,
@@ -497,7 +501,10 @@ public class DatabaseMetadataService(
                 DeserializeSampleValues(c.SampleValues),
                 c.ForeignKeySchema, c.ForeignKeyConstraintName,
                 c.SampleValuesComplete
-            )).ToList(),
+            )
+            {
+                ForeignKeys = ColumnForeignKeys.Deserialize(c.ForeignKeys)
+            }).ToList(),
             new List<IndexMetadataDto>(),
             m.TableDescription
         )).ToList();

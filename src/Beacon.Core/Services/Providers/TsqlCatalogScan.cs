@@ -39,15 +39,16 @@ internal static class TsqlCatalogScan
         IEnumerable<dynamic> indexesData,
         Func<IEnumerable<dynamic>, IReadOnlyList<IndexMetadataDto>> mapIndexes)
     {
+        // Every foreign key of a column, in constraint-name order: the first fills the single-target fields.
         var fkLookup = foreignKeys
             .GroupBy(fk => $"{fk.table_schema}.{fk.table_name}.{fk.column_name}")
             .ToDictionary(
                 g => g.Key,
-                g => (
-                    TableName: (string)g.First().foreign_table_name,
-                    ColumnName: (string)g.First().foreign_column_name,
-                    SchemaName: (string?)g.First().foreign_schema_name,
-                    ConstraintName: (string?)g.First().constraint_name)
+                g => ColumnForeignKeys.InConstraintOrder(g.Select(fk => new ColumnForeignKeyReference(
+                    ConstraintName: (string?)fk.constraint_name,
+                    TargetSchema: (string?)fk.foreign_schema_name,
+                    TargetTable: (string)fk.foreign_table_name,
+                    TargetColumn: (string)fk.foreign_column_name)))
             );
 
         var tables = columnsData
@@ -57,7 +58,8 @@ internal static class TsqlCatalogScan
                 var columns = g.Select(c =>
                 {
                     var fkKey = $"{g.Key.schema}.{g.Key.table}.{c.column_name}";
-                    var hasFk = fkLookup.TryGetValue(fkKey, out var fkInfo);
+                    var hasFk = fkLookup.TryGetValue(fkKey, out var foreignKeyList);
+                    var fkInfo = hasFk ? foreignKeyList![0] : null;
 
                     return new ColumnMetadataDto(
                         ColumnName: (string)c.column_name,
@@ -66,17 +68,20 @@ internal static class TsqlCatalogScan
                         IsPrimaryKey: (int)c.is_primary_key == 1,
                         IsForeignKey: hasFk,
                         OrdinalPosition: (int)c.ordinal_position,
-                        ForeignKeyTable: hasFk ? fkInfo.TableName : null,
-                        ForeignKeyColumn: hasFk ? fkInfo.ColumnName : null,
+                        ForeignKeyTable: fkInfo?.TargetTable,
+                        ForeignKeyColumn: fkInfo?.TargetColumn,
                         DefaultValue: null,
                         // sys.columns.max_length is boxed as short, so `as int?` is always null — convert explicitly.
                         // Note: for nvarchar/nchar this value is in bytes (2x the character length).
                         MaxLength: c.max_length == null ? (int?)null : Convert.ToInt32(c.max_length),
                         Description: null,
                         SampleValues: null,
-                        ForeignKeySchema: hasFk ? fkInfo.SchemaName : null,
-                        ForeignKeyConstraintName: hasFk ? fkInfo.ConstraintName : null
-                    );
+                        ForeignKeySchema: fkInfo?.TargetSchema,
+                        ForeignKeyConstraintName: fkInfo?.ConstraintName
+                    )
+                    {
+                        ForeignKeys = foreignKeyList
+                    };
                 }).ToList();
 
                 var tableIndexRows = indexesData

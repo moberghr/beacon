@@ -42,7 +42,8 @@ public class SqlServerMetadataExtractor : IDatabaseMetadataExtractor
             JOIN sys.tables rt ON fk.referenced_object_id = rt.object_id
             JOIN sys.schemas rs ON rt.schema_id = rs.schema_id
             JOIN sys.columns rc ON fk.referenced_object_id = rc.object_id AND fk.referenced_column_id = rc.column_id
-            JOIN sys.foreign_keys fkc ON fk.constraint_object_id = fkc.object_id";
+            JOIN sys.foreign_keys fkc ON fk.constraint_object_id = fkc.object_id
+            ORDER BY constraint_name";
 
     private const string IndexesQuery = @"
             SELECT

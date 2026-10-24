@@ -76,7 +76,8 @@ public class PostgreSqlMetadataExtractor : IDatabaseMetadataExtractor
             WHERE con.contype = 'f'
                 AND n.nspname NOT IN ('pg_catalog', 'information_schema')
                 AND n.nspname !~ '^pg_(toast_)?temp_'
-                AND array_position(con.conkey, a.attnum) = array_position(con.confkey, fa.attnum)";
+                AND array_position(con.conkey, a.attnum) = array_position(con.confkey, fa.attnum)
+            ORDER BY constraint_name";
 
         var foreignKeys = await connection.QueryAsync(new CommandDefinition(foreignKeysQuery, commandTimeout: 180, cancellationToken: cancellationToken));
         const string indexesQuery = @"
@@ -99,15 +100,16 @@ public class PostgreSqlMetadataExtractor : IDatabaseMetadataExtractor
     /// </summary>
     internal static IReadOnlyList<TableMetadataDto> Assemble(IEnumerable<dynamic> columnsData, IEnumerable<dynamic> foreignKeys, IEnumerable<dynamic> indexesData)
     {
+        // Every foreign key of a column, in constraint-name order: the first fills the single-target fields.
         var fkLookup = foreignKeys
             .GroupBy(fk => $"{fk.table_schema}.{fk.table_name}.{fk.column_name}")
             .ToDictionary(
                 g => g.Key,
-                g => (
-                    TableName: (string)g.First().foreign_table_name,
-                    ColumnName: (string)g.First().foreign_column_name,
-                    SchemaName: (string?)g.First().foreign_schema_name,
-                    ConstraintName: (string?)g.First().constraint_name)
+                g => ColumnForeignKeys.InConstraintOrder(g.Select(fk => new ColumnForeignKeyReference(
+                    ConstraintName: (string?)fk.constraint_name,
+                    TargetSchema: (string?)fk.foreign_schema_name,
+                    TargetTable: (string)fk.foreign_table_name,
+                    TargetColumn: (string)fk.foreign_column_name)))
             );
 
         var tables = columnsData
@@ -117,7 +119,8 @@ public class PostgreSqlMetadataExtractor : IDatabaseMetadataExtractor
                 var columns = g.Select(c =>
                 {
                     var fkKey = $"{g.Key.schema}.{g.Key.table}.{c.column_name}";
-                    var hasFk = fkLookup.TryGetValue(fkKey, out var fkInfo);
+                    var hasFk = fkLookup.TryGetValue(fkKey, out var foreignKeyList);
+                    var fkInfo = hasFk ? foreignKeyList![0] : null;
 
                     return new ColumnMetadataDto(
                         ColumnName: (string)c.column_name,
@@ -126,15 +129,18 @@ public class PostgreSqlMetadataExtractor : IDatabaseMetadataExtractor
                         IsPrimaryKey: (bool)c.is_primary_key,
                         IsForeignKey: hasFk,
                         OrdinalPosition: (int)c.ordinal_position,
-                        ForeignKeyTable: hasFk ? fkInfo.TableName : null,
-                        ForeignKeyColumn: hasFk ? fkInfo.ColumnName : null,
+                        ForeignKeyTable: fkInfo?.TargetTable,
+                        ForeignKeyColumn: fkInfo?.TargetColumn,
                         DefaultValue: c.column_default?.ToString(),
                         MaxLength: c.character_maximum_length as int?,
                         Description: null,
                         SampleValues: null,
-                        ForeignKeySchema: hasFk ? fkInfo.SchemaName : null,
-                        ForeignKeyConstraintName: hasFk ? fkInfo.ConstraintName : null
-                    );
+                        ForeignKeySchema: fkInfo?.TargetSchema,
+                        ForeignKeyConstraintName: fkInfo?.ConstraintName
+                    )
+                    {
+                        ForeignKeys = foreignKeyList
+                    };
                 }).ToList();
 
                 var indexes = indexesData
