@@ -196,6 +196,7 @@ public class SampleHostPipelineTests(SampleHostPipelineTests.HostWiring wiring)
     {
         await using var host = await PipelineHost.StartAsync(_wiring);
 
+        // The OpenAPI document is gated behind Beacon's sign-in outside Development.
         host.AdditionalPaths.Should().Equal("/warp", "/openapi");
     }
 
