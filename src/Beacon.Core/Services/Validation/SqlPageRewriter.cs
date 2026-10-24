@@ -1,5 +1,6 @@
 using System.Text.RegularExpressions;
 using Beacon.Core.Helpers;
+using Beacon.Core.Services;
 using SqlParser.Ast;
 
 namespace Beacon.Core.Services.Validation;
@@ -79,7 +80,7 @@ public static class SqlPageRewriter
             ? $"OFFSET {offset} ROWS FETCH NEXT {limit} ROWS ONLY"
             : $"LIMIT {limit} OFFSET {offset}";
         var orderBy = sort != null
-            ? $"ORDER BY {Quote(sort.SortColumn, dialect)} {(sort.SortDirection == SortDirection.Descending ? "DESC" : "ASC")}"
+            ? $"ORDER BY {SqlIdentifierGuard.Quote(sort.SortColumn, dialect)} {(sort.SortDirection == SortDirection.Descending ? "DESC" : "ASC")}"
             : isTSql ? "ORDER BY (SELECT NULL)" : null;
         var derived = DerivedTableBody(trimmed, query, isTSql, bounded, ordered);
 
@@ -148,23 +149,6 @@ public static class SqlPageRewriter
         var insertAt = match.Index + match.Length;
 
         return $"{trimmed[..insertAt]} TOP 100 PERCENT{trimmed[insertAt..]}";
-    }
-
-    /// <summary>Dialect-quoted identifier with the quote character escaped, so a column name can never close it.</summary>
-    internal static string Quote(string column, string? dialect)
-    {
-        if (SqlDialects.IsTSql(dialect))
-        {
-            return $"[{column.Replace("]", "]]")}]";
-        }
-
-        var engine = (dialect ?? string.Empty).ToLowerInvariant();
-        if (engine is "mysql" or "mariadb")
-        {
-            return $"`{column.Replace("`", "``")}`";
-        }
-
-        return $"\"{column.Replace("\"", "\"\"")}\"";
     }
 
     private static bool IsSafeColumnName(string column) =>

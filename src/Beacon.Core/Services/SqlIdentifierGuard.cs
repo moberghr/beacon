@@ -62,6 +62,16 @@ public static partial class SqlIdentifierGuard
     }
 
     /// <summary>
+    /// <paramref name="name"/> as PostgreSQL would need it written: unchanged when it is only lower-case letters, digits
+    /// and underscores (PostgreSQL folds an unquoted name to lower case), otherwise quoted with <see cref="Quote"/>.
+    /// For text shown to people, such as a suggested table name; SQL Beacon runs always quotes.
+    /// </summary>
+    public static string QuotePostgresIfNeeded(string name)
+    {
+        return name.All(x => char.IsAsciiLetterLower(x) || char.IsAsciiDigit(x) || x == '_') ? name : Quote(name, "PostgreSQL");
+    }
+
+    /// <summary>
     /// True when a catalog name holds a character that ends or escapes a quoted identifier, or ends a statement, in some
     /// dialect — a quote, backtick, bracket or semicolon — or a control character. Such names are not ingested from a
     /// connected database, and Beacon never builds SQL from one.
