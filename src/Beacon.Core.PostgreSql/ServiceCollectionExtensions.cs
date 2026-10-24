@@ -144,7 +144,7 @@ public static class ServiceCollectionExtensions
         // model has no Pgvector.Vector property (the vector(384) column is DB-managed only), and
         // enabling it cleanly requires restructuring how the data source is built. Vector queries
         // instead cast with a ::vector string literal and use the <=> operator.
-        builder.Services.AddDbContextFactory<PostgreSqlBeaconContext>((sp, options) =>
+        builder.Services.AddPooledDbContextFactory<PostgreSqlBeaconContext>((sp, options) =>
         {
             var dataSource = dataSourceFactory(sp);
             if (setSearchPathOnOpen)

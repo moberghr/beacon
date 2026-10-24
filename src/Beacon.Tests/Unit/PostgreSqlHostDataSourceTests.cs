@@ -102,6 +102,21 @@ public class PostgreSqlHostDataSourceTests
         act.Should().Throw<InvalidOperationException>().WithMessage("*not a valid schema identifier*");
     }
 
+    // The factory leases contexts from a pool, so a disposed context comes back clean instead of being rebuilt.
+    [Test]
+    public void UsePostgreSql_ContextFactory_ReusesDisposedContexts()
+    {
+        using var provider = BuildProvider(x => x.UsePostgreSql("Host=localhost;Database=unused"));
+        var factory = provider.GetRequiredService<IDbContextFactory<BeaconContext>>();
+
+        var first = factory.CreateDbContext();
+        first.Dispose();
+        using var second = factory.CreateDbContext();
+
+        second.Should().BeSameAs(first);
+        second.ChangeTracker.Entries().Should().BeEmpty();
+    }
+
     // HostSyncLock and every other raw-SQL path take their connection from the context, never a connection string.
     private static void AssertRawConnectionComesFromHost(BeaconContext context)
     {

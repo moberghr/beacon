@@ -40,7 +40,7 @@ public static class ServiceCollectionExtensions
     /// </summary>
     public static IServiceCollection UseSqlServer(this BeaconBuilder builder, string connectionString)
     {
-        builder.Services.AddDbContextFactory<SqlServerBeaconContext>((sp, options) =>
+        builder.Services.AddPooledDbContextFactory<SqlServerBeaconContext>((sp, options) =>
             options.UseBeaconSqlServerModel(connectionString)
                 .AddInterceptors(sp.GetRequiredService<ContentRetentionInterceptor>(), sp.GetRequiredService<SecurityAuditInterceptor>()));
 

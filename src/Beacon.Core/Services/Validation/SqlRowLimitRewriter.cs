@@ -66,23 +66,23 @@ public static class SqlRowLimitRewriter
     // Legacy textual heuristics, retained only for the parse-failure fallback path.
     private static readonly Regex SelectKeywordPattern = new(
         @"\bSELECT\b",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromMilliseconds(1000));
 
     private static readonly Regex TextualLimitPattern = new(
         @"\bLIMIT\s+\d+",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromMilliseconds(1000));
 
     private static readonly Regex TextualTopPattern = new(
         @"\bTOP\s+\d+",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromMilliseconds(1000));
 
     private static readonly Regex TextualOrderByPattern = new(
         @"\bORDER\s+BY\b",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromMilliseconds(1000));
 
     private static readonly Regex TextualSelectLeadingPattern = new(
         @"^\s*SELECT\b",
-        RegexOptions.IgnoreCase | RegexOptions.Compiled);
+        RegexOptions.IgnoreCase | RegexOptions.Compiled, TimeSpan.FromMilliseconds(1000));
 
     /// <param name="sql">The query to bound.</param>
     /// <param name="maxRows">Row cap; zero or below is refused, never read as "no cap".</param>
