@@ -112,8 +112,8 @@
       },
       "AWSSDK.Core": {
         "type": "Transitive",
-        "resolved": "4.0.102.8",
-        "contentHash": "90B9Skhl+ORbtWNXrrmGdGhGvAfZiPmZafRYrB/xHelZjePIwPvXioqz9UiiF1vo21eDLzTnXh5EC4RjbNWsFQ=="
+        "resolved": "4.0.102.13",
+        "contentHash": "vaYs/kwfB+Lv9PeVKYE4g2mQlzVtHImXLWgfTG8UgeCybUAPkew5kwb8GS6RhuzwvImbolyLHT+IM34WoM9lJg=="
       },
       "AWSSDK.S3": {
         "type": "Transitive",
@@ -795,7 +795,7 @@
       "Moberg.Beacon.Connector.CloudWatch": {
         "type": "Project",
         "dependencies": {
-          "AWSSDK.CloudWatchLogs": "[4.0.105, )",
+          "AWSSDK.CloudWatchLogs": "[4.0.106.1, )",
           "Moberg.Beacon.Core": "[1.0.0, )"
         }
       },
@@ -892,11 +892,11 @@
       },
       "AWSSDK.CloudWatchLogs": {
         "type": "CentralTransitive",
-        "requested": "[4.0.105, )",
-        "resolved": "4.0.105",
-        "contentHash": "9Mdho7fiovOVOwOo/qJZzNKOEJvmnOJyW1nYbLrJXtOL5mAzZtCNb0fyu4dIb/+cxEbu/NZUFqnoXopmDTpFrQ==",
+        "requested": "[4.0.106.1, )",
+        "resolved": "4.0.106.1",
+        "contentHash": "byXgE8O9bAK2h5D2vs2PjQL/dzcOXM/1+TE6qtu8uDgYgBXscBWkXdOOXxtVeeSbYo+ZyFS8g9fwZwKV5cA7rA==",
         "dependencies": {
-          "AWSSDK.Core": "[4.0.102.8, 5.0.0)"
+          "AWSSDK.Core": "[4.0.102.13, 5.0.0)"
         }
       },
       "ClosedXML": {
