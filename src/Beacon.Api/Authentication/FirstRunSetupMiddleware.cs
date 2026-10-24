@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using Beacon.Core;
 using Beacon.Core.Services;
+using Beacon.Core.Configuration;
 using Beacon.Core.Mcp;
 using Beacon.Core.Services.Security;
 using Beacon.Api.Endpoints;
@@ -18,6 +19,10 @@ public sealed class FirstRunSetupMiddleware(
 {
     private readonly string _basePath = basePath.TrimEnd('/');
 
+    // One-way: a super admin that has ever existed never stops having existed (an archived one counts), so once the
+    // check has answered "set up" this process asks the database no more.
+    private volatile bool _setupComplete;
+
     public async Task InvokeAsync(HttpContext context, IUserManagementService userService)
     {
         // Skip if user management is not enabled, and for host routes: they are never redirected to Beacon's setup page
@@ -29,7 +34,13 @@ public sealed class FirstRunSetupMiddleware(
         }
 
         // Skip for setup page, static files, and framework endpoints
-        if (IsExcludedPath(context.Request.Path))
+        if (IsExcludedPath(context.Request.Path, _basePath, context.RequestServices?.GetService<AuthenticationPathPrefixes>()))
+        {
+            await next(context);
+            return;
+        }
+
+        if (_setupComplete)
         {
             await next(context);
             return;
@@ -47,13 +58,15 @@ public sealed class FirstRunSetupMiddleware(
             return;
         }
 
+        _setupComplete = true;
         await next(context);
     }
 
-    private static bool IsExcludedPath(PathString requestPath)
+    private static bool IsExcludedPath(PathString requestPath, string basePath, AuthenticationPathPrefixes? prefixes)
     {
         var path = requestPath.Value ?? "";
-        if (path.Contains("/setup", StringComparison.OrdinalIgnoreCase))
+        if (MiddlewarePathHelper.IsUnderSegment(requestPath, basePath, "/setup", prefixes)
+            || MiddlewarePathHelper.IsUnderSegment(requestPath, basePath, "/api/setup", prefixes))
         {
             return true;
         }
@@ -73,6 +86,6 @@ public sealed class FirstRunSetupMiddleware(
             return true;
         }
 
-        return MiddlewarePathHelper.IsStaticOrFrameworkPath(path);
+        return MiddlewarePathHelper.IsStaticOrFrameworkPath(path, basePath, prefixes);
     }
 }

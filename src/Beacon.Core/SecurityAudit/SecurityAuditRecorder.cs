@@ -129,6 +129,9 @@ internal sealed class SecurityAuditRecorder(
             // Scheduled work run as its owner: the system, for the owner it acts for.
             BeaconPrincipalKind.Owner => new SecurityAuditActor(SecurityAuditActorKinds.System, actor.BeaconUserId),
             BeaconPrincipalKind.System => SecurityAuditActor.System,
+
+            // An embed grant or token: the grant's creator, for whom it acts.
+            BeaconPrincipalKind.Embed => new SecurityAuditActor(SecurityAuditActorKinds.Embed, actor.BeaconUserId),
             _ => SecurityAuditActor.Anonymous
         };
     }

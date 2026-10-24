@@ -12,10 +12,9 @@ builder.Services.AddBeaconApiAuthorization();   // registers the Execute-scope p
 builder.Services.AddBeaconAI(builder.Configuration);
 builder.Services.AddBeaconMcp();
 // …
-app.UseMcpResourceMetadataChallenge();           // before ApiKeyAuthMiddleware
-app.UseMiddleware<ApiKeyAuthMiddleware>();
-app.UseBeaconJwtBearerAuthentication();          // only for Entra / JWT callers
-// … authentication, cookie, authorization …
+app.UseMcpResourceMetadataChallenge();           // before UseBeaconAuthentication
+app.UseBeaconAuthentication();                   // API keys, JWT callers (when enabled), the cookie
+app.UseAuthorization();
 app.MapBeaconMcp();                              // /beacon/mcp, Execute scope required
 app.MapMcpDiscovery();                           // anonymous discovery documents
 ```

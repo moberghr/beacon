@@ -19,6 +19,7 @@ import {
   Select,
 } from '@/components/beacon';
 import { useRequirePermission } from '@/auth/useRequirePermission';
+import { AuditExportButton } from './AuditExportButton';
 import { describeError, httpErrorInfo } from '@/lib/api';
 import { formatDateTime, formatNumber } from '@/lib/format';
 import { useSearchFilter } from '@/lib/usePagedList';
@@ -266,6 +267,13 @@ function SecurityAuditView() {
           <CardTitle>Events</CardTitle>
           <CardSub>{formatNumber(list.data?.totalCount ?? 0)} in the window</CardSub>
           <CardActions>
+            <AuditExportButton
+              fileName={`security-audit-${filters.from}_${filters.to}.json`}
+              fetchPage={list.fetchExportPage}
+              firstPage={0}
+              confirmMessage="Downloads every event of the window as filtered (up to 5000) as an unencrypted JSON file. Each page read is recorded in the audit."
+              disabled={auditWindow.error !== undefined || (list.data?.totalCount ?? 0) === 0}
+            />
             <Button
               type="button"
               size="sm"

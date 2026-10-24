@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.Json;
 using System.Text.Json.Nodes;
 using ModelContextProtocol.Protocol;
@@ -14,7 +13,7 @@ namespace Beacon.MCP.SavedQueries;
 /// </summary>
 internal static class SavedQueryToolSchema
 {
-    public const int MaxStringArgumentLength = 4000;
+    public const int MaxStringArgumentLength = SavedQueryArgumentConverter.MaxStringArgumentLength;
 
     /// <param name="includeProject">
     /// True when the caller reaches the tool through several projects, so the schema offers <c>project_id</c> to pick one.
@@ -178,7 +177,7 @@ internal static class SavedQueryToolSchema
                 return $"Argument '{parameter.Name}' must be a number.";
 
             case ParameterType.DateTime:
-                if (element.ValueKind == JsonValueKind.String && TryParseDateTime(element.GetString()!, out var dateTime))
+                if (element.ValueKind == JsonValueKind.String && SavedQueryArgumentConverter.TryParseDateTime(element.GetString()!, out var dateTime))
                 {
                     value = dateTime;
                     return null;
@@ -244,7 +243,7 @@ internal static class SavedQueryToolSchema
         return element.ValueKind switch
         {
             JsonValueKind.Number => element.TryGetInt64(out value),
-            JsonValueKind.String => long.TryParse(element.GetString(), NumberStyles.AllowLeadingSign, CultureInfo.InvariantCulture, out value),
+            JsonValueKind.String => SavedQueryArgumentConverter.TryParseInteger(element.GetString(), out value),
             _ => false
         };
     }
@@ -256,48 +255,8 @@ internal static class SavedQueryToolSchema
         return element.ValueKind switch
         {
             JsonValueKind.Number => element.TryGetDecimal(out value),
-            JsonValueKind.String => decimal.TryParse(element.GetString(), NumberStyles.Float, CultureInfo.InvariantCulture, out value),
+            JsonValueKind.String => SavedQueryArgumentConverter.TryParseDecimal(element.GetString(), out value),
             _ => false
         };
-    }
-
-    // An explicit offset or Z is honored and normalized to UTC; a bare date or local date-time stays unspecified, so
-    // it compares with timestamp-without-time-zone columns as written.
-    private static bool TryParseDateTime(string text, out DateTime value)
-    {
-        value = default;
-        var hasOffset = text.EndsWith('Z') || text.EndsWith('z') || HasNumericOffset(text);
-
-        if (hasOffset)
-        {
-            if (!DateTimeOffset.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.None, out var offset))
-            {
-                return false;
-            }
-
-            value = offset.UtcDateTime;
-            return true;
-        }
-
-        if (!DateTime.TryParse(text, CultureInfo.InvariantCulture, DateTimeStyles.None, out var local))
-        {
-            return false;
-        }
-
-        value = DateTime.SpecifyKind(local, DateTimeKind.Unspecified);
-        return true;
-    }
-
-    private static bool HasNumericOffset(string text)
-    {
-        var timeIndex = text.IndexOf('T');
-        if (timeIndex < 0)
-        {
-            return false;
-        }
-
-        var time = text[(timeIndex + 1)..];
-
-        return time.Contains('+') || time.Contains('-');
     }
 }

@@ -88,6 +88,42 @@ public class LoginFormAuthMiddlewareTests
         nextCalled.Should().BeFalse();
     }
 
+    [TestCase("/beacon/api/projects")]
+    [TestCase("/beacon/api/hub/negotiate")]
+    [TestCase("/beacon/_content/Beacon.UI/app.bin")]
+    public async Task AnonymousRequest_ToAnApiOrStaticSegment_IsLetThrough(string path)
+    {
+        var (_, nextCalled) = await RunAsync(path, authenticated: false);
+
+        nextCalled.Should().BeTrue();
+    }
+
+    [TestCase("/beacon/apix/projects")]
+    [TestCase("/beacon/pages/api/projects")]
+    [TestCase("/beacon/pages/_content/app.bin")]
+    public async Task AnonymousRequest_ToAPathThatOnlyContainsAnAllowedSegment_IsRedirectedToLogin(string path)
+    {
+        var (context, nextCalled) = await RunAsync(path, authenticated: false);
+
+        nextCalled.Should().BeFalse();
+        context.Response.Headers.Location.ToString().Should().Be("/beacon/login");
+    }
+
+    [Test]
+    public async Task AnonymousRequest_ToAPathThatOnlyContainsSetup_IsRedirectedToLogin()
+    {
+        var configuration = CreateConfiguration();
+        configuration.EnableUserManagement();
+
+        var (setup, setupReached) = await RunAsync("/beacon/setup", authenticated: false, configuration);
+        var (lookAlike, lookAlikeReached) = await RunAsync("/beacon/reports/setup-notes", authenticated: false, configuration);
+
+        setupReached.Should().BeTrue();
+        setup.Response.Headers.Location.ToString().Should().BeEmpty();
+        lookAlikeReached.Should().BeFalse();
+        lookAlike.Response.Headers.Location.ToString().Should().Be("/beacon/login");
+    }
+
     private static BeaconConfiguration CreateConfiguration()
     {
         var configuration = new BeaconConfiguration();

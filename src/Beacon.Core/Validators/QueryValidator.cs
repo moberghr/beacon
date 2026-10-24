@@ -8,6 +8,8 @@ namespace Beacon.Core.Validators;
 
 internal static class QueryValidator
 {
+    private static readonly TimeSpan MatchTimeout = TimeSpan.FromSeconds(1);
+
     /// <summary>
     /// SQL keywords that are blocked to prevent data modification queries.
     /// These keywords indicate write operations that should not be allowed in read-only query execution.
@@ -44,16 +46,25 @@ internal static class QueryValidator
             throw new BeaconException($"SQL is {sqlQuery.Length} characters long; the limit is {maxChars}.");
         }
 
-        // Remove SQL comments to prevent comment-based bypasses
-        var cleanedQuery = RemoveSqlComments(sqlQuery);
+        HashSet<string> words;
+        try
+        {
+            // Remove SQL comments to prevent comment-based bypasses
+            var cleanedQuery = RemoveSqlComments(sqlQuery);
 
-        // Remove string literals to prevent bypasses like: SELECT 'INSERT' FROM table
-        cleanedQuery = RemoveSqlStringLiterals(cleanedQuery);
+            // Remove string literals to prevent bypasses like: SELECT 'INSERT' FROM table
+            cleanedQuery = RemoveSqlStringLiterals(cleanedQuery);
 
-        // Extract words from the cleaned query
-        var words = Regex.Split(cleanedQuery, @"\W+")
-            .Where(w => !string.IsNullOrWhiteSpace(w))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            // Extract words from the cleaned query
+            words = Regex.Split(cleanedQuery, @"\W+", RegexOptions.None, MatchTimeout)
+                .Where(w => !string.IsNullOrWhiteSpace(w))
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            // A query that cannot be analysed in time is refused, never passed unchecked.
+            throw new BeaconException("The SQL could not be analysed in time and was refused.");
+        }
 
         // Check for blocked keywords
         var foundBlockedKeywords = words.Intersect(BlockedSqlKeywords, StringComparer.OrdinalIgnoreCase).ToList();
@@ -173,10 +184,10 @@ internal static class QueryValidator
     private static string RemoveSqlStringLiterals(string sql)
     {
         // Remove single-quoted strings
-        sql = Regex.Replace(sql, @"'([^']|'')*'", " ");
+        sql = Regex.Replace(sql, @"'([^']|'')*'", " ", RegexOptions.None, MatchTimeout);
 
         // Remove double-quoted strings (used in some SQL dialects for identifiers)
-        sql = Regex.Replace(sql, @"""([^""]|"""")*""", " ");
+        sql = Regex.Replace(sql, @"""([^""]|"""")*""", " ", RegexOptions.None, MatchTimeout);
 
         return sql;
     }

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http.HttpResults;
 using Beacon.Api.Authentication;
 using Beacon.Core.Authorization;
+using Beacon.Core.BackgroundTasks;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.DataMigration;
 using MediatR;
@@ -34,9 +35,29 @@ internal static class MigrationsEndpoints
             .WithName("CreateMigrationJob")
             .RequireBeaconPermission(BeaconPermissions.MigrationOperatorPolicy);
 
+        // Runs in the request and answers with the run's outcome (kept for 5.0 callers; a long run holds the request open).
         migrations.MapPost("/jobs/{id:int}/run", (int id, IMediator m, CancellationToken ct) =>
                 m.Send(new RunMigrationJobCommand(id), ct))
             .WithName("RunMigrationJob")
+            .WithBeaconLongRunning()
+            .RequireBeaconPermission(BeaconPermissions.MigrationOperatorPolicy);
+
+        // Starts the run as a background task: 202 with the task (its job id correlates JobStatusChanged), read below; the
+        // run's counts and error are in the job's run history.
+        migrations.MapPost("/jobs/{id:int}/runs", async (int id, IMediator m, CancellationToken ct) =>
+            {
+                var ticket = await m.Send(new StartMigrationJobRunCommand(id), ct);
+                return TypedResults.Accepted($"/beacon/api/migrations/jobs/{id}/runs/{ticket.TaskId}", ticket);
+            })
+            .WithName("StartMigrationJobRun")
+            .RequireBeaconPermission(BeaconPermissions.MigrationOperatorPolicy);
+
+        migrations.MapGet("/jobs/{id:int}/runs/{taskId:int}", async Task<Results<Ok<BackgroundTaskStatus>, NotFound>> (int id, int taskId, IMediator m, CancellationToken ct) =>
+            {
+                var status = await m.Send(new GetMigrationJobRunQuery(id, taskId), ct);
+                return status is null ? TypedResults.NotFound() : TypedResults.Ok(status);
+            })
+            .WithName("GetMigrationJobRun")
             .RequireBeaconPermission(BeaconPermissions.MigrationOperatorPolicy);
 
         migrations.MapDelete("/jobs/{id:int}", (int id, [FromQuery] bool? forceDelete, IMediator m, CancellationToken ct) =>

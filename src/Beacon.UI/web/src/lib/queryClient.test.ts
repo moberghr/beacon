@@ -1,6 +1,18 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, beforeEach } from 'vitest';
 import { ApiError } from './api';
+import { http, HttpResponse } from 'msw';
 import { createQueryClient, AUTH_QUERY_KEY } from './queryClient';
+import { beaconApi } from '@/api/client';
+import { mswServer } from '../../vitest.setup';
+
+const disconnectBeaconHub = vi.fn(() => Promise.resolve());
+vi.mock('./useHubEvent', () => ({
+  disconnectBeaconHub: () => disconnectBeaconHub(),
+}));
+
+beforeEach(() => {
+  disconnectBeaconHub.mockClear();
+});
 
 describe('createQueryClient global 401 handler', () => {
   it('resets cached auth state to unauthenticated when a query 401s', async () => {
@@ -35,5 +47,59 @@ describe('createQueryClient global 401 handler', () => {
       .catch(() => undefined);
 
     expect(client.getQueryData(AUTH_QUERY_KEY)).toMatchObject({ isAuthenticated: true });
+  });
+
+  it('drops every other cached query and stops the realtime connection on a 401', async () => {
+    const client = createQueryClient();
+    client.setQueryData(AUTH_QUERY_KEY, { userId: '1', isAuthenticated: true, roles: [], displayName: 'A', email: null });
+    client.setQueryData(['projects'], [{ id: 1, name: 'Previous user\'s project' }]);
+
+    await client
+      .fetchQuery({
+        queryKey: ['some', 'data'],
+        queryFn: async () => {
+          throw new ApiError(401, 'Unauthorized');
+        },
+        retry: false,
+      })
+      .catch(() => undefined);
+
+    expect(client.getQueryData(['projects'])).toBeUndefined();
+    expect(client.getQueryCache().findAll().map((query) => query.queryKey)).toEqual([AUTH_QUERY_KEY]);
+    expect(client.getQueryData(AUTH_QUERY_KEY)).toMatchObject({ isAuthenticated: false });
+    expect(disconnectBeaconHub).toHaveBeenCalledTimes(1);
+  });
+
+  it('keeps the cache and the connection on non-401 errors', async () => {
+    const client = createQueryClient();
+    client.setQueryData(['projects'], [{ id: 1 }]);
+
+    await client
+      .fetchQuery({
+        queryKey: ['some', 'data'],
+        queryFn: async () => {
+          throw new ApiError(500, 'Server error');
+        },
+        retry: false,
+      })
+      .catch(() => undefined);
+
+    expect(client.getQueryData(['projects'])).toEqual([{ id: 1 }]);
+    expect(disconnectBeaconHub).not.toHaveBeenCalled();
+  });
+
+  it('cleans up on a 401 thrown by the generated client (ApiException)', async () => {
+    mswServer.use(http.get('*/beacon/api/auth/me', () => new HttpResponse(null, { status: 401 })));
+    const client = createQueryClient();
+    client.setQueryData(AUTH_QUERY_KEY, { userId: '1', isAuthenticated: true, roles: [], displayName: 'A', email: null });
+    client.setQueryData(['projects'], [{ id: 1 }]);
+
+    await client
+      .fetchQuery({ queryKey: ['gen'], queryFn: () => beaconApi().getCurrentUser(), retry: false })
+      .catch(() => undefined);
+
+    expect(client.getQueryData(['projects'])).toBeUndefined();
+    expect(client.getQueryData(AUTH_QUERY_KEY)).toMatchObject({ isAuthenticated: false });
+    expect(disconnectBeaconHub).toHaveBeenCalledTimes(1);
   });
 });

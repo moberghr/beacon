@@ -303,7 +303,7 @@ export default function NewQueryPage() {
     const newId = await saveQuery();
     if (newId == null) return;
     toast.success('Query created — running…');
-    navigate(`/queries/${newId}?run=1`);
+    navigate(`/queries/${newId}`, { state: { run: true } });
   };
 
   const onSaveRef = useRef(onSave);

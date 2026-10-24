@@ -208,6 +208,11 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
 });
 ```
 
+A destination may list several addresses separated by commas or semicolons; a message to more than 50 addresses is
+refused (the run records a failed delivery). `IEmailAdapter` also has an overload that takes a `CancellationToken`;
+Beacon calls it, and by default it forwards to the overload above and stops waiting when the token is cancelled.
+Override it when your sender can cancel the send itself.
+
 Register an adapter before you create email recipients. The email has the subject
 `[Beacon] {data source} - {query name}`, and an HTML body with the query text (when shown), the total row count and the
 preview rows as a table; every value in it is HTML-encoded. See also
@@ -248,10 +253,13 @@ The email and API token are a Jira Cloud account's that may create issues in the
 REST API; an on-premises Jira is reachable only when the host allows its host (`AllowedHosts:Jira`) and network
 (`AllowedPrivateNetworks:Jira`).
 
-A delivery creates an issue of type **Task** in the project, with the summary `BEACON: {query name}`, the label
-`Beacon` and priority **Medium**, its description holding the total row count, the query text when shown and the preview
+A delivery creates an issue of type **Task** in the project, with the summary `BEACON: {query name}`, the labels
+`Beacon` and `beacon-sub-{subscription id}-rcpt-{recipient id}` and priority **Medium**, its description holding the total row count, the query text when shown and the preview
 rows as a table; the same content is added as a comment. A later delivery adds a comment to that issue when Beacon finds
-it, and creates a new one otherwise. Jira gets no attachment.
+it, and creates a new one otherwise. Beacon finds the issue by that second label among the project's open issues
+(a resolved issue is not reused: the next delivery with rows opens a new one). For this release an open issue created
+before the label existed is still matched by its `BEACON: {query name}` summary within the same project and reporter,
+but it never gets the label, so it is replaced by a labelled issue after it is resolved. Jira gets no attachment.
 
 ## Webhook
 
@@ -320,8 +328,13 @@ Placeholders are written `{{Name}}`, case-insensitive: `{{Timestamp}}`, `{{Sourc
 
 - `{{Records}}` becomes compact JSON; add `_Pretty` to a placeholder (`{{Records_Pretty}}`) for indented JSON.
 - Dates are ISO 8601, booleans `true`/`false`, decimals two places; a missing value is empty.
-- Text values are inserted as they are, without JSON escaping: quote string placeholders yourself, and prefer
-  `{{Records}}` for row data.
+- The template is read once: a value that itself contains `{{...}}` is inserted as text, never expanded again. Text values are
+  escaped for JSON (quotes, backslashes, control characters), so write `"{{SubscriptionName}}"` inside quotes; `{{Records}}` and
+  `_Pretty` placeholders stay raw JSON. An expansion over 1 MB fails and the default message is sent.
+- In a **Slack** template, text values (also every string inside `{{Records}}`) are escaped the way Slack documents it: `&`, `<`
+  and `>` become `&amp;`, `&lt;` and `&gt;`, so a value cannot form a mention, link or command. In a **Teams** template, `*`,
+  `_`, `` ` ``, `~`, `[`, `]`, `<` and `\` in a value are backslash-escaped so it cannot form emphasis, links or tags.
+  Direction-override, zero-width and control characters are removed from values.
 - An unknown placeholder is left as `{{UNKNOWN:Name}}`. If the template cannot be processed, Beacon sends the default
   body.
 
@@ -404,3 +417,11 @@ page.
 - [Configuration → Notification Destinations](/getting-started/configuration/#notification-destinations-optional): the
   `Beacon:Notifications` settings
 - [Data Quality](/features/data-quality/): contract alerts use the same recipients
+
+## What the default Slack, Teams and email messages do with values
+
+Row values, column names, SQL, names and anomaly text are encoded for the channel (Slack `& < >` escaping and no way to close
+a code fence; Teams markdown escaping; HTML encoding in email), and direction-override, zero-width and other invisible format
+characters are removed. Messages stay within the channel's limits: a Slack section is kept under 3,000 characters, a Slack
+header under 150, and a Teams card under about 24 KB; what does not fit is cut and marked `(truncated)`, and rows that do not
+fit are left out. The email subject is one line of at most 200 characters.

@@ -614,7 +614,12 @@ public partial class AiActorCycleProposeOnlyTests
         var handler = new GetAiActorPlanHandler(
             service.Object,
             Mock.Of<IOptionsMonitor<AiActorOptions>>(x => x.CurrentValue == new AiActorOptions()),
-            new FixedTimeProvider(Now));
+            new FixedTimeProvider(Now),
+            Mock.Of<IBeaconActorAccessor>(x => x.GetCurrentAsync(It.IsAny<CancellationToken>()) == Task.FromResult(BeaconActor.Nobody)),
+            TestPermissions.None,
+            TestProjectAccess.Evaluator(ProjectAccessScope.None),
+            ActorContexts(actor),
+            new Beacon.Core.BeaconConfiguration());
 
         var result = await handler.Handle(new GetAiActorPlanQuery { PlanId = 40 }, CancellationToken.None);
 
@@ -1224,6 +1229,22 @@ public partial class AiActorCycleProposeOnlyTests
             Mock.Of<IOptionsMonitor<AiActorOptions>>(x => x.CurrentValue == new AiActorOptions { ThinkCooldownMinutes = cooldownMinutes, PlanExpiryDays = planExpiryDays }),
             time,
             claim ?? new GrantingThinkClaim());
+    }
+
+    // Contexts holding only the actor: what the plan view reads to tell the caller what they may decide.
+    private static IDbContextFactory<BeaconContext> ActorContexts(ActorEntity actor)
+    {
+        var factory = new Mock<IDbContextFactory<BeaconContext>>();
+        factory
+            .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new RecordingBeaconContext(
+                new Dictionary<Type, object>
+                {
+                    [typeof(ActorEntity)] = RecordingBeaconContext.MemorySet(new List<ActorEntity> { actor }, [])
+                },
+                []));
+
+        return factory.Object;
     }
 
     private static Mock<DbSet<T>> BuildSet<T>(List<T> rows) where T : class

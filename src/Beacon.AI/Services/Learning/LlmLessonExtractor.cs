@@ -58,7 +58,7 @@ internal sealed class LlmLessonExtractor(
         }
         patternType must be one of: SchemaCorrection, ColumnClarification, JoinPattern, CommonQuery,
         BusinessTermMapping, DocumentationGap. Default to SchemaCorrection.
-        """;
+        """ + "\n\n" + PromptData.Rule;
 
     public bool IsAvailable => true;
 
@@ -71,7 +71,7 @@ internal sealed class LlmLessonExtractor(
             var request = new LlmRequest
             {
                 SystemPrompt = SystemPrompt,
-                Messages = [new ChatMessage(ConversationRole.User, BuildUserMessage(cluster with { Error = error }))],
+                Messages = [new ChatMessage(ConversationRole.User, PromptData.Fence("failure cluster", BuildUserMessage(cluster with { Error = error })))],
                 Temperature = 0.0m,
                 MaxTokens = 512,
                 Priority = LlmRequestPriority.Background,

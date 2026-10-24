@@ -3,6 +3,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Data;
 using Beacon.Core.Authorization;
+using Beacon.Core.Models;
 using Beacon.Core.Services;
 using Beacon.Core.SecurityAudit;
 
@@ -28,6 +29,21 @@ internal sealed class UpdateGoldenCaseHandler(
 
     public async Task Handle(UpdateGoldenCaseCommand request, CancellationToken cancellationToken)
     {
+        if (request.Question?.Length > InputLimits.GoldenQuestionMaxLength)
+        {
+            throw new BeaconValidationException($"The question is longer than {InputLimits.GoldenQuestionMaxLength} characters.");
+        }
+
+        if (request.GoldSql?.Length > InputLimits.GoldenSqlMaxLength)
+        {
+            throw new BeaconValidationException($"The gold SQL is longer than {InputLimits.GoldenSqlMaxLength} characters.");
+        }
+
+        if (request.Notes?.Length > InputLimits.GoldenNotesMaxLength)
+        {
+            throw new BeaconValidationException($"The notes are longer than {InputLimits.GoldenNotesMaxLength} characters.");
+        }
+
         var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
         if (actor.BeaconUserId == null)
         {
@@ -52,6 +68,7 @@ internal sealed class UpdateGoldenCaseHandler(
             : await CheckedGoldSqlAsync(evalCase.DataSourceId, request.GoldSql, cancellationToken);
 
         var activeBefore = evalCase.IsActive;
+        var contentBefore = CurationContentAudit.Of(evalCase);
         var questionChanged = request.Question != null && !string.Equals(request.Question, evalCase.Question, StringComparison.Ordinal);
         var goldSqlChanged = goldSql != null && !string.Equals(goldSql, evalCase.GoldSql, StringComparison.Ordinal);
         var notesChanged = request.Notes != null && !string.Equals(request.Notes, evalCase.Notes, StringComparison.Ordinal);
@@ -89,7 +106,10 @@ internal sealed class UpdateGoldenCaseHandler(
                     .Add("goldSqlChanged", goldSqlChanged)
                     .Add("notesChanged", notesChanged)
                     .Add("isActiveBefore", activeBefore)
-                    .Add("isActiveAfter", evalCase.IsActive)),
+                    .Add("isActiveAfter", evalCase.IsActive)
+                    .AddCodes(CurationContentAudit.FieldsKey, CurationContentAudit.GoldenFields))
+                .Digesting(CurationContentAudit.BeforeKey, contentBefore)
+                .Digesting(CurationContentAudit.AfterKey, CurationContentAudit.Of(evalCase)),
             cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
     }

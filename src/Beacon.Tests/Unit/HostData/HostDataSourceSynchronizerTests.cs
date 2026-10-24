@@ -109,6 +109,22 @@ public class HostDataSourceSynchronizerTests
     }
 
     [Test]
+    public async Task SyncAsync_LogsTheExcludedColumns_AndWarnsWhenEveryTableIsExposed()
+    {
+        var store = new HostSyncStore();
+        var logs = new LogRecorder();
+        var (synchronizer, registration) = Build(store, x => x.AllowAllTables(), logs: logs);
+
+        await synchronizer.SyncAsync(registration, CancellationToken.None);
+
+        var warning = logs.Entries.Should().ContainSingle(x => x.Message.Contains("AllowAllTables")).Subject;
+        warning.Level.Should().Be(Microsoft.Extensions.Logging.LogLevel.Warning);
+        var excluded = logs.Entries.Should().ContainSingle(x => x.Message.Contains(" excludes ")).Subject;
+        excluded.Message.Should().Contain("Customer.PasswordHash").And.Contain("Customer.Secret");
+        logs.Entries.Should().NotContain(x => x.FullText.Contains("Sup3rS3cret!"));
+    }
+
+    [Test]
     public async Task SyncAllAsync_WhenTheLoginCheckWarns_TheSyncIsTheSame()
     {
         var checkedStore = new HostSyncStore();
@@ -142,6 +158,21 @@ public class HostDataSourceSynchronizerTests
         stored.Should().StartWith(FakeEncryption.Prefix);
         stored.Should().NotContain("Sup3rS3cret").And.NotContain("beacon_ro");
         FakeEncryption.Instance.Decrypt(stored).Should().Be("{\"hostConnectionStringName\":\"BeaconReadOnly\"}");
+    }
+
+    // The host's model is the stored catalog of a host source: a sync that rewrites it drops the source's catalog snapshots,
+    // a sync that leaves it as it was does not.
+    [Test]
+    public async Task SyncAsync_InvalidatesTheCatalogSnapshots_OnlyWhenItRewritesTheMetadata()
+    {
+        var store = new HostSyncStore();
+        var snapshots = new Mock<ICatalogSnapshotCache>();
+        var (synchronizer, registration) = Build(store, x => x.AllowTables("Customer", "lending.Loan"), snapshots: snapshots.Object);
+
+        var first = await synchronizer.SyncAsync(registration, CancellationToken.None);
+        await synchronizer.SyncAsync(registration, CancellationToken.None);
+
+        snapshots.Verify(x => x.Invalidate(first.DataSourceId), Times.Once);
     }
 
     [Test]
@@ -539,7 +570,7 @@ public class HostDataSourceSynchronizerTests
         var service = new DataSourceService(
             factory.Object,
             FakeEncryption.Instance,
-            Mock.Of<Beacon.Core.Services.Providers.IDataSourceProviderFactory>(),
+            TestProviderFactory.Accepting(),
             new MemoryCache(new MemoryCacheOptions()),
             Mock.Of<Beacon.Core.Services.Metadata.ISchemaGraphService>(),
             new RecordingSecurityAudit(),
@@ -585,7 +616,8 @@ public class HostDataSourceSynchronizerTests
         string projectName = "Netgiro Admin",
         IProjectMembershipSource? membershipSource = null,
         LogRecorder? logs = null,
-        IHostReadOnlyLoginCheck? loginCheck = null)
+        IHostReadOnlyLoginCheck? loginCheck = null,
+        ICatalogSnapshotCache? snapshots = null)
     {
         var registry = BuildRegistry(configure, projectName);
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
@@ -605,7 +637,8 @@ public class HostDataSourceSynchronizerTests
             membershipSource ?? BeaconMembership(factory.Object),
             Options.Create(new ProjectAuthorizationOptions()),
             loginCheck ?? new RecordingHostLoginCheck(),
-            logs?.For<HostDataSourceSynchronizer>() ?? NullLogger<HostDataSourceSynchronizer>.Instance);
+            logs?.For<HostDataSourceSynchronizer>() ?? NullLogger<HostDataSourceSynchronizer>.Instance,
+            snapshots);
 
         return (synchronizer, registry.Registrations.Single());
     }

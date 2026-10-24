@@ -50,6 +50,11 @@ internal sealed class PromoteSignalToGoldenHandler(
 
     public async Task<PromoteSignalToGoldenResult> Handle(PromoteSignalToGoldenCommand request, CancellationToken cancellationToken)
     {
+        if (request.Notes?.Length > InputLimits.GoldenNotesMaxLength)
+        {
+            throw new BeaconValidationException($"The notes are longer than {InputLimits.GoldenNotesMaxLength} characters.");
+        }
+
         var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
         if (actor.BeaconUserId == null)
         {
@@ -164,7 +169,9 @@ internal sealed class PromoteSignalToGoldenHandler(
                         .InProject(projectId)
                         .With(new SecurityAuditDetails()
                             .Add("signalId", signal.Id)
-                            .Add("dataSourceId", dataSourceId))
+                            .Add("dataSourceId", dataSourceId)
+                            .AddCodes(CurationContentAudit.FieldsKey, CurationContentAudit.GoldenFields))
+                        .Digesting(CurationContentAudit.AfterKey, CurationContentAudit.Of(evalCase))
                 ],
                 cancellationToken);
 

@@ -1,4 +1,3 @@
-using System.Text.Json;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -74,20 +73,16 @@ internal sealed class UpdateMcpProjectSettingsHandler(
             }
         }
 
-        // The page never sends a locked field, so an unrelated save would otherwise clear its stored override: keep it, so
-        // lifting the lock restores the project's configuration (as the global handler keeps the global row's value).
-        if (entity != null)
-        {
-            foreach (var rule in activeLocks)
-            {
-                rule.KeepStoredOverride(data, entity);
-            }
-        }
+        // The page never sends a locked field (null), so writing it would clear its stored override: it is not written,
+        // so lifting the lock restores the project's configuration (as the global handler keeps the global row's value).
+        var lockedFields = activeLocks
+            .Select(x => x.FieldName)
+            .ToHashSet(StringComparer.Ordinal);
 
         // Turning read-only enforcement or PII detection off for the project is an Admin's; a SecurityAdmin turns them
-        // on. An override left empty inherits the global value, read only when that decides it.
+        // on. An override left empty inherits the global value, read only when that decides it; a locked one is unchanged.
         var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
-        if (await LoosensSafetyAsync(context, entity, data, cancellationToken))
+        if (await LoosensSafetyAsync(context, entity, data, lockedFields, cancellationToken))
         {
             McpSafetySettings.DemandAdmin(
                 await permissionAccessor.GetCurrentAsync(cancellationToken),
@@ -105,51 +100,7 @@ internal sealed class UpdateMcpProjectSettingsHandler(
         // A project without a row inherited every value (all overrides empty).
         var before = McpSettingsChangeAudit.Snapshot(entity);
 
-        entity.MaxRowLimit = data.MaxRowLimit;
-        entity.EnforceReadOnly = data.EnforceReadOnly;
-        entity.EnablePiiDetection = data.EnablePiiDetection;
-        // null = inherit; a non-null EMPTY list is a real override ("no custom patterns for this project") and
-        // must round-trip as "[]", otherwise the UI's override toggle turns itself off on the next GET.
-        entity.CustomPiiPatterns = data.CustomPiiPatterns != null
-            ? JsonSerializer.Serialize(data.CustomPiiPatterns)
-            : null;
-        entity.EnableSampleValueCollection = data.EnableSampleValueCollection;
-
-        entity.EnableLearning = data.EnableLearning;
-        entity.LearningAutoApproveThreshold = data.LearningAutoApproveThreshold;
-        entity.LearningInjectionBudgetChars = data.LearningInjectionBudgetChars;
-        entity.LearningSignalRetentionDays = data.LearningSignalRetentionDays;
-
-        entity.EnableSelfConsistency = data.EnableSelfConsistency;
-        entity.SelfConsistencyCandidateCount = data.SelfConsistencyCandidateCount;
-        entity.EnableEvalJudge = data.EnableEvalJudge;
-        entity.EnableSemanticRetrieval = data.EnableSemanticRetrieval;
-        entity.ExemplarTopK = data.ExemplarTopK;
-
-        entity.EnableReplayVerification = data.EnableReplayVerification;
-        entity.LearningReplayMinFlips = data.LearningReplayMinFlips;
-
-        entity.EnableContextualRetrieval = data.EnableContextualRetrieval;
-        entity.DocChunkWindowSentences = data.DocChunkWindowSentences;
-        entity.DocChunkOverlapSentences = data.DocChunkOverlapSentences;
-        entity.GlossaryTopK = data.GlossaryTopK;
-        entity.DocChunkTopK = data.DocChunkTopK;
-
-        entity.EnableGoldenExemplars = data.EnableGoldenExemplars;
-        entity.GoldenExemplarTopK = data.GoldenExemplarTopK;
-        entity.GoldenExemplarBudgetChars = data.GoldenExemplarBudgetChars;
-
-        entity.EnableValueGrounding = data.EnableValueGrounding;
-        entity.ValueGroundingMaxProbes = data.ValueGroundingMaxProbes;
-        entity.EnableSemanticLint = data.EnableSemanticLint;
-        entity.SelfConsistencyMinTables = data.SelfConsistencyMinTables;
-
-        entity.RetainQueryContent = data.RetainQueryContent;
-        entity.StatementTimeoutSeconds = data.StatementTimeoutSeconds;
-        entity.MaxResultBytes = data.MaxResultBytes;
-        entity.MaxExplainCost = data.MaxExplainCost;
-        entity.MaxConcurrentQueriesPerKey = data.MaxConcurrentQueriesPerKey;
-        entity.AllowExplicitFeedbackContent = data.AllowExplicitFeedbackContent;
+        McpSettingFields.Store(data, entity, lockedFields);
 
         // Every change is kept in the settings history: who, which override, the value before and after (empty = inherit).
         var changes = McpSettingsChangeAudit.Changes(
@@ -175,10 +126,15 @@ internal sealed class UpdateMcpProjectSettingsHandler(
         BeaconContext context,
         McpProjectSettings? entity,
         McpProjectSettingsData data,
+        IReadOnlySet<string> lockedFields,
         CancellationToken cancellationToken)
     {
-        var readOnly = McpSafetySettings.Loosens(entity?.EnforceReadOnly, data.EnforceReadOnly);
-        var pii = McpSafetySettings.Loosens(entity?.EnablePiiDetection, data.EnablePiiDetection);
+        var readOnly = McpSafetySettings.Loosens(
+            entity?.EnforceReadOnly,
+            lockedFields.Contains(nameof(McpProjectSettingsData.EnforceReadOnly)) ? entity?.EnforceReadOnly : data.EnforceReadOnly);
+        var pii = McpSafetySettings.Loosens(
+            entity?.EnablePiiDetection,
+            lockedFields.Contains(nameof(McpProjectSettingsData.EnablePiiDetection)) ? entity?.EnablePiiDetection : data.EnablePiiDetection);
         if (readOnly == true || pii == true)
         {
             return true;
