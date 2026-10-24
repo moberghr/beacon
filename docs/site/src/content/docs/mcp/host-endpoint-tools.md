@@ -123,6 +123,11 @@ MFA or partner scheme.
 - `ReadOnly = true` on a verb other than GET or HEAD (GET is used when the endpoint takes several verbs) logs a
   startup Warning naming the endpoint. With `AllowReadOnlyPost` on (the default) it is still exposed; with it off it
   is not. A read-only endpoint on PUT, PATCH or DELETE most likely changes data: declare it a write tool.
+- Each tool name has one owner, checked once the pipeline is built. A name the saved-query tools (`q_<name>`,
+  `search_saved_queries`, `run_saved_query`, while saved-query tools are served) and the endpoint tools (the `api_<name>`
+  tools discovered, or `search_api` / `call_api` in catalog mode) both claim **fails startup**, naming it. An attribute
+  tool the host adds with such a name only logs a warning: calls to that name reach the attribute tool. In `tools/list`
+  the saved-query tools come before the endpoint tools (`AddBeaconMcp()` first, then `AddHostEndpointTools`).
 - Endpoints are discovered when the host's pipeline is built (they do not exist at DI time), from the
   `EndpointDataSource`. Parameters come from **ApiExplorer** when it describes the endpoint (`[ApiController]`
   controllers, or `AddEndpointsApiExplorer()` for minimal APIs), otherwise from the action's parameters and binding

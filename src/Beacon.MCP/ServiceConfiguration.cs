@@ -5,14 +5,13 @@ using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol;
 using ModelContextProtocol.AspNetCore;
-using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Beacon.AI.Services.Mcp;
 using Beacon.Core.Authorization;
 using Beacon.Core.Configuration;
 using Beacon.Core.Services;
-using Beacon.Core.SavedQueries;
 using Beacon.MCP.Discovery;
+using Beacon.MCP.DynamicTools;
 using Beacon.MCP.SavedQueries;
 using Beacon.MCP.Services;
 using Beacon.MCP.Tools;
@@ -87,11 +86,11 @@ public static class ServiceConfiguration
         services.TryAddTransient<McpSignalService>();
 
         // Approved saved queries as q_<name> tools (or search_saved_queries / run_saved_query past the limit), served
-        // through the SDK's list/call handlers next to the attribute tools; AddHostEndpointTools chains after these.
+        // through the SDK's list/call handlers next to the attribute tools, listed before the host endpoint tools.
         if (mcpOptions.SavedQueryTools)
         {
             services.TryAddTransient<SavedQueryToolService>();
-            services.Configure<McpServerOptions>(InstallSavedQueryToolHandlers);
+            services.AddMcpDynamicToolSource<SavedQueryDynamicToolSource>();
         }
 
         // MCP Server via official SDK
@@ -192,60 +191,4 @@ public static class ServiceConfiguration
             ["dry_run"] = x => x.WithTools<DryRunTool>(),
             ["get_query_context"] = x => x.WithTools<GetQueryContextTool>()
         };
-
-    /// <summary>
-    /// Adds the saved-query tools through the SDK's list/call handlers, chaining any handler already installed. The
-    /// tools need Core's <see cref="ISavedQueryToolSource"/>; a host without it simply gets none.
-    /// </summary>
-    private static void InstallSavedQueryToolHandlers(McpServerOptions options)
-    {
-        var previousList = options.Handlers.ListToolsHandler;
-        var previousCall = options.Handlers.CallToolHandler;
-
-        options.Handlers.ListToolsHandler = async (request, cancellationToken) =>
-        {
-            var result = previousList != null
-                ? await previousList(request, cancellationToken)
-                : new ListToolsResult();
-
-            var service = ResolveSavedQueryToolService(request.Services);
-            if (service == null)
-            {
-                return result;
-            }
-
-            var tools = await service.ListToolsAsync(cancellationToken);
-            if (tools.Count > 0)
-            {
-                result.Tools = [.. result.Tools ?? [], .. tools];
-            }
-
-            return result;
-        };
-
-        options.Handlers.CallToolHandler = async (request, cancellationToken) =>
-        {
-            var name = request.Params?.Name;
-            if (SavedQueryToolService.Handles(name))
-            {
-                var service = ResolveSavedQueryToolService(request.Services);
-                if (service != null)
-                {
-                    return await service.CallAsync(name!, request.Params?.Arguments, cancellationToken);
-                }
-            }
-
-            if (previousCall != null)
-            {
-                return await previousCall(request, cancellationToken);
-            }
-
-            throw new McpProtocolException($"Unknown tool: '{name}'", McpErrorCode.InvalidParams);
-        };
-    }
-
-    private static SavedQueryToolService? ResolveSavedQueryToolService(IServiceProvider? services) =>
-        services?.GetService<ISavedQueryToolSource>() == null
-            ? null
-            : services.GetService<SavedQueryToolService>();
 }
