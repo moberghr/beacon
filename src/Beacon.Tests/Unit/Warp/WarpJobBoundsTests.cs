@@ -29,7 +29,9 @@ public class WarpJobBoundsTests
         (typeof(AiActorThinkCycleJob), 900, null, "per actor subscription; independent"),
         (typeof(ExecuteSubscriptionQueryJob), 1800, null, "per subscription; the run guard prevents duplicates"),
         (typeof(EvaluateDataContractJob), 1800, null, "per contract; independent"),
-        (typeof(RefreshDataSourceMetadataJob), 3600, null, "per data source; mutex keys are static so none is declared")
+        (typeof(RefreshDataSourceMetadataJob), 3600, null, "per data source; mutex keys are static so none is declared"),
+        (typeof(DataRetentionJob), 3600, "data-retention", "recurring purge across every store; one run at a time"),
+        (typeof(RunBackgroundTaskJob), 90000, null, "per task; the task row's claim prevents duplicates, ceiling above a 24 h migration run")
     ];
 
     [Test]

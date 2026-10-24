@@ -148,11 +148,12 @@ public class SampleHostPipelineTests
     }
 
     [Test]
-    public async Task SampleAdditionalPaths_AreTheWarpDashboardOnly()
+    public async Task SampleAdditionalPaths_AreTheWarpDashboardAndTheOpenApiDocument()
     {
         await using var host = await PipelineHost.StartAsync();
 
-        host.AdditionalPaths.Should().Equal("/warp");
+        // The OpenAPI document is gated behind Beacon's sign-in outside Development.
+        host.AdditionalPaths.Should().Equal("/warp", "/openapi");
     }
 
     [TestCase("/.well-known/oauth-protected-resource")]
