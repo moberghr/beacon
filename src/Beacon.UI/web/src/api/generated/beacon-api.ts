@@ -4578,7 +4578,7 @@ export class BeaconApiClient {
   /**
    * @return OK
    */
-  getMcpSettings(): Promise<McpSettingsData> {
+  getMcpSettings(): Promise<GetMcpSettingsResult> {
     let url_ = this.baseUrl + "/beacon/api/mcp/settings";
     url_ = url_.replace(/[?&]$/, "");
 
@@ -4596,7 +4596,7 @@ export class BeaconApiClient {
 
   protected processGetMcpSettings(
     response: Response,
-  ): Promise<McpSettingsData> {
+  ): Promise<GetMcpSettingsResult> {
     const status = response.status;
     let _headers: any = {};
     if (response.headers && response.headers.forEach) {
@@ -4611,7 +4611,7 @@ export class BeaconApiClient {
             : (JSON.parse(
                 _responseText,
                 this.jsonParseReviver,
-              ) as McpSettingsData);
+              ) as GetMcpSettingsResult);
         return result200;
       });
     } else if (status !== 200 && status !== 204) {
@@ -4624,7 +4624,7 @@ export class BeaconApiClient {
         );
       });
     }
-    return Promise.resolve<McpSettingsData>(null as any);
+    return Promise.resolve<GetMcpSettingsResult>(null as any);
   }
 
   /**
@@ -19145,6 +19145,55 @@ export interface GetMcpProjectSettingsResult {
   effective: McpSettingsData;
   lockedFields: string[];
   clampedFields: string[];
+
+  [key: string]: any;
+}
+
+export interface GetMcpSettingsResult {
+  stored?: McpSettingsData;
+  lockedFields?: string[];
+  clampedFields?: string[];
+  askSystemPrompt?: string | null;
+  globalInstruction?: string | null;
+  getContextDescription?: string | null;
+  queryDescription?: string | null;
+  getDocumentationDescription?: string | null;
+  askDescription?: string | null;
+  searchDescription?: string | null;
+  maxRowLimit?: number;
+  enforceReadOnly?: boolean;
+  enablePiiDetection?: boolean;
+  customPiiPatterns?: string[];
+  enableSampleValueCollection?: boolean;
+  enableLearning?: boolean;
+  learningAutoApproveThreshold?: number;
+  learningInjectionBudgetChars?: number;
+  learningSignalRetentionDays?: number;
+  enableSelfConsistency?: boolean;
+  selfConsistencyCandidateCount?: number;
+  enableEvalJudge?: boolean;
+  enableSemanticRetrieval?: boolean;
+  exemplarTopK?: number;
+  enableReplayVerification?: boolean;
+  learningReplayMinFlips?: number;
+  enableContextualRetrieval?: boolean;
+  docChunkWindowSentences?: number;
+  docChunkOverlapSentences?: number;
+  glossaryTopK?: number;
+  docChunkTopK?: number;
+  enableGoldenExemplars?: boolean;
+  goldenExemplarTopK?: number;
+  goldenExemplarBudgetChars?: number;
+  enableValueGrounding?: boolean;
+  valueGroundingMaxProbes?: number;
+  enableSemanticLint?: boolean;
+  selfConsistencyMinTables?: number;
+  retainQueryContent?: boolean;
+  statementTimeoutSeconds?: number;
+  maxResultBytes?: number;
+  maxExplainCost?: number | null;
+  maxConcurrentQueriesPerKey?: number;
+  allowExplicitFeedbackContent?: boolean;
 
   [key: string]: any;
 }
