@@ -1,4 +1,3 @@
-using Dapper;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models.Metadata;
@@ -10,13 +9,7 @@ public class AzureSynapseMetadataExtractor : IDatabaseMetadataExtractor
 {
     public DatabaseEngineType SupportedEngineType => DatabaseEngineType.AzureSynapse;
 
-    public async Task<IReadOnlyList<TableMetadataDto>> ExtractMetadataAsync(string connectionString, CancellationToken cancellationToken = default)
-    {
-        // Through the factory, as every other connection to the source: the same pool and connect timeout.
-        await using var connection = DbConnectionFactory.CreateConnection(DatabaseEngineType.AzureSynapse, connectionString);
-        await connection.OpenAsync(cancellationToken);
-
-        const string tablesQuery = @"
+    private const string ColumnsQuery = @"
             SELECT
                 s.name AS table_schema,
                 t.name AS table_name,
@@ -33,9 +26,7 @@ public class AzureSynapseMetadataExtractor : IDatabaseMetadataExtractor
             LEFT JOIN sys.indexes i ON t.object_id = i.object_id AND i.is_primary_key = 1
             LEFT JOIN sys.index_columns ic ON i.object_id = ic.object_id AND i.index_id = ic.index_id AND c.column_id = ic.column_id";
 
-        var columnsData = await connection.QueryAsync(new CommandDefinition(tablesQuery, commandTimeout: 180, cancellationToken: cancellationToken));
-
-        const string foreignKeysQuery = @"
+    private const string ForeignKeysQuery = @"
             SELECT
                 s.name AS table_schema,
                 t.name AS table_name,
@@ -53,8 +44,7 @@ public class AzureSynapseMetadataExtractor : IDatabaseMetadataExtractor
             JOIN sys.columns rc ON fk.referenced_object_id = rc.object_id AND fk.referenced_column_id = rc.column_id
             JOIN sys.foreign_keys fkc ON fk.constraint_object_id = fkc.object_id";
 
-        var foreignKeys = await connection.QueryAsync(new CommandDefinition(foreignKeysQuery, commandTimeout: 180, cancellationToken: cancellationToken));
-        const string indexesQuery = @"
+    private const string IndexesQuery = @"
             SELECT
                 s.name AS table_schema,
                 t.name AS table_name,
@@ -71,80 +61,27 @@ public class AzureSynapseMetadataExtractor : IDatabaseMetadataExtractor
             WHERE i.name IS NOT NULL
             ORDER BY s.name, t.name, i.name, ic.key_ordinal";
 
-        var indexesData = (await connection.QueryAsync(new CommandDefinition(indexesQuery, commandTimeout: 180, cancellationToken: cancellationToken))).AsList();
+    public async Task<IReadOnlyList<TableMetadataDto>> ExtractMetadataAsync(string connectionString, CancellationToken cancellationToken = default)
+    {
+        await using var connection = DbConnectionFactory.CreateConnection(DatabaseEngineType.AzureSynapse, connectionString);
 
-        return Assemble(columnsData, foreignKeys, indexesData);
+        return await TsqlCatalogScan.ExtractAsync(connection, ColumnsQuery, ForeignKeysQuery, IndexesQuery, MapIndexRows, cancellationToken);
     }
 
     /// <summary>
     /// Builds the table list from the rows the catalog queries returned. Pure: no connection, so a fixture can pin it.
     /// </summary>
     internal static IReadOnlyList<TableMetadataDto> Assemble(IEnumerable<dynamic> columnsData, IEnumerable<dynamic> foreignKeys, IEnumerable<dynamic> indexesData)
-    {
-        var fkLookup = foreignKeys
-            .GroupBy(fk => $"{fk.table_schema}.{fk.table_name}.{fk.column_name}")
-            .ToDictionary(
-                g => g.Key,
-                g => (
-                    TableName: (string)g.First().foreign_table_name,
-                    ColumnName: (string)g.First().foreign_column_name,
-                    SchemaName: (string?)g.First().foreign_schema_name,
-                    ConstraintName: (string?)g.First().constraint_name)
-            );
+        => TsqlCatalogScan.Assemble(columnsData, foreignKeys, indexesData, MapIndexRows);
 
-        // Synapse may not support STRING_AGG in all configurations, use simpler index query
-
-        // One pass over the index rows instead of a scan of all of them per table.
-        var indexesByTable = indexesData.ToLookup(i => ((string)i.table_schema, (string)i.table_name));
-
-        var tables = columnsData
-            .GroupBy(c => new { schema = (string)c.table_schema, table = (string)c.table_name })
-            .Select(g =>
-            {
-                var columns = g.Select(c =>
-                {
-                    var fkKey = $"{g.Key.schema}.{g.Key.table}.{c.column_name}";
-                    var hasFk = fkLookup.TryGetValue(fkKey, out var fkInfo);
-
-                    return new ColumnMetadataDto(
-                        ColumnName: (string)c.column_name,
-                        DataType: (string)c.data_type,
-                        IsNullable: (bool)c.is_nullable,
-                        IsPrimaryKey: (int)c.is_primary_key == 1,
-                        IsForeignKey: hasFk,
-                        OrdinalPosition: (int)c.ordinal_position,
-                        ForeignKeyTable: hasFk ? fkInfo.TableName : null,
-                        ForeignKeyColumn: hasFk ? fkInfo.ColumnName : null,
-                        DefaultValue: null,
-                        // sys.columns.max_length is boxed as short, so `as int?` is always null — convert explicitly.
-                        // Note: for nvarchar/nchar this value is in bytes (2x the character length).
-                        MaxLength: c.max_length == null ? (int?)null : Convert.ToInt32(c.max_length),
-                        Description: null,
-                        SampleValues: null,
-                        ForeignKeySchema: hasFk ? fkInfo.SchemaName : null,
-                        ForeignKeyConstraintName: hasFk ? fkInfo.ConstraintName : null
-                    );
-                }).ToList();
-
-                var indexes = indexesByTable[(g.Key.schema, g.Key.table)]
-                    .GroupBy(i => new { name = (string)i.index_name, is_unique = (bool)i.is_unique, is_pk = (bool)i.is_primary_key })
-                    .Select(ig => new IndexMetadataDto(
-                        IndexName: ig.Key.name,
-                        IsUnique: ig.Key.is_unique,
-                        IsPrimaryKey: ig.Key.is_pk,
-                        Columns: ig.OrderBy(x => (int)x.key_ordinal).Select(x => (string)x.column_name).ToArray()
-                    )).ToList();
-
-                return new TableMetadataDto(
-                    SchemaName: g.Key.schema,
-                    TableName: g.Key.table,
-                    Columns: columns,
-                    Indexes: indexes,
-                    Description: null
-                );
-            })
+    private static IReadOnlyList<IndexMetadataDto> MapIndexRows(IEnumerable<dynamic> indexRows)
+        => indexRows
+            .GroupBy(x => new { name = (string)x.index_name, is_unique = (bool)x.is_unique, is_pk = (bool)x.is_primary_key })
+            .Select(y =>
+                new IndexMetadataDto(
+                    IndexName: y.Key.name,
+                    IsUnique: y.Key.is_unique,
+                    IsPrimaryKey: y.Key.is_pk,
+                    Columns: y.OrderBy(z => (int)z.key_ordinal).Select(z => (string)z.column_name).ToArray()))
             .ToList();
-
-        return tables;
-    }
 }
