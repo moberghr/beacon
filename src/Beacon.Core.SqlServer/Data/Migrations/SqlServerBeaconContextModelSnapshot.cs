@@ -599,6 +599,55 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.ToTable("AppSettingHistory", "beacon");
                 });
 
+            modelBuilder.Entity("Beacon.Core.Data.Entities.BackgroundTask", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<DateTime?>("FinishedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("JobId")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("RequestedByUserId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("StartedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("State")
+                        .HasColumnType("int");
+
+                    b.Property<int>("SubjectId")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("WarningCount")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("Kind", "SubjectId")
+                        .IsUnique()
+                        .HasFilter("[State] IN (0, 1)");
+
+                    b.ToTable("BackgroundTasks", "beacon");
+                });
+
             modelBuilder.Entity("Beacon.Core.Data.Entities.BeaconRole", b =>
                 {
                     b.Property<int>("Id")
@@ -663,6 +712,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasMaxLength(200)
                         .HasColumnType("nvarchar(200)");
 
+                    b.Property<int>("FailedSignInCount")
+                        .HasColumnType("int");
+
                     b.Property<string>("IdentityProvider")
                         .HasMaxLength(500)
                         .HasColumnType("nvarchar(500)");
@@ -676,7 +728,13 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<bool>("IsSuperAdmin")
                         .HasColumnType("bit");
 
+                    b.Property<DateTime?>("LastFailedSignInTime")
+                        .HasColumnType("datetime2");
+
                     b.Property<DateTime?>("LastLoginAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<DateTime?>("LockoutEndTime")
                         .HasColumnType("datetime2");
 
                     b.Property<bool>("MustChangePassword")

@@ -37,6 +37,6 @@ internal static partial class QueryParameterPlaceholder
         return null;
     }
 
-    [GeneratedRegex(@"\A\{[A-Za-z_][A-Za-z0-9_]{0,62}\}\z", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"\A\{[A-Za-z_][A-Za-z0-9_]{0,62}\}\z", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 250)]
     private static partial Regex ShapePattern();
 }

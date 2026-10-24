@@ -13,6 +13,8 @@ internal sealed record ParsedHostDocument(string Title, string Body, string? Fro
 /// </summary>
 internal static class HostDocumentParser
 {
+    private static readonly JsonSerializerOptions CompactJson = new() { WriteIndented = false };
+
     public const int MaxTitleLength = 500;
 
     public static ParsedHostDocument Parse(string path, string rawContent)
@@ -35,7 +37,7 @@ internal static class HostDocumentParser
             title = title[..MaxTitleLength];
         }
 
-        var json = frontmatter is { Count: > 0 } ? frontmatter.ToJsonString(new JsonSerializerOptions { WriteIndented = false }) : null;
+        var json = frontmatter is { Count: > 0 } ? frontmatter.ToJsonString(CompactJson) : null;
 
         return new ParsedHostDocument(title, body, json);
     }

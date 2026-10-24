@@ -37,6 +37,7 @@ internal static class MigrationsEndpoints
         migrations.MapPost("/jobs/{id:int}/run", (int id, IMediator m, CancellationToken ct) =>
                 m.Send(new RunMigrationJobCommand(id), ct))
             .WithName("RunMigrationJob")
+            .WithBeaconLongRunning()
             .RequireBeaconPermission(BeaconPermissions.MigrationOperatorPolicy);
 
         migrations.MapDelete("/jobs/{id:int}", (int id, [FromQuery] bool? forceDelete, IMediator m, CancellationToken ct) =>

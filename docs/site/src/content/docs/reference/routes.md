@@ -171,5 +171,5 @@ These come from the host, not from the Beacon packages. The sample host maps the
 
 | Path | What |
 |---|---|
-| `/openapi/v1.json` | OpenAPI document of the REST API (`app.MapOpenApi()`). The UI's typed client is generated from it. |
+| `/openapi/v1.json` | OpenAPI document of the REST API (`app.MapBeaconOpenApi()`). Open in Development (the UI's typed client is generated from it there); elsewhere it needs a signed-in Beacon caller unless `Beacon:OpenApi:Anonymous` is `true`. A gated document needs `/openapi` in `Beacon:Authentication:AdditionalPaths`. |
 | `/warp` | Warp job dashboard, sample host only. Signed-in Admins. |

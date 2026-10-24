@@ -510,6 +510,7 @@ public class McpPlaygroundServiceTests
             factory.Object,
             x.GetRequiredService<IProjectContext>(),
             x.GetRequiredService<McpAuditService>(),
+            SettingsProviderMock.Create().Object,
             NullLogger<ProjectGetDocumentationTool>.Instance));
 
         return services.BuildServiceProvider();

@@ -40,6 +40,7 @@ public static class HostEndpointToolsServiceCollectionExtensions
         services.TryAddSingleton<IHostEndpointProjectResolver, HostEndpointProjectResolver>();
         services.TryAddSingleton<HostEndpointToolRegistry>();
         services.TryAddSingleton<HostEndpointDispatcher>();
+        services.TryAddSingleton<HostEndpointCallLimiter>();
         services.TryAddTransient<HostEndpointToolService>();
         services.TryAddTransient<IHostEndpointToolOverview>(x => x.GetRequiredService<HostEndpointToolService>());
         services.AddTransient<IHostEndpointToolCatalog>(x => x.GetRequiredService<HostEndpointToolService>());
