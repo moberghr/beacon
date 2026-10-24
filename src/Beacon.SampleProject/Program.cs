@@ -26,6 +26,7 @@ using Beacon.Connector.BigQuery;
 using Beacon.MCP;
 using Beacon.MCP.Discovery;
 using Beacon.Api;
+using Beacon.Api.Authentication;
 using Beacon.Api.Endpoints;
 using Beacon.Api.OpenApi;
 using Beacon.Api.Telemetry;
@@ -352,7 +353,7 @@ app.MapBeaconMcp();
 app.MapMcpDiscovery();
 
 // Warp Dashboard - available at /warp — Admin-only (§7.4).
-app.UseWarpUI(warpUiOptions =>
+app.UseGuardedWarpUI(warpUiOptions =>
 {
     warpUiOptions.RoutePrefix = "/warp";
     warpUiOptions.Authorization = new WarpDashboardAuthFilter();
