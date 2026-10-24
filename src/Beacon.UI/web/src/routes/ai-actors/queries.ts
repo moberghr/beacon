@@ -2,8 +2,10 @@ import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import { unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import { usePagedList } from '@/lib/usePagedList';
-import { AiActorExecutionPhase, AiActorStatus } from '@/lib/enums';
+import { AiActorActionType, AiActorExecutionPhase, AiActorPlanStatus, AiActorStatus } from '@/lib/enums';
 import { createSimpleMutation } from '@/lib/mutations';
+import { useBackgroundTaskStatus } from '@/lib/useBackgroundTask';
+import type { BackgroundTaskStatus, BackgroundTaskTicket } from '@/api/generated/beacon-api';
 
 export const ACTOR_STATUS_LABEL: Record<number, string> = {
   [AiActorStatus.Draft]: 'Draft',
@@ -134,5 +136,225 @@ export function useCreateAiActor() {
       successMsg: 'AI actor created',
       errorFallback: 'Failed to create AI actor',
     }),
+  );
+}
+
+type Tone = 'neutral' | 'ok' | 'warn' | 'crit' | 'info';
+
+/** A plan's state; only a pending plan that has not expired can be approved, rejected or sent back for revision. */
+export const PLAN_STATUS_LABEL: Record<number, { label: string; tone: Tone }> = {
+  [AiActorPlanStatus.PendingApproval]: { label: 'Pending approval', tone: 'warn' },
+  [AiActorPlanStatus.Executing]: { label: 'Executing', tone: 'info' },
+  [AiActorPlanStatus.Executed]: { label: 'Executed', tone: 'ok' },
+  [AiActorPlanStatus.Rejected]: { label: 'Rejected', tone: 'crit' },
+  [AiActorPlanStatus.Expired]: { label: 'Expired', tone: 'neutral' },
+  [AiActorPlanStatus.RevisionRequested]: { label: 'Revision requested', tone: 'neutral' },
+};
+
+export const ACTION_TYPE_LABEL: Record<number, string> = {
+  [AiActorActionType.CreateQuery]: 'Create query',
+  [AiActorActionType.CreateSubscription]: 'Create subscription',
+  [AiActorActionType.RefineQuery]: 'Refine query',
+  [AiActorActionType.ArchiveQuery]: 'Archive query',
+  [AiActorActionType.ArchiveSubscription]: 'Archive subscription',
+  [AiActorActionType.SendNotification]: 'Send notification',
+};
+
+export interface PendingPlanSummary {
+  planId: number;
+  actorId: number;
+  actorName: string;
+  userInstruction: string | null;
+  analysis: string;
+  actionCount: number;
+  proposedAt: string;
+  expiresAt: string;
+  version: number;
+  tokensUsed: number;
+  estimatedCost: number;
+}
+
+export interface ProposedAction {
+  actionType: AiActorActionType;
+  reasoning: string;
+  parameters: Record<string, unknown>;
+  /** A refinement's SQL as it is now. */
+  currentSql: string | null;
+  /** A refinement's SQL as the plan would make it. */
+  proposedSql: string | null;
+  isLocked: boolean;
+  targetQueryName: string | null;
+  targetQueryId: number | null;
+}
+
+export interface AiActorPlan {
+  planId: number;
+  actorId: number;
+  actorName: string;
+  status: AiActorPlanStatus;
+  userInstruction: string | null;
+  analysis: string;
+  findings: string[];
+  proposedActions: ProposedAction[];
+  proposedAt: string;
+  expiresAt: string;
+  isExpired: boolean;
+  reviewedAt: string | null;
+  reviewerComment: string | null;
+  executedAt: string | null;
+  executionId: number | null;
+  tokensUsed: number;
+  estimatedCost: number;
+  model: string | null;
+  version: number;
+  parentPlanId: number | null;
+  /** The server's verdict for the caller: pending, not expired, writable, and the approval rules let them. */
+  mayApprove: boolean;
+  /** Why the caller cannot approve the pending plan; null when they may, or when it is not pending. */
+  approveBlockedReason: string | null;
+  /** The actor's creator or an Admin may reject the pending plan or send it back for revision. */
+  mayRejectOrRevise: boolean;
+}
+
+interface PlanDecisionResult {
+  success: boolean;
+  errorMessage?: string | null;
+}
+
+/** The plans an actor proposed that wait for a decision (not expired), newest first. */
+export function usePendingPlansQuery(actorId: number | undefined) {
+  return useQuery({
+    queryKey: ['ai-actor-plans', 'pending', actorId ?? 0],
+    queryFn: async () =>
+      unwrap<{ plans: PendingPlanSummary[] }>(await beaconApi().getPendingPlans(actorId!)).plans ?? [],
+    enabled: actorId !== undefined && actorId > 0,
+  });
+}
+
+export function useAiActorPlanQuery(planId: number | undefined) {
+  return useQuery({
+    queryKey: ['ai-actor-plans', 'plan', planId ?? 0],
+    queryFn: async () => unwrap<AiActorPlan>(await beaconApi().getAiActorPlan(planId!)),
+    enabled: planId !== undefined && planId > 0,
+  });
+}
+
+/** How many plans wait for the caller's decision, across every actor they may decide for (the navigation badge). */
+export function usePendingPlanCount(enabled: boolean) {
+  return useQuery({
+    queryKey: ['ai-actor-plans', 'count'],
+    queryFn: async () => unwrap<{ count: number }>(await beaconApi().getPendingPlanCount()).count ?? 0,
+    enabled,
+    refetchInterval: 60_000,
+    // Only while the tab is visible: a hidden tab does not keep asking.
+    refetchIntervalInBackground: false,
+  });
+}
+
+// A decision the server answers with success false carries its reason: fail the mutation with it.
+function decided<T extends PlanDecisionResult>(result: T, fallback: string): T {
+  if (!result.success) {
+    throw new Error(result.errorMessage || fallback);
+  }
+  return result;
+}
+
+function planDecision<TVars extends { planId: number }>(
+  qc: ReturnType<typeof useQueryClient>,
+  actorId: number,
+  run: (vars: TVars) => Promise<PlanDecisionResult>,
+  successMsg: string,
+  errorFallback: string,
+) {
+  // Every plan query (the pending lists, the plan views, the badge's count) and the actor (its pending count, its cycles).
+  const keys = [['ai-actor-plans'], ['ai-actor', actorId]];
+  const options = createSimpleMutation<TVars, PlanDecisionResult>({
+    qc,
+    mutationFn: async (vars) => decided(await run(vars), errorFallback),
+    invalidate: keys,
+    successMsg,
+    errorFallback,
+  });
+
+  // A refused decision may still have moved the plan on the server (a failed action rejects it): read the server's state again.
+  return {
+    ...options,
+    onError: (...args: Parameters<NonNullable<typeof options.onError>>) => {
+      for (const key of keys) {
+        qc.invalidateQueries({ queryKey: key });
+      }
+      return options.onError?.(...args);
+    },
+  };
+}
+
+/** Approving runs the plan's actions (each re-checked by the server) as the approver. */
+export function useApprovePlan(actorId: number) {
+  const qc = useQueryClient();
+  return useMutation(
+    planDecision<{ planId: number; comment: string | null }>(
+      qc,
+      actorId,
+      async ({ planId, comment }) => unwrap<PlanDecisionResult>(await beaconApi().approveAiActorPlan(planId, { comment })),
+      'Plan approved',
+      'Approving the plan failed',
+    ),
+  );
+}
+
+export function useRejectPlan(actorId: number) {
+  const qc = useQueryClient();
+  return useMutation(
+    planDecision<{ planId: number; reason: string }>(
+      qc,
+      actorId,
+      async ({ planId, reason }) => unwrap<PlanDecisionResult>(await beaconApi().rejectAiActorPlan(planId, { reason })),
+      'Plan rejected',
+      'Rejecting the plan failed',
+    ),
+  );
+}
+
+/** Sends the plan back: the actor proposes a new version that takes the feedback into account. */
+export function useRequestPlanRevision(actorId: number) {
+  const qc = useQueryClient();
+  return useMutation(
+    planDecision<{ planId: number; feedback: string }>(
+      qc,
+      actorId,
+      async ({ planId, feedback }) => unwrap<PlanDecisionResult>(await beaconApi().requestPlanRevision(planId, { feedback })),
+      'Revision requested',
+      'Requesting a revision failed',
+    ),
+  );
+}
+
+/** Archives the actor (soft delete); its creator's or an Admin's. */
+export function useArchiveAiActor(id: number) {
+  const qc = useQueryClient();
+  return useMutation(
+    createSimpleMutation<void, unknown>({
+      qc,
+      mutationFn: () => beaconApi().archiveAiActor(id),
+      invalidate: [['ai-actor', id], ['ai-actors']],
+      successMsg: 'AI actor archived',
+      errorFallback: 'Archiving the AI actor failed',
+    }),
+  );
+}
+
+/**
+ * Starts a think cycle as a background task (202 with its ticket); a 429 says one is already queued or running. Its
+ * progress is followed with useAiActorThinkStatus; the cycle in the request (executeAiActorThinkCycle) stays for API callers.
+ */
+export function useStartAiActorThink(id: number) {
+  return useMutation({
+    mutationFn: async () => unwrap<BackgroundTaskTicket>(await beaconApi().startAiActorThink(id)),
+  });
+}
+
+export function useAiActorThinkStatus(id: number, ticket: BackgroundTaskTicket | null) {
+  return useBackgroundTaskStatus(['ai-actor', id, 'think'] as const, ticket, async (taskId) =>
+    unwrap<BackgroundTaskStatus>(await beaconApi().getAiActorThinkTask(id, taskId)),
   );
 }

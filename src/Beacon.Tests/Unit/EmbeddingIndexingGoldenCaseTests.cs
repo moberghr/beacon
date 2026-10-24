@@ -115,11 +115,34 @@ public class EmbeddingIndexingGoldenCaseTests
         validGoldenRow.EmbeddingBytes.Should().HaveCount(ExpectedByteLength);
     }
 
-    private static McpEvalCase NewCase(int id, string question, bool isActive) =>
+    [Test]
+    public async Task ReindexDataSourceAsync_StampsEachGoldenCaseVectorWithTheCasesProject()
+    {
+        var tables = new List<DatabaseMetadata>();
+        var goldenCases = new List<McpEvalCase>
+        {
+            NewCase(700, "refunded orders last month", isActive: true),
+            NewCase(701, "revenue by region", isActive: true, projectId: 4)
+        };
+
+        // Indexed before golden vectors carried their project: refreshed in place, stamped now.
+        var unstampedRow = GoldenVector(81, 700);
+
+        var captured = new List<McpEmbedding>();
+        var service = BuildService(tables, goldenCases, existingEmbeddings: [unstampedRow], captured, removed: []);
+
+        await service.ReindexDataSourceAsync(DataSourceId, CancellationToken.None);
+
+        unstampedRow.ProjectId.Should().Be(3);
+        captured.Should().ContainSingle(x => x.OwnerType == McpEmbeddingOwnerType.GoldenCase)
+            .Which.Should().Match<McpEmbedding>(x => x.OwnerId == 701 && x.ProjectId == 4);
+    }
+
+    private static McpEvalCase NewCase(int id, string question, bool isActive, int projectId = 3) =>
         new()
         {
             Id = id,
-            ProjectId = 3,
+            ProjectId = projectId,
             DataSourceId = DataSourceId,
             Question = question,
             GoldSql = "SELECT 1",

@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { Route, Routes } from 'react-router-dom';
-import { screen } from '@testing-library/react';
+import { fireEvent, screen } from '@testing-library/react';
 import { mswServer } from '../../../vitest.setup';
 import { renderWithProviders } from '@/test/render';
 import { permissionsHandler } from '@/test/permissions';
 import { AccessReady } from '@/test/AccessReady';
-import { AiActorExecutionPhase, AiActorStatus } from '@/lib/enums';
+import { AiActorExecutionPhase, AiActorPlanStatus, AiActorStatus } from '@/lib/enums';
 import AiActorDetailPage from './AiActorDetailPage';
 
 function actor(overrides: Record<string, unknown> = {}) {
@@ -118,5 +118,74 @@ describe('AiActorDetailPage', () => {
     expect(screen.getByText('Completed')).toBeInTheDocument();
     expect(screen.getByText('Added a revenue drop watch.')).toBeInTheDocument();
     expect(screen.getByText('Unknown user')).toBeInTheDocument();
+  });
+
+  it('lists the plans waiting for approval and opens one for review', async () => {
+    mswServer.use(
+      http.get('*/beacon/api/ai-actors/3/pending-plans', () =>
+        HttpResponse.json({
+          plans: [
+            {
+              planId: 7,
+              actorId: 3,
+              actorName: 'Revenue watcher',
+              userInstruction: null,
+              analysis: 'Revenue dipped twice this week.',
+              actionCount: 2,
+              proposedAt: '2026-10-20T10:00:00Z',
+              expiresAt: '2026-10-27T10:00:00Z',
+              version: 1,
+              tokensUsed: 120,
+              estimatedCost: 0.01,
+            },
+          ],
+        }),
+      ),
+      http.get('*/beacon/api/ai-actors/plans/7', () =>
+        HttpResponse.json({
+          planId: 7,
+          actorId: 3,
+          actorName: 'Revenue watcher',
+          status: AiActorPlanStatus.PendingApproval,
+          userInstruction: null,
+          analysis: 'Revenue dipped twice this week.',
+          findings: [],
+          proposedActions: [],
+          proposedAt: '2026-10-20T10:00:00Z',
+          expiresAt: '2026-10-27T10:00:00Z',
+          isExpired: false,
+          reviewedAt: null,
+          reviewerComment: null,
+          executedAt: null,
+          executionId: null,
+          tokensUsed: 120,
+          estimatedCost: 0.01,
+          model: null,
+          version: 1,
+          parentPlanId: null,
+          mayApprove: true,
+          approveBlockedReason: null,
+          mayRejectOrRevise: true,
+        }),
+      ),
+    );
+    renderActor(actor({ pendingPlanCount: 1 }));
+
+    expect(await screen.findByText('Plans waiting for approval')).toBeInTheDocument();
+    expect(await screen.findByText('Revenue dipped twice this week.')).toBeInTheDocument();
+    fireEvent.click(screen.getByRole('button', { name: 'Review' }));
+
+    expect(await screen.findByRole('button', { name: 'Approve and run' })).toBeInTheDocument();
+    expect(screen.getByText('The plan proposes no actions.')).toBeInTheDocument();
+  });
+
+  it('says when no plan waits, and shows no plan panel for an actor that needs no approval', async () => {
+    const { unmount } = renderActor(actor());
+    expect(await screen.findByText('No plan waits for a decision.')).toBeInTheDocument();
+    unmount();
+
+    renderActor(actor({ requiresApproval: false }));
+    expect(await screen.findByText('No owner recorded')).toBeInTheDocument();
+    expect(screen.queryByText('Plans waiting for approval')).not.toBeInTheDocument();
   });
 });

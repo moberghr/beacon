@@ -34,9 +34,11 @@ public sealed class ConfiguredMcpCallerMapper(
     IMemoryCache cache,
     McpCallerSubjectHasher subjectHasher,
     ILogger<ConfiguredMcpCallerMapper> logger,
-    IUserManagementService? userManagementService = null,
+    IUserManagementService? registeredUserManagementService = null,
     JwtAuthenticationOptions? jwtOptions = null) : IMcpCallerMapper
 {
+    private readonly IUserManagementService? userManagementService = registeredUserManagementService.OrNull();
+
     // Short on purpose: within this window a disabled Beacon user's caller is still mapped (not provisioned again), but
     // project access reads the user's live state on every request, so from its next call it reaches no project.
     private static readonly TimeSpan ProvisionedUserCacheDuration = TimeSpan.FromMinutes(1);

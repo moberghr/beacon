@@ -394,7 +394,7 @@ public class GroundingGuardrailsTests
         var audit = new McpAuditService(_factory, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog());
         var caller = new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId], QueryProjectIds = [] };
 
-        return new GetQueryContextTool(knowledgeGraph, _factory, caller, audit, TestRowDataEgress.Discarding(), NullLogger<GetQueryContextTool>.Instance);
+        return new GetQueryContextTool(knowledgeGraph, _factory, caller, TestToolCalls.Recorder(audit), TestRowDataEgress.Discarding());
     }
 
     // Every project of the map is live and links the data source.

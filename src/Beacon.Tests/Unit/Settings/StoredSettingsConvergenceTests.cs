@@ -255,6 +255,8 @@ public class StoredSettingsConvergenceTests
         var unsized = files
             .SelectMany(x => File.ReadAllLines(x).Select(y => (File: Path.GetFileName(x), Line: y)))
             .Where(x => writes.IsMatch(x.Line))
+            // CatalogSnapshotCache writes to its own size-limited MemoryCache, sized in approximate bytes, never the host's.
+            .Where(x => x.File != "CatalogSnapshotCache.cs")
             .Where(x => !x.Line.Contains("BeaconCacheEntries.For(", StringComparison.Ordinal))
             .Where(x => !x.Line.Contains("GetOrCreate", StringComparison.Ordinal) || !File.ReadAllText(files.First(y => Path.GetFileName(y) == x.File)).Contains("entry.Size = 1", StringComparison.Ordinal))
             .Select(x => $"{x.File}: {x.Line.Trim()}")

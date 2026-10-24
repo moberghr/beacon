@@ -24,9 +24,25 @@ public class DatabaseMetadataService(
     ISharedSourceSettings sharedSourceSettings,
     IMemoryCache cache,
     ISchemaGraphService schemaGraphService,
-    ILogger<DatabaseMetadataService> logger)
+    ILogger<DatabaseMetadataService> logger,
+    ICatalogSnapshotCache catalogSnapshots)
     : IDatabaseMetadataService
 {
+    /// <summary>A service whose refreshes leave the ask path's catalog snapshots to expire on their own.</summary>
+    [Obsolete("Pass the ICatalogSnapshotCache so a refresh invalidates the catalog snapshots the ask path reads.")]
+    public DatabaseMetadataService(
+        IDbContextFactory<BeaconContext> contextFactory,
+        IDataSourceConnectionResolver connectionResolver,
+        IEnumerable<IDatabaseMetadataExtractor> metadataExtractors,
+        IColumnValueSampler columnValueSampler,
+        ISharedSourceSettings sharedSourceSettings,
+        IMemoryCache cache,
+        ISchemaGraphService schemaGraphService,
+        ILogger<DatabaseMetadataService> logger)
+        : this(contextFactory, connectionResolver, metadataExtractors, columnValueSampler, sharedSourceSettings, cache, schemaGraphService, logger, NoCatalogSnapshotCache.Instance)
+    {
+    }
+
     private static readonly string CacheKeyPrefix = BeaconCacheEntries.Key("db-metadata:");
     private const int MaxLoggedSkippedNames = 50;
     private static readonly TimeSpan CacheExpiration = TimeSpan.FromHours(1);
@@ -109,11 +125,13 @@ public class DatabaseMetadataService(
                     cancellationToken);
             }
 
-            // Store in database
+            // Store in database. What was built from the stored catalog is dropped at once, before anything else can fail:
+            // the relationship graph is rebuilt on its next read, the ask path's catalog snapshots are loaded again.
             var stored = await StoreMetadataAsync(dataSourceId, tables, cancellationToken);
+            schemaGraphService.Invalidate(dataSourceId);
+            catalogSnapshots.Invalidate(dataSourceId);
 
-            // Update cache; the relationship graph is built from the stored tables, so it is rebuilt on its next read.
-            // A scan that a disable, a migration-write mark or a connection change overtook publishes nothing to the cache:
+            // Update cache. A scan that a disable, a migration-write mark or a connection change overtook publishes nothing to the cache:
             // the source is read again here, after the scan, and a disabled or write-target source returns no catalog.
             var snapshot = new DatabaseMetadataSnapshot(dataSourceId, scannedEngine, stored, DateTime.UtcNow)
             {
@@ -127,8 +145,6 @@ public class DatabaseMetadataService(
             {
                 cache.Set(GetCacheKey(dataSourceId), snapshot, BeaconCacheEntries.For(CacheExpiration));
             }
-
-            schemaGraphService.Invalidate(dataSourceId);
 
             if (current is not { Readable: true })
             {
@@ -220,7 +236,10 @@ public class DatabaseMetadataService(
         // Apply table limit
         if (dataSource.MetadataMaxTables > 0)
         {
-            metadataQuery = metadataQuery.Take(dataSource.MetadataMaxTables);
+            // Ordered so the separate column and index queries of the split load agree on which tables the limit kept.
+            metadataQuery = metadataQuery
+                .OrderBy(m => m.Id)
+                .Take(dataSource.MetadataMaxTables);
             logger.LogDebug("Limiting metadata to {MaxTables} tables for data source {DataSourceId}", dataSource.MetadataMaxTables, dataSourceId);
         }
 
@@ -233,9 +252,12 @@ public class DatabaseMetadataService(
         }
         else
         {
+            // Read-only and split: one joined query over two collections would repeat every column once per index.
             metadata = await metadataQuery
+                .AsNoTracking()
                 .Include(m => m.Columns)
                 .Include(m => m.Indexes)
+                .AsSplitQuery()
                 .ToListAsync(cancellationToken);
         }
 
@@ -266,7 +288,10 @@ public class DatabaseMetadataService(
                         c.ForeignKeySchema,
                         c.ForeignKeyConstraintName,
                         c.SampleValuesComplete
-                    )).ToList(),
+                    )
+                    {
+                        ForeignKeys = ColumnForeignKeys.Deserialize(c.ForeignKeys)
+                    }).ToList(),
                 loadTableNamesOnly ? new List<IndexMetadataDto>() : m.Indexes.Select(i => new IndexMetadataDto(
                     i.IndexName,
                     i.IsUnique,
@@ -339,6 +364,7 @@ public class DatabaseMetadataService(
                     ForeignKeyColumn = column.ForeignKeyColumn,
                     ForeignKeySchema = column.ForeignKeySchema,
                     ForeignKeyConstraintName = column.ForeignKeyConstraintName,
+                    ForeignKeys = ColumnForeignKeys.Serialize(column.ForeignKeys),
                     DefaultValue = column.DefaultValue,
                     MaxLength = column.MaxLength,
                     Description = column.Description,
@@ -372,8 +398,8 @@ public class DatabaseMetadataService(
     }
 
     /// <summary>
-    /// Leaves out every table, and every column, whose name carries a quote, bracket, semicolon or control character
-    /// (<see cref="SqlIdentifierGuard.HasUnsafeCharacters"/>). Beacon builds SQL from catalog names (documentation enum
+    /// Leaves out every table, every column and every foreign-key target whose name carries a quote, bracket, semicolon or
+    /// control character (<see cref="SqlIdentifierGuard.HasUnsafeCharacters"/>). Beacon builds SQL from catalog names (documentation enum
     /// discovery, value probes, sampling), and such a name could end its quoting in some dialect, so it is never stored —
     /// nor its description, a curated one included. The names left out are logged (identifiers only, made safe for the log
     /// by <see cref="SqlIdentifierGuard.ForLog"/>, at most <see cref="MaxLoggedSkippedNames"/> of them) and counted.
@@ -383,6 +409,7 @@ public class DatabaseMetadataService(
         var kept = new List<TableMetadataDto>(tables.Count);
         var skippedTables = new List<string>();
         var skippedColumns = new List<string>();
+        var skippedForeignKeyTargets = new List<string>();
         foreach (var table in tables)
         {
             if (SqlIdentifierGuard.HasUnsafeCharacters(table.SchemaName) || SqlIdentifierGuard.HasUnsafeCharacters(table.TableName))
@@ -391,29 +418,42 @@ public class DatabaseMetadataService(
                 continue;
             }
 
-            var columns = table.Columns
+            var safeColumns = table.Columns
                 .Where(x => !SqlIdentifierGuard.HasUnsafeCharacters(x.ColumnName))
                 .ToList();
             skippedColumns.AddRange(table.Columns
                 .Where(x => SqlIdentifierGuard.HasUnsafeCharacters(x.ColumnName))
                 .Select(x => SqlIdentifierGuard.ForLog($"{table.SchemaName}.{table.TableName}.{x.ColumnName}")));
-            kept.Add(columns.Count == table.Columns.Count ? table : table with { Columns = columns });
+
+            var columns = new List<ColumnMetadataDto>(safeColumns.Count);
+            var columnsChanged = safeColumns.Count != table.Columns.Count;
+            foreach (var column in safeColumns)
+            {
+                var safeColumn = WithoutUnsafeForeignKeyTargets(column, out var skippedTargets);
+                skippedForeignKeyTargets.AddRange(skippedTargets.Select(x => SqlIdentifierGuard.ForLog($"{table.SchemaName}.{table.TableName}.{column.ColumnName} -> {x}")));
+                columnsChanged |= !ReferenceEquals(safeColumn, column);
+                columns.Add(safeColumn);
+            }
+
+            kept.Add(columnsChanged ? table with { Columns = columns } : table);
         }
 
-        if (skippedTables.Count > 0 || skippedColumns.Count > 0)
+        if (skippedTables.Count > 0 || skippedColumns.Count > 0 || skippedForeignKeyTargets.Count > 0)
         {
             logger.LogWarning(
-                "Metadata refresh of data source {DataSourceId} left out {TableCount} tables and {ColumnCount} columns whose names carry quote, bracket, semicolon or control characters: {SkippedNames}",
+                "Metadata refresh of data source {DataSourceId} left out {TableCount} tables, {ColumnCount} columns and {ForeignKeyTargetCount} foreign-key targets whose names carry quote, bracket, semicolon or control characters: {SkippedNames}",
                 dataSourceId,
                 skippedTables.Count,
                 skippedColumns.Count,
+                skippedForeignKeyTargets.Count,
                 skippedTables
                     .Concat(skippedColumns)
+                    .Concat(skippedForeignKeyTargets)
                     .Take(MaxLoggedSkippedNames)
                     .ToList());
         }
 
-        return (kept, skippedTables.Count + skippedColumns.Count);
+        return (kept, skippedTables.Count + skippedColumns.Count + skippedForeignKeyTargets.Count);
     }
 
     /// <summary>
@@ -483,6 +523,7 @@ public class DatabaseMetadataService(
         CancellationToken cancellationToken)
     {
         var metadata = await context.DatabaseMetadata
+            .AsNoTracking()
             .Where(m => m.DataSourceId == dataSourceId && m.ArchivedTime == null)
             .Include(m => m.Columns)
             .ToListAsync(cancellationToken);
@@ -497,7 +538,10 @@ public class DatabaseMetadataService(
                 DeserializeSampleValues(c.SampleValues),
                 c.ForeignKeySchema, c.ForeignKeyConstraintName,
                 c.SampleValuesComplete
-            )).ToList(),
+            )
+            {
+                ForeignKeys = ColumnForeignKeys.Deserialize(c.ForeignKeys)
+            }).ToList(),
             new List<IndexMetadataDto>(),
             m.TableDescription
         )).ToList();
@@ -518,6 +562,44 @@ public class DatabaseMetadataService(
             .Select(x =>
                 new SourceState(x.DisabledTime, x.AllowMigrationWrites, x.DatabaseEngineType, x.EncryptedConnectionData))
             .FirstOrDefaultAsync(cancellationToken);
+    }
+
+    /// <summary>
+    /// <paramref name="column"/> without the foreign keys whose target schema, table or column carries a quote, bracket,
+    /// semicolon or control character (<see cref="SqlIdentifierGuard.HasUnsafeCharacters"/>), which are named in
+    /// <paramref name="skipped"/>. The single-target fields then name the first foreign key left, or none; the same instance
+    /// comes back when nothing is left out.
+    /// </summary>
+    internal static ColumnMetadataDto WithoutUnsafeForeignKeyTargets(ColumnMetadataDto column, out IReadOnlyList<string> skipped)
+    {
+        var foreignKeys = ColumnForeignKeys.Of(column);
+        var unsafeTargets = foreignKeys
+            .Where(x => SqlIdentifierGuard.HasUnsafeCharacters(x.TargetSchema ?? string.Empty)
+                || SqlIdentifierGuard.HasUnsafeCharacters(x.TargetTable)
+                || SqlIdentifierGuard.HasUnsafeCharacters(x.TargetColumn))
+            .ToList();
+        skipped = unsafeTargets
+            .Select(x => $"{x.TargetSchema}.{x.TargetTable}.{x.TargetColumn}")
+            .ToList();
+        if (unsafeTargets.Count == 0)
+        {
+            return column;
+        }
+
+        var safe = foreignKeys
+            .Except(unsafeTargets)
+            .ToList();
+        var first = safe.FirstOrDefault();
+
+        return column with
+        {
+            IsForeignKey = first != null,
+            ForeignKeyTable = first?.TargetTable,
+            ForeignKeyColumn = first?.TargetColumn,
+            ForeignKeySchema = first?.TargetSchema,
+            ForeignKeyConstraintName = first?.ConstraintName,
+            ForeignKeys = column.ForeignKeys == null || safe.Count == 0 ? null : safe
+        };
     }
 
     private static DatabaseMetadataSnapshot EmptySnapshot(int dataSourceId, DatabaseEngineType? engine) =>
@@ -578,5 +660,13 @@ public class DatabaseMetadataService(
     private sealed record SourceState(DateTime? DisabledTime, bool AllowMigrationWrites, DatabaseEngineType? DatabaseEngineType, string EncryptedConnectionData)
     {
         public bool Readable => DisabledTime == null && !AllowMigrationWrites;
+
+        // The compiler-generated ToString prints every member; the secrets are printed redacted.
+        private bool PrintMembers(System.Text.StringBuilder builder)
+        {
+            builder.Append($"DisabledTime = {DisabledTime}, AllowMigrationWrites = {AllowMigrationWrites}, DatabaseEngineType = {DatabaseEngineType}, EncryptedConnectionData = {RedactedPrint.Of(EncryptedConnectionData)}, Readable = {Readable}");
+
+            return true;
+        }
     }
 }

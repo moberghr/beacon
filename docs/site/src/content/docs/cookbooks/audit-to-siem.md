@@ -206,6 +206,7 @@ the security trail.
 | No `Beacon.Audit` events in the SIEM | The category is filtered below Information, or the log driver does not ship stdout. Check `Logging:LogLevel` for `Beacon.Audit`. |
 | 9100 events but no 9104 | 9104 is full Beacon only and best-effort: it is missing when the category is filtered or the process stops between commit and log. |
 | Host fails to start with an options error | `RetentionDays` must be greater than 0 (security trail: 365 to 36500), `RequestIdHeader` must be a valid header token, and `RequireContent` cannot be on with `ForceNoContentRetention`. |
+| No `CorrelationId` on old rows | Rows written before it existed carry none; every later row and 9100 event has one Beacon minted. |
 | `UpstreamRequestId` is empty | The header is absent, longer than 128 characters, or has characters outside `[A-Za-z0-9._:-]`. |
 | No traces | `AddBeaconInstrumentation()` is not on the tracer provider, or `OTEL_EXPORTER_OTLP_ENDPOINT` is unset. |
 | Logs in the dispatched endpoint carry no trace id | Host endpoint dispatch does not flow `Activity.Current`. See [Trace continuity](/mcp/observability-and-audit/#trace-continuity-into-host-endpoint-dispatch). |

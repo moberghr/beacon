@@ -48,7 +48,7 @@ internal sealed class DocChunkIndexingService(
         Given the entire documentation section and one chunk taken from it, write a short standalone
         context — one or two sentences, at most about 80 tokens — that explains what the chunk is about
         and where it sits in the section. Answer with ONLY the situating context, no preamble, no quotes.
-        """;
+        """ + "\n" + PromptData.Rule;
 
     public async Task ReindexAsync(CancellationToken ct)
     {
@@ -660,14 +660,10 @@ internal sealed class DocChunkIndexingService(
 
     private static string BuildBlurbUserMessage(string sectionText, string chunkText) =>
         $"""
-        <document>
-        {sectionText}
-        </document>
+        {PromptData.Fence("document", sectionText)}
 
         Here is the chunk we want to situate within the document:
-        <chunk>
-        {chunkText}
-        </chunk>
+        {PromptData.Fence("chunk", chunkText)}
 
         Give a short succinct context to situate this chunk within the section for retrieval. Answer only with the succinct context and nothing else.
         """;

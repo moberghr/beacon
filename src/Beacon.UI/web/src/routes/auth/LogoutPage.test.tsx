@@ -1,11 +1,16 @@
 import { fireEvent, screen, waitFor } from '@testing-library/react';
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { render } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
 import { MemoryRouter, Route, Routes } from 'react-router-dom';
 import { mswServer } from '../../../vitest.setup';
 import LogoutPage from './LogoutPage';
+
+const disconnectBeaconHub = vi.fn(() => Promise.resolve());
+vi.mock('@/lib/useHubEvent', () => ({
+  disconnectBeaconHub: () => disconnectBeaconHub(),
+}));
 
 function countLogouts() {
   const calls = { count: 0 };
@@ -73,5 +78,15 @@ describe('LogoutPage', () => {
 
     await waitFor(() => expect(calls.count).toBe(1));
     expect(screen.queryByRole('button', { name: /sign out/i })).toBeNull();
+  });
+
+  it('stops the realtime connection once signed out', async () => {
+    disconnectBeaconHub.mockClear();
+    const calls = countLogouts();
+
+    renderLogout({ fromApp: true });
+
+    await waitFor(() => expect(disconnectBeaconHub).toHaveBeenCalledTimes(1));
+    expect(calls.count).toBe(1);
   });
 });

@@ -6,7 +6,6 @@ using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Primitives;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
-using Beacon.Core.Data.Entities;
 using Beacon.Core.Models;
 
 namespace Beacon.Core.Services;
@@ -15,6 +14,13 @@ public interface IMcpSettingsProvider
 {
     /// <summary>Global row with deployment locks and ceilings applied — for consumers that have no project.</summary>
     Task<McpSettingsData> GetSettingsAsync(CancellationToken ct = default);
+
+    /// <summary>
+    /// The global row as stored, before any deployment lock or ceiling (the code defaults when there is no row) — what the
+    /// global settings page edits. No MCP consumer reads it: they read <see cref="GetSettingsAsync"/> or the project's
+    /// effective settings. A provider written against 5.0 that does not implement it serves the resolved row instead.
+    /// </summary>
+    Task<McpSettingsData> GetStoredSettingsAsync(CancellationToken ct = default) => GetSettingsAsync(ct);
 
     /// <summary>Resolved for one project: deployment lock → project value → global value → code default, clamped to the ceilings.</summary>
     Task<McpSettingsData> GetEffectiveSettingsAsync(int projectId, CancellationToken ct = default);
@@ -49,6 +55,14 @@ internal sealed class McpSettingsProvider(
         var global = await GetGlobalRawAsync(ct);
 
         return Resolve(global, null, deploymentOptions.Value).Effective;
+    }
+
+    public async Task<McpSettingsData> GetStoredSettingsAsync(CancellationToken ct = default)
+    {
+        var global = await GetGlobalRawAsync(ct);
+
+        // A copy: the cached row is shared by every reader.
+        return global.Clone();
     }
 
     public async Task<McpSettingsData> GetEffectiveSettingsAsync(int projectId, CancellationToken ct = default)
@@ -106,7 +120,7 @@ internal sealed class McpSettingsProvider(
 
         if (project != null)
         {
-            OverlayProject(effective, project, clamped);
+            McpSettingFields.Overlay(effective, project, clamped);
         }
 
         UseDefaultsForUnusableValues(effective, clamped);
@@ -120,70 +134,6 @@ internal sealed class McpSettingsProvider(
         ApplyLocks(effective, options, locked);
 
         return new McpEffectiveSettings(effective, locked, clamped);
-    }
-
-    private static void OverlayProject(McpSettingsData effective, McpProjectSettingsData project, HashSet<string> clamped)
-    {
-        effective.MaxRowLimit = project.MaxRowLimit ?? effective.MaxRowLimit;
-        effective.EnforceReadOnly = project.EnforceReadOnly ?? effective.EnforceReadOnly;
-        effective.EnablePiiDetection = project.EnablePiiDetection ?? effective.EnablePiiDetection;
-        effective.CustomPiiPatterns = project.CustomPiiPatterns != null ? [.. project.CustomPiiPatterns] : effective.CustomPiiPatterns;
-        effective.EnableSampleValueCollection = project.EnableSampleValueCollection ?? effective.EnableSampleValueCollection;
-
-        effective.EnableLearning = project.EnableLearning ?? effective.EnableLearning;
-        effective.LearningAutoApproveThreshold = project.LearningAutoApproveThreshold ?? effective.LearningAutoApproveThreshold;
-        effective.LearningInjectionBudgetChars = project.LearningInjectionBudgetChars ?? effective.LearningInjectionBudgetChars;
-        effective.LearningSignalRetentionDays = project.LearningSignalRetentionDays ?? effective.LearningSignalRetentionDays;
-
-        effective.EnableSelfConsistency = project.EnableSelfConsistency ?? effective.EnableSelfConsistency;
-        effective.SelfConsistencyCandidateCount = project.SelfConsistencyCandidateCount ?? effective.SelfConsistencyCandidateCount;
-        effective.EnableEvalJudge = project.EnableEvalJudge ?? effective.EnableEvalJudge;
-        effective.EnableSemanticRetrieval = project.EnableSemanticRetrieval ?? effective.EnableSemanticRetrieval;
-        effective.ExemplarTopK = project.ExemplarTopK ?? effective.ExemplarTopK;
-
-        effective.EnableReplayVerification = project.EnableReplayVerification ?? effective.EnableReplayVerification;
-        effective.LearningReplayMinFlips = project.LearningReplayMinFlips ?? effective.LearningReplayMinFlips;
-
-        effective.EnableContextualRetrieval = project.EnableContextualRetrieval ?? effective.EnableContextualRetrieval;
-        effective.DocChunkWindowSentences = project.DocChunkWindowSentences ?? effective.DocChunkWindowSentences;
-        effective.DocChunkOverlapSentences = project.DocChunkOverlapSentences ?? effective.DocChunkOverlapSentences;
-        effective.GlossaryTopK = project.GlossaryTopK ?? effective.GlossaryTopK;
-        effective.DocChunkTopK = project.DocChunkTopK ?? effective.DocChunkTopK;
-
-        effective.EnableGoldenExemplars = project.EnableGoldenExemplars ?? effective.EnableGoldenExemplars;
-        effective.GoldenExemplarTopK = project.GoldenExemplarTopK ?? effective.GoldenExemplarTopK;
-        effective.GoldenExemplarBudgetChars = project.GoldenExemplarBudgetChars ?? effective.GoldenExemplarBudgetChars;
-
-        effective.EnableValueGrounding = project.EnableValueGrounding ?? effective.EnableValueGrounding;
-        effective.ValueGroundingMaxProbes = project.ValueGroundingMaxProbes ?? effective.ValueGroundingMaxProbes;
-        effective.EnableSemanticLint = project.EnableSemanticLint ?? effective.EnableSemanticLint;
-        effective.SelfConsistencyMinTables = project.SelfConsistencyMinTables ?? effective.SelfConsistencyMinTables;
-
-        effective.RetainQueryContent = project.RetainQueryContent ?? effective.RetainQueryContent;
-        effective.StatementTimeoutSeconds = UsableOverride(project.StatementTimeoutSeconds, effective.StatementTimeoutSeconds, nameof(effective.StatementTimeoutSeconds), clamped);
-        effective.MaxResultBytes = UsableOverride(project.MaxResultBytes, effective.MaxResultBytes, nameof(effective.MaxResultBytes), clamped);
-        effective.MaxExplainCost = project.MaxExplainCost ?? effective.MaxExplainCost;
-        effective.MaxConcurrentQueriesPerKey = UsableOverride(project.MaxConcurrentQueriesPerKey, effective.MaxConcurrentQueriesPerKey, nameof(effective.MaxConcurrentQueriesPerKey), clamped);
-        effective.AllowExplicitFeedbackContent = project.AllowExplicitFeedbackContent ?? effective.AllowExplicitFeedbackContent;
-    }
-
-    // A project override no reader can use (0 or less, written before the write handlers checked the ranges,
-    // McpSettingsRanges) is no override: the global value applies, and the field is reported as clamped.
-    private static int UsableOverride(int? value, int inherited, string field, HashSet<string> clamped)
-    {
-        if (value is not { } number)
-        {
-            return inherited;
-        }
-
-        if (number < 1)
-        {
-            clamped.Add(field);
-
-            return inherited;
-        }
-
-        return number;
     }
 
     // A stored global value no reader can use is the built-in default: a statement timeout of 0 or less would cancel every
@@ -215,6 +165,7 @@ internal sealed class McpSettingsProvider(
         effective.StatementTimeoutSeconds = Clamp(effective.StatementTimeoutSeconds, ceilings.StatementTimeoutSeconds, nameof(effective.StatementTimeoutSeconds), clamped);
         effective.MaxResultBytes = Clamp(effective.MaxResultBytes, ceilings.MaxResultBytes, nameof(effective.MaxResultBytes), clamped);
         effective.MaxConcurrentQueriesPerKey = Clamp(effective.MaxConcurrentQueriesPerKey, ceilings.MaxConcurrentQueriesPerKey, nameof(effective.MaxConcurrentQueriesPerKey), clamped);
+        effective.LearningSignalRetentionDays = Clamp(effective.LearningSignalRetentionDays, ceilings.LearningSignalRetentionDays, nameof(effective.LearningSignalRetentionDays), clamped);
 
         // A null MaxExplainCost means "no limit", which is above any ceiling — the ceiling becomes the value.
         if (ceilings.MaxExplainCost is { } costCeiling && (effective.MaxExplainCost == null || effective.MaxExplainCost > costCeiling))
@@ -269,7 +220,7 @@ internal sealed class McpSettingsProvider(
                 .AsNoTracking()
                 .FirstOrDefaultAsync(ct);
 
-            return entity != null ? MapToData(entity) : new McpSettingsData();
+            return entity != null ? McpSettingFields.ToSettings(entity, x => ParsePiiPatterns(x, "global", entity.Id)) : new McpSettingsData();
         }) ?? new McpSettingsData();
     }
 
@@ -290,7 +241,7 @@ internal sealed class McpSettingsProvider(
                 .AsNoTracking()
                 .FirstOrDefaultAsync(ct);
 
-            return entity != null ? MapToProjectData(entity) : null;
+            return entity != null ? McpSettingFields.ToOverrides(entity, x => ParsePiiPatterns(x, "project", entity.Id)) : null;
         });
     }
 
@@ -321,94 +272,5 @@ internal sealed class McpSettingsProvider(
 
             return null;
         }
-    }
-
-    private McpSettingsData MapToData(McpSettings entity)
-    {
-        return new McpSettingsData
-        {
-            AskSystemPrompt = entity.AskSystemPrompt,
-            GlobalInstruction = entity.GlobalInstruction,
-            GetContextDescription = entity.GetContextDescription,
-            SearchDescription = entity.SearchDescription,
-            QueryDescription = entity.QueryDescription,
-            GetDocumentationDescription = entity.GetDocumentationDescription,
-            AskDescription = entity.AskDescription,
-            MaxRowLimit = entity.MaxRowLimit,
-            EnforceReadOnly = entity.EnforceReadOnly,
-            EnablePiiDetection = entity.EnablePiiDetection,
-            CustomPiiPatterns = ParsePiiPatterns(entity.CustomPiiPatterns, "global", entity.Id) ?? [],
-            EnableSampleValueCollection = entity.EnableSampleValueCollection,
-            EnableLearning = entity.EnableLearning,
-            LearningAutoApproveThreshold = entity.LearningAutoApproveThreshold,
-            LearningInjectionBudgetChars = entity.LearningInjectionBudgetChars,
-            LearningSignalRetentionDays = entity.LearningSignalRetentionDays,
-            EnableSelfConsistency = entity.EnableSelfConsistency,
-            SelfConsistencyCandidateCount = entity.SelfConsistencyCandidateCount,
-            EnableEvalJudge = entity.EnableEvalJudge,
-            EnableSemanticRetrieval = entity.EnableSemanticRetrieval,
-            ExemplarTopK = entity.ExemplarTopK,
-            EnableReplayVerification = entity.EnableReplayVerification,
-            LearningReplayMinFlips = entity.LearningReplayMinFlips,
-            EnableContextualRetrieval = entity.EnableContextualRetrieval,
-            DocChunkWindowSentences = entity.DocChunkWindowSentences,
-            DocChunkOverlapSentences = entity.DocChunkOverlapSentences,
-            GlossaryTopK = entity.GlossaryTopK,
-            DocChunkTopK = entity.DocChunkTopK,
-            EnableGoldenExemplars = entity.EnableGoldenExemplars,
-            GoldenExemplarTopK = entity.GoldenExemplarTopK,
-            GoldenExemplarBudgetChars = entity.GoldenExemplarBudgetChars,
-            EnableValueGrounding = entity.EnableValueGrounding,
-            ValueGroundingMaxProbes = entity.ValueGroundingMaxProbes,
-            EnableSemanticLint = entity.EnableSemanticLint,
-            SelfConsistencyMinTables = entity.SelfConsistencyMinTables,
-            RetainQueryContent = entity.RetainQueryContent,
-            StatementTimeoutSeconds = entity.StatementTimeoutSeconds,
-            MaxResultBytes = entity.MaxResultBytes,
-            MaxExplainCost = entity.MaxExplainCost,
-            MaxConcurrentQueriesPerKey = entity.MaxConcurrentQueriesPerKey,
-            AllowExplicitFeedbackContent = entity.AllowExplicitFeedbackContent
-        };
-    }
-
-    private McpProjectSettingsData MapToProjectData(McpProjectSettings entity)
-    {
-        return new McpProjectSettingsData
-        {
-            MaxRowLimit = entity.MaxRowLimit,
-            EnforceReadOnly = entity.EnforceReadOnly,
-            EnablePiiDetection = entity.EnablePiiDetection,
-            CustomPiiPatterns = ParsePiiPatterns(entity.CustomPiiPatterns, "project", entity.Id),
-            EnableSampleValueCollection = entity.EnableSampleValueCollection,
-            EnableLearning = entity.EnableLearning,
-            LearningAutoApproveThreshold = entity.LearningAutoApproveThreshold,
-            LearningInjectionBudgetChars = entity.LearningInjectionBudgetChars,
-            LearningSignalRetentionDays = entity.LearningSignalRetentionDays,
-            EnableSelfConsistency = entity.EnableSelfConsistency,
-            SelfConsistencyCandidateCount = entity.SelfConsistencyCandidateCount,
-            EnableEvalJudge = entity.EnableEvalJudge,
-            EnableSemanticRetrieval = entity.EnableSemanticRetrieval,
-            ExemplarTopK = entity.ExemplarTopK,
-            EnableReplayVerification = entity.EnableReplayVerification,
-            LearningReplayMinFlips = entity.LearningReplayMinFlips,
-            EnableContextualRetrieval = entity.EnableContextualRetrieval,
-            DocChunkWindowSentences = entity.DocChunkWindowSentences,
-            DocChunkOverlapSentences = entity.DocChunkOverlapSentences,
-            GlossaryTopK = entity.GlossaryTopK,
-            DocChunkTopK = entity.DocChunkTopK,
-            EnableGoldenExemplars = entity.EnableGoldenExemplars,
-            GoldenExemplarTopK = entity.GoldenExemplarTopK,
-            GoldenExemplarBudgetChars = entity.GoldenExemplarBudgetChars,
-            EnableValueGrounding = entity.EnableValueGrounding,
-            ValueGroundingMaxProbes = entity.ValueGroundingMaxProbes,
-            EnableSemanticLint = entity.EnableSemanticLint,
-            SelfConsistencyMinTables = entity.SelfConsistencyMinTables,
-            RetainQueryContent = entity.RetainQueryContent,
-            StatementTimeoutSeconds = entity.StatementTimeoutSeconds,
-            MaxResultBytes = entity.MaxResultBytes,
-            MaxExplainCost = entity.MaxExplainCost,
-            MaxConcurrentQueriesPerKey = entity.MaxConcurrentQueriesPerKey,
-            AllowExplicitFeedbackContent = entity.AllowExplicitFeedbackContent
-        };
     }
 }

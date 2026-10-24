@@ -15,7 +15,7 @@ Go through this list before the first real user signs in. Each line links to whe
 
 ## Reverse proxy
 
-- [ ] TLS terminates at the proxy, and the host runs `UseForwardedHeaders` with **only your proxies** listed, first in the pipeline. The login throttle (10 attempts / 60 s per IP) and the cookie's Secure flag depend on it.
+- [ ] TLS terminates at the proxy, and the host runs `UseForwardedHeaders` with **only your proxies** listed, first in the pipeline. The per-address request limits (`Beacon:RateLimits`: login 10 / 60 s, anonymous refusals 30 / 60 s) and the cookie's Secure flag depend on it.
 
 ```csharp
 var forwarded = new ForwardedHeadersOptions { ForwardedHeaders = ForwardedHeaders.XForwardedFor | ForwardedHeaders.XForwardedProto };
@@ -28,6 +28,8 @@ app.UseForwardedHeaders(forwarded);
 - [ ] `Beacon:PublicBaseUrl` is the public origin (e.g. `https://beacon.example.com`), so MCP discovery documents do not echo the client's `Host` header. → [Connect AI clients](/mcp/connect/#public-url-and-discovery)
 - [ ] `options.BaseUrl` (or **Admin settings → Base URL**) is the public UI URL **including `/beacon`**, so notification links work.
 - [ ] HTTPS redirection applies to `/beacon/mcp` too, because API keys travel in headers.
+- [ ] HSTS is sent by the host (`app.UseHsts()`) or the proxy, and `AllowedHosts` lists your real host names.
+- [ ] The origin check knows your public origin (`Beacon:PublicBaseUrl` or `Beacon:Security:AllowedOrigins`); after a release without its `LogOnly` warnings, `Beacon:Security:OriginGuard` is `Enforce`. → [Security headers and the origin check](/integrate/host-setup/#security-headers-and-the-origin-check)
 - [ ] Proxy and Kestrel timeouts allow long requests (AI documentation, `ask`): the reference host uses 5 minutes.
 
 ## Sign-in and access
@@ -51,14 +53,17 @@ app.UseForwardedHeaders(forwarded);
 
 ## Audit and observability
 
-- [ ] `Beacon:Mcp:Audit:RetentionDays` set to your retention policy and the purge job scheduled; `Audit:Required: true` if a tool result must never be returned without its audit row. → [MCP observability & audit](/mcp/observability-and-audit/)
+- [ ] Data retention reviewed: `Beacon:Retention:Days` set (nothing is purged while it is `0`, the default; 90 recommended) and its targets match your policy, `ContentDays` set (30 recommended for regulated data), `Locked` on where no data may be kept forever, and `IDataRetentionService.RunAsync` scheduled daily. → [Data retention](/getting-started/configuration/#data-retention-beaconretention)
+- [ ] `Beacon:Mcp:Audit:RetentionDays` set to your retention policy (kept forever while unset; 365 recommended) and the purge job scheduled; `Audit:Required: true` if a tool result must never be returned without its audit row. → [MCP observability & audit](/mcp/observability-and-audit/)
 - [ ] Security log events (structured log events 7101 to 7123: membership, roles, sessions, break-glass, access refused, row data to LLM) are shipped to your log pipeline and alerted on. The log events themselves are not stored in Beacon's database; the actions most of them report are also recorded in the security audit trail. → [Security model](/security/#12-audit-and-security-events)
 - [ ] Security audit trail: `Beacon:Audit:IntegrityKey` set from a secret store (before you change the encryption key or the caller hash key), the verification job (`ISecurityAuditVerificationService.VerifyNewEventsAsync`, hourly) and the retention purge (`ISecurityAuditRetentionService.PurgeExpiredAsync`) scheduled, `Beacon:Audit:RetentionDays` set to your retention policy (at least 365; events are kept forever while it is unset), the `Beacon.Audit` events 9104 to 9110 shipped to your SIEM, and alerts on any increment of `beacon.security_audit.write_failures` and `beacon.security_audit.verification_failures`. → [Security audit trail](/security/audit-trail/)
 - [ ] To make the trail append-only at the database as well, Beacon's connection uses a role that cannot update or delete `security_audit_events` rows other than through the purge, or triggers do the same. → [What the trail does and does not prove](/security/audit-trail/#what-the-trail-does-and-does-not-prove)
 - [ ] Where MCP audit content is retained, the SQL of every statement a call ran is stored with it: reviewed against your privacy policy; `Beacon:Mcp:Audit:RequireContent` pins retention on if the evidence must be kept. → [MCP observability & audit](/mcp/observability-and-audit/#keeping-audit-content-the-requirecontent-lock)
 - [ ] Structured JSON console logs (`Logging:Console:FormatterName=json`, `IncludeScopes=true`) if your platform correlates by trace id.
-- [ ] OpenTelemetry: add `AddBeaconInstrumentation()` to your tracer and meter providers, and `AddBeaconMcpSdkTracing()` to the tracer provider for the MCP SDK's `tools/call` spans (their status descriptions cleared); you choose the exporter. Keep notification HTTP calls out of traces (their URLs carry secrets). `NotificationRequests.IsNotificationRequest` identifies them.
-- [ ] Health check `GET /beacon/api/health` (anonymous, checks the database within 5 s) wired to your load balancer. It answers before the first administrator exists too, so a brand-new deployment passes the probe while setup is still pending.
+- [ ] OpenTelemetry: add `AddBeaconInstrumentation()` to your tracer and meter providers, and `AddBeaconMcpSdkTracing()` to the tracer provider for the MCP SDK's `tools/call` spans (their status descriptions cleared); you choose the exporter. Keep notification HTTP calls out of traces (their URLs carry secrets), and the REST API connector's (their paths and queries can carry identifiers or a credential). `NotificationRequests.IsNotificationRequest` and `ApiConnectorRequests.IsApiConnectorRequest` identify them.
+- [ ] Health check `GET /beacon/api/health` (anonymous, checks the database within 5 s) wired to your load balancer. It answers before the first administrator exists too, so a brand-new deployment passes the probe while setup is still pending. The route is limited to 120 requests per minute per remote IP (429 with `Retry-After`), shares one database check for two seconds, and names no cause in a 503 to an anonymous caller. Behind a proxy, run `UseForwardedHeaders` so the limit is per client, not per proxy.
+- [ ] The OpenAPI document needs a signed-in Beacon caller outside Development when mapped with `MapBeaconOpenApi()`. List `/openapi` in `Beacon:Authentication:AdditionalPaths` so the Beacon session reaches it, or set `Beacon:OpenApi:Anonymous` to `true` to publish it.
+- [ ] Regular expressions: every pattern Beacon runs on user, catalog or model text carries its own match timeout (250 ms to 1 s), so no setting is needed. For your own host code, you can add a process-wide backstop with `AppContext.SetData("REGEX_DEFAULT_MATCH_TIMEOUT", TimeSpan.FromSeconds(2))` (or the same name under `configProperties` in `runtimeconfig.json`) before the first regex is built; it applies only to patterns that set no timeout of their own.
 
 ## Scaling
 

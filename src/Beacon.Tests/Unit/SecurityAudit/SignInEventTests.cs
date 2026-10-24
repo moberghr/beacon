@@ -120,6 +120,21 @@ public class SignInEventTests
     }
 
     [Test]
+    public async Task ASignInOfALockedOutUser_IsARefusal_WithTheGenericAnswer()
+    {
+        var audit = new RecordingSecurityAudit();
+        await using var app = await StartAsync(new AuthenticationResult { Success = false, ErrorMessage = "Invalid username or password.", BeaconUserId = 7, LockedOut = true }, audit);
+
+        var response = await LoginAsync(app);
+
+        response.StatusCode.Should().Be(System.Net.HttpStatusCode.Unauthorized);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("Invalid username or password.");
+        audit.Single(TypedName, Password).Should().BeEquivalentTo(
+            new { Action = SecurityAuditActions.PasswordSignInRefused, Outcome = SecurityAuditOutcomes.Refused, ResourceId = "7", DetailsJson = "{\"reason\":\"locked_out\"}" },
+            x => x.ExcludingMissingMembers());
+    }
+
+    [Test]
     public async Task ASignIn_IsRecordedAsItsUsers()
     {
         var audit = new RecordingSecurityAudit();
@@ -159,7 +174,7 @@ public class SignInEventTests
         await using var app = await StartAsync(SignedIn(7, "ext-ana"), audit);
         using var client = app.GetTestClient();
 
-        var response = await client.PostAsJsonAsync("/beacon/api/auth/login", new LoginRequest(TypedName, ""));
+        var response = await client.PostAsJsonWithAntiforgeryAsync(app.Services, "/beacon/api/auth/login", new LoginRequest(TypedName, ""));
 
         response.StatusCode.Should().Be(HttpStatusCode.BadRequest);
         audit.Events.Should().BeEmpty();
@@ -275,7 +290,7 @@ public class SignInEventTests
     {
         using var client = app.GetTestClient();
 
-        return await client.PostAsJsonAsync("/beacon/api/auth/login", new LoginRequest(TypedName, Password));
+        return await client.PostAsJsonWithAntiforgeryAsync(app.Services, "/beacon/api/auth/login", new LoginRequest(TypedName, Password));
     }
 
     // The login endpoints over a real cookie scheme; with a break-glass user, local login is off and that user is the

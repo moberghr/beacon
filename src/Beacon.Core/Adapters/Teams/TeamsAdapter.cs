@@ -28,7 +28,7 @@ internal class TeamsAdapter(NotificationHttpSender sender, BeaconConfiguration c
             try
             {
                 var templateData = Shared.TemplateDataBuilder.BuildTemplateData(recipientQueryResult, lastNotificationResultCount, configuration.BaseUrl);
-                jsonPayload = Shared.AdapterTemplateProcessor.ProcessTemplate(recipientQueryResult.BodyTemplate, templateData);
+                jsonPayload = Shared.AdapterTemplateProcessor.ProcessTemplate(recipientQueryResult.BodyTemplate, templateData, escapeJsonStrings: true, escapeText: Shared.ChannelText.Teams);
             }
             catch (Exception ex)
             {
@@ -46,17 +46,31 @@ internal class TeamsAdapter(NotificationHttpSender sender, BeaconConfiguration c
         await sender.PostAsync(NotificationType.Teams, recipientQueryResult.RecipientDestination, content, headers: null, cancellationToken);
     }
 
+    // Teams refuses a card over 28 KB: rows are dropped (halving) until the serialized card fits, and the card says so.
     private string BuildDefaultAdaptiveCard(RecipientQueryResult recipientQueryResult, QueryResult queryResult)
+    {
+        var rows = queryResult.TopRecords.Count;
+        var card = BuildDefaultAdaptiveCard(recipientQueryResult, queryResult, rows);
+        while (rows > 0 && Encoding.UTF8.GetByteCount(card) > AdapterConstants.Teams.MaxCardBytes)
+        {
+            rows /= 2;
+            card = BuildDefaultAdaptiveCard(recipientQueryResult, queryResult, rows);
+        }
+
+        return card;
+    }
+
+    private string BuildDefaultAdaptiveCard(RecipientQueryResult recipientQueryResult, QueryResult queryResult, int shownRows)
     {
         var bodyElements = new JsonArray
         {
             TextBlock("Beacon", id: "title", size: "large", weight: "bolder"),
-            TextBlock($"{queryResult.DataSourceName}: {queryResult.SubscriptionName}", id: "subtitle", size: "medium", weight: "bolder", wrap: true),
+            TextBlock(ChannelText.Teams(ChannelText.Truncate($"{queryResult.DataSourceName}: {queryResult.SubscriptionName}", AdapterConstants.Teams.MaxCellLength)), id: "subtitle", size: "medium", weight: "bolder", wrap: true),
         };
 
         if (queryResult.ShowQuery)
         {
-            bodyElements.Add(TextBlock($"Query = {queryResult.SqlQuery}", id: "queryText", wrap: true));
+            bodyElements.Add(TextBlock($"Query = {ChannelText.Teams(ChannelText.Truncate(queryResult.SqlQuery, AdapterConstants.Teams.MaxQueryLength))}", id: "queryText", wrap: true));
         }
 
         if (queryResult.TopRecords.HasRecords())
@@ -66,7 +80,15 @@ internal class TeamsAdapter(NotificationHttpSender sender, BeaconConfiguration c
                 id: "firstRecordsTitle",
                 weight: "bolder",
                 spacing: "medium"));
-            bodyElements.Add(GenerateAdaptiveTableFromQueryResults(queryResult.TopRecords));
+            if (shownRows > 0)
+            {
+                bodyElements.Add(GenerateAdaptiveTableFromQueryResults(queryResult.TopRecords.Take(shownRows).ToList()));
+            }
+
+            if (shownRows < queryResult.TopRecords.Count)
+            {
+                bodyElements.Add(TextBlock($"{ChannelText.TruncationMarker}: {shownRows} of {queryResult.TopRecords.Count} records shown", id: "truncatedText", spacing: "small"));
+            }
         }
         else
         {
@@ -77,7 +99,7 @@ internal class TeamsAdapter(NotificationHttpSender sender, BeaconConfiguration c
         {
             ["type"] = "AdaptiveCard",
             ["version"] = "1.5",
-            ["speak"] = $"{queryResult.DataSourceName} - {queryResult.SubscriptionName}",
+            ["speak"] = ChannelText.Truncate(ChannelText.StripUnsafe($"{queryResult.DataSourceName} - {queryResult.SubscriptionName}"), AdapterConstants.Teams.MaxCellLength),
             ["body"] = bodyElements,
         };
 
@@ -101,13 +123,13 @@ internal class TeamsAdapter(NotificationHttpSender sender, BeaconConfiguration c
     {
         var columnNames = queryResults.GetColumnNamesSafe(MaxColumns);
 
-        var headerRow = TableRow(columnNames.Select(x => TableCell(TextBlock(x, weight: "bolder"))));
+        var headerRow = TableRow(columnNames.Select(x => TableCell(TextBlock(Cell(x), weight: "bolder"))));
 
         var rows = new JsonArray { headerRow };
         foreach (var result in queryResults)
         {
             rows.Add(TableRow(columnNames.Select(x =>
-                TableCell(TextBlock(result.TryGetValue(x, out var value) ? CellValueFormatter.Format(value) : string.Empty, wrap: true)))));
+                TableCell(TextBlock(result.TryGetValue(x, out var value) ? Cell(CellValueFormatter.Format(value)) : string.Empty, wrap: true)))));
         }
 
         var columns = new JsonArray();
@@ -124,6 +146,11 @@ internal class TeamsAdapter(NotificationHttpSender sender, BeaconConfiguration c
             ["gridStyle"] = "emphasis",
             ["firstRowAsHeaders"] = true,
         };
+    }
+
+    private static string Cell(string text)
+    {
+        return ChannelText.Teams(ChannelText.Truncate(text, AdapterConstants.Teams.MaxCellLength));
     }
 
     private static JsonObject TableRow(IEnumerable<JsonObject> cells)

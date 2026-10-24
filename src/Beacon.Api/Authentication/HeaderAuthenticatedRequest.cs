@@ -4,7 +4,7 @@ using Microsoft.Net.Http.Headers;
 namespace Beacon.Api.Authentication;
 
 /// <summary>
-/// Recognises a request whose caller <see cref="ApiKeyAuthMiddleware"/> or <see cref="JwtBearerAuthMiddleware"/>
+/// Recognises a request whose caller <see cref="ApiKeyAuthenticator"/> or <see cref="BeaconJwtAuthenticator"/>
 /// authenticated from its <c>Authorization: Bearer</c> header. A browser never attaches that header to a cross-site
 /// request on its own, so such a request cannot be forged: antiforgery validation is skipped for it and no antiforgery
 /// token is issued to it. All three must hold — the header, the identity type those middlewares build and their
@@ -32,7 +32,7 @@ internal static class HeaderAuthenticatedRequest
             return user.HasClaim(McpCallerClaimTypes.AuthMethod, McpCallerClaimTypes.ApiKeyAuthMethod);
         }
 
-        return identity.AuthenticationType == JwtBearerAuthMiddleware.AuthenticationType
+        return identity.AuthenticationType == BeaconJwtAuthenticator.AuthenticationType
             && (user.HasClaim(McpCallerClaimTypes.AuthMethod, McpCallerClaimTypes.JwtAuthMethod)
                 || user.HasClaim(McpCallerClaimTypes.AuthMethod, McpCallerClaimTypes.McpCallerAuthMethod));
     }

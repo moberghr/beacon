@@ -86,7 +86,10 @@ public class PostgreSqlHostDataSourceTests
     {
         using var dataSource = NpgsqlDataSource.Create(HostConnectionString);
 
+        // The obsolete schema overload still refuses any schema but beacon.
+#pragma warning disable CS0618
         var act = () => BuildProvider(x => x.UsePostgreSql(dataSource, "tenant_a"));
+#pragma warning restore CS0618
 
         act.Should().Throw<InvalidOperationException>().WithMessage("*only supports*beacon*tenant_a*");
     }
@@ -97,6 +100,21 @@ public class PostgreSqlHostDataSourceTests
         var act = () => new BeaconSearchPathInterceptor("beacon; DROP TABLE x");
 
         act.Should().Throw<InvalidOperationException>().WithMessage("*not a valid schema identifier*");
+    }
+
+    // The factory leases contexts from a pool, so a disposed context comes back clean instead of being rebuilt.
+    [Test]
+    public void UsePostgreSql_ContextFactory_ReusesDisposedContexts()
+    {
+        using var provider = BuildProvider(x => x.UsePostgreSql("Host=localhost;Database=unused"));
+        var factory = provider.GetRequiredService<IDbContextFactory<BeaconContext>>();
+
+        var first = factory.CreateDbContext();
+        first.Dispose();
+        using var second = factory.CreateDbContext();
+
+        second.Should().BeSameAs(first);
+        second.ChangeTracker.Entries().Should().BeEmpty();
     }
 
     // HostSyncLock and every other raw-SQL path take their connection from the context, never a connection string.
