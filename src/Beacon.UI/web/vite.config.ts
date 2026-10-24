@@ -47,6 +47,15 @@ export default defineConfig({
     // served to anonymous callers, and the maps carry the full TSX sources. Set VITE_SOURCEMAP=1
     // for a local build that needs them ('hidden' omits the sourceMappingURL from the served JS).
     sourcemap: process.env.VITE_SOURCEMAP === '1' ? 'hidden' : false,
+    // Two pages: the app, and the embed view (embed.html → src/embed/main.tsx), which the embed route serves under a
+    // strict CSP. The embed entry imports none of the app (no sign-in, router or sidebar); shared modules such as React
+    // land in common chunks.
+    rollupOptions: {
+      input: {
+        main: path.resolve(__dirname, 'index.html'),
+        embed: path.resolve(__dirname, 'embed.html'),
+      },
+    },
   },
   server: {
     port: 5173,

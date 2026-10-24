@@ -139,6 +139,20 @@ internal static class ApprovalWorkflowReport
     }
 
     /// <summary>
+    /// How many enabled users are Admins through their stored state (the super-admin flag or the Admin role): those who
+    /// decide a change of the LLM connection. With Beacon user management, stored state decides who is an Admin.
+    /// </summary>
+    public static async Task<int> CountAdminsAsync(IDbContextFactory<BeaconContext> contextFactory, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        return await context.Users
+            .Where(x => x.IsEnabled)
+            .Where(x => x.IsSuperAdmin || x.UserRoles.Any(y => y.Role.Name == RoleService.RoleNames.Admin))
+            .CountAsync(cancellationToken);
+    }
+
+    /// <summary>
     /// The names of the enabled MCP tools whose active version runs through an approval that recorded no content hash
     /// (approved before Beacon kept hashes), by name, at most <see cref="MaxListedTools"/>; and how many there are.
     /// </summary>

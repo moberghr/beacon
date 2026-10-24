@@ -51,17 +51,17 @@ public static class McpCallerClaimTypes
     public const string ApiKeyId = "api_key_id";
     public const string ApiKeyName = "api_key_name";
 
-    /// <summary>Claim type <c>ApiKeyAuthMiddleware</c> mints with the linked user's user name.</summary>
+    /// <summary>Claim type Beacon's API-key authentication mints with the linked user's user name.</summary>
     public const string UserNameClaim = "username";
 
     /// <summary><c>auth_method</c> value for an API-key caller. Scope-gated.</summary>
     public const string ApiKeyAuthMethod = "api_key";
 
-    /// <summary>Authentication type of the identity <c>ApiKeyAuthMiddleware</c> builds.</summary>
+    /// <summary>Authentication type of the identity Beacon's API-key authentication builds.</summary>
     public const string ApiKeyAuthenticationType = "ApiKey";
 
     /// <summary>
-    /// Authentication type of the identity an <c>IBeaconAuthorizationProvider</c> sees while <c>ApiKeyAuthMiddleware</c>
+    /// Authentication type of the identity an <c>IBeaconAuthorizationProvider</c> sees while Beacon's API-key authentication
     /// asks it whether a key's owner has write permission: the owner as a signed-in session presents them
     /// (<c>NameIdentifier</c> = <c>Users.ExternalId</c>, name, email, display name, a role claim per role), without an
     /// <c>auth_method</c> marker.
@@ -74,6 +74,21 @@ public static class McpCallerClaimTypes
     /// <summary><c>auth_method</c> value for a JWT caller on any other route. Not scope-gated.</summary>
     public const string JwtAuthMethod = "jwt";
 
+    /// <summary>
+    /// <c>auth_method</c> value for an embed grant's secret, presented by a host's backend to exchange it for embed tokens.
+    /// Set only by Beacon's embed middleware, on the token exchange route.
+    /// </summary>
+    public const string EmbedGrantAuthMethod = "embed_grant";
+
+    /// <summary><c>auth_method</c> value for an embed token. Set only by Beacon's embed middleware, on the render route.</summary>
+    public const string EmbedTokenAuthMethod = "embed_token";
+
+    /// <summary>The id (<c>EmbedGrants.Id</c>) of the grant an embed principal acts for.</summary>
+    public const string EmbedGrantId = "embed_grant_id";
+
+    /// <summary>Authentication type of the identity Beacon's embed middleware builds.</summary>
+    public const string EmbedAuthenticationType = "BeaconEmbed";
+
     /// <summary>Claim types a bearer token must never be able to set for itself.</summary>
     public static readonly IReadOnlySet<string> Reserved = new HashSet<string>(StringComparer.OrdinalIgnoreCase)
     {
@@ -83,6 +98,7 @@ public static class McpCallerClaimTypes
         CallerKind,
         CallerHash,
         ApiKeyId,
-        ApiKeyName
+        ApiKeyName,
+        EmbedGrantId
     };
 }

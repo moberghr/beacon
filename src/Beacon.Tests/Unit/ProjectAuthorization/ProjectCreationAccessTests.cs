@@ -276,6 +276,8 @@ public class ProjectCreationAccessTests
             new RecordingSecurityAudit(),
             TestTransport.Policy(),
             TestEngineVerifier.Passing,
+            TestChangeApprovals.Submitter(),
+            TestTransport.Hasher(),
             NullLogger<DataSourceService>.Instance);
 
         await service.CreateDataSource(
@@ -321,6 +323,7 @@ public class ProjectCreationAccessTests
             factory,
             TestProjectAccess.Evaluator(scope),
             TestProjectAccess.Actors(),
+            new BeaconConfiguration(),
             NullLogger<CreateDataSourceHandler>.Instance);
     }
 

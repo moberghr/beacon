@@ -35,11 +35,9 @@ public static partial class LoginEndpoints
                 ? returnUrl!
                 : loginRedirectFallback;
 
-            var properties = new AuthenticationProperties
-            {
-                RedirectUri = safeReturnUrl,
-                IsPersistent = true
-            };
+            // Whether the session cookie outlives the browser is decided when the token is validated
+            // (OidcEventHandlers, Beacon:Authentication:Session:PersistSsoCookie).
+            var properties = new AuthenticationProperties { RedirectUri = safeReturnUrl };
 
             return Results.Challenge(properties, new[] { OpenIdConnectDefaults.AuthenticationScheme });
         }).AllowAnonymous();

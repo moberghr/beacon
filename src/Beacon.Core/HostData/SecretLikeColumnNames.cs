@@ -97,7 +97,8 @@ public static class SecretLikeColumnNames
 
     private static readonly Regex WordSplitter = new(
         @"[A-Z]?[a-z]+|[A-Z]+(?![a-z])|\d+",
-        RegexOptions.Compiled);
+        RegexOptions.Compiled,
+        TimeSpan.FromMilliseconds(250));
 
     /// <summary>True when <paramref name="name"/> (a column or property name) looks like it holds a secret.</summary>
     public static bool IsSecretLike(string? name)
@@ -115,9 +116,17 @@ public static class SecretLikeColumnNames
             }
         }
 
-        return WordSplitter.Matches(name)
-            .Select(x => x.Value)
-            .Any(x => WordMarkers.Contains(x));
+        try
+        {
+            return WordSplitter.Matches(name)
+                .Select(x => x.Value)
+                .Any(x => WordMarkers.Contains(x));
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            // A name that cannot be split in time is treated as secret-like.
+            return true;
+        }
     }
 
     /// <summary>
@@ -155,9 +164,17 @@ public static class SecretLikeColumnNames
             return true;
         }
 
-        var segments = WordSplitter.Matches(name)
-            .Select(x => x.Value)
-            .ToList();
+        List<string> segments;
+        try
+        {
+            segments = WordSplitter.Matches(name)
+                .Select(x => x.Value)
+                .ToList();
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            return true;
+        }
 
         return segments.Any(x => ValueWordMarkers.Contains(x))
             || (segments.Any(x => x.Equals("key", StringComparison.OrdinalIgnoreCase)) && segments.Any(x => KeyQualifiers.Contains(x)));

@@ -59,7 +59,7 @@ These answer without a session. Everything else requires one, an API key or a be
 | `GET /beacon/api/auth/me` | The current session, if any | |
 | `GET /beacon/api/auth/sso` | Whether SSO is offered, for the login page | |
 | `GET /beacon/api/csrf` | Antiforgery token for the UI | `400` for callers authenticated by an `Authorization` header. |
-| `POST /beacon/api/auth/login` | Password sign-in | Mapped only while password sign-in is on or a break-glass account is configured. 10 attempts per minute per client IP, then `429` with `Retry-After`. |
+| `POST /beacon/api/auth/login` | Password sign-in | Mapped only while password sign-in is on or a break-glass account is configured. Needs the antiforgery token (`X-XSRF-TOKEN`), `400` without it. 10 attempts per minute per client IP, then `429` with `Retry-After`. |
 | `POST /beacon/api/auth/logout` | Sign out; `?everywhere=true` signs out every session of the user | |
 | `GET /beacon/api/auth/sso/challenge` | Start the OIDC sign-in | |
 | `GET /beacon/api/setup/status` | Whether first-run setup is open | Mapped when user management is on. |
@@ -82,7 +82,7 @@ Functional permissions named below are held by Admins too. A by-id request on a 
 |---|---|---|
 | `/auth/me`, `/auth/sso`, `/auth/permissions` | Current user, SSO config, current permissions | `permissions` returns `canRead`, `canWrite`, `isAdmin`, `permissions`, `migrationsEnabled`, `build` (`version`, `commit`). |
 | `/home` | Home page: trends, activity, task summary, uptime, migration summary | `migration-summary` admits MigrationOperator. |
-| `/projects` | Projects, linked data sources, members, access mode, repositories, documentation, imported documents, MCP context | Members: project admins, UserAdmin. Access mode: UserAdmin (opening a restricted project: Admin). Unlinking a data source: Admin. Repository token: SecurityAdmin. |
+| `/projects` | Projects, linked data sources, members, access mode, repositories and their scans (in the request, or as a background task), documentation, imported documents, MCP context | Members: project admins, UserAdmin. Access mode: UserAdmin (opening a restricted project: Admin). Unlinking a data source: Admin. Repository token: SecurityAdmin. |
 | `/data-sources` | Data sources, connection test, metadata, metadata refresh | Create, test and delete: DataSourceAdmin. `GET /{id}/metadata` needs Execute scope. `PUT /{id}/migration-writes`: Admin. Forced refresh is rate limited per data source (`429`). |
 | `/data-sources/{id}/relationships`, `/data-sources/{id}/schema-health` | Schema relationships: list, add, edit, verify, delete, discover; schema health | Verifying needs the Curate action. |
 | `/queries` | Queries: list, detail, create, update, lock, change history, preview, step preview, publish as MCP tool | No delete route. Previews need Execute scope. `PUT /{id}/mcp-tool`: SecurityAdmin. |
@@ -118,6 +118,16 @@ Every list endpoint takes the same query parameters:
 | `sort` | the list's own order | Comma-separated property names, `-` for descending, for example `sort=-createdTime,name`. Unknown names are ignored. |
 
 A paged response is `{ "items": [...], "totalCount": n, "pageCount": n }`. Lists are filtered to the projects the caller can read in SQL, before paging, so counts never include rows you cannot see.
+
+Five lists predate paging and keep their original route and array response, and are deprecated in the OpenAPI document. They return every row up to a 10,000 safety cap; when the cap cuts, the response carries `X-Beacon-Truncated: true` and Beacon logs a warning. Each has a paged twin, which new callers should use:
+
+| Deprecated unpaged route | Paged route |
+|---|---|
+| `GET /glossary` | `GET /glossary/paged` (also `search` on the term) |
+| `GET /eval/golden` | `GET /eval/golden/paged` (also `id`) |
+| `GET /eval/runs/{runId}/results` | `GET /eval/runs/{runId}/results/paged` |
+| `GET /query-folders` | `GET /query-folders/paged` (also `search` on the name or path) |
+| `GET /data-quality/overview` | `GET /data-quality/overview/paged` (one item per data source, each with its 20 lowest-scoring tables; the unpaged overview lists the same 20 per source, with counts and averages over all of a source's tables) |
 
 ### Errors
 
@@ -161,5 +171,5 @@ These come from the host, not from the Beacon packages. The sample host maps the
 
 | Path | What |
 |---|---|
-| `/openapi/v1.json` | OpenAPI document of the REST API (`app.MapOpenApi()`). The UI's typed client is generated from it. |
+| `/openapi/v1.json` | OpenAPI document of the REST API (`app.MapBeaconOpenApi()`). Open in Development (the UI's typed client is generated from it there); elsewhere it needs a signed-in Beacon caller unless `Beacon:OpenApi:Anonymous` is `true`. A gated document needs `/openapi` in `Beacon:Authentication:AdditionalPaths`. |
 | `/warp` | Warp job dashboard, sample host only. Signed-in Admins. |

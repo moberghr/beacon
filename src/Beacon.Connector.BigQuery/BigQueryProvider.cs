@@ -44,10 +44,9 @@ public class BigQueryProvider(
     public DataSourceType SupportedType => DataSourceType.BigQuery;
     public string GetQueryLanguageName() => "BigQuery SQL";
 
-    public async Task<ConnectionTestResult> TestConnectionAsync(DataSource dataSource, CancellationToken cancellationToken = default)
+    public Task<ConnectionTestResult> TestConnectionAsync(DataSource dataSource, CancellationToken cancellationToken = default)
     {
-        var stopwatch = Stopwatch.StartNew();
-        try
+        return ConnectorProviderSupport.TestConnectionAsync(logger, dataSource, "BigQuery", async () =>
         {
             var config = ParseConfiguration(dataSource);
             using var client = CreateClient(config);
@@ -56,30 +55,13 @@ public class BigQueryProvider(
             var datasets = client.ListDatasetsAsync(config.ProjectId);
             await datasets.ReadPageAsync(1, cancellationToken);
 
-            stopwatch.Stop();
-            return new ConnectionTestResult
+            return new Dictionary<string, object?>
             {
-                Success = true,
-                TestDurationMs = stopwatch.Elapsed.TotalMilliseconds,
-                ConnectionInfo = new Dictionary<string, object?>
-                {
-                    ["ProjectId"] = config.ProjectId,
-                    ["DatasetId"] = config.DatasetId,
-                    ["Location"] = config.Location
-                }
+                ["ProjectId"] = config.ProjectId,
+                ["DatasetId"] = config.DatasetId,
+                ["Location"] = config.Location
             };
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Connection test failed for BigQuery data source {DataSourceId}", dataSource.Id);
-            stopwatch.Stop();
-            return new ConnectionTestResult
-            {
-                Success = false,
-                ErrorMessage = ConnectionFailureDescriber.Describe(ex),
-                TestDurationMs = stopwatch.Elapsed.TotalMilliseconds
-            };
-        }
+        });
     }
 
     public Task<ProviderQueryResult> ExecuteQueryAsync(DataSource dataSource, string query, Dictionary<string, object?> parameters, CancellationToken cancellationToken = default)
@@ -308,11 +290,7 @@ public class BigQueryProvider(
             errors.Add(readOnlyError);
         }
 
-        return Task.FromResult(new QueryValidationResult
-        {
-            IsValid = errors.Count == 0,
-            Errors = errors
-        });
+        return ConnectorProviderSupport.ValidationVerdict(errors);
     }
 
     private static IEnumerable<BigQueryParameter>? BuildQueryParameters(Dictionary<string, object?> parameters, QueryOptions queryOptions)
@@ -391,9 +369,9 @@ public class BigQueryProvider(
 
     private BigQueryConfiguration ParseConfiguration(DataSource dataSource)
     {
-        var decryptedJson = connectionResolver.GetConnectionData(dataSource);
-        return JsonSerializer.Deserialize<BigQueryConfiguration>(decryptedJson)
-            ?? throw new BeaconException("Failed to parse BigQuery configuration");
+        return ConnectorProviderSupport.ParseConfiguration<BigQueryConfiguration>(
+            connectionResolver.GetConnectionData(dataSource),
+            "Failed to parse BigQuery configuration");
     }
 
     private static ProviderQueryResult Refused(string reason)

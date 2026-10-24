@@ -23,6 +23,8 @@ export interface CurrentPermissions {
   migrationsEnabled?: boolean;
   /** Whether Beacon is embedded as an MCP gateway (`AddBeaconMcpGateway`): only part of the REST API is served. */
   gatewayMode?: boolean;
+  /** Whether this deployment serves embedded query views (`Beacon:Embed:Enabled`, off by default). */
+  embedEnabled?: boolean;
   /** The running build, served to signed-in callers only (it is never written into the public bundle). */
   build?: BuildInfo | null;
 }
@@ -53,6 +55,10 @@ export interface Access {
   opensMigrations: boolean;
   /** Beacon runs as an MCP gateway: only the projects and MCP pages are served, every other route answers 404. */
   gatewayMode: boolean;
+  /** Whether this deployment serves embedded query views; while it does not, nothing of the feature is shown. */
+  embedEnabled: boolean;
+  /** The embed grants page is open: the deployment serves embeds and the user holds SecurityAdmin (or is an Admin). */
+  opensEmbeds: boolean;
 }
 
 export function accessOf(data: Partial<CurrentPermissions> | undefined, isLoading: boolean): Access {
@@ -61,6 +67,7 @@ export function accessOf(data: Partial<CurrentPermissions> | undefined, isLoadin
   const held = new Set(permissions);
   const hasPermission = (permission: BeaconPermission) => isAdmin || held.has(permission);
   const migrationsEnabled = data?.migrationsEnabled === true;
+  const embedEnabled = data?.embedEnabled === true;
 
   return {
     isLoading,
@@ -74,6 +81,8 @@ export function accessOf(data: Partial<CurrentPermissions> | undefined, isLoadin
     migrationsEnabled,
     opensMigrations: migrationsEnabled && hasPermission('MigrationOperator'),
     gatewayMode: data?.gatewayMode === true,
+    embedEnabled,
+    opensEmbeds: embedEnabled && hasPermission('SecurityAdmin'),
   };
 }
 
@@ -85,6 +94,8 @@ export interface PermissionPage {
   exact?: boolean;
   /** A page of data migration, which exists only while the deployment runs migrations. */
   migrations?: boolean;
+  /** A page of embedding, which exists only while the deployment serves embeds. */
+  embed?: boolean;
 }
 
 /** The pages a functional permission opens without a Viewer or Editor role. */
@@ -98,6 +109,7 @@ export const PERMISSION_PAGES: PermissionPage[] = [
   { path: '/data-sources', label: 'Data sources', permissions: ['DataSourceAdmin'], exact: true },
   { path: '/migration-jobs', label: 'Data migration', permissions: ['MigrationOperator'], migrations: true },
   { path: '/migration-history', label: 'Migration history', permissions: ['MigrationOperator'], migrations: true },
+  { path: '/embeds', label: 'Embeds', permissions: ['SecurityAdmin'], embed: true },
 ];
 
 /** Pages about the user themselves, open to everyone signed in. */
@@ -107,6 +119,7 @@ const PERSONAL_PAGES = ['/settings', '/about'];
 export function pagesOpenedBy(access: Access): PermissionPage[] {
   return PERMISSION_PAGES
     .filter(x => access.migrationsEnabled || x.migrations !== true)
+    .filter(x => access.embedEnabled || x.embed !== true)
     .filter(x => access.hasAnyPermission(...x.permissions));
 }
 

@@ -23,6 +23,7 @@
 
 	<ItemGroup>
 		<InternalsVisibleTo Include="Beacon.Tests" />
+		<InternalsVisibleTo Include="Beacon.Gateway" />
 	</ItemGroup>
 
 	<ItemGroup>

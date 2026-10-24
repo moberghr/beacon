@@ -11,7 +11,9 @@ import RecipientsListPage from '@/routes/recipients/RecipientsListPage';
 import DataContractDetailPage from '@/routes/data-quality/DataContractDetailPage';
 import { RecipientsTab } from '@/routes/subscriptions/parts/RecipientsTab';
 import type { SubscriptionDetail } from '@/routes/subscriptions/queries';
-import { ApprovalStatus } from '@/lib/enums';
+import DataSourcesListPage from '@/routes/data-sources/DataSourcesListPage';
+import { AwaitingApprovalBanner } from './AwaitingApproval';
+import { ApprovalStatus, ChangeApprovalKind } from '@/lib/enums';
 
 const JOB = {
   id: 4,
@@ -375,3 +377,78 @@ describe('a contract evaluated while Custom SQL rules await approval', () => {
   });
 });
 
+describe('a data source whose connection waits for approval, and rejected connection changes', () => {
+  const HELD = {
+    id: 9,
+    name: 'ledger-db',
+    dataSourceType: 'Database',
+    databaseEngineType: 'PostgreSQL',
+    queryCount: 0,
+    migrationJobsCount: 0,
+    metadataLoadingEnabled: true,
+    openWhenUnlinked: false,
+    projects: [],
+    otherProjectCount: 0,
+    approval: { requestId: 41, kind: ChangeApprovalKind.DataSourceConnection, requestedTime: '2026-10-13T10:00:00Z', awaitsFirstApproval: true },
+  };
+  const REJECTED = { requestId: 40, status: ApprovalStatus.Rejected, comment: 'Wrong replica', decidedAt: '2026-10-13T11:00:00Z' };
+
+  it('marks the source in the list and links an Approver to the pending change', async () => {
+    mswServer.use(
+      permissionsHandler({ permissions: ['Approver'] }),
+      http.get('*/beacon/api/data-sources', () => HttpResponse.json({ items: [HELD], totalCount: 1, pageCount: 1 })),
+    );
+
+    renderWithProviders(<DataSourcesListPage />);
+
+    const row = (await screen.findByText('ledger-db')).closest('[role="row"]') as HTMLElement;
+    expect(within(row).getByText('Awaiting approval')).toHaveAttribute('title', expect.stringMatching(/makes no connection with the data source/));
+    await waitFor(() => expect(within(row).getByRole('link', { name: 'Review the pending change' })).toHaveAttribute('href', '/approvals/changes/41'));
+  });
+
+  it('marks the requester\'s own waiting source without a link when they are not an Approver', async () => {
+    mswServer.use(
+      permissionsHandler({ permissions: ['DataSourceAdmin'] }),
+      http.get('*/beacon/api/data-sources', () => HttpResponse.json({ items: [HELD], totalCount: 1, pageCount: 1 })),
+    );
+
+    renderWithProviders(<DataSourcesListPage />);
+
+    const row = (await screen.findByText('ledger-db')).closest('[role="row"]') as HTMLElement;
+    expect(within(row).getByText('Awaiting approval')).toBeInTheDocument();
+    expect(await screen.findByRole('button', { name: /new data source/i })).toBeInTheDocument();
+    expect(within(row).queryByRole('link', { name: 'Review the pending change' })).not.toBeInTheDocument();
+  });
+
+  it('says what to do about a rejected connection, linking an Approver to the change', async () => {
+    mswServer.use(permissionsHandler({ permissions: ['Approver'] }));
+
+    renderWithProviders(
+      <AwaitingApprovalBanner kind={ChangeApprovalKind.DataSourceConnection} title="Held" sub="Held" requestId={null} lastDecision={REJECTED} />,
+    );
+
+    expect(screen.getByText('Rejected — replace the connection, or delete the data source')).toBeInTheDocument();
+    expect(screen.getByText(/Beacon makes no connection with the data source until it holds an approved one/)).toBeInTheDocument();
+    expect(screen.getByText('Reviewer comment: “Wrong replica”')).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'View the change' })).toHaveAttribute('href', '/approvals/changes/40');
+  });
+
+  it('says a rejected LLM connection change leaves the stored connection in use, and links only an Admin to it', async () => {
+    mswServer.use(permissionsHandler({ permissions: ['Approver'] }));
+
+    renderWithProviders(
+      <AwaitingApprovalBanner kind={ChangeApprovalKind.LlmConnection} title="Pending" sub="Pending" requestId={null} lastDecision={REJECTED} />,
+    );
+
+    expect(screen.getByText('Rejected — the LLM connection stays as it was')).toBeInTheDocument();
+    expect(screen.getByText(/the stored connection stays in use/)).toBeInTheDocument();
+    await waitFor(() => expect(screen.queryByRole('link', { name: 'View the change' })).not.toBeInTheDocument());
+
+    mswServer.use(permissionsHandler({ isAdmin: true }));
+    renderWithProviders(
+      <AwaitingApprovalBanner kind={ChangeApprovalKind.LlmConnection} title="Pending" sub="Pending" requestId={null} lastDecision={REJECTED} />,
+    );
+
+    expect(await screen.findByRole('link', { name: 'View the change' })).toHaveAttribute('href', '/approvals/changes/40');
+  });
+});

@@ -6,6 +6,7 @@ using Beacon.Core;
 using Beacon.Core.Authentication;
 using Beacon.Core.Authorization;
 using Beacon.Core.Configuration;
+using Beacon.Core.Services.Embed;
 using Microsoft.Extensions.Options;
 
 namespace Beacon.Api.Endpoints;
@@ -101,6 +102,7 @@ internal static class AuthEndpoints
         CancellationToken cancellationToken)
     {
         var migrationsEnabled = httpContext.RequestServices.GetService<IOptions<MigrationOptions>>()?.Value.Enabled == true;
+        var embedEnabled = BeaconEmbedPaths.IsEnabled(httpContext.RequestServices);
         var canRead = await authorization.HasReadPermissionAsync(cancellationToken);
         var canWrite = await authorization.HasWritePermissionAsync(cancellationToken);
         var accessor = httpContext.RequestServices.GetService<IBeaconPermissionAccessor>();
@@ -117,6 +119,7 @@ internal static class AuthEndpoints
                 .ToArray(),
             migrationsEnabled,
             httpContext.RequestServices.GetService<BeaconApiOptions>()?.GatewayMode == true,
+            embedEnabled,
             BuildInfoResponse.Current);
     }
 }
@@ -162,6 +165,7 @@ internal sealed record CurrentPermissionsResponse(
     IReadOnlyList<string> Permissions,
     bool MigrationsEnabled,
     bool GatewayMode = false,
+    bool EmbedEnabled = false,
     BuildInfoResponse? Build = null);
 
 /// <summary>

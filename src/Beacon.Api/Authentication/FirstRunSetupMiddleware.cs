@@ -18,6 +18,10 @@ public sealed class FirstRunSetupMiddleware(
 {
     private readonly string _basePath = basePath.TrimEnd('/');
 
+    // One-way: a super admin that has ever existed never stops having existed (an archived one counts), so once the
+    // check has answered "set up" this process asks the database no more.
+    private volatile bool _setupComplete;
+
     public async Task InvokeAsync(HttpContext context, IUserManagementService userService)
     {
         // Skip if user management is not enabled, and for host routes: they are never redirected to Beacon's setup page
@@ -35,6 +39,12 @@ public sealed class FirstRunSetupMiddleware(
             return;
         }
 
+        if (_setupComplete)
+        {
+            await next(context);
+            return;
+        }
+
         // Check if this is first run (no super admin has ever existed)
         var isFirstRun = await userService.IsFirstRunAsync(context.RequestAborted);
         if (isFirstRun)
@@ -47,6 +57,7 @@ public sealed class FirstRunSetupMiddleware(
             return;
         }
 
+        _setupComplete = true;
         await next(context);
     }
 
