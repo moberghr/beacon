@@ -88,6 +88,7 @@ Beacon ships no job runner and no Hangfire integration. `IBeaconScheduler` is th
 | `EnqueueAiActorThinkCycle(actorId, subscriptionId)` | AI actors. Returns a job id. Throws until implemented. |
 | `EnqueueMcpEval(runId)` | MCP evaluation runs. Returns a job id. Throws until implemented. |
 | `EnqueueMetadataRefresh(dataSourceId)` | Re-scan after a data source was pointed at another target. Optional: the default returns `null` and Beacon logs that the old schema stays until a refresh. |
+| `EnqueueBackgroundTask(taskId, notifyUserId)` | A task a user started and follows (a background metadata refresh); your job calls `IBackgroundTaskService.ExecuteAsync(taskId, ct)`. Optional: the default returns `null` and Beacon runs the task in the request. |
 
 `cron` is a standard 5-field expression, already validated by Beacon. Key recurring jobs by the entity id, never by the name.
 

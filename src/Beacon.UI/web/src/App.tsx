@@ -8,54 +8,57 @@ import { useAccess } from './auth/useAuth';
 import { AppShell } from './components/layout/AppShell';
 import { RouteErrorBoundary } from './components/RouteErrorBoundary';
 import { lazyWithRetry } from './lib/lazyWithRetry';
+import { routeChunks } from './routeChunks';
 
-const ProjectsListPage = lazyWithRetry(() => import('./routes/projects/ProjectsListPage'));
-const ProjectDetailPage = lazyWithRetry(() => import('./routes/projects/ProjectDetailPage'));
-const NotificationsPage = lazyWithRetry(() => import('./routes/notifications/NotificationsPage'));
-const HomePage = lazyWithRetry(() => import('./routes/home/HomePage'));
-const AboutPage = lazyWithRetry(() => import('./routes/about/AboutPage'));
-const ControlTowerPage = lazyWithRetry(() => import('./routes/control-tower/ControlTowerPage'));
-const MigrationHistoryPage = lazyWithRetry(() => import('./routes/migration-history/MigrationHistoryPage'));
-const QueriesListPage = lazyWithRetry(() => import('./routes/queries/QueriesListPage'));
-const QueryDetailPage = lazyWithRetry(() => import('./routes/queries/QueryDetailPage'));
-const QueryEditorPage = lazyWithRetry(() => import('./routes/queries/QueryEditorPage'));
-const NewQueryPage = lazyWithRetry(() => import('./routes/queries/NewQueryPage'));
-const QueryVersionsPage = lazyWithRetry(() => import('./routes/queries/QueryVersionsPage'));
-const QueryVersionDetailPage = lazyWithRetry(() => import('./routes/queries/QueryVersionDetailPage'));
-const RecipientsListPage = lazyWithRetry(() => import('./routes/recipients/RecipientsListPage'));
-const TasksListPage = lazyWithRetry(() => import('./routes/tasks/TasksListPage'));
-const TaskDetailPage = lazyWithRetry(() => import('./routes/tasks/TaskDetailPage'));
-const ApprovalsListPage = lazyWithRetry(() => import('./routes/approvals/ApprovalsListPage'));
-const ApiKeysListPage = lazyWithRetry(() => import('./routes/api-keys/ApiKeysListPage'));
-const UsersListPage = lazyWithRetry(() => import('./routes/users/UsersListPage'));
-const SubscriptionsListPage = lazyWithRetry(() => import('./routes/subscriptions/SubscriptionsListPage'));
-const SubscriptionDetailPage = lazyWithRetry(() => import('./routes/subscriptions/SubscriptionDetailPage'));
-const DataSourcesListPage = lazyWithRetry(() => import('./routes/data-sources/DataSourcesListPage'));
-const DataSourceDetailPage = lazyWithRetry(() => import('./routes/data-sources/DataSourceDetailPage'));
-const RelationshipsPage = lazyWithRetry(() => import('./routes/data-sources/relationships/RelationshipsPage'));
-const NewProjectPage = lazyWithRetry(() => import('./routes/projects/NewProjectPage'));
-const NewMigrationJobPage = lazyWithRetry(() => import('./routes/migration-jobs/NewMigrationJobPage'));
-const MigrationJobDetailPage = lazyWithRetry(() => import('./routes/migration-jobs/MigrationJobDetailPage'));
-const ApprovalDetailPage = lazyWithRetry(() => import('./routes/approvals/ApprovalDetailPage'));
-const ChangeApprovalDetailPage = lazyWithRetry(() => import('./routes/approvals/ChangeApprovalDetailPage'));
-const AiActorEditPage = lazyWithRetry(() => import('./routes/ai-actors/AiActorEditPage'));
-const AdminSettingsPage = lazyWithRetry(() => import('./routes/admin-settings/AdminSettingsPage'));
-const SettingsPage = lazyWithRetry(() => import('./routes/settings/SettingsPage'));
-const NotificationDetailPage = lazyWithRetry(() => import('./routes/notifications/NotificationDetailPage'));
-const DataQualityPage = lazyWithRetry(() => import('./routes/data-quality/DataQualityPage'));
-const DataContractDetailPage = lazyWithRetry(() => import('./routes/data-quality/DataContractDetailPage'));
-const McpPlaygroundPage = lazyWithRetry(() => import('./routes/mcp/McpPlaygroundPage'));
-const McpLearningPage = lazyWithRetry(() => import('./routes/mcp/McpLearningPage'));
-const McpSettingsPage = lazyWithRetry(() => import('./routes/mcp/McpSettingsPage'));
-const McpAuditPage = lazyWithRetry(() => import('./routes/mcp/McpAuditPage'));
-const SecurityAuditPage = lazyWithRetry(() => import('./routes/security-audit/SecurityAuditPage'));
-const AiActorsListPage = lazyWithRetry(() => import('./routes/ai-actors/AiActorsListPage'));
-const AiActorDetailPage = lazyWithRetry(() => import('./routes/ai-actors/AiActorDetailPage'));
-const MigrationJobsListPage = lazyWithRetry(() => import('./routes/migration-jobs/MigrationJobsListPage'));
-const LoginPage = lazyWithRetry(() => import('./routes/auth/LoginPage'));
-const LogoutPage = lazyWithRetry(() => import('./routes/auth/LogoutPage'));
-const SetupPage = lazyWithRetry(() => import('./routes/auth/SetupPage'));
-const ErrorPage = lazyWithRetry(() => import('./routes/auth/ErrorPage'));
+const ProjectsListPage = lazyWithRetry(routeChunks.ProjectsListPage);
+const ProjectDetailPage = lazyWithRetry(routeChunks.ProjectDetailPage);
+const NotificationsPage = lazyWithRetry(routeChunks.NotificationsPage);
+const HomePage = lazyWithRetry(routeChunks.HomePage);
+const AboutPage = lazyWithRetry(routeChunks.AboutPage);
+const ControlTowerPage = lazyWithRetry(routeChunks.ControlTowerPage);
+const MigrationHistoryPage = lazyWithRetry(routeChunks.MigrationHistoryPage);
+const QueriesListPage = lazyWithRetry(routeChunks.QueriesListPage);
+const QueryDetailPage = lazyWithRetry(routeChunks.QueryDetailPage);
+const QueryEditorPage = lazyWithRetry(routeChunks.QueryEditorPage);
+const NewQueryPage = lazyWithRetry(routeChunks.NewQueryPage);
+const QueryVersionsPage = lazyWithRetry(routeChunks.QueryVersionsPage);
+const QueryVersionDetailPage = lazyWithRetry(routeChunks.QueryVersionDetailPage);
+const RecipientsListPage = lazyWithRetry(routeChunks.RecipientsListPage);
+const QueryFoldersPage = lazyWithRetry(routeChunks.QueryFoldersPage);
+const GlossaryPage = lazyWithRetry(routeChunks.GlossaryPage);
+const TasksListPage = lazyWithRetry(routeChunks.TasksListPage);
+const TaskDetailPage = lazyWithRetry(routeChunks.TaskDetailPage);
+const ApprovalsListPage = lazyWithRetry(routeChunks.ApprovalsListPage);
+const ApiKeysListPage = lazyWithRetry(routeChunks.ApiKeysListPage);
+const UsersListPage = lazyWithRetry(routeChunks.UsersListPage);
+const SubscriptionsListPage = lazyWithRetry(routeChunks.SubscriptionsListPage);
+const SubscriptionDetailPage = lazyWithRetry(routeChunks.SubscriptionDetailPage);
+const DataSourcesListPage = lazyWithRetry(routeChunks.DataSourcesListPage);
+const DataSourceDetailPage = lazyWithRetry(routeChunks.DataSourceDetailPage);
+const RelationshipsPage = lazyWithRetry(routeChunks.RelationshipsPage);
+const NewProjectPage = lazyWithRetry(routeChunks.NewProjectPage);
+const NewMigrationJobPage = lazyWithRetry(routeChunks.NewMigrationJobPage);
+const MigrationJobDetailPage = lazyWithRetry(routeChunks.MigrationJobDetailPage);
+const ApprovalDetailPage = lazyWithRetry(routeChunks.ApprovalDetailPage);
+const ChangeApprovalDetailPage = lazyWithRetry(routeChunks.ChangeApprovalDetailPage);
+const AiActorEditPage = lazyWithRetry(routeChunks.AiActorEditPage);
+const AdminSettingsPage = lazyWithRetry(routeChunks.AdminSettingsPage);
+const SettingsPage = lazyWithRetry(routeChunks.SettingsPage);
+const NotificationDetailPage = lazyWithRetry(routeChunks.NotificationDetailPage);
+const DataQualityPage = lazyWithRetry(routeChunks.DataQualityPage);
+const DataContractDetailPage = lazyWithRetry(routeChunks.DataContractDetailPage);
+const McpPlaygroundPage = lazyWithRetry(routeChunks.McpPlaygroundPage);
+const McpLearningPage = lazyWithRetry(routeChunks.McpLearningPage);
+const McpSettingsPage = lazyWithRetry(routeChunks.McpSettingsPage);
+const McpAuditPage = lazyWithRetry(routeChunks.McpAuditPage);
+const SecurityAuditPage = lazyWithRetry(routeChunks.SecurityAuditPage);
+const AiActorsListPage = lazyWithRetry(routeChunks.AiActorsListPage);
+const AiActorDetailPage = lazyWithRetry(routeChunks.AiActorDetailPage);
+const MigrationJobsListPage = lazyWithRetry(routeChunks.MigrationJobsListPage);
+const LoginPage = lazyWithRetry(routeChunks.LoginPage);
+const LogoutPage = lazyWithRetry(routeChunks.LogoutPage);
+const SetupPage = lazyWithRetry(routeChunks.SetupPage);
+const ErrorPage = lazyWithRetry(routeChunks.ErrorPage);
 
 function PageFallback() {
   return (
@@ -137,6 +140,8 @@ export default function App() {
                     <Route path="/queries/:id/edit" element={lazyRoute(QueryEditorPage)} />
                     <Route path="/queries/:id/versions" element={lazyRoute(QueryVersionsPage)} />
                     <Route path="/queries/:id/versions/:versionId" element={lazyRoute(QueryVersionDetailPage)} />
+                    <Route path="/query-folders" element={lazyRoute(QueryFoldersPage)} />
+                    <Route path="/glossary" element={lazyRoute(GlossaryPage)} />
                     <Route path="/recipients" element={lazyRoute(RecipientsListPage)} />
                     <Route path="/tasks" element={lazyRoute(TasksListPage)} />
                     <Route path="/tasks/:id" element={lazyRoute(TaskDetailPage)} />

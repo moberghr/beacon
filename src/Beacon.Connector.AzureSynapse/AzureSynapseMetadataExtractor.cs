@@ -94,6 +94,9 @@ public class AzureSynapseMetadataExtractor : IDatabaseMetadataExtractor
 
         // Synapse may not support STRING_AGG in all configurations, use simpler index query
 
+        // One pass over the index rows instead of a scan of all of them per table.
+        var indexesByTable = indexesData.ToLookup(i => ((string)i.table_schema, (string)i.table_name));
+
         var tables = columnsData
             .GroupBy(c => new { schema = (string)c.table_schema, table = (string)c.table_name })
             .Select(g =>
@@ -123,8 +126,7 @@ public class AzureSynapseMetadataExtractor : IDatabaseMetadataExtractor
                     );
                 }).ToList();
 
-                var indexes = indexesData
-                    .Where(i => (string)i.table_schema == g.Key.schema && (string)i.table_name == g.Key.table)
+                var indexes = indexesByTable[(g.Key.schema, g.Key.table)]
                     .GroupBy(i => new { name = (string)i.index_name, is_unique = (bool)i.is_unique, is_pk = (bool)i.is_primary_key })
                     .Select(ig => new IndexMetadataDto(
                         IndexName: ig.Key.name,

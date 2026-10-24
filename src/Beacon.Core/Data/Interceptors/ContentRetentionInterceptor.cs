@@ -12,7 +12,8 @@ namespace Beacon.Core.Data.Interceptors;
 
 /// <summary>
 /// The belt behind the braces: whatever a write site forgets, this interceptor strips content-classified string
-/// properties off every Added/Modified <c>Mcp*</c> entity whose project holds the content lock. Structural
+/// properties off every Added/Modified <c>Mcp*</c> entity whose project holds the content lock, and off every content
+/// store outside MCP (<see cref="McpRetentionDenyList.ContentStores"/>) under the global decision. Structural
 /// properties are never touched; error text is replaced by its class. It logs identifiers only (§1.11) and never
 /// throws — a settings-resolution failure fails closed (treated as locked).
 /// </summary>
