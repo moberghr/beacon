@@ -388,6 +388,14 @@ public static class ServiceConfiguration
         // Rate limiter (singleton so the in-memory sliding windows are shared across requests)
         services.TryAddSingleton<Services.Security.RateLimiter>();
 
+        // Request limits on Beacon's routes and the password lockout (Beacon:RateLimits). ValidateOnStart so a limit out of
+        // range fails the host at boot. The API and the MCP server keep the counts (Beacon.Api, Beacon.MCP); the lockout is
+        // stored on the user.
+        services.AddOptions<Configuration.RateLimitOptions>()
+            .Bind(configuration.GetSection(Configuration.RateLimitOptions.SectionName))
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.RateLimitOptions>, Configuration.RateLimitOptionsValidator>());
+
         // Password sign-in through the login form (Beacon:UserManagement:LocalLogin), bound onto the code-configured
         // options whether or not user management is on: the login endpoint and the password providers read it. Binding
         // appends to a list, so a host that already bound the section onto its options would list every break-glass name

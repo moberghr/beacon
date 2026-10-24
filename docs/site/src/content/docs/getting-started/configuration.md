@@ -513,6 +513,26 @@ Data migration reads use `Beacon:Migrations:MaxRows` instead. The MCP tools that
 | `Beacon:AiActors:ThinkCooldownMinutes` | int | `15` | 0–1440 (`0` = off) | An AI actor's think cycle starts at most once per this many minutes, from its last think time. Background cycles within it are skipped; an on-demand cycle is refused with the time left. Validated at startup |
 | `Beacon:AiActors:PlanExpiryDays` | int | `7` | 1–365 | An AI actor's plan awaiting approval expires this many days after it was proposed: it is no longer listed as pending, and approving, rejecting or revising it answers `409`. Computed when read. Validated at startup |
 
+## Request limits
+
+Bound from `Beacon:RateLimits`, validated at startup. Each limit is a fixed window: `PermitLimit` requests per `WindowSeconds` (1–3600, default `60`) in each partition; `PermitLimit` is 0–100,000 and `0` turns that limit off. An authenticated caller is one partition per credential (an API key by its id, a mapped MCP caller by its subject hash, a signed-in user), an anonymous one per client address: an IPv4 address (also one mapped into IPv6) whole, an IPv6 address by its `/64` block, so one client cannot spread its requests over the addresses of its block. Each limit keeps at most `Beacon:RateLimits:MaxPartitions` partitions (default `10000`, 100–1,000,000); a new one beyond that replaces the one used least recently, which starts over with a full budget. The address is `HttpContext.Connection.RemoteIpAddress`, which `UseForwardedHeaders` rewrites only as your host configures it: behind a reverse proxy without forwarded headers every caller shares the proxy's partition (see [Production checklist](/integrate/production/#reverse-proxy)). Beacon's endpoints apply the limits themselves, on Beacon's routes only; `AddRateLimiter`/`UseRateLimiter` are not needed and a host's own limiter does not change them. The counts are kept in memory, so with N instances behind a load balancer a caller can reach N times a limit. Over a limit the answer is `429` as `application/problem+json` with `Retry-After` (whole seconds).
+
+| Key | Default | Partition | What it limits |
+|---|---|---|---|
+| `Login` | `10` a minute | client address | Password sign-in (`POST /beacon/api/auth/login`), and first-run setup in its own partition |
+| `Api` | `600` a minute | caller (anonymous: address) | Every `/beacon/api` request |
+| `Anonymous` | `30` a minute | client address | Anonymous requests to Beacon's routes answered `401` (no credential, an unknown or expired API key or bearer token); over it they get `429` instead |
+| `Mcp` | `60` a minute | API key or MCP caller | Every request to `/beacon/mcp` |
+| `Ask` | `10` a minute | caller | The `ask` tool, through MCP and the playground; over it the tool answers an error (audited like every refusal) |
+
+| Key | Type | Default | Range | What it does |
+|---|---|---|---|---|
+| `Beacon:RateLimits:Lockout:Enabled` | bool | `true` | | Apply the lockout. `false` (or `MaxFailedAttempts` `0`) turns it off: password sign-in is then limited only per client address by `Login` |
+| `Beacon:RateLimits:Lockout:MaxFailedAttempts` | int | `5` | 0–100 (`0` = off) | After this many wrong passwords an internal user's password sign-in, and the password change of a signed-in user, is locked. Counted per user (stored on the user, so it holds across instances), a wrong current password on a password change included; a name no user has is counted against nobody. The break-glass accounts (`Beacon:UserManagement:LocalLogin:BreakGlassUserNames`) are never counted or locked: they stay limited per client address by `Login` |
+| `Beacon:RateLimits:Lockout:DurationMinutes` | int | `15` | 1–1440 | How long the lock lasts. While locked every password, the right one included, gets the same generic answer as a wrong one, after the same password check; wrong passwords while locked do not extend it. The lock is decided after the password check, together with the write that clears the count, so attempts already in flight when another attempt locks the user are refused too. A successful sign-in, the lock itself, an administrator's password reset and a wrong password sent this long or longer after the previous one start the count again. A lock records `auth.user_locked_out` and logs `UserLockedOut` (7124); a refused attempt records `auth.password_sign_in_refused` with reason `locked_out` |
+
+The lockout counts per user, not per client: anyone who knows a user name can lock that user's password sign-in by sending wrong passwords, and again each time the lock ends (the per-address `Login` limit slows this down, but several addresses get past it). That denial of service is the price of a hard cap on password guessing. Keep a break-glass account for emergencies (it is never locked), prefer single sign-on for everyday users, or set `Lockout:Enabled` to `false` when the denial of service weighs more for your deployment than the cap.
+
 ## Subscription limits
 
 Bound from `Beacon:Subscriptions`, validated at startup.

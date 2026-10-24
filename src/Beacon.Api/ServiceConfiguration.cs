@@ -62,6 +62,9 @@ public static class ServiceConfiguration
             .ValidateOnStart();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<BeaconHostSecurityOptions>, BeaconHostSecurityOptionsValidator>());
 
+        // The per-caller limits of /beacon/api and of the anonymous requests Beacon refuses (Beacon:RateLimits).
+        services.TryAddSingleton<BeaconApiRateLimiter>();
+
         if (!options.Realtime)
         {
             services.TryAddScoped<IApprovalNotifier, RealtimeDisabledApprovalNotifier>();

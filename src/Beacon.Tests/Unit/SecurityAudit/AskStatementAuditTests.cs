@@ -461,7 +461,7 @@ public class AskStatementAuditTests
             knowledgeGraph.Object,
             settingsProvider.Object,
             SettingsProviderMock.Unshared(settingsProvider.Object),
-            serviceProvider.Object,
+            serviceProvider.WithoutAskLimit().Object,
             new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId] },
             new McpAuditService(
                 auditFactory.Object,
