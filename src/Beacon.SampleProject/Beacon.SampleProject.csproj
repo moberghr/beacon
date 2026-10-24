@@ -39,6 +39,7 @@
       <ProjectReference Include="..\Beacon.AI.Bedrock\Beacon.AI.Bedrock.csproj" />
       <ProjectReference Include="..\Beacon.AI.Embeddings.Onnx\Beacon.AI.Embeddings.Onnx.csproj" />
       <ProjectReference Include="..\Beacon.MCP\Beacon.MCP.csproj" />
+      <ProjectReference Include="..\Beacon.Gateway\Beacon.Gateway.csproj" />
       <!-- Data source connectors -->
       <ProjectReference Include="..\Beacon.Connector.PostgreSql\Beacon.Connector.PostgreSql.csproj" />
       <ProjectReference Include="..\Beacon.Connector.SqlServer\Beacon.Connector.SqlServer.csproj" />

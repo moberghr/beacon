@@ -23,6 +23,7 @@ namespace Beacon.Core.SecurityAudit;
 /// run writes a checkpoint to the log stream (<see cref="SecurityAuditLogEvents.Checkpoint"/>, 9109: how many it checked,
 /// the checkpoint id and that event's HMAC, the ids passed as never committed), which anchors the trail outside the
 /// database; a run that checked events records them as a system <see cref="SecurityAuditActions.AuditVerified"/> event.
+/// Each run then verifies the MCP audit rows written since its last run (<see cref="IMcpAuditVerificationService"/>).
 /// The sample host schedules it hourly as the Warp recurring job <c>security-audit-verify</c>; other hosts schedule it
 /// themselves.
 /// </summary>
@@ -71,6 +72,7 @@ internal sealed class SecurityAuditVerificationService(
     IOptions<SecurityAuditOptions> options,
     TimeProvider timeProvider,
     ILoggerFactory loggerFactory,
+    IMcpAuditVerificationService mcpAuditVerification,
     IMaintenanceHeartbeat? heartbeat = null) : ISecurityAuditVerificationService
 {
     internal const int BatchSize = 1000;
@@ -100,6 +102,7 @@ internal sealed class SecurityAuditVerificationService(
         {
             var checkpoint = await VerifyAsync(cancellationToken);
             await ReportAsync(checkpoint, cancellationToken);
+            await mcpAuditVerification.VerifyNewRowsAsync(cancellationToken);
 
             if (heartbeat != null)
             {
@@ -179,7 +182,7 @@ internal sealed class SecurityAuditVerificationService(
     // The highest id below which every id was checked by this run (or an earlier one), or passed as never committed. An id
     // with no event below a checked one is passed only once the nearest intact event above it, written after that id was
     // handed out, is older than passGapsBefore; until then the checkpoint stays below it and the next run checks again.
-    private static Advanced Advance(int fromEventId, List<SeenEvent> seen, DateTime passGapsBefore)
+    internal static Advanced Advance(int fromEventId, List<SeenEvent> seen, DateTime passGapsBefore)
     {
         var intactAbove = new DateTime?[seen.Count];
         DateTime? nearest = null;
@@ -323,9 +326,9 @@ internal sealed class SecurityAuditVerificationService(
     }
 
     // An event this run read: its id and HMAC, and its time when it verified intact (only then is the time its own).
-    private readonly record struct SeenEvent(int Id, string Hmac, DateTime? IntactTime);
+    internal readonly record struct SeenEvent(int Id, string Hmac, DateTime? IntactTime);
 
-    private sealed record Advanced(
+    internal sealed record Advanced(
         int MaxEventId,
         string? LastHmac,
         int NeverCommittedCount,

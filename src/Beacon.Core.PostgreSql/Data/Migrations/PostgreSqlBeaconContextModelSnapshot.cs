@@ -2139,6 +2139,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("api_key_id");
 
+                    b.Property<Guid?>("AuditGuid")
+                        .HasColumnType("uuid")
+                        .HasColumnName("audit_guid");
+
                     b.Property<string>("CallerHash")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)")
@@ -2176,6 +2180,16 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("execution_time_ms");
 
+                    b.Property<string>("Hmac")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("hmac");
+
+                    b.Property<string>("HmacKeyId")
+                        .HasMaxLength(32)
+                        .HasColumnType("character varying(32)")
+                        .HasColumnName("hmac_key_id");
+
                     b.Property<string>("McpSessionId")
                         .HasMaxLength(128)
                         .HasColumnType("character varying(128)")
@@ -2193,6 +2207,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Property<int?>("ResultRowCount")
                         .HasColumnType("integer")
                         .HasColumnName("result_row_count");
+
+                    b.Property<int?>("SealVersion")
+                        .HasColumnType("integer")
+                        .HasColumnName("seal_version");
 
                     b.Property<string>("SpanId")
                         .HasMaxLength(16)
@@ -2221,6 +2239,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
                     b.HasKey("Id")
                         .HasName("pk_mcp_audit_logs");
+
+                    b.HasIndex("AuditGuid")
+                        .IsUnique()
+                        .HasDatabaseName("ix_mcp_audit_logs_audit_guid");
 
                     b.HasIndex("CreatedTime")
                         .HasDatabaseName("ix_mcp_audit_logs_created_time");

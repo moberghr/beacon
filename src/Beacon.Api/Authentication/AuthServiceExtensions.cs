@@ -32,7 +32,6 @@ public static class AuthServiceExtensions
     private const string SecurityHeadersAddedKey = "Beacon.SecurityHeadersAdded";
     private const string OriginGuardAddedKey = "Beacon.OriginGuardAdded";
 
-
     /// <summary>
     /// Adds cookie authentication for Beacon login form.
     /// </summary>
@@ -84,6 +83,15 @@ public static class AuthServiceExtensions
                 options.Events.OnCheckSlidingExpiration = BeaconSessionEvents.CheckSlidingExpirationAsync;
                 options.Events.OnRedirectToLogin = context =>
                 {
+                    // A UI page refused a signed-out browser (BeaconUiPagePolicies): the login form's own redirect, without
+                    // a return URL, the target LoginFormAuthMiddleware answers.
+                    if (BeaconUiPagePolicies.IsPage(context.HttpContext)
+                        && context.HttpContext.RequestServices.GetService<BeaconConfiguration>() is { Authentication.EnableLoginForm: true } configuration)
+                    {
+                        context.Response.Redirect(BeaconLoginPage.PathFor(AuthenticationPathOptions.BeaconPath, configuration));
+                        return Task.CompletedTask;
+                    }
+
                     if (BeaconApiRequest.Is(context.HttpContext))
                     {
                         return BeaconAuthenticationResponses.WriteProblemAsync(context.HttpContext, StatusCodes.Status401Unauthorized);
@@ -259,6 +267,52 @@ public static class AuthServiceExtensions
         builder.Services.AddBeaconCookieAuthentication(AuthenticationPathOptions.BeaconPath);
 
         return builder;
+    }
+
+    /// <summary>
+    /// Adds SSO through the identity provider in <c>Beacon:Authentication:Oidc</c> (<see cref="AddBeaconOidcAuthentication"/>)
+    /// and, when it names a <see cref="OidcAuthenticationOptions.McpJwksEndpoint"/>, bearer JWTs from that provider
+    /// (<see cref="AddBeaconOidcMcpJwtAuthentication"/>). With SSO off it only registers the options. Call it after
+    /// <see cref="AddCookieAuth{TClaims}"/>: SSO signs users in to the <c>Beacon.Auth</c> cookie.
+    /// </summary>
+    public static BeaconBuilder AddOidc(this BeaconBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        builder.Services.AddBeaconOidcAuthentication(builder.Configuration);
+        builder.Services.AddBeaconOidcMcpJwtAuthentication(builder.Configuration);
+
+        return builder;
+    }
+
+    /// <summary>
+    /// Accepts bearer JWTs from the SSO identity provider on Beacon's API and on <c>/beacon/mcp</c>, when
+    /// <c>Beacon:Authentication:Oidc</c> is enabled and names a <see cref="OidcAuthenticationOptions.McpJwksEndpoint"/>:
+    /// a token is validated against that endpoint's signing keys, with the <c>Authority</c> (without a trailing slash) as
+    /// its issuer and the <c>ClientId</c> as its audience (<see cref="AddBeaconJwtAuthentication"/>). Which tokens become
+    /// MCP callers is decided by <c>Beacon:Mcp:Callers</c>. Without SSO or without the endpoint it registers nothing. A
+    /// host that sets up bearer JWTs itself with <see cref="AddBeaconJwtAuthentication"/> does not call this as well.
+    /// </summary>
+    public static IServiceCollection AddBeaconOidcMcpJwtAuthentication(this IServiceCollection services, IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        var options = OidcAuthenticationOptions.FromConfiguration(configuration);
+        if (!options.Enabled || string.IsNullOrWhiteSpace(options.McpJwksEndpoint))
+        {
+            return services;
+        }
+
+        return services.AddBeaconJwtAuthentication(x =>
+        {
+            x.EnableBearerAuthentication = true;
+            x.Validation.JwksEndpoint = options.McpJwksEndpoint;
+            x.Validation.ValidIssuer = options.GetEnabledAuthority();
+            x.Validation.ValidAudience = options.ClientId;
+            x.Validation.ValidateIssuer = true;
+            x.Validation.ValidateAudience = true;
+        });
     }
 
     public static IApplicationBuilder UseBeaconJwtBearerAuthentication(this IApplicationBuilder app)

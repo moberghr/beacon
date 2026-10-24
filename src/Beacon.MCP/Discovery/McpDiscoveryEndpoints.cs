@@ -33,11 +33,12 @@ public static class McpDiscoveryEndpoints
 {
     private const string PublicBaseUrlConfigKey = "Beacon:PublicBaseUrl";
     private const string CacheControlValue = "public, max-age=3600";
+    private const string NoStoreCacheControlValue = "no-store";
 
     /// <summary>
     /// The exact anonymous discovery paths mapped by <see cref="MapMcpDiscovery"/>. Forwards to
     /// <see cref="McpDiscoveryPaths.AnonymousDiscoveryPaths"/> in Beacon.Core, which is the single
-    /// source of truth: the auth middlewares in Beacon.Api allow-list the same list, and Api must
+    /// source of truth: the first-run middleware in Beacon.Api allow-lists the same list, and Api must
     /// not reference MCP (§2.4). Allow-lists must cover ONLY these exact paths, never a
     /// <c>/.well-known</c> prefix — a prefix match would let <c>/.well-known/anything</c> reach the
     /// SPA fallback anonymously (R6-2).
@@ -172,7 +173,7 @@ public static class McpDiscoveryEndpoints
             McpDiscoveryDocuments.ResolveScopesSupported(options),
             options.ResourceName,
             options.ResourceDocumentation);
-        context.Response.Headers.CacheControl = CacheControlValue;
+        context.Response.Headers.CacheControl = CacheControlFor(configuration);
         return Results.Text(document.ToJsonString(), "application/json");
     }
 
@@ -190,7 +191,7 @@ public static class McpDiscoveryEndpoints
             options.ResourceDocumentation,
             options.ResourceName,
             mcpOptions?.ServerDescription);
-        context.Response.Headers.CacheControl = CacheControlValue;
+        context.Response.Headers.CacheControl = CacheControlFor(configuration);
         return Results.Text(document.ToJsonString(), "application/json");
     }
 
@@ -272,6 +273,14 @@ public static class McpDiscoveryEndpoints
                 "{Section}:ResourceDocumentation is not an absolute https URL — the discovery documents publish it as set, and MCP clients show it to people as a link. Set an https URL.",
                 McpProtectedResourceOptions.SectionName);
         }
+    }
+
+    // A document built from the request's own Host header differs per Host value, so a shared cache must not keep it.
+    internal static string CacheControlFor(IConfiguration configuration)
+    {
+        return string.IsNullOrWhiteSpace(configuration[PublicBaseUrlConfigKey])
+            ? NoStoreCacheControlValue
+            : CacheControlValue;
     }
 
     private static string ResolvePublicBaseUrl(HttpRequest request, IConfiguration configuration)

@@ -257,6 +257,8 @@ public static class SecurityAuditActions
     public const string AuditVerified = "audit.verified";
     public const string AuditPurged = "audit.purged";
     public const string McpAuditRead = "audit.mcp_audit_read";
+    public const string McpAuditVerified = "audit.mcp_audit_verified";
+    public const string McpAuditSealingStarted = "audit.mcp_audit_sealing_started";
     public const string ExecutionLogRead = "audit.execution_log_read";
     public const string ExecutionLogExported = "audit.execution_log_exported";
 

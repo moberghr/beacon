@@ -112,8 +112,8 @@
       },
       "AWSSDK.Core": {
         "type": "Transitive",
-        "resolved": "4.0.102.8",
-        "contentHash": "90B9Skhl+ORbtWNXrrmGdGhGvAfZiPmZafRYrB/xHelZjePIwPvXioqz9UiiF1vo21eDLzTnXh5EC4RjbNWsFQ=="
+        "resolved": "4.0.102.13",
+        "contentHash": "vaYs/kwfB+Lv9PeVKYE4g2mQlzVtHImXLWgfTG8UgeCybUAPkew5kwb8GS6RhuzwvImbolyLHT+IM34WoM9lJg=="
       },
       "AWSSDK.S3": {
         "type": "Transitive",
@@ -747,7 +747,7 @@
       "Moberg.Beacon.AI.Bedrock": {
         "type": "Project",
         "dependencies": {
-          "AWSSDK.BedrockRuntime": "[4.0.101.8, )",
+          "AWSSDK.BedrockRuntime": "[4.0.101.13, )",
           "Moberg.Beacon.AI": "[1.0.0, )"
         }
       },
@@ -795,7 +795,7 @@
       "Moberg.Beacon.Connector.CloudWatch": {
         "type": "Project",
         "dependencies": {
-          "AWSSDK.CloudWatchLogs": "[4.0.105, )",
+          "AWSSDK.CloudWatchLogs": "[4.0.106.1, )",
           "Moberg.Beacon.Core": "[1.0.0, )"
         }
       },
@@ -870,6 +870,16 @@
           "Moberg.Beacon.Core": "[1.0.0, )"
         }
       },
+      "Moberg.Beacon.Gateway": {
+        "type": "Project",
+        "dependencies": {
+          "Moberg.Beacon.AI": "[1.0.0, )",
+          "Moberg.Beacon.Api": "[1.0.0, )",
+          "Moberg.Beacon.Core": "[1.0.0, )",
+          "Moberg.Beacon.MCP": "[1.0.0, )",
+          "Moberg.Beacon.UI": "[1.0.0, )"
+        }
+      },
       "Moberg.Beacon.MCP": {
         "type": "Project",
         "dependencies": {
@@ -883,20 +893,20 @@
       },
       "AWSSDK.BedrockRuntime": {
         "type": "CentralTransitive",
-        "requested": "[4.0.101.8, )",
-        "resolved": "4.0.101.8",
-        "contentHash": "UmGGBapOEgH4086W+BYw8ZTxlt1rG8Ry/fAlNuVJo1tUMAZ61g5TKLhAhhmeH544T9y3O4B2DSU/LMdh7E/afw==",
+        "requested": "[4.0.101.13, )",
+        "resolved": "4.0.101.13",
+        "contentHash": "1fNkyD6LHG2AQXSOgSXeBN08mkHIUL8NTrH6FDPsmgSxpvqGKQna/HNVRil02dv7hfmtC8lhBs9kzX4VRJmm9A==",
         "dependencies": {
-          "AWSSDK.Core": "[4.0.102.8, 5.0.0)"
+          "AWSSDK.Core": "[4.0.102.13, 5.0.0)"
         }
       },
       "AWSSDK.CloudWatchLogs": {
         "type": "CentralTransitive",
-        "requested": "[4.0.105, )",
-        "resolved": "4.0.105",
-        "contentHash": "9Mdho7fiovOVOwOo/qJZzNKOEJvmnOJyW1nYbLrJXtOL5mAzZtCNb0fyu4dIb/+cxEbu/NZUFqnoXopmDTpFrQ==",
+        "requested": "[4.0.106.1, )",
+        "resolved": "4.0.106.1",
+        "contentHash": "byXgE8O9bAK2h5D2vs2PjQL/dzcOXM/1+TE6qtu8uDgYgBXscBWkXdOOXxtVeeSbYo+ZyFS8g9fwZwKV5cA7rA==",
         "dependencies": {
-          "AWSSDK.Core": "[4.0.102.8, 5.0.0)"
+          "AWSSDK.Core": "[4.0.102.13, 5.0.0)"
         }
       },
       "ClosedXML": {

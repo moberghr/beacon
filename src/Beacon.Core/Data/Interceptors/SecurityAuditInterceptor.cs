@@ -15,13 +15,17 @@ namespace Beacon.Core.Data.Interceptors;
 /// <see cref="SecurityAuditEvent"/> is refused, and every added event gets its key id and HMAC computed over the fields it
 /// is saved with (<see cref="SecurityAuditIntegrity"/>). Once an event is durable — its save committed, or the
 /// transaction it was saved in — a copy goes to the <c>Beacon.Audit</c> log stream (<see cref="SecurityAuditLogEvents.Recorded"/>);
-/// an event whose save or transaction failed is never copied. Bulk deletes (<c>ExecuteDelete</c>) do not pass through
-/// here: only the retention purge issues one. Registered on both providers beside the content retention interceptor.
+/// an event whose save or transaction failed is never copied. The MCP audit is kept the same way: a save that would change
+/// or delete a tracked <see cref="McpAuditLog"/> or <see cref="McpAuditStatement"/>, or add a statement to a row saved
+/// before, is refused, and every added row is sealed with its statements (<see cref="McpAuditSeal"/>). Bulk deletes
+/// (<c>ExecuteDelete</c>) do not pass through here: only the retention purges issue one. Registered on both providers
+/// after the content retention interceptor, so a row is sealed with what that lock leaves of it.
 /// </summary>
 public sealed class SecurityAuditInterceptor(SecurityAuditIntegrity integrity, ILoggerFactory loggerFactory)
     : SaveChangesInterceptor, IDbTransactionInterceptor
 {
     internal const string AppendOnlyMessage = "Security audit events are append-only: they cannot be changed or deleted.";
+    internal const string McpAppendOnlyMessage = "MCP audit rows are append-only: a row and its statements cannot be changed or deleted, and a statement can only be saved with its row.";
 
     private readonly ILogger _auditLogger = loggerFactory.CreateLogger(BeaconTelemetry.AuditLogCategory);
     private readonly ConditionalWeakTable<DbContext, PendingEvents> _pending = new();
@@ -153,6 +157,7 @@ public sealed class SecurityAuditInterceptor(SecurityAuditIntegrity integrity, I
         }
 
         _pending.GetOrCreateValue(context).Saving = saving;
+        SealMcpAudit(context);
     }
 
     internal void Saved(DbContext? context)
@@ -201,6 +206,39 @@ public sealed class SecurityAuditInterceptor(SecurityAuditIntegrity integrity, I
         }
 
         pending.InTransaction.Clear();
+    }
+
+    // The MCP audit rows added by this save, sealed with the statements they hold; anything else that touches the MCP
+    // audit through the change tracker is refused.
+    private void SealMcpAudit(DbContext context)
+    {
+        var sealedRows = new HashSet<McpAuditLog>(ReferenceEqualityComparer.Instance);
+        foreach (var entry in context.ChangeTracker.Entries<McpAuditLog>())
+        {
+            if (entry.State is EntityState.Modified or EntityState.Deleted)
+            {
+                throw new InvalidOperationException(McpAppendOnlyMessage);
+            }
+
+            if (entry.State == EntityState.Added)
+            {
+                McpAuditSeal.Seal(entry.Entity, integrity);
+                sealedRows.Add(entry.Entity);
+            }
+        }
+
+        foreach (var entry in context.ChangeTracker.Entries<McpAuditStatement>())
+        {
+            if (entry.State is EntityState.Modified or EntityState.Deleted)
+            {
+                throw new InvalidOperationException(McpAppendOnlyMessage);
+            }
+
+            if (entry.State == EntityState.Added && (entry.Entity.AuditLog == null || !sealedRows.Contains(entry.Entity.AuditLog)))
+            {
+                throw new InvalidOperationException(McpAppendOnlyMessage);
+            }
+        }
     }
 
     // The copy for the log stream must never fail the save it follows.

@@ -47,16 +47,13 @@ public class DatabaseMetadataService(
     private const int MaxLoggedSkippedNames = 50;
     private static readonly TimeSpan CacheExpiration = TimeSpan.FromHours(1);
 
-    // Lock per data source to prevent concurrent refresh operations
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, SemaphoreSlim> _refreshLocks = new();
+    // Lock per data source to prevent concurrent refresh operations; an entry lives only while someone holds or waits for it
+    private static readonly KeyedRefreshLocks _refreshLocks = new();
 
     public async Task<DatabaseMetadataSnapshot> RefreshMetadataAsync(int dataSourceId, bool forceRefresh = false, CancellationToken cancellationToken = default)
     {
-        // Get or create a lock for this specific data source
-        var refreshLock = _refreshLocks.GetOrAdd(dataSourceId, _ => new SemaphoreSlim(1, 1));
-
-        // Try to acquire the lock - if already locked, wait
-        await refreshLock.WaitAsync(cancellationToken);
+        // Try to acquire the lock for this specific data source - if already locked, wait
+        var refreshLock = await _refreshLocks.AcquireAsync(dataSourceId, cancellationToken);
         try
         {
             // Double-check cache after acquiring lock (another thread may have just completed refresh).
@@ -163,7 +160,7 @@ public class DatabaseMetadataService(
         }
         finally
         {
-            refreshLock.Release();
+            refreshLock.Dispose();
         }
     }
 

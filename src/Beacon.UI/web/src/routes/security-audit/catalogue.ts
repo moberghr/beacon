@@ -218,6 +218,8 @@ export const SECURITY_AUDIT_CATEGORIES: readonly SecurityAuditCategory[] = [
       'audit.verified',
       'audit.purged',
       'audit.mcp_audit_read',
+      'audit.mcp_audit_verified',
+      'audit.mcp_audit_sealing_started',
       'audit.execution_log_read',
       'audit.execution_log_exported',
     ],

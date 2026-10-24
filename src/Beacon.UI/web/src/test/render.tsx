@@ -1,10 +1,10 @@
 import { type ReactElement } from 'react';
 import { render, type RenderOptions } from '@testing-library/react';
 import { QueryClient, QueryClientProvider } from '@tanstack/react-query';
-import { MemoryRouter } from 'react-router-dom';
+import { MemoryRouter, type InitialEntry } from 'react-router-dom';
 
 interface Options extends Omit<RenderOptions, 'wrapper'> {
-  initialEntries?: string[];
+  initialEntries?: InitialEntry[];
 }
 
 /**
