@@ -19,15 +19,16 @@ internal sealed class IntentClassifier : IIntentClassifier
             KNOWLEDGE — The user wants to understand how something works, what something is, or learn about the system/project/architecture/processes.
             Examples: "How do notifications work?", "What is the purpose of the subscriptions table?", "Explain the data quality scoring", "What data sources are available?"
 
-            Question: "{question}"
+            Question:
+            {question}
 
             Respond with exactly one word: DATA_QUERY or KNOWLEDGE
             """;
 
         var request = new LlmRequest
         {
-            SystemPrompt = "You are a question classifier. Respond with exactly one word.",
-            Messages = [new ChatMessage(ConversationRole.User, classifyPrompt.Replace("{question}", question))],
+            SystemPrompt = $"You are a question classifier. Respond with exactly one word.\n\n{PromptData.Rule}",
+            Messages = [new ChatMessage(ConversationRole.User, classifyPrompt.Replace("{question}", PromptData.Fence("user question", question)))],
             Temperature = 0.0m,
             MaxTokens = 16,
             Operation = LlmOperations.AskIntent,

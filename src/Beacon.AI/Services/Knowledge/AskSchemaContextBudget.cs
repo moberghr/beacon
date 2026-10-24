@@ -236,7 +236,7 @@ internal static partial class AskSchemaContextBudget
         return $"-- {tableCount} more tables not shown: ".Length + OmittedNamesMaxChars + ", …".Length + Environment.NewLine.Length;
     }
 
-    [GeneratedRegex(@"[\p{L}\p{N}_]+(?:\.[\p{L}\p{N}_]+)*", RegexOptions.CultureInvariant)]
+    [GeneratedRegex(@"[\p{L}\p{N}_]+(?:\.[\p{L}\p{N}_]+)*", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)]
     private static partial Regex NameRegex();
 
     private static SchemaContextTableBlock CutBlock(SchemaContextTableBlock block, int room)

@@ -48,6 +48,9 @@ internal sealed record HostEndpointCallerBinding(
     string? BodyProperty = null,
     string? BodyType = null);
 
+/// <summary>A constraint routing would evaluate on the route value <see cref="Parameter"/> before the endpoint runs.</summary>
+internal sealed record HostEndpointRouteConstraint(string Parameter, IRouteConstraint Constraint);
+
 /// <param name="ReadOnly">The declared read-only flag; false for a write tool (only with <c>AllowWriteTools</c>).</param>
 /// <param name="Destructive">Write tools only: the declared destructive flag.</param>
 /// <param name="Idempotent">Write tools only: the declared idempotent flag.</param>
@@ -74,6 +77,9 @@ internal sealed record HostEndpointToolDescriptor(
     /// custom binder or a dictionary could still read it.
     /// </summary>
     public IReadOnlySet<string> CallerBoundNames { get; init; } = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+    /// <summary>The route's constraints, checked against the request's route values before it is dispatched.</summary>
+    public IReadOnlyList<HostEndpointRouteConstraint> RouteConstraints { get; init; } = [];
 
     /// <summary>Appended to a write tool's name in its audit row, so write calls are distinguishable (and filterable).</summary>
     public const string WriteAuditSuffix = ":write";

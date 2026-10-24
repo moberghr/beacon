@@ -27,25 +27,25 @@ internal static class McpSettingsRanges
 
     private static readonly FieldRange[] Ranges =
     [
-        new(nameof(McpSettingsData.MaxRowLimit), 1, MaxRowLimitMaximum, x => x.MaxRowLimit, x => x.MaxRowLimit),
-        new(nameof(McpSettingsData.LearningAutoApproveThreshold), 0, 1, x => Exact(x.LearningAutoApproveThreshold), x => Exact(x.LearningAutoApproveThreshold)),
-        new(nameof(McpSettingsData.LearningInjectionBudgetChars), 0, null, x => x.LearningInjectionBudgetChars, x => x.LearningInjectionBudgetChars),
-        new(nameof(McpSettingsData.LearningSignalRetentionDays), 1, LearningSignalRetentionDaysMaximum, x => x.LearningSignalRetentionDays, x => x.LearningSignalRetentionDays),
-        new(nameof(McpSettingsData.SelfConsistencyCandidateCount), 1, null, x => x.SelfConsistencyCandidateCount, x => x.SelfConsistencyCandidateCount),
-        new(nameof(McpSettingsData.ExemplarTopK), 1, null, x => x.ExemplarTopK, x => x.ExemplarTopK),
-        new(nameof(McpSettingsData.LearningReplayMinFlips), 1, null, x => x.LearningReplayMinFlips, x => x.LearningReplayMinFlips),
-        new(nameof(McpSettingsData.DocChunkWindowSentences), 1, null, x => x.DocChunkWindowSentences, x => x.DocChunkWindowSentences),
-        new(nameof(McpSettingsData.DocChunkOverlapSentences), 0, null, x => x.DocChunkOverlapSentences, x => x.DocChunkOverlapSentences),
-        new(nameof(McpSettingsData.GlossaryTopK), 1, null, x => x.GlossaryTopK, x => x.GlossaryTopK),
-        new(nameof(McpSettingsData.DocChunkTopK), 1, null, x => x.DocChunkTopK, x => x.DocChunkTopK),
-        new(nameof(McpSettingsData.GoldenExemplarTopK), 1, null, x => x.GoldenExemplarTopK, x => x.GoldenExemplarTopK),
-        new(nameof(McpSettingsData.GoldenExemplarBudgetChars), 0, null, x => x.GoldenExemplarBudgetChars, x => x.GoldenExemplarBudgetChars),
-        new(nameof(McpSettingsData.ValueGroundingMaxProbes), 0, null, x => x.ValueGroundingMaxProbes, x => x.ValueGroundingMaxProbes),
-        new(nameof(McpSettingsData.SelfConsistencyMinTables), 1, null, x => x.SelfConsistencyMinTables, x => x.SelfConsistencyMinTables),
-        new(nameof(McpSettingsData.StatementTimeoutSeconds), 1, StatementTimeoutSecondsMaximum, x => x.StatementTimeoutSeconds, x => x.StatementTimeoutSeconds),
-        new(nameof(McpSettingsData.MaxResultBytes), 1, null, x => x.MaxResultBytes, x => x.MaxResultBytes),
-        new(nameof(McpSettingsData.MaxExplainCost), 0, MaxExplainCostMaximum, x => x.MaxExplainCost, x => x.MaxExplainCost),
-        new(nameof(McpSettingsData.MaxConcurrentQueriesPerKey), 1, null, x => x.MaxConcurrentQueriesPerKey, x => x.MaxConcurrentQueriesPerKey)
+        new(nameof(McpSettingsData.MaxRowLimit), 1, MaxRowLimitMaximum),
+        new(nameof(McpSettingsData.LearningAutoApproveThreshold), 0, 1),
+        new(nameof(McpSettingsData.LearningInjectionBudgetChars), 0, null),
+        new(nameof(McpSettingsData.LearningSignalRetentionDays), 1, LearningSignalRetentionDaysMaximum),
+        new(nameof(McpSettingsData.SelfConsistencyCandidateCount), 1, null),
+        new(nameof(McpSettingsData.ExemplarTopK), 1, null),
+        new(nameof(McpSettingsData.LearningReplayMinFlips), 1, null),
+        new(nameof(McpSettingsData.DocChunkWindowSentences), 1, null),
+        new(nameof(McpSettingsData.DocChunkOverlapSentences), 0, null),
+        new(nameof(McpSettingsData.GlossaryTopK), 1, null),
+        new(nameof(McpSettingsData.DocChunkTopK), 1, null),
+        new(nameof(McpSettingsData.GoldenExemplarTopK), 1, null),
+        new(nameof(McpSettingsData.GoldenExemplarBudgetChars), 0, null),
+        new(nameof(McpSettingsData.ValueGroundingMaxProbes), 0, null),
+        new(nameof(McpSettingsData.SelfConsistencyMinTables), 1, null),
+        new(nameof(McpSettingsData.StatementTimeoutSeconds), 1, StatementTimeoutSecondsMaximum),
+        new(nameof(McpSettingsData.MaxResultBytes), 1, null),
+        new(nameof(McpSettingsData.MaxExplainCost), 0, MaxExplainCostMaximum),
+        new(nameof(McpSettingsData.MaxConcurrentQueriesPerKey), 1, null)
     ];
 
     /// <summary>The fields that have a range, by name (the same on the global settings and a project's overrides).</summary>
@@ -56,7 +56,7 @@ internal static class McpSettingsRanges
     {
         foreach (var range in Ranges)
         {
-            range.Check(range.Global(data));
+            range.Check(Number(McpSettingFields.Named(range.Field).Get(data)));
         }
     }
 
@@ -65,27 +65,27 @@ internal static class McpSettingsRanges
     {
         foreach (var range in Ranges)
         {
-            range.Check(range.Project(data));
+            range.Check(Number(McpSettingFields.Named(range.Field).GetOverride(data)));
         }
     }
 
     // A threshold that is not a finite number is outside every range; decimal holds every finite value in it exactly.
-    private static decimal? Exact(double? value)
+    private static decimal? Number(object? value)
     {
-        if (value is not { } number)
+        return value switch
         {
-            return null;
-        }
-
-        return double.IsFinite(number) && Math.Abs(number) < 1e15 ? (decimal)number : decimal.MinValue;
+            null => null,
+            int x => x,
+            decimal x => x,
+            double x => double.IsFinite(x) && Math.Abs(x) < 1e15 ? (decimal)x : decimal.MinValue,
+            _ => throw new InvalidOperationException($"An MCP setting of type {value.GetType().Name} has no range.")
+        };
     }
 
     private sealed record FieldRange(
         string Field,
         decimal Minimum,
-        decimal? Maximum,
-        Func<McpSettingsData, decimal?> Global,
-        Func<McpProjectSettingsData, decimal?> Project)
+        decimal? Maximum)
     {
         public void Check(decimal? value)
         {

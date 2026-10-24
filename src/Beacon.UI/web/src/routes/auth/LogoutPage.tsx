@@ -4,6 +4,7 @@ import { useQueryClient } from '@tanstack/react-query';
 import { ArrowRight } from 'lucide-react';
 import { beaconApi } from '@/api/client';
 import { AUTH_QUERY_KEY, UNAUTHENTICATED_USER } from '@/lib/queryClient';
+import { disconnectBeaconHub } from '@/lib/useHubEvent';
 import {
   AuthLayout,
   AuthAlert,
@@ -43,6 +44,8 @@ export default function LogoutPage() {
         // "Back to sign in" link) never renders stale, still-"authenticated" cache entries.
         queryClient.setQueryData(AUTH_QUERY_KEY, UNAUTHENTICATED_USER);
         queryClient.clear();
+        // The realtime connection was opened for the user who just signed out.
+        void disconnectBeaconHub();
         if (!cancelled) setDone(true);
       }
     })();

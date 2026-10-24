@@ -197,6 +197,57 @@ public class EncryptionServiceTests
         logs.Entries.Should().NotContain(x => x.Message.Contains(first) || x.Message.Contains(second));
     }
 
+    [Test]
+    public void WhetherAValueIsInTheLegacyFormat_IsTold_WhicheverKeyDecryptsIt()
+    {
+        const string previousKey = "the key configured before";
+        var service = new EncryptionService(Key, [previousKey]);
+
+        service.Identify(LegacyV1("current legacy", Key), out var currentLegacy).Should().Be(EncryptionService.KeyMatch.Current);
+        currentLegacy.Should().BeTrue();
+        service.Identify(LegacyV1("old legacy", previousKey), out var previousLegacy).Should().Be(EncryptionService.KeyMatch.Previous);
+        previousLegacy.Should().BeTrue();
+        service.Identify(service.Encrypt("current"), out var current).Should().Be(EncryptionService.KeyMatch.Current);
+        current.Should().BeFalse();
+        service.Identify(new EncryptionService(previousKey).Encrypt("old"), out var previous).Should().Be(EncryptionService.KeyMatch.Previous);
+        previous.Should().BeFalse();
+    }
+
+    [Test]
+    public void ALegacyFormatValue_IsLoggedOnce_WithoutTheValue()
+    {
+        var logs = new Beacon.Tests.Common.LogRecorder();
+        var service = new EncryptionService(Key, [], logs.For<EncryptionService>());
+
+        service.Decrypt(LegacyV1("Host=db;Password=first", Key)).Should().Be("Host=db;Password=first");
+        service.Decrypt(LegacyV1("Host=db;Password=second", Key));
+        service.Decrypt(service.Encrypt("current"));
+
+        var entry = logs.Entries.Should().ContainSingle().Subject;
+        entry.Level.Should().Be(Microsoft.Extensions.Logging.LogLevel.Warning);
+        entry.Message.Should().Contain("legacy unauthenticated format").And.Contain("Beacon:Encryption:AllowLegacyCbc");
+        entry.Message.Should().NotContain("Password");
+    }
+
+    [Test]
+    public void WithTheLegacyFormatOff_ALegacyValueIsRefused_UnderAnyKey_AndCurrentValuesStillRead()
+    {
+        const string previousKey = "the key configured before";
+        var service = new EncryptionService(Key, [previousKey], allowLegacyFormat: false);
+        var (_, startingLikeV2) = LegacyV1StartingWithTheV2Marker(Key);
+
+        var current = () => service.Decrypt(LegacyV1("legacy", Key));
+        var previous = () => service.Decrypt(LegacyV1("legacy", previousKey));
+        var markerLike = () => service.Decrypt(startingLikeV2);
+
+        current.Should().Throw<CryptographicException>();
+        previous.Should().Throw<CryptographicException>();
+        markerLike.Should().Throw<CryptographicException>();
+        service.Identify(LegacyV1("legacy", Key)).Should().Be(EncryptionService.KeyMatch.None);
+        service.Decrypt(service.Encrypt("current")).Should().Be("current");
+        service.Decrypt(new EncryptionService(previousKey).Encrypt("old")).Should().Be("old");
+    }
+
     private static (string Plain, string Cipher) LegacyV1StartingWithTheV2Marker(string configuredKey)
     {
         for (var i = 0; i < 100_000; i++)
@@ -248,7 +299,7 @@ public class EncryptionServiceTests
     }
 
     // What the pre-GCM service wrote: AES-CBC, PKCS7, the SHA-256 key and its first 16 bytes as the IV.
-    private static string LegacyV1(string plain, string configuredKey)
+    internal static string LegacyV1(string plain, string configuredKey)
     {
         var key = SHA256.HashData(Encoding.UTF8.GetBytes(configuredKey));
         using var aes = Aes.Create();

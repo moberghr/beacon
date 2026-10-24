@@ -4,11 +4,12 @@ import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { mswServer } from '../../../vitest.setup';
 import { renderWithProviders } from '@/test/render';
 import { permissionsForRoles, permissionsHandler } from '@/test/permissions';
-import { AiProvider, BedrockAuthMode } from '@/lib/enums';
+import { AiProvider, ApprovalStatus, BedrockAuthMode, ChangeApprovalKind } from '@/lib/enums';
+import { toast } from 'sonner';
 import AdminSettingsPage from './AdminSettingsPage';
 
 vi.mock('sonner', () => ({
-  toast: { success: vi.fn(), error: vi.fn() },
+  toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));
 
 function settings(overrides: Record<string, unknown> = {}) {
@@ -38,6 +39,7 @@ function serve(stored = settings()) {
   mswServer.use(
     http.get('*/beacon/api/csrf', () => HttpResponse.json({ token: 'test-token' })),
     http.get('*/beacon/api/admin-settings', () => HttpResponse.json({ settings: stored, history: [] })),
+    http.get('*/beacon/api/approvals/changes', () => HttpResponse.json({ items: [], totalCount: 0, page: 0, pageSize: 20 })),
     http.put('*/beacon/api/admin-settings', async ({ request }) => {
       sent.saves.push((await request.json()) as Record<string, unknown>);
       return new HttpResponse(null, { status: 204 });
@@ -382,5 +384,94 @@ describe('AdminSettingsPage rate limits', () => {
 
     await waitFor(() => expect(enforce()).toBeChecked());
     expect(requestsPerMinute()).toBeEnabled();
+  });
+});
+
+describe('AdminSettingsPage pending LLM change', () => {
+  const pendingChanges = () =>
+    http.get('*/beacon/api/approvals/changes', ({ request }) => {
+      expect(new URL(request.url).searchParams.get('kind')).toBe(String(ChangeApprovalKind.LlmConnection));
+      return HttpResponse.json({
+        items: [
+          {
+            id: 51,
+            kind: ChangeApprovalKind.LlmConnection,
+            resourceId: 0,
+            resourceName: 'LLM connection',
+            status: ApprovalStatus.Pending,
+            requestedByUserName: 'Mock Operator',
+            createdTime: '2026-10-23T08:00:00Z',
+            changeSummary: null,
+          },
+        ],
+        totalCount: 1,
+        page: 0,
+        pageSize: 20,
+      });
+    });
+
+  it('tells an Admin a change of the LLM connection waits, linking the request', async () => {
+    mswServer.use(permissionsForRoles(['Admin']));
+    serve();
+    mswServer.use(pendingChanges());
+    renderWithProviders(<AdminSettingsPage />);
+
+    expect(await screen.findByText('A change of the LLM connection waits for approval')).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: /the change/i })).toHaveAttribute('href', '/approvals/changes/51');
+  });
+
+  it('shows no banner when no request waits', async () => {
+    mswServer.use(permissionsForRoles(['Admin']));
+    serve();
+    renderWithProviders(<AdminSettingsPage />);
+
+    expect(await screen.findByText('General')).toBeInTheDocument();
+    expect(screen.queryByText('A change of the LLM connection waits for approval')).not.toBeInTheDocument();
+  });
+
+  it('never asks a non-Admin for the LLM change requests', async () => {
+    mswServer.use(permissionsHandler({ permissions: ['SecurityAdmin'] }));
+    const asked = vi.fn();
+    serve();
+    mswServer.use(http.get('*/beacon/api/approvals/changes', () => {
+      asked();
+      return HttpResponse.json({ items: [], totalCount: 0, page: 0, pageSize: 20 });
+    }));
+    renderWithProviders(<AdminSettingsPage />);
+
+    expect(await screen.findByText("The LLM connection is an Admin's to change")).toBeInTheDocument();
+    expect(asked).not.toHaveBeenCalled();
+    expect(screen.queryByText('A change of the LLM connection waits for approval')).not.toBeInTheDocument();
+  });
+
+  it('refreshes the pending banner after a save and does not claim a staged change was applied', async () => {
+    mswServer.use(permissionsForRoles(['Admin']));
+    serve();
+    let saved = false;
+    mswServer.use(
+      http.put('*/beacon/api/admin-settings', () => {
+        saved = true;
+        return new HttpResponse(null, { status: 204 });
+      }),
+      http.get('*/beacon/api/approvals/changes', () =>
+        HttpResponse.json({
+          items: saved
+            ? [{ id: 52, kind: ChangeApprovalKind.LlmConnection, resourceId: 0, resourceName: 'LLM connection', status: ApprovalStatus.Pending, requestedByUserName: 'Mock Operator', createdTime: '2026-10-23T08:00:00Z', changeSummary: null }]
+            : [],
+          totalCount: saved ? 1 : 0,
+          page: 0,
+          pageSize: 20,
+        })),
+    );
+    vi.mocked(toast.success).mockClear();
+    renderWithProviders(<AdminSettingsPage />);
+
+    await storedSettingsApplied();
+    expect(screen.queryByText('A change of the LLM connection waits for approval')).not.toBeInTheDocument();
+    fireEvent.change(screen.getByRole('spinbutton', { name: /monthly budget/i }), { target: { value: '75' } });
+    await save();
+
+    expect(await screen.findByText('A change of the LLM connection waits for approval')).toBeInTheDocument();
+    expect(toast.success).toHaveBeenCalledWith(expect.stringMatching(/submitted for approval/));
   });
 });

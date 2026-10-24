@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Beacon.Core.Adapters;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
+using Beacon.Core.ChangeApprovals;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
@@ -68,6 +69,21 @@ internal partial class QueryService
             throw new DataSourceDisabledException(disabledSourceId.Value, dataSourceIds);
         }
 
+        // While the approval workflow covers data-source connections, a created source waiting for its first approval makes
+        // no connection either (the resolver refuses it, and a changed one whose change waits): the run fails up front.
+        if (workflow.Covers(ChangeApprovalKind.DataSourceConnection))
+        {
+            var heldSourceId = subscription.Query.Steps
+                .Where(x => x.DataSource?.HostManagedKey == null)
+                .Where(x => DataSourceApprovalDefinition.IsHeld(x.DataSource?.ApprovedTargetHash))
+                .Select(x => (int?)x.DataSourceId)
+                .FirstOrDefault();
+            if (heldSourceId.HasValue)
+            {
+                throw new DataSourceAwaitingApprovalException(heldSourceId.Value, dataSourceIds);
+            }
+        }
+
         if (workflow.Enabled)
         {
             if (ReviewedQueryContent.RunRefusal(QueryContentHash.Of(subscription.Query), active, workflow.RequireApprovedVersionToRun) != null)
@@ -115,14 +131,23 @@ internal partial class QueryService
         var statementTimeout = subscription.TimeoutSeconds is > 0 ? TimeSpan.FromSeconds(subscription.TimeoutSeconds.Value) : (TimeSpan?)null;
 
         // A subscription run is recorded in its run history, not as a manual execution.
-        var executionResult = await ExecuteQuerySteps(
-            subscription.Query,
-            subscription.Query.FinalQuery,
-            null,
-            pii,
-            statementTimeout,
-            cancellationToken,
-            recordManualExecution: false);
+        QueryExecutionResult executionResult;
+        try
+        {
+            executionResult = await ExecuteQuerySteps(
+                subscription.Query,
+                subscription.Query.FinalQuery,
+                null,
+                pii,
+                statementTimeout,
+                cancellationToken,
+                recordManualExecution: false);
+        }
+        catch (DataSourceAwaitingApprovalException ex)
+        {
+            // A source held for a changed connection is refused when a step connects: the run records every source it read.
+            throw new DataSourceAwaitingApprovalException(ex.DataSourceId, dataSourceIds);
+        }
 
         // Convert QueryExecutionResult to QueryResult for backward compatibility
         QueryResult queryResult;

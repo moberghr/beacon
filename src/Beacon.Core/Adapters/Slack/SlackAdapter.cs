@@ -13,6 +13,12 @@ namespace Beacon.Core.Adapters.Slack;
 /// </summary>
 internal class SlackAdapter : IAdapter
 {
+    private static readonly JsonSerializerOptions MessageJson = new()
+    {
+        PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
+        DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
+    };
+
     private readonly NotificationHttpSender _sender;
     private readonly SlackMessageBuilder _messageBuilder;
     private readonly BeaconConfiguration _configuration;
@@ -74,11 +80,7 @@ internal class SlackAdapter : IAdapter
             recipientQueryResult.AnomalyEvaluation);
 
         // Serialize to JSON with snake_case naming
-        return JsonSerializer.Serialize(message, new JsonSerializerOptions
-        {
-            PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower,
-            DefaultIgnoreCondition = JsonIgnoreCondition.WhenWritingNull
-        });
+        return JsonSerializer.Serialize(message, MessageJson);
     }
 }
 

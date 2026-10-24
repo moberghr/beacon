@@ -107,8 +107,8 @@ public class TemplateExpansionTests
     {
         string? subject = null;
         var mail = new Mock<IEmailAdapter>();
-        mail.Setup(x => x.SendEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<QueryResultFile?>()))
-            .Callback<string, string, string, QueryResultFile?>((_, s, _, _) => subject = s)
+        mail.Setup(x => x.SendEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<QueryResultFile?>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, string, QueryResultFile?, CancellationToken>((_, s, _, _, _) => subject = s)
             .Returns(Task.CompletedTask);
 
         await new EmailAdapter(mail.Object).SendNotificationAsync(Recipient("wh\r\nBcc: x@y.example\u0085z", new string('n', 500)), null);
@@ -124,8 +124,8 @@ public class TemplateExpansionTests
     {
         string? subject = null;
         var mail = new Mock<IEmailAdapter>();
-        mail.Setup(x => x.SendEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<QueryResultFile?>()))
-            .Callback<string, string, string, QueryResultFile?>((_, s, _, _) => subject = s)
+        mail.Setup(x => x.SendEmailAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<QueryResultFile?>(), It.IsAny<CancellationToken>()))
+            .Callback<string, string, string, QueryResultFile?, CancellationToken>((_, s, _, _, _) => subject = s)
             .Returns(Task.CompletedTask);
 
         await new EmailAdapter(mail.Object).SendNotificationAsync(Recipient("warehouse", "daily"), null);

@@ -20,6 +20,7 @@ using Beacon.Core;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.Providers;
 using Beacon.Core.Configuration;
+using Beacon.Core.Services.Embed;
 using Beacon.Core.Data;
 using Beacon.Core.Models.UserManagement;
 using Beacon.Core.Services;
@@ -172,6 +173,33 @@ public class FunctionalRoleReachTests
     }
 
     [Test]
+    public async Task OverTheApi_ASecurityAdmin_ReachesTheEmbedGrantRoutes_OnlyOnAHostThatEmbeds()
+    {
+        await using var embedding = await StartAsync(BeaconPermissions.SecurityAdmin);
+        await using var approver = await StartAsync(BeaconPermissions.Approver);
+        await using var off = await StartAsync(BeaconPermissions.SecurityAdmin, embedEnabled: false);
+        var routes = new[]
+        {
+            (HttpMethod.Get, "/beacon/api/embed-grants", (string?)null),
+            (HttpMethod.Post, "/beacon/api/embed-grants", "{\"projectId\":1,\"queryId\":5,\"name\":\"n\",\"allowedOrigins\":[\"https://a.example\"],\"expiresInDays\":1}"),
+            (HttpMethod.Post, "/beacon/api/embed-grants/1/revoke", "{}")
+        };
+
+        foreach (var (method, path, body) in routes)
+        {
+            (await SendAsync(embedding, method, path, body)).StatusCode.Should().Be(HttpStatusCode.OK, $"{method} {path} is a SecurityAdmin's");
+            (await SendAsync(approver, method, path, body)).StatusCode.Should().Be(HttpStatusCode.Forbidden, $"{method} {path} is a SecurityAdmin's only");
+            (await SendAsync(off, method, path, body)).StatusCode
+                .Should().Be(HttpStatusCode.NotFound, $"{method} {path} is not mapped while embedding is off");
+        }
+
+        (await (await SendAsync(embedding, HttpMethod.Get, "/beacon/api/auth/permissions")).Content.ReadAsStringAsync())
+            .Should().Contain("\"embedEnabled\":true");
+        (await (await SendAsync(off, HttpMethod.Get, "/beacon/api/auth/permissions")).Content.ReadAsStringAsync())
+            .Should().Contain("\"embedEnabled\":false");
+    }
+
+    [Test]
     public async Task OverTheApi_AMigrationOperator_ReachesTheMigrationRoutes_OnlyOnAHostThatRunsMigrations()
     {
         await using var running = await StartAsync(BeaconPermissions.MigrationOperator);
@@ -258,7 +286,7 @@ public class FunctionalRoleReachTests
     // MapBeaconApi over a test server, for a signed-in user with the role claim of <paramref name="permission"/> and no
     // Viewer or Editor role, who holds <paramref name="holds"/> now (default: that permission), on a host that runs data
     // migrations unless <paramref name="migrationsEnabled"/> is false.
-    private static async Task<WebApplication> StartAsync(string permission, string[]? holds = null, bool migrationsEnabled = true)
+    private static async Task<WebApplication> StartAsync(string permission, string[]? holds = null, bool migrationsEnabled = true, bool embedEnabled = true)
     {
         var configuration = new BeaconConfiguration();
         configuration.UserManagement.Enabled = true;
@@ -273,6 +301,7 @@ public class FunctionalRoleReachTests
         builder.Services.AddSingleton(configuration);
         builder.Services.AddSingleton(new BeaconApiOptions { Realtime = false });
         builder.Services.AddSingleton(Options.Create(new MigrationOptions { Enabled = migrationsEnabled }));
+        builder.Services.AddSingleton(Options.Create(new EmbedOptions { Enabled = embedEnabled }));
         builder.Services.AddSingleton(Mock.Of<IMediator>());
         builder.Services.AddSingleton(authorization.Object);
         builder.Services.AddSingleton(TestPermissions.Holding(holds ?? [permission]));

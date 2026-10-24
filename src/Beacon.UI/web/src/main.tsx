@@ -3,9 +3,13 @@ import { createRoot } from 'react-dom/client';
 import { QueryClientProvider } from '@tanstack/react-query';
 import App from './App';
 import { createQueryClient } from './lib/queryClient';
+import { prefetchRouteChunk } from './routeChunks';
 import './index.css';
 
 const queryClient = createQueryClient();
+
+// Fetch the page chunk now, in parallel with the /auth/me request that decides whether it renders.
+prefetchRouteChunk(window.location.pathname);
 
 /**
  * Opt-in mocked-API dev mode (`npm run dev:mock`). The `import.meta.env.DEV`

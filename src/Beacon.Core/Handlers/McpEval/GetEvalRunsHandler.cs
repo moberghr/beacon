@@ -2,6 +2,7 @@ using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.Authorization;
+using Beacon.Core.Models;
 
 namespace Beacon.Core.Handlers.McpEval;
 
@@ -21,7 +22,7 @@ internal sealed class GetEvalRunsHandler(IDbContextFactory<BeaconContext> contex
 
         return await query
             .OrderByDescending(x => x.CreatedTime)
-            .Take(request.Take ?? 50)
+            .Take(Math.Clamp(request.Take ?? 50, 1, InputLimits.MaxListTake))
             .Select(x =>
                 new EvalRunListItem
                 {

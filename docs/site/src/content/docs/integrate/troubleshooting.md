@@ -21,6 +21,7 @@ description: "Startup failures, empty pages, 401s and 404s, jobs that do nothing
 | `Beacon:Mcp:Callers` validation errors | Callers configured without `AllowedTenants`, without bearer JWT validation, or with both `ClientId` and `ObjectId`. | See [Connect AI clients](/mcp/connect/#option-b-entra-id-callers). |
 | `Beacon host endpoint tools are misconfigured:` | A `[BeaconTool]` endpoint without `ReadOnly`, without authorization metadata, with an untrusted auth scheme, or a write tool without `AllowWriteTools`. | Fix each listed endpoint. |
 | `AddHostEndpointTools can only be called once.` | Called twice. | Call it once, after `AddBeaconMcp()`. |
+| `The MCP tool name '…' is claimed by both …` | The saved-query tools and the host endpoint tools (or another tool source) serve the same name or name prefix. | Rename the endpoint tool. (An attribute tool with such a name only logs a warning; calls to it reach the attribute tool.) |
 | Options validation for `Beacon:Query`, `Beacon:Mcp`, `Beacon:ApiKeys`, `Beacon:Notifications`, `Beacon:Authorization`… | A value is out of range or malformed. | The message names the key; see [Configuration](/getting-started/configuration/). |
 
 ## Database
@@ -41,7 +42,7 @@ description: "Startup failures, empty pages, 401s and 404s, jobs that do nothing
 | 404 for `/beacon` or blank page; asset 404s | `MapBeaconUi()` or `UseStaticFiles()` missing; or, building from source, the React app was not built (`Debug` builds skip it). | Add both calls; build `Release`, or `-p:BuildReactInDebug=true`. |
 | Endless redirect to `/login` (not `/beacon/login`) | `AddBeaconCookieAuthentication("/")`. | Pass `"/beacon"`. |
 | Always redirected to `/beacon/setup` (the health check and the MCP discovery documents still answer) | User management on and no administrator yet. | Complete first-run setup with the setup token (printed once to the console, or `Beacon:UserManagement:SetupToken`). |
-| Signed in, but every API call answers 401 | Middleware order: `BeaconCookieAuthMiddleware` must run before `UseAuthorization`. | Follow the [pipeline order](/integrate/host-setup/#the-middleware-pipeline). |
+| Signed in, but every API call answers 401 | Middleware order: `UseBeaconAuthentication` must run before `UseAuthorization`. | Follow the [pipeline order](/integrate/host-setup/#the-middleware-pipeline). |
 | Saves fail with 400 "antiforgery" | No `AddAntiforgery`/`UseAntiforgery`, or a different header name without the SPA header. | Configure antiforgery with `HeaderName = "X-XSRF-TOKEN"`. |
 | An error shows as "Internal server error" in the UI | Business-rule exceptions are not mapped to problem+json. | Add the [error handler](/integrate/host-setup/#error-responses). |
 | A project, query or data source is missing for a user | Project access: the project is restricted and they are not a member, or the data source is not linked to a project they can read. | Add them as a member or link the data source. Restricted resources answer 404 on purpose. |
