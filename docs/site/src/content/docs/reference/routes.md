@@ -119,6 +119,16 @@ Every list endpoint takes the same query parameters:
 
 A paged response is `{ "items": [...], "totalCount": n, "pageCount": n }`. Lists are filtered to the projects the caller can read in SQL, before paging, so counts never include rows you cannot see.
 
+Five lists predate paging and keep their original route and array response, and are deprecated in the OpenAPI document. They return every row up to a 10,000 safety cap; when the cap cuts, the response carries `X-Beacon-Truncated: true` and Beacon logs a warning. Each has a paged twin, which new callers should use:
+
+| Deprecated unpaged route | Paged route |
+|---|---|
+| `GET /glossary` | `GET /glossary/paged` (also `search` on the term) |
+| `GET /eval/golden` | `GET /eval/golden/paged` (also `id`) |
+| `GET /eval/runs/{runId}/results` | `GET /eval/runs/{runId}/results/paged` |
+| `GET /query-folders` | `GET /query-folders/paged` (also `search` on the name or path) |
+| `GET /data-quality/overview` | `GET /data-quality/overview/paged` (one item per data source, each with its 20 lowest-scoring tables; the unpaged overview lists the same 20 per source, with counts and averages over all of a source's tables) |
+
 ### Errors
 
 | Situation | Response |

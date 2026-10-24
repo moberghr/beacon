@@ -22,6 +22,12 @@ public abstract record ListRequest
     /// </summary>
     public const int MaxPage = int.MaxValue / MaxPageSize;
 
+    /// <summary>
+    /// The safety cap of a list that kept its pre-paging route. A cut sets the <c>X-Beacon-Truncated</c> header and logs a
+    /// warning; a caller that needs every row uses the paged route of the same list.
+    /// </summary>
+    public const int LegacyUnpagedCap = 10_000;
+
     public int? Page { get; init; }
 
     public int? PageSize { get; init; }

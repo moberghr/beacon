@@ -11,6 +11,7 @@ import {
 } from 'lucide-react';
 import { DataTable, type Column } from '@/components/data/DataTable';
 import { EmptyState } from '@/components/data/EmptyState';
+import { SearchPicker } from '@/components/data/SearchPicker';
 import {
   Banner,
   Button,
@@ -20,14 +21,13 @@ import {
   Card,
   Input,
   PageHeader,
-  Select,
   Seg,
   type SegOption,
 } from '@/components/beacon';
 import { formatNumber, formatPercentage, formatRelativeTime } from '@/lib/format';
 import { HealthStatus, NotificationStatus } from '@/lib/enums';
 import { type AnomalySparklinePoint, type ControlTowerSubscriptionHealthData } from './api';
-import { useControlTowerList, useControlTowerStatistics, useQueryFolders } from './queries';
+import { useControlTowerList, useControlTowerStatistics } from './queries';
 import { SubscriptionDetailPanel } from './SubscriptionDetailPanel';
 
 const HEALTH_PILL: Record<HealthStatus, { label: string; tone: 'ok' | 'warn' | 'crit' | 'neutral' | 'info' }> = {
@@ -114,7 +114,6 @@ export default function ControlTowerPage() {
     void list.refetch();
     void statistics.refetch();
   };
-  const { data: folders } = useQueryFolders();
 
   const stats = statistics.data;
   const skippedContracts = stats?.ownerNotAuthorizedContracts ?? 0;
@@ -344,20 +343,20 @@ export default function ControlTowerPage() {
                   className="pl-7 w-56"
                 />
               </div>
-              <Select
-                value={folderId == null ? '' : String(folderId)}
-                onChange={e =>
-                  setFolderId(e.target.value === '' ? undefined : Number(e.target.value))
-                }
+              <SearchPicker<{ id: number; name: string; path?: string | null }>
+                path="/beacon/api/query-folders/paged"
+                queryKey={['query-folders']}
+                value={folderId}
+                selectedLabel={folderId == null ? undefined : `Folder #${folderId}`}
+                getId={f => f.id}
+                getLabel={f => f.path ?? f.name}
+                onSelect={f => setFolderId(f?.id)}
+                placeholder="Search folders…"
+                noun="folders"
+                clearLabel="All folders"
                 className="w-48"
-              >
-                <option value="">All folders</option>
-                {folders?.map(f => (
-                  <option key={f.id} value={f.id}>
-                    {f.path ?? f.name}
-                  </option>
-                ))}
-              </Select>
+                ariaLabel="Folder"
+              />
               <Seg
                 options={HEALTH_OPTIONS}
                 value={healthFilter}

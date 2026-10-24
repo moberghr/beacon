@@ -56,7 +56,7 @@ function serve(rows: Array<Record<string, unknown>>, ownerNotAuthorizedContracts
         },
       }),
     ),
-    http.get('*/beacon/api/query-folders', () => HttpResponse.json({ folders: [] })),
+    http.get('*/beacon/api/query-folders/paged', () => HttpResponse.json({ items: [], totalCount: 0, pageCount: 0 })),
     http.get('*/beacon/api/control-tower/subscriptions/2/detail', () =>
       HttpResponse.json({
         detail: {

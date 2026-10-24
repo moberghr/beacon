@@ -1,92 +1,47 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Beacon.Core.Data;
-using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.DataQuality;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
+using Beacon.Core.Helpers;
 
 namespace Beacon.Core.Handlers.DataQuality.GetDataQualityOverview;
 
+/// <summary>
+/// The unpaged overview: every readable data source, read page by page through <see cref="ListDataQualityOverviewHandler"/>
+/// (counts and averages are computed in SQL over all of a source's scores; only each source's table list is cut to its
+/// lowest-scoring tables) up to <see cref="ListRequest.LegacyUnpagedCap"/> sources.
+/// </summary>
 internal sealed class GetDataQualityOverviewHandler(
     IDbContextFactory<BeaconContext> contextFactory,
-    IProjectAccessEvaluator projectAccess) : IRequestHandler<GetDataQualityOverviewQuery, List<DataQualityOverviewData>>
+    IProjectAccessEvaluator projectAccess,
+    LegacyListTruncation? truncation = null,
+    ILogger<GetDataQualityOverviewHandler>? logger = null) : IRequestHandler<GetDataQualityOverviewQuery, List<DataQualityOverviewData>>
 {
     public async Task<List<DataQualityOverviewData>> Handle(GetDataQualityOverviewQuery request, CancellationToken cancellationToken)
     {
-        var readable = (await projectAccess.GetScopeAsync(cancellationToken)).For(ProjectAction.Read);
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        var paged = new ListDataQualityOverviewHandler(contextFactory, projectAccess);
+        var overviews = new List<DataQualityOverviewData>();
 
-        // Scores and contract counts only for the data sources the caller may read.
-        var scoresQuery = context.DataQualityScores
-            .WhereSourceAccessible(context, readable, x => x.DataSourceId);
+        for (var page = 0; overviews.Count < ListRequest.LegacyUnpagedCap; page++)
+        {
+            var result = await paged.Handle(
+                new ListDataQualityOverviewQuery { DataSourceId = request.DataSourceId, Page = page, PageSize = ListRequest.MaxPageSize },
+                cancellationToken);
 
-        if (request.DataSourceId.HasValue)
-            scoresQuery = scoresQuery.Where(s => s.DataSourceId == request.DataSourceId.Value);
-
-        var scores = await scoresQuery
-            .Select(s => new
+            overviews.AddRange(result.Items);
+            if (page + 1 >= result.PageCount)
             {
-                s.DataSourceId,
-                DataSourceName = s.DataSource.Name,
-                s.SchemaName,
-                s.TableName,
-                s.Score,
-                s.EvaluatedAt,
-                s.TrendDirection,
-                s.PreviousScore,
-                s.Id
-            })
-            .ToListAsync(cancellationToken);
+                return overviews;
+            }
+        }
 
-        var contractCounts = await context.DataContracts
-            .WhereSourceAccessible(context, readable, x => x.DataSourceId)
-            .Where(c => c.IsEnabled)
-            .GroupBy(c => c.DataSourceId)
-            .Select(g =>
-                new
-                {
-                    DataSourceId = g.Key,
-                    Count = g.Count(),
-                    OwnerNotAuthorized = g.Count(x => x.OwnerNotAuthorizedSince != null)
-                })
-            .ToListAsync(cancellationToken);
+        truncation?.Mark();
+        logger?.LogWarning("The unpaged data quality overview was cut at {Cap} data sources; callers should use its paged route", ListRequest.LegacyUnpagedCap);
 
-        var grouped = scores
-            .GroupBy(s => new { s.DataSourceId, s.DataSourceName })
-            .Select(g =>
-            {
-                var tableScores = g.Select(s => new DataQualityScoreData
-                {
-                    Id = s.Id,
-                    DataSourceId = s.DataSourceId,
-                    SchemaName = s.SchemaName,
-                    TableName = s.TableName,
-                    Score = s.Score,
-                    EvaluatedAt = s.EvaluatedAt,
-                    TrendDirection = s.TrendDirection,
-                    PreviousScore = s.PreviousScore
-                }).ToList();
-
-                return new DataQualityOverviewData
-                {
-                    DataSourceId = g.Key.DataSourceId,
-                    DataSourceName = g.Key.DataSourceName,
-                    AverageScore = tableScores.Count > 0 ? Math.Round(tableScores.Average(t => t.Score), 2) : 0,
-                    TotalTables = tableScores.Count,
-                    HealthyTables = tableScores.Count(t => t.Score >= 80),
-                    DegradingTables = tableScores.Count(t => t.TrendDirection == DataQualityTrendDirection.Degrading),
-                    ActiveContracts = contractCounts.FirstOrDefault(c => c.DataSourceId == g.Key.DataSourceId)?.Count ?? 0,
-                    OwnerNotAuthorizedContracts = contractCounts
-                        .Where(x => x.DataSourceId == g.Key.DataSourceId)
-                        .Select(x => x.OwnerNotAuthorized)
-                        .FirstOrDefault(),
-                    TableScores = tableScores
-                };
-            })
-            .ToList();
-
-        return grouped;
+        return overviews;
     }
 }
 
