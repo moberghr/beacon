@@ -86,7 +86,10 @@ public class PostgreSqlHostDataSourceTests
     {
         using var dataSource = NpgsqlDataSource.Create(HostConnectionString);
 
+        // The obsolete schema overload still refuses any schema but beacon.
+#pragma warning disable CS0618
         var act = () => BuildProvider(x => x.UsePostgreSql(dataSource, "tenant_a"));
+#pragma warning restore CS0618
 
         act.Should().Throw<InvalidOperationException>().WithMessage("*only supports*beacon*tenant_a*");
     }
