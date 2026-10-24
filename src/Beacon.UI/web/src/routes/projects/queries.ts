@@ -467,3 +467,19 @@ export function useLinkProjectDataSources(projectId: number) {
     }),
   );
 }
+
+/**
+ * Starts a scan of every repository of the project as a background task (202 with its ticket). Its progress is followed
+ * with useRepositoryScanStatus; the scan in the request (scanAllRepositories) stays for API callers.
+ */
+export function useStartRepositoryScan() {
+  return useMutation({
+    mutationFn: async (projectId: number) => unwrap<BackgroundTaskTicket>(await beaconApi().startRepositoryScan(projectId)),
+  });
+}
+
+export function useRepositoryScanStatus(projectId: number, ticket: BackgroundTaskTicket | null) {
+  return useBackgroundTaskStatus(['projects', projectId, 'repository-scan'] as const, ticket, async (taskId) =>
+    unwrap<BackgroundTaskStatus>(await beaconApi().getRepositoryScan(projectId, taskId)),
+  );
+}

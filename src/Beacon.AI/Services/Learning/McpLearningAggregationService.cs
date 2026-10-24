@@ -23,17 +23,34 @@ internal sealed class McpLearningAggregationService(
     // LLM lesson extractions per project and run; further clusters take the deterministic content.
     internal const int MaxLessonExtractionsPerRun = 20;
 
+    private static readonly TimeSpan RegexMatchTimeout = TimeSpan.FromSeconds(1);
+
     // The sentences the detectors write a pattern's statistics into — a count, or an error rate and a count, the numbers
     // SignalCount and Confidence also hold — matched against the whole content, each with what replaces the statistics
     // when content is compared. Content of any other shape (a lesson, numbers in it included) is compared as written.
     private static readonly (Regex Sentence, string WithoutCounts)[] CountedSentences =
     [
-        (new Regex(@"\A(Common query pattern for .+ \()[0-9]+( similar queries\))\z", CountedSentenceOptions), "$1#$2"),
-        (new Regex(@"\A(Tables .+ are frequently joined together \()[0-9]+( queries\))\z", CountedSentenceOptions), "$1#$2"),
+        (new Regex(@"\A(Common query pattern for .+ \()[0-9]+( similar queries\))\z", CountedSentenceOptions, RegexMatchTimeout), "$1#$2"),
+        (new Regex(@"\A(Tables .+ are frequently joined together \()[0-9]+( queries\))\z", CountedSentenceOptions, RegexMatchTimeout), "$1#$2"),
         (new Regex(
             @"\A(Table '.+' has a )(?:[0-9]+[\u00A0\u202F ]?%|%[\u00A0\u202F ]?[0-9]+)( error rate across )[0-9]+( queries\. Schema descriptions may be missing or misleading\.)\z",
-            CountedSentenceOptions), "$1#$2#$3")
+            CountedSentenceOptions,
+            RegexMatchTimeout), "$1#$2#$3")
     ];
+
+    // Schema validation format: "Column 'created_at' does not exist on 'l'. Available: col1, col2, ..."
+    private static readonly Regex SchemaErrorPattern = new(
+        @"Column '(\w+)' does not exist on '[\w.]+'\.\s*Available:\s*([^;]+)",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled,
+        RegexMatchTimeout);
+
+    // PostgreSQL execution error format: '42703: column "created_at" does not exist'
+    private static readonly Regex PgErrorPattern = new(
+        @"column ""(\w+)"" does not exist",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled,
+        RegexMatchTimeout);
+
+    private static readonly Regex WordPattern = new(@"\w+", RegexOptions.CultureInvariant | RegexOptions.Compiled, RegexMatchTimeout);
 
     private const RegexOptions CountedSentenceOptions = RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.Singleline;
 
@@ -410,57 +427,54 @@ internal sealed class McpLearningAggregationService(
 
         if (corrections.Count == 0) return;
 
-        // Schema validation format: "Column 'created_at' does not exist on 'l'. Available: col1, col2, ..."
-        var schemaErrorPattern = new Regex(
-            @"Column '(\w+)' does not exist on '[\w.]+'\.\s*Available:\s*([^;]+)",
-            RegexOptions.IgnoreCase);
-
-        // PostgreSQL execution error format: '42703: column "created_at" does not exist'
-        var pgErrorPattern = new Regex(
-            @"column ""(\w+)"" does not exist",
-            RegexOptions.IgnoreCase);
-
         var mappings = new List<(string WrongColumn, string? CorrectColumn, string Schema, string Table, McpQuerySignal Signal)>();
 
         foreach (var signal in corrections)
         {
-            var tables = TryDeserializeJsonArray(signal.TablesUsed ?? "[]");
-            if (tables.Count == 0) continue;
-
-            // Use the real table name from TablesUsed, not the alias from the error message
-            var primaryTable = tables.FirstOrDefault(t => t.Contains('.')) ?? tables[0];
-            var tableParts = primaryTable.Split('.');
-            var schema = tableParts.Length > 1 ? tableParts[0] : "public";
-            var table = tableParts.Length > 1 ? tableParts[1] : tableParts[0];
-            var captured = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-
-            // Schema validation errors have the Available columns list — best source for mapping
-            if (!string.IsNullOrEmpty(signal.SchemaValidationError))
+            try
             {
-                foreach (Match match in schemaErrorPattern.Matches(signal.SchemaValidationError))
-                {
-                    var wrongCol = match.Groups[1].Value;
-                    var availableCsv = match.Groups[2].Value;
-                    var correctCol = FindBestColumnMatch(wrongCol, availableCsv, signal.CorrectedSql);
-                    mappings.Add((wrongCol, correctCol, schema, table, signal));
-                    captured.Add(wrongCol);
-                }
-            }
+                var tables = TryDeserializeJsonArray(signal.TablesUsed ?? "[]");
+                if (tables.Count == 0) continue;
 
-            // Execution errors (PostgreSQL column-not-found) — fallback when schema validation missed it
-            if (!string.IsNullOrEmpty(signal.ExecutionError))
-            {
-                var pgMatch = pgErrorPattern.Match(signal.ExecutionError);
-                if (pgMatch.Success)
+                // Use the real table name from TablesUsed, not the alias from the error message
+                var primaryTable = tables.FirstOrDefault(t => t.Contains('.')) ?? tables[0];
+                var tableParts = primaryTable.Split('.');
+                var schema = tableParts.Length > 1 ? tableParts[0] : "public";
+                var table = tableParts.Length > 1 ? tableParts[1] : tableParts[0];
+                var captured = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+                // Schema validation errors have the Available columns list — best source for mapping
+                if (!string.IsNullOrEmpty(signal.SchemaValidationError))
                 {
-                    var wrongCol = pgMatch.Groups[1].Value;
-                    if (!captured.Contains(wrongCol))
+                    foreach (Match match in SchemaErrorPattern.Matches(signal.SchemaValidationError))
                     {
-                        var correctCol = FindReplacementInCorrectedSql(
-                            wrongCol, signal.GeneratedSql, signal.CorrectedSql);
+                        var wrongCol = match.Groups[1].Value;
+                        var availableCsv = match.Groups[2].Value;
+                        var correctCol = FindBestColumnMatch(wrongCol, availableCsv, signal.CorrectedSql);
                         mappings.Add((wrongCol, correctCol, schema, table, signal));
+                        captured.Add(wrongCol);
                     }
                 }
+
+                // Execution errors (PostgreSQL column-not-found) — fallback when schema validation missed it
+                if (!string.IsNullOrEmpty(signal.ExecutionError))
+                {
+                    var pgMatch = PgErrorPattern.Match(signal.ExecutionError);
+                    if (pgMatch.Success)
+                    {
+                        var wrongCol = pgMatch.Groups[1].Value;
+                        if (!captured.Contains(wrongCol))
+                        {
+                            var correctCol = FindReplacementInCorrectedSql(
+                                wrongCol, signal.GeneratedSql, signal.CorrectedSql);
+                            mappings.Add((wrongCol, correctCol, schema, table, signal));
+                        }
+                    }
+                }
+            }
+            catch (RegexMatchTimeoutException)
+            {
+                logger.LogWarning("Skipped schema correction signal {SignalId}: pattern match timed out", signal.Id);
             }
         }
 
@@ -1207,8 +1221,16 @@ internal sealed class McpLearningAggregationService(
         var candidates = available;
         if (!string.IsNullOrEmpty(correctedSql))
         {
+            // The SQL is tokenized once; a column made of word characters is in it exactly when it is one of its words
+            // (what a whole-word match means), so no pattern is built per column.
+            var words = WordPattern.Matches(correctedSql)
+                .Select(x => x.Value)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
             var inSql = available
-                .Where(col => Regex.IsMatch(correctedSql, @$"\b{Regex.Escape(col)}\b", RegexOptions.IgnoreCase))
+                .Where(col => col.All(x => char.IsLetterOrDigit(x) || x == '_')
+                    ? words.Contains(col)
+                    : ContainsWord(correctedSql, col))
                 .ToList();
             if (inSql.Count > 0)
             {
@@ -1276,15 +1298,34 @@ internal sealed class McpLearningAggregationService(
         return 0;
     }
 
+    private static bool ContainsWord(string text, string word)
+    {
+        try
+        {
+            return Regex.IsMatch(text, @$"\b{Regex.Escape(word)}\b", RegexOptions.IgnoreCase, RegexMatchTimeout);
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            return false;
+        }
+    }
+
     private static HashSet<string> ExtractSqlIdentifiers(string sql)
     {
         var result = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-        foreach (Match m in Regex.Matches(sql, @"\b\w+\b"))
+        try
         {
-            if (m.Value.Length > 1 && !SqlKeywords.Contains(m.Value))
+            foreach (Match m in Regex.Matches(sql, @"\b\w+\b", RegexOptions.None, RegexMatchTimeout))
             {
-                result.Add(m.Value);
+                if (m.Value.Length > 1 && !SqlKeywords.Contains(m.Value))
+                {
+                    result.Add(m.Value);
+                }
             }
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            // an oversized statement yields the identifiers read so far; the caller finds no replacement from them
         }
 
         return result;

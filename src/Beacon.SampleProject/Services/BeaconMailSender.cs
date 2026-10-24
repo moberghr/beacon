@@ -8,7 +8,14 @@ namespace Beacon.SampleProject.Services;
 
 public class BeaconMailSender(IConfiguration configuration) : IEmailAdapter
 {
-    public async Task SendEmailAsync(string to, string subject, string body, QueryResultFile? file)
+    private static readonly TimeSpan SendTimeout = TimeSpan.FromSeconds(60);
+
+    public Task SendEmailAsync(string to, string subject, string body, QueryResultFile? file)
+    {
+        return SendEmailAsync(to, subject, body, file, CancellationToken.None);
+    }
+
+    public async Task SendEmailAsync(string to, string subject, string body, QueryResultFile? file, CancellationToken cancellationToken)
     {
         var section = configuration.GetSection("Beacon:Smtp");
 
@@ -61,6 +68,9 @@ public class BeaconMailSender(IConfiguration configuration) : IEmailAdapter
             mailMessage.Attachments.Add(attachment);
         }
 
-        await smtpClient.SendMailAsync(mailMessage);
+        // SmtpClient.Timeout does not apply to SendMailAsync, so the send's own deadline is a token.
+        using var timeout = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken);
+        timeout.CancelAfter(SendTimeout);
+        await smtpClient.SendMailAsync(mailMessage, timeout.Token);
     }
 }

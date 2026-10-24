@@ -14,17 +14,17 @@ public class AnomalyChartData
     public string? Sensitivity { get; set; }
 
     /// <summary>
-    /// Rolling baseline values for each data point (shows baseline evolution over time)
+    /// Always null: the rolling baseline is no longer computed (nothing read it). Kept for compatibility.
     /// </summary>
     public List<decimal>? RollingBaseline { get; set; }
 
     /// <summary>
-    /// Rolling upper threshold values for each data point
+    /// Always null; see <see cref="RollingBaseline"/>.
     /// </summary>
     public List<decimal>? RollingUpperThreshold { get; set; }
 
     /// <summary>
-    /// Rolling lower threshold values for each data point
+    /// Always null; see <see cref="RollingBaseline"/>.
     /// </summary>
     public List<decimal>? RollingLowerThreshold { get; set; }
 }

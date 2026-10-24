@@ -75,7 +75,7 @@ public class BackgroundTaskServiceTests
         abandon.Should().Contain("[b].[Kind] = @");
         abandon.Should().Contain("[b].[SubjectId] = @");
         abandon.Should().Contain("[b].[State] IN (0, 1)");
-        abandon.Should().Contain("COALESCE([b].[StartedTime], [b].[CreatedTime]) < @");
+        abandon.Should().Contain("COALESCE([b].[HeartbeatTime], [b].[StartedTime], [b].[CreatedTime]) < @", "a task is given up only that long after its last sign of life");
         abandon.Should().Contain("[b].[JobId] IS NULL", "a queued task the job runner never got is given up sooner");
         capture.CommandParameters[0].Values.Should().Contain(
         [
@@ -345,6 +345,32 @@ public class BackgroundTaskServiceTests
         capture.CommandParameters[0].Values.Should().Contain([BackgroundTaskFailureCodes.Abandoned, SubjectId]);
     }
 
+    [TestCase(true, Description = "its work ended by its own record")]
+    [TestCase(false, Description = "its work still goes on")]
+    public async Task GetStatus_AsksAReconcilingExecutor_AndGivesUpARunningTaskWhoseWorkEnded(bool ended)
+    {
+        var started = Now.UtcDateTime.AddHours(-2);
+        var capture = new SqlCapture()
+            .ThenRowsAffected(0)
+            .ThenRow(TaskId, started, started.AddMinutes(1))
+            .ThenRowsAffected(1)
+            .ThenNoRows();
+        var executor = new ReconcilingExecutor { Ended = ended };
+
+        await Service(capture, new Mock<IBeaconScheduler>().Object, executor)
+            .GetStatusAsync(BackgroundTaskKind.MetadataRefresh, SubjectId, TaskId, CancellationToken.None);
+
+        executor.Asked.Should().Equal((SubjectId, started, (DateTime?)started.AddMinutes(1)));
+        var givenUp = capture.Commands
+            .Skip(2)
+            .Any(x => x.Contains("UPDATE beacon.background_tasks"));
+        givenUp.Should().Be(ended);
+        if (ended)
+        {
+            capture.CommandParameters[2].Values.Should().Contain([BackgroundTaskFailureCodes.Abandoned, TaskId]);
+        }
+    }
+
     [Test]
     public async Task Execute_OffARequest_RunsAsTheUserWhoStartedIt()
     {
@@ -425,6 +451,85 @@ public class BackgroundTaskServiceTests
             [BackgroundTaskFailureCodes.Busy, (int)BackgroundTaskState.Running, (int)BackgroundTaskState.Skipped]);
     }
 
+    [Test]
+    public async Task Execute_OffARequest_WhenTheRequesterNowResolvesToAnotherStoredUser_IsSkipped_WithoutRunning()
+    {
+        var capture = new SqlCapture()
+            .ThenRow((int)BackgroundTaskKind.MetadataRefresh, SubjectId, RequestedBy, RequesterExternalId)
+            .ThenRowsAffected(1)
+            .ThenRowsAffected(1);
+        var setup = new Setup { HasRequest = false, ActorUserId = 77 };
+        var executor = new FakeExecutor();
+
+        await Service(capture, new Mock<IBeaconScheduler>().Object, setup, executor).ExecuteAsync(TaskId, CancellationToken.None);
+
+        executor.Runs.Should().BeEmpty("the task runs as the very user who started it, by Users.Id");
+        capture.CommandParameters[2].Values.Should().Contain(
+            [BackgroundTaskFailureCodes.Forbidden, (int)BackgroundTaskState.Running, (int)BackgroundTaskState.Skipped]);
+    }
+
+    [Test]
+    public async Task Execute_ATaskThatRanNothing_RecordsItsKindsSkippedEvent()
+    {
+        var capture = new SqlCapture()
+            .ThenRow((int)BackgroundTaskKind.MetadataRefresh, SubjectId, RequestedBy, DBNull.Value)
+            .ThenRowsAffected(1)
+            .ThenRowsAffected(1);
+        var setup = new Setup { HasRequest = false };
+
+        await Service(capture, new Mock<IBeaconScheduler>().Object, setup, new FakeExecutor { RecordsSkips = true }).ExecuteAsync(TaskId, CancellationToken.None);
+
+        setup.Audit.Of(SecurityAuditActions.MetadataRefreshed).Should().ContainSingle()
+            .Which.DetailsJson.Should().Be("{\"taskId\":42,\"reason\":\"forbidden\"}");
+    }
+
+    [Test]
+    public async Task Execute_ItsOutcome_ReplacesAnAbandonedVerdictGivenWhileItRan_Translates()
+    {
+        var capture = new SqlCapture()
+            .ThenRow((int)BackgroundTaskKind.MetadataRefresh, SubjectId, RequestedBy, RequesterExternalId)
+            .ThenRowsAffected(1)
+            .ThenRowsAffected(1);
+
+        await Service(capture, new Mock<IBeaconScheduler>().Object, new FakeExecutor()).ExecuteAsync(TaskId, CancellationToken.None);
+
+        capture.Commands[2].Should().Contain(
+            $"(b.state = @_8__locals1_from OR (b.state = {(int)BackgroundTaskState.Failed} AND b.failure_code = '{BackgroundTaskFailureCodes.Abandoned}'))");
+        capture.CommandParameters[2].Values.Should().Contain([(int)BackgroundTaskState.Running, (int)BackgroundTaskState.Succeeded]);
+    }
+
+    [Test]
+    public async Task Start_WithAGrant_RecordsWhereThePermissionCameFrom_AndTheStampHash()
+    {
+        var capture = SqlCapture.OnSqlServer()
+            .ThenRowsAffected(0)
+            .ThenRow(TaskId)
+            .ThenRowsAffected(1);
+        var scheduler = new Mock<IBeaconScheduler>();
+        scheduler.Setup(x => x.EnqueueBackgroundTask(TaskId, CallerHubId)).ReturnsAsync("job-1");
+        var grant = new BackgroundTaskGrant(BackgroundTaskPermissionSources.IdentityProvider, BackgroundTaskRequesterPermissions.StampHash("stamp"));
+
+        await Service(capture, scheduler.Object, new FakeExecutor()).StartAsync(BackgroundTaskKind.MetadataRefresh, SubjectId, null, grant, CancellationToken.None);
+
+        capture.CommandParameters[1].Values.Should().Contain([BackgroundTaskPermissionSources.IdentityProvider, grant.RequesterStampHash]);
+        capture.CommandParameters[1].Values.Should().NotContain("stamp");
+    }
+
+    [TestCase(1, true)]
+    [TestCase(0, false)]
+    public async Task Heartbeat_IsWrittenOnlyWhileTheTaskRuns_AndSaysWhetherItStillDoes_Translates(int rows, bool running)
+    {
+        var capture = new SqlCapture().ThenRowsAffected(rows);
+
+        var beaten = await new BackgroundTaskHeartbeat(capture.Factory(), new FakeTimeProvider(Now)).BeatAsync(TaskId, CancellationToken.None);
+
+        beaten.Should().Be(running);
+        capture.Commands.Should().ContainSingle()
+            .Which.Should().Contain("UPDATE beacon.background_tasks").And.Contain("heartbeat_time = @")
+            .And.Contain($"b.state = {(int)BackgroundTaskState.Running}");
+        capture.CommandParameters[0].Values.Should().Contain([TaskId, Now.UtcDateTime]);
+    }
+
     private static SecurityAuditEntry StartedEvent(int taskId)
         => new SecurityAuditEntry(SecurityAuditActions.MetadataRefreshed)
             .On(SecurityAuditResources.DataSource, SubjectId)
@@ -443,7 +548,7 @@ public class BackgroundTaskServiceTests
     private static BackgroundTaskService Service(SqlCapture capture, IBeaconScheduler scheduler, Setup setup, params IBackgroundTaskExecutor[] executors)
     {
         var actor = new Mock<IBeaconActorAccessor>();
-        actor.Setup(x => x.GetCurrentAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new BeaconActor(RequesterExternalId, false) { BeaconUserId = RequestedBy });
+        actor.Setup(x => x.GetCurrentAsync(It.IsAny<CancellationToken>())).ReturnsAsync(new BeaconActor(RequesterExternalId, false) { BeaconUserId = setup.ActorUserId });
         var principal = new Mock<IBeaconRequestPrincipal>();
         principal.SetupGet(x => x.HasRequest).Returns(setup.HasRequest);
         principal.SetupGet(x => x.User).Returns(setup.HasRequest ? setup.Caller ?? SessionCaller() : null);
@@ -474,6 +579,8 @@ public class BackgroundTaskServiceTests
         public Mock<IRunAsScope> RunAs { get; } = new();
 
         public RecordingSecurityAudit Audit { get; init; } = new();
+
+        public int? ActorUserId { get; init; } = RequestedBy;
     }
 
     private sealed class FakeExecutor : IBackgroundTaskExecutor
@@ -486,15 +593,46 @@ public class BackgroundTaskServiceTests
 
         public Exception? Failure { get; init; }
 
+        public bool RecordsSkips { get; init; }
+
         public BackgroundTaskKind Kind => BackgroundTaskKind.MetadataRefresh;
 
         public TimeSpan AbandonAfter => Limit;
+
+        public SecurityAuditEntry? SkippedEvent(BackgroundTaskContext task, string code)
+            => RecordsSkips
+                ? new SecurityAuditEntry(SecurityAuditActions.MetadataRefreshed)
+                    .On(SecurityAuditResources.DataSource, task.SubjectId)
+                    .Ending(SecurityAuditOutcomes.Refused)
+                    .With(new SecurityAuditDetails().Add("taskId", task.TaskId).AddCode("reason", code))
+                : null;
 
         public Task<BackgroundTaskOutcome> ExecuteAsync(BackgroundTaskContext task, CancellationToken cancellationToken)
         {
             Runs.Add(task);
 
             return Failure == null ? Task.FromResult(Outcome) : Task.FromException<BackgroundTaskOutcome>(Failure);
+        }
+    }
+
+    private sealed class ReconcilingExecutor : IReconcilingBackgroundTaskExecutor
+    {
+        public bool Ended { get; init; }
+
+        public List<(int SubjectId, DateTime StartedTime, DateTime? HeartbeatTime)> Asked { get; } = [];
+
+        public BackgroundTaskKind Kind => BackgroundTaskKind.MetadataRefresh;
+
+        public TimeSpan AbandonAfter => TimeSpan.FromDays(1);
+
+        public Task<BackgroundTaskOutcome> ExecuteAsync(BackgroundTaskContext task, CancellationToken cancellationToken)
+            => Task.FromResult(new BackgroundTaskOutcome());
+
+        public Task<bool> HasEndedAsync(int subjectId, DateTime startedTime, DateTime? heartbeatTime, CancellationToken cancellationToken)
+        {
+            Asked.Add((subjectId, startedTime, heartbeatTime));
+
+            return Task.FromResult(Ended);
         }
     }
 }

@@ -32,4 +32,19 @@ public class BackgroundTask : BaseEntity
 
     /// <summary>How many items the task left out or warned about (for a metadata refresh, the names it did not store).</summary>
     public int? WarningCount { get; set; }
+
+    /// <summary>
+    /// Where the functional permission the start was admitted by came from
+    /// (<see cref="BackgroundTasks.BackgroundTaskPermissionSources"/>, a code); null for a kind that needs none.
+    /// </summary>
+    public string? PermissionSource { get; set; }
+
+    /// <summary>
+    /// A hash of the requester's security stamp when the task started, compared at run time before a permission the
+    /// identity provider granted at the start is relied on; never the stamp itself.
+    /// </summary>
+    public string? RequesterStampHash { get; set; }
+
+    /// <summary>When the running task last showed it is still going; a task is given up as abandoned only that long after it.</summary>
+    public DateTime? HeartbeatTime { get; set; }
 }

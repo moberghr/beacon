@@ -298,6 +298,7 @@ public class ImportedDocumentToolTests
             _store.Factory().Object,
             ProjectContext(),
             AuditService(),
+            SettingsProviderMock.Create().Object,
             NullLogger<ProjectGetDocumentationTool>.Instance);
 
         return tool.ExecuteAsync(datasource_name: datasourceName, document: document, cancellationToken: CancellationToken.None);

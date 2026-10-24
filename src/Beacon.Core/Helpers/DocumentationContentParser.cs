@@ -16,10 +16,10 @@ public static partial class DocumentationContentParser
         "domain_name", "tables_documented", "full_markdown"
     };
 
-    [GeneratedRegex(@"""(\w+)""\s*:\s*""((?:[^""\\]|\\.)*)""", RegexOptions.Singleline)]
+    [GeneratedRegex(@"""(\w+)""\s*:\s*""((?:[^""\\]|\\.)*)""", RegexOptions.Singleline, matchTimeoutMilliseconds: 1000)]
     private static partial Regex JsonStringValueRegex();
 
-    [GeneratedRegex(@"```mermaid\s*\n(.*?)```", RegexOptions.Singleline)]
+    [GeneratedRegex(@"```mermaid\s*\n(.*?)```", RegexOptions.Singleline, matchTimeoutMilliseconds: 1000)]
     private static partial Regex MermaidBlockRegex();
 
     /// <summary>

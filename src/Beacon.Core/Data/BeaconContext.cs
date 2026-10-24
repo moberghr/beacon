@@ -177,6 +177,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             modelBuilder.HasDefaultSchema(resolvedSchema);
         }
 
+        UtcBuckets.Register(modelBuilder, Database.ProviderName);
         SetSoftDeleteQueryFilter(modelBuilder);
         ConfigureMigrationEntities(modelBuilder);
         ConfigureMetadataEntities(modelBuilder);
@@ -206,6 +207,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
         ConfigureSecurityAuditEntities(modelBuilder);
         ConfigureRowSecurityEntities(modelBuilder);
         ConfigureBackgroundTaskEntities(modelBuilder);
+        ConfigureEmbedEntities(modelBuilder);
         ConfigureAttributionColumns(modelBuilder);
         base.OnModelCreating(modelBuilder);
     }
@@ -455,6 +457,12 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
 
             // Per-subscription history ordered by time (subscription detail, anomaly lookbacks).
             entity.HasIndex(e => new { e.SubscriptionId, e.CreatedTime });
+        });
+
+        // Notification trends count per day over a SentAt window.
+        modelBuilder.Entity<Notification>(entity =>
+        {
+            entity.HasIndex(e => e.SentAt);
         });
     }
 
@@ -1494,6 +1502,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.HasKey(e => e.Id);
             entity.Property(e => e.EmbeddingBytes).IsRequired();
             entity.Property(e => e.Model).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.ContentHash).HasMaxLength(64);
 
             entity.HasIndex(e => e.DataSourceId);
             entity.HasIndex(e => new { e.DataSourceId, e.OwnerType, e.OwnerId }).IsUnique();
@@ -1740,6 +1749,8 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.HasKey(e => e.Id);
             entity.Property(e => e.JobId).HasMaxLength(64);
             entity.Property(e => e.FailureCode).HasMaxLength(64);
+            entity.Property(e => e.PermissionSource).HasMaxLength(16);
+            entity.Property(e => e.RequesterStampHash).HasMaxLength(64);
 
             entity.HasIndex(e => new { e.Kind, e.SubjectId })
                 .IsUnique()
