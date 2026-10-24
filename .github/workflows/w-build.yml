@@ -1,4 +1,4 @@
-﻿name: Build the Beacon Release
+name: Build the Beacon Release
 
 # Two jobs. `build` has a read-only token: it checks the version and that the commit is on main, then builds, tests and
 # packs. `publish` waits for approval in the `nuget-release` environment and is the only job that can request an OIDC
@@ -71,7 +71,7 @@ jobs:
         echo "version=$VERSION" >> "$GITHUB_OUTPUT"
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
       with:
         dotnet-version: '10.0.x'
 
@@ -183,7 +183,7 @@ jobs:
         path: artifacts
 
     - name: Setup .NET
-      uses: actions/setup-dotnet@67a3573c9a986a3f9c594539f4ab511d57bb3ce9 # v4.3.1
+      uses: actions/setup-dotnet@a98b56852c35b8e3190ac28c8c2271da59106c68 # v6.0.0
       with:
         dotnet-version: '10.0.x'
 
