@@ -23,6 +23,7 @@ public class ApprovalWorkflowOptionsCoverageTests
         workflow.CoversLlmConnection.Should().BeFalse();
         workflow.Covers(ChangeApprovalKind.DataSourceConnection).Should().BeFalse();
         workflow.Covers(ChangeApprovalKind.LlmConnection).Should().BeFalse();
+        workflow.Covers(ChangeApprovalKind.AdminRoleGrant).Should().BeFalse();
         workflow.Covers(ChangeApprovalKind.MigrationJob).Should().BeTrue();
         workflow.Covers(ChangeApprovalKind.CustomSqlRules).Should().BeTrue();
         workflow.Covers(ChangeApprovalKind.RecipientDestination).Should().BeTrue();
@@ -78,6 +79,7 @@ public class ApprovalWorkflowOptionsCoverageTests
                 ["ApprovalWorkflow:Enabled"] = "true",
                 ["ApprovalWorkflow:CoversDataSourceConnections"] = "true",
                 ["ApprovalWorkflow:CoversLlmConnection"] = "true",
+                ["ApprovalWorkflow:CoversAdminRoleGrants"] = "true",
                 ["ApprovalWorkflow:LlmConnectionRequestDays"] = "90"
             })
             .Build();
@@ -86,6 +88,7 @@ public class ApprovalWorkflowOptionsCoverageTests
 
         workflow.Covers(ChangeApprovalKind.DataSourceConnection).Should().BeTrue();
         workflow.Covers(ChangeApprovalKind.LlmConnection).Should().BeTrue();
+        workflow.Covers(ChangeApprovalKind.AdminRoleGrant).Should().BeTrue();
         workflow.LlmConnectionRequestDays.Should().Be(30);
     }
 }

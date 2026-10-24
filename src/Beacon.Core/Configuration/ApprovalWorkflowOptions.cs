@@ -4,8 +4,8 @@ namespace Beacon.Core;
 
 /// <summary>
 /// The change approval workflow: query changes, and (each with its own switch, on by default) migration jobs, Custom SQL
-/// rules and recipient destinations, and (each with its own switch, off by default) data-source connections and the LLM
-/// connection. Opt-in (<see cref="Enabled"/>): a host cannot tell a new installation from an
+/// rules and recipient destinations, and (each with its own switch, off by default) data-source connections, the LLM
+/// connection and grants of the Admin role. Opt-in (<see cref="Enabled"/>): a host cannot tell a new installation from an
 /// existing one, so turning it on is the host's decision; a startup note says when it is off.
 /// </summary>
 public class ApprovalWorkflowOptions
@@ -28,7 +28,9 @@ public class ApprovalWorkflowOptions
     /// themselves, and publish as an MCP tool a query whose active version they requested or approved; also lets an AI
     /// actor's creator and a plan's revision requesters approve its plans while the workflow is on, and lets a change be
     /// submitted by a caller Beacon cannot name. Default: false (four-eyes). For a host with a single person who can
-    /// approve; a startup Warning says it is on, and with it off the host warns when fewer than two users can approve.
+    /// approve; a startup Warning says it is on, and with it off the host warns when fewer than two users can approve. It
+    /// never applies to a grant of the Admin role (<see cref="CoversAdminRoleGrants"/>), and neither lets a caller Beacon
+    /// cannot name request one.
     /// </summary>
     public bool AllowSelfApproval { get; set; } = false;
 
@@ -81,6 +83,14 @@ public class ApprovalWorkflowOptions
     public bool CoversLlmConnection { get; set; } = false;
 
     /// <summary>
+    /// With the workflow on, giving a user the Admin role (creating a user with it, or adding it to a user's roles) does not
+    /// apply it: the rest of the save goes through, and the grant waits until a live Admin other than the requester approves
+    /// it, whatever <see cref="AllowSelfApproval"/> says. Removing the Admin role and granting a functional role apply at
+    /// once. A user provisioned at a first sign-in is never given the Admin role while this is on. Default: false.
+    /// </summary>
+    public bool CoversAdminRoleGrants { get; set; } = false;
+
+    /// <summary>
     /// How many days a staged LLM connection change waits for a decision before it expires and its staged values are wiped.
     /// Default: 7; values are held between 1 and 30.
     /// </summary>
@@ -100,6 +110,7 @@ public class ApprovalWorkflowOptions
             ChangeApprovalKind.RecipientDestination => CoversRecipientDestinations,
             ChangeApprovalKind.DataSourceConnection => CoversDataSourceConnections,
             ChangeApprovalKind.LlmConnection => CoversLlmConnection,
+            ChangeApprovalKind.AdminRoleGrant => CoversAdminRoleGrants,
             _ => false
         };
     }

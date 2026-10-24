@@ -12,6 +12,7 @@ import { cn } from '@/lib/utils';
 import {
   useCreateExternalUser,
   useCreateInternalUser,
+  useAdminGrantWatch,
   useRolesQuery,
   useSetUserRoles,
   useSignUserOutEverywhere,
@@ -21,6 +22,7 @@ import {
 } from './queries';
 import { OwnedResources } from './OwnedResources';
 import {
+  ADMIN_ROLE_NAME,
   INTERNAL_USER_NOTE,
   SIGN_IN_IDENTITY_NOTE,
   changeBlockedReason,
@@ -217,6 +219,7 @@ function toggled(prev: ReadonlySet<number>, id: number, on: boolean): Set<number
 
 function CreateInternalForm({ onClose }: { onClose: () => void }) {
   const create = useCreateInternalUser();
+  const watchAdminGrant = useAdminGrantWatch();
   const rolesQuery = useRolesQuery();
   const { isAdmin } = useAccess();
   const [selectedRoles, setSelectedRoles] = useState<Set<number>>(new Set());
@@ -235,6 +238,7 @@ function CreateInternalForm({ onClose }: { onClose: () => void }) {
 
   const onSubmit = handleSubmit(async values => {
     try {
+      const announce = selectsAdminRole(rolesQuery.data?.entries ?? [], selectedRoles) ? await watchAdminGrant(null) : null;
       await create.mutateAsync({
         userName: values.userName,
         email: values.email?.trim() ? values.email.trim() : null,
@@ -243,6 +247,7 @@ function CreateInternalForm({ onClose }: { onClose: () => void }) {
         roleIds: Array.from(selectedRoles),
       });
       toast.success(`Created user '${values.userName}'`);
+      await announce?.();
       onClose();
     } catch (err) {
       if (err instanceof ApiError && err.status === 400) {
@@ -285,8 +290,14 @@ function CreateInternalForm({ onClose }: { onClose: () => void }) {
   );
 }
 
+/** Whether the selection holds the Admin role, which a workflow covering Admin grants submits instead of applying. */
+function selectsAdminRole(roles: RoleEntry[], selected: Set<number>) {
+  return roles.some(x => x.name === ADMIN_ROLE_NAME && selected.has(x.id));
+}
+
 function CreateExternalForm({ onClose }: { onClose: () => void }) {
   const create = useCreateExternalUser();
+  const watchAdminGrant = useAdminGrantWatch();
   const rolesQuery = useRolesQuery();
   const { isAdmin } = useAccess();
   const [selectedRoles, setSelectedRoles] = useState<Set<number>>(new Set());
@@ -304,6 +315,7 @@ function CreateExternalForm({ onClose }: { onClose: () => void }) {
 
   const onSubmit = handleSubmit(async values => {
     try {
+      const announce = selectsAdminRole(rolesQuery.data?.entries ?? [], selectedRoles) ? await watchAdminGrant(null) : null;
       await create.mutateAsync({
         externalId: values.externalId,
         userName: values.userName,
@@ -312,6 +324,7 @@ function CreateExternalForm({ onClose }: { onClose: () => void }) {
         roleIds: Array.from(selectedRoles),
       });
       toast.success(`Created user '${values.userName}'`);
+      await announce?.();
       onClose();
     } catch {
       // createSimpleMutation already surfaced the error toast.
@@ -348,6 +361,7 @@ function CreateExternalForm({ onClose }: { onClose: () => void }) {
 function EditUserForm({ open, user, onClose }: { open: boolean; user: UserEntry; onClose: () => void }) {
   const update = useUpdateUser();
   const setRoles = useSetUserRoles();
+  const watchAdminGrant = useAdminGrantWatch();
   const signOut = useSignUserOutEverywhere();
   const rolesQuery = useRolesQuery();
   const roles = rolesQuery.data?.entries ?? [];
@@ -411,7 +425,10 @@ function EditUserForm({ open, user, onClose }: { open: boolean; user: UserEntry;
     }
     if (rolesChanged) {
       try {
+        const grantsAdmin = selectsAdminRole(roles, selectedRoles) && !user.roles.some(x => x.name === ADMIN_ROLE_NAME);
+        const announce = grantsAdmin ? await watchAdminGrant(user.id) : null;
         await setRoles.mutateAsync({ id: user.id, roleIds: Array.from(selectedRoles) });
+        await announce?.();
       } catch (err) {
         // 400: separation of duties or an unknown role; 403: a change the caller may not make. Shown by the roles.
         setRolesError({ status: httpErrorInfo(err)?.status, message: describeError(err, 'Saving the roles failed') });

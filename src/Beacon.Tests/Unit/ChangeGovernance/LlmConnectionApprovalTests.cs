@@ -194,7 +194,7 @@ public class LlmConnectionApprovalTests
         await harness.Settings().GetSettingsAsync(CancellationToken.None);
         harness.ReplaceStoredConnection();
 
-        await harness.Handler(Ben).Handle(Save(), CancellationToken.None);
+        await harness.Handler(Ben).Handle(Save(apiKey: StoredKey), CancellationToken.None);
         harness.Store.Commit();
 
         harness.Store.Requests.Should().ContainSingle().Which.ChangeSummary.Should().Be("Provider changed");
@@ -563,7 +563,7 @@ public class LlmConnectionApprovalTests
     {
         var harness = new Harness();
         harness.StoreConnection();
-        await harness.Handler(Ben).Handle(Save(endpoint: "https://api.openai.example/v2"), CancellationToken.None);
+        await harness.Handler(Ben).Handle(Save(endpoint: "https://api.openai.example/v2", apiKey: StoredKey), CancellationToken.None);
         harness.Store.Commit();
         var request = harness.Store.Requests.Single();
 
@@ -647,6 +647,23 @@ public class LlmConnectionApprovalTests
 
         harness.Lock.Acquired.Should().Be(1);
         (await harness.Settings().GetSettingsAsync(CancellationToken.None)).LlmApiKey.Should().Be("rotated-key-value");
+    }
+
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task ASaveLeavingTheCredentialsAsTheyAre_AfterAnotherProcessReplacedThem_KeepsTheStoredOnes(bool covered)
+    {
+        var harness = new Harness();
+        harness.StoreConnection();
+        harness.Configuration.ApprovalWorkflow.CoversLlmConnection = covered;
+        (await harness.Settings().GetSettingsAsync(CancellationToken.None)).LlmApiKey.Should().Be(StoredKey);
+        harness.Store.Settings.Single(x => x.Key == "LLM.ApiKey").Value = Encryption.Encrypt("replaced-key-value");
+
+        await harness.Handler(Ben).Handle(Save(model: "gpt-next"), CancellationToken.None);
+
+        Encryption.Decrypt(harness.Store.Settings.Single(x => x.Key == "LLM.ApiKey").Value!).Should().Be("replaced-key-value");
+        harness.Store.Settings.Single(x => x.Key == "LLM.Model").Value.Should().Be("gpt-next");
+        harness.History().Should().NotContain(x => x.SettingKey == "LLM.ApiKey");
     }
 
     private static ChangeApprovalScope LiveAdmin => ChangeApprovalScope.Approver with { IsLiveAdmin = true };

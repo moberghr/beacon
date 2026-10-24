@@ -1544,6 +1544,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("character varying(64)")
                         .HasColumnName("approved_sql_hash");
 
+                    b.Property<DateTime?>("ArchivedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("archived_time");
+
                     b.Property<string>("ColumnName")
                         .HasMaxLength(200)
                         .HasColumnType("character varying(200)")
@@ -2043,6 +2047,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<DateTime?>("CompletedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("completed_time");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_time");
@@ -2074,9 +2082,17 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("result_count");
 
+                    b.Property<int?>("Status")
+                        .HasColumnType("integer")
+                        .HasColumnName("status");
+
                     b.Property<bool>("Success")
                         .HasColumnType("boolean")
                         .HasColumnName("success");
+
+                    b.Property<int?>("TriggeredByUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("triggered_by_user_id");
 
                     b.Property<string>("UserId")
                         .HasMaxLength(100)
@@ -2100,6 +2116,9 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
                     b.HasIndex("DataSourceId", "CreatedTime")
                         .HasDatabaseName("ix_manual_query_execution_logs_data_source_id_created_time");
+
+                    b.HasIndex("TriggeredByUserId", "CreatedTime")
+                        .HasDatabaseName("ix_manual_query_execution_logs_triggered_by_user_id_created_ti");
 
                     b.HasIndex("UserId", "CreatedTime")
                         .HasDatabaseName("ix_manual_query_execution_logs_user_id_created_time");
@@ -4132,6 +4151,14 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_time");
 
+                    b.Property<int?>("EditedByUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("edited_by_user_id");
+
+                    b.Property<DateTime?>("EditedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("edited_time");
+
                     b.Property<int>("ProjectDocumentationId")
                         .HasColumnType("integer")
                         .HasColumnName("project_documentation_id");
@@ -4521,6 +4548,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Property<int>("SubscriptionId")
                         .HasColumnType("integer")
                         .HasColumnName("subscription_id");
+
+                    b.Property<int?>("TriggeredByUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("triggered_by_user_id");
 
                     b.HasKey("Id")
                         .HasName("pk_query_execution_history");

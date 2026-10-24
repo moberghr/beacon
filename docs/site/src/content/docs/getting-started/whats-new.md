@@ -185,6 +185,14 @@ two items.
 
 These changes are on `main` and ship in the next release after 5.0.0.
 
+### OpenTelemetry: the MCP SDK's spans need `AddBeaconMcpSdkTracing()`
+
+`AddBeaconInstrumentation()` on the tracer provider no longer subscribes to the MCP SDK's own `tools/call` spans
+(source `Experimental.ModelContextProtocol`); it adds only Beacon's `"Beacon"` source. A host that upgrades loses those
+spans until it also calls `AddBeaconMcpSdkTracing()` on the same builder, which adds the source and clears the status
+descriptions the SDK writes (they can carry an error result's content). Do not add `Experimental.ModelContextProtocol`
+yourself: that bypasses the scrubber. The meter extension is unchanged.
+
 ### OpenAI and Azure OpenAI over plain HTTP
 
 OpenAI and Azure OpenAI now go over plain HTTP, as Claude already did, so `Moberg.Beacon.AI` no longer brings the

@@ -6,15 +6,19 @@ using Markdig.Syntax;
 using Markdig.Syntax.Inlines;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Beacon.Core.Configuration;
 using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Helpers;
 using Beacon.Core.RowSecurity;
+using Beacon.Core.Models.Providers;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.AI.Services.Documentation;
 
@@ -28,8 +32,17 @@ internal sealed class ProjectDocumentationService(
     ISharedSourceSettings sharedSourceSettings,
     IQueryGuardrailService guardrail,
     ILlmRowDataEgress rowDataEgress,
-    ILogger<ProjectDocumentationService> logger) : IProjectDocumentationService
+    ISecurityAuditRecorder securityAudit,
+    IOptions<McpDeploymentOptions> deploymentOptions,
+    ILogger<ProjectDocumentationService> logger,
+    ISqlExecutionAudit? executionAudit = null) : IProjectDocumentationService
 {
+    /// <summary>
+    /// What a section whose generation failed holds: a fixed text, never the failure's own message (a provider's error
+    /// text would otherwise be served to agents as documentation). The failure is logged by its code.
+    /// </summary>
+    internal const string FailedSectionContent = "*Generation failed for this section. Please regenerate.*";
+
     public async Task<ProjectDocumentation> GenerateDocumentationAsync(
         int projectId, int userId, CancellationToken ct = default)
     {
@@ -74,7 +87,7 @@ internal sealed class ProjectDocumentationService(
             {
                 logger.LogWarning("Documentation generation failed for section {SectionType} ({Failure})", pass.Type, FailureCodes.Describe(ex));
                 return (pass.Type, pass.Title, pass.SortOrder,
-                    Content: $"*Generation failed for this section: {ex.Message}. Please regenerate.*",
+                    Content: FailedSectionContent,
                     InputTokens: 0, OutputTokens: 0, Cost: 0m, Model: "unknown", Error: ex.Message);
             }
         }).ToList();
@@ -101,6 +114,8 @@ internal sealed class ProjectDocumentationService(
             if (result.Model != "unknown") model = result.Model;
         }
 
+        var failedSections = results.Count(x => x.Error != null);
+
         // Pass 8: Glossary — runs after others so it can reference their content
         try
         {
@@ -121,41 +136,70 @@ internal sealed class ProjectDocumentationService(
         catch (Exception ex)
         {
             logger.LogWarning("Documentation generation failed for Glossary ({Failure})", FailureCodes.Describe(ex));
+            failedSections++;
             sections.Add(new ProjectDocumentationSection
             {
                 SectionType = ProjectDocSectionType.Glossary,
                 Title = "Glossary",
-                Content = $"*Generation failed for this section: {ex.Message}. Please regenerate.*",
+                Content = FailedSectionContent,
                 SortOrder = 7
             });
         }
 
         sw.Stop();
 
-        // Persist
+        // Persist. The sections a person edited in the latest documentation are read inside the save's transaction, right
+        // before the documentation is written, and replace what this run generated for them: regeneration never silently
+        // supersedes curated text, and an edit committed before the save is in the read.
         await using var context = await contextFactory.CreateDbContextAsync(ct);
-        var documentation = new ProjectDocumentation
-        {
-            ProjectId = projectId,
-            GeneratedByModel = model,
-            GeneratedAt = DateTime.UtcNow,
-            GeneratedByUserId = userId,
-            InputTokens = totalInput,
-            OutputTokens = totalOutput,
-            EstimatedCost = totalCost,
-            DataSourcesAnalyzed = docContext.DataSourceCount,
-            TablesAnalyzed = docContext.TableCount,
-            CodeReferencesAnalyzed = docContext.CodeReferenceCount,
-            GenerationDuration = sw.Elapsed,
-            Sections = sections
-        };
+        var forbidRowData = deploymentOptions.Value.ForbidRowDataToLlm;
+        var saveResult = await securityAudit.SaveWithEventsAsync(
+            context,
+            async () =>
+            {
+                var generatedSections = sections.ToList();
+                var curated = await CuratedSectionsOfLatestAsync(context, projectId, ct);
+                var (carried, dropped) = CarryCuratedSections(generatedSections, curated, forbidRowData);
+                var saved = new ProjectDocumentation
+                {
+                    ProjectId = projectId,
+                    GeneratedByModel = model,
+                    GeneratedAt = DateTime.UtcNow,
+                    GeneratedByUserId = userId,
+                    InputTokens = totalInput,
+                    OutputTokens = totalOutput,
+                    EstimatedCost = totalCost,
+                    DataSourcesAnalyzed = docContext.DataSourceCount,
+                    TablesAnalyzed = docContext.TableCount,
+                    CodeReferencesAnalyzed = docContext.CodeReferenceCount,
+                    GenerationDuration = sw.Elapsed,
+                    Sections = generatedSections
+                };
 
-        context.ProjectDocumentations.Add(documentation);
-        await context.SaveChangesAsync(ct);
+                context.ProjectDocumentations.Add(saved);
+                await context.SaveChangesAsync(ct);
+
+                return (Documentation: saved, Carried: carried, Dropped: dropped);
+            },
+            x =>
+            [
+                new SecurityAuditEntry(SecurityAuditActions.DocumentationGenerated)
+                    .On(SecurityAuditResources.Project, projectId)
+                    .InProject(projectId)
+                    .By(userId > 0 ? SecurityAuditActor.OfUser(userId) : SecurityAuditActor.System)
+                    .With(new SecurityAuditDetails()
+                        .Add("documentationId", x.Documentation.Id)
+                        .Add("sectionCount", x.Documentation.Sections.Count)
+                        .Add("curatedSectionsKept", x.Carried)
+                        .Add("curatedSectionsDropped", x.Dropped)
+                        .Add("failedSections", failedSections))
+            ],
+            ct);
+        var documentation = saveResult.Documentation;
 
         logger.LogInformation(
             "Project documentation {DocId} generated for Project {ProjectId} in {Duration:F1}s ({Sections} sections, {Tokens} tokens)",
-            documentation.Id, projectId, sw.Elapsed.TotalSeconds, sections.Count, totalInput + totalOutput);
+            documentation.Id, projectId, sw.Elapsed.TotalSeconds, documentation.Sections.Count, totalInput + totalOutput);
 
         return documentation;
     }
@@ -284,6 +328,81 @@ internal sealed class ProjectDocumentationService(
         return await ExportToMarkdownAsync(latestId.Value, leaveOut, ct);
     }
 
+    /// <summary>
+    /// Puts each curated section (<paramref name="curated"/>, edited by a person) in place of the section of its type in
+    /// <paramref name="sections"/>, or adds it when this run generated none of its type: a copy with its title, content
+    /// and who edited it when, so it stays curated in the new documentation. While row data may not reach the LLM
+    /// (<paramref name="forbidRowData"/>) a section whose text can list discovered values is not carried: it is regenerated
+    /// under the lock, never copied forward unscreened. Returns how many were carried and how many dropped.
+    /// </summary>
+    internal static (int Carried, int Dropped) CarryCuratedSections(
+        List<ProjectDocumentationSection> sections,
+        IReadOnlyList<ProjectDocumentationSection> curated,
+        bool forbidRowData = false)
+    {
+        var carried = 0;
+        var dropped = 0;
+        foreach (var edited in curated)
+        {
+            if (forbidRowData && edited.SectionType.ListsValues())
+            {
+                dropped++;
+                continue;
+            }
+
+            var generated = sections.FindIndex(x => x.SectionType == edited.SectionType);
+            var kept = new ProjectDocumentationSection
+            {
+                SectionType = edited.SectionType,
+                Title = edited.Title,
+                Content = edited.Content,
+                SortOrder = generated >= 0 ? sections[generated].SortOrder : edited.SortOrder,
+                EditedByUserId = edited.EditedByUserId,
+                EditedTime = edited.EditedTime
+            };
+
+            if (generated >= 0)
+            {
+                sections[generated] = kept;
+            }
+            else
+            {
+                sections.Add(kept);
+            }
+
+            carried++;
+        }
+
+        return (carried, dropped);
+    }
+
+    // The sections of the project's latest documentation that a person edited, one per type (the latest edit).
+    private static async Task<List<ProjectDocumentationSection>> CuratedSectionsOfLatestAsync(BeaconContext context, int projectId, CancellationToken ct)
+    {
+        var latestId = await context.ProjectDocumentations
+            .Where(x => x.ProjectId == projectId)
+            .OrderByDescending(x => x.GeneratedAt)
+            .Select(x => (int?)x.Id)
+            .FirstOrDefaultAsync(ct);
+        if (latestId == null)
+        {
+            return [];
+        }
+
+        var edited = await context.ProjectDocumentationSections
+            .Where(x => x.ProjectDocumentationId == latestId)
+            .Where(x => x.EditedTime != null)
+            .OrderBy(x => x.SortOrder)
+            .ToListAsync(ct);
+
+        return edited
+            .GroupBy(x => x.SectionType)
+            .Select(x => x
+                .OrderByDescending(y => y.EditedTime)
+                .First())
+            .ToList();
+    }
+
     // --- Section helpers ---
 
     // Generates the API-documentation section. Kept as a named method so the caller
@@ -304,7 +423,7 @@ internal sealed class ProjectDocumentationService(
         {
             logger.LogWarning("Documentation generation failed for API Documentation ({Failure})", FailureCodes.Describe(ex));
             return (ProjectDocSectionType.ApiDocumentation, "API Documentation", 6,
-                Content: $"*Generation failed for this section: {ex.Message}. Please regenerate.*",
+                Content: FailedSectionContent,
                 InputTokens: 0, OutputTokens: 0, Cost: 0m, Model: "unknown", Error: ex.Message);
         }
     }
@@ -371,12 +490,14 @@ internal sealed class ProjectDocumentationService(
 
     // --- LLM Calling ---
 
+    // The user prompt is the project's metadata — names, descriptions, values, code snippets, earlier sections — so it is sent
+    // as one data block under the data rule.
     private static async Task<LlmResponse> CallLlmAsync(ILlmProvider provider, string systemPrompt, string userPrompt, CancellationToken ct)
     {
         var request = new LlmRequest
         {
-            SystemPrompt = systemPrompt,
-            Messages = [new ChatMessage(ConversationRole.User, userPrompt)],
+            SystemPrompt = $"{systemPrompt.TrimEnd()}\n\n{PromptData.Rule}",
+            Messages = [new ChatMessage(ConversationRole.User, PromptData.Fence("project metadata", userPrompt))],
             Temperature = 0.3m,
             MaxTokens = 8192,
             Priority = LlmRequestPriority.Background,
@@ -628,7 +749,7 @@ internal sealed class ProjectDocumentationService(
                 using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
                 timeoutCts.CancelAfter(TimeSpan.FromSeconds(15));
 
-                return (Values: await DiscoverEnumValuesForDataSourceAsync(ds, tables, settings.CustomPiiPatterns, timeoutCts.Token), SamplingOff: false);
+                return (Values: await DiscoverEnumValuesForDataSourceAsync(ds, tables, settings.CustomPiiPatterns, timeoutCts.Token, ct), SamplingOff: false);
             }
             catch (Exception ex)
             {
@@ -669,13 +790,14 @@ internal sealed class ProjectDocumentationService(
     /// come from the connected database: a table or column whose name carries quote, bracket, semicolon or control
     /// characters is skipped, every name is quoted in the engine's own way, and a column is identified in the result by its
     /// position, never by a literal of its name. Each statement passes the read-only execution gate — capped at
-    /// <see cref="EnumValuesPerColumn"/> rows per column — and runs through the provider's read-only path (§1.5/§1.10). A
+    /// <see cref="EnumValuesPerColumn"/> rows per column — and runs through the provider's read-only path (§1.5/§1.10), in
+    /// the execution log before it is sent (<see cref="ISqlExecutionAudit"/>). A
     /// table that is skipped is logged by name with the reason, and every run ends with how many tables were discovered.
     /// A column whose name <see cref="ColumnValueExclusions"/> leaves out (PII, secret-like, a financial amount) is not
     /// read, and a column one of whose values looks like PII or a credential is dropped.
     /// </summary>
     private async Task<List<EnumColumnValues>> DiscoverEnumValuesForDataSourceAsync(
-        DataSource dataSource, List<TableInfo> tables, IReadOnlyList<string> customPiiPatterns, CancellationToken ct)
+        DataSource dataSource, List<TableInfo> tables, IReadOnlyList<string> customPiiPatterns, CancellationToken ct, CancellationToken callerToken)
     {
         var provider = dataSourceProviderFactory.GetProvider(dataSource.DataSourceType);
         var engineType = dataSource.DatabaseEngineType!.Value;
@@ -738,8 +860,17 @@ internal sealed class ProjectDocumentationService(
                     continue;
                 }
 
-                var queryResult = await provider.ExecuteReadOnlyQueryAsync(
-                    dataSource, report.FinalSql, new Dictionary<string, object?>(), ct);
+                // Each statement is in the execution log before it runs: it reads real column values.
+                var finalSql = report.FinalSql;
+                Task<ProviderQueryResult> Read(CancellationToken token) =>
+                    provider.ExecuteReadOnlyQueryAsync(dataSource, finalSql, new Dictionary<string, object?>(), token);
+                var queryResult = executionAudit == null
+                    ? await Read(ct)
+                    : await executionAudit.RunAsync(
+                        new SqlExecutionStart(dataSource.Id, finalSql, SqlExecutionContexts.DocumentationEnumDiscovery),
+                        Read,
+                        ct,
+                        callerToken);
 
                 if (!queryResult.Success)
                 {

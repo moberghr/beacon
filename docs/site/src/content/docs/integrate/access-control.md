@@ -95,7 +95,7 @@ A functional permission grants **no project data**. A UserAdmin can never grant 
 
 ## 4. Change approvals (four-eyes)
 
-Opt in with `options.EnableApprovalWorkflow(...)`. Then a change to a query's executable content goes live only after a **second person** with the Approver permission approves exactly the content they reviewed, and scheduled runs execute only reviewed SQL. By default it also covers migration jobs, Custom SQL rules and new or changed notification destinations; data-source connections (`CoversDataSourceConnections`) and the LLM connection (`CoversLlmConnection`) are covered when you switch them on.
+Opt in with `options.EnableApprovalWorkflow(...)`. Then a change to a query's executable content goes live only after a **second person** with the Approver permission approves exactly the content they reviewed, and scheduled runs execute only reviewed SQL. By default it also covers migration jobs, Custom SQL rules and new or changed notification destinations; data-source connections (`CoversDataSourceConnections`), the LLM connection (`CoversLlmConnection`) and grants of the Admin role (`CoversAdminRoleGrants`) are covered when you switch them on.
 
 ```csharp
 options.EnableApprovalWorkflow(x =>

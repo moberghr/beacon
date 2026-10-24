@@ -155,4 +155,13 @@ internal sealed class IssueEmbedTokenHandler(
 public sealed record IssueEmbedTokenCommand(IReadOnlyDictionary<string, string>? Parameters, int? TtlSeconds) : IRequest<IssueEmbedTokenResult>;
 
 /// <param name="EmbedPath">The embed page's path with the token in its fragment, which a browser never sends to a server.</param>
-public sealed record IssueEmbedTokenResult(string Token, DateTimeOffset ExpiresAt, string EmbedPath);
+public sealed record IssueEmbedTokenResult(string Token, DateTimeOffset ExpiresAt, string EmbedPath)
+{
+    // The compiler-generated ToString prints every member; the token (also in the path's fragment) is printed redacted.
+    private bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"Token = {RedactedPrint.Of(Token)}, ExpiresAt = {ExpiresAt}, EmbedPath = {RedactedPrint.Of(EmbedPath)}");
+
+        return true;
+    }
+}

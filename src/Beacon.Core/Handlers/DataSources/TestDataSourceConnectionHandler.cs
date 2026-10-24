@@ -30,6 +30,15 @@ public record TestDataSourceConnectionCommand(
     string? Name,
     DataSourceType DataSourceType,
     DatabaseEngineType? DatabaseEngineType,
-    string ConnectionString) : IRequest<TestDataSourceConnectionResult>;
+    string ConnectionString) : IRequest<TestDataSourceConnectionResult>
+{
+    // The compiler-generated ToString prints every member; the secrets are printed redacted.
+    protected virtual bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"Name = {Name}, DataSourceType = {DataSourceType}, DatabaseEngineType = {DatabaseEngineType}, ConnectionString = {RedactedPrint.Of(ConnectionString)}");
+
+        return true;
+    }
+}
 
 public record TestDataSourceConnectionResult(bool Success, string Message);

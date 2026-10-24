@@ -1,3 +1,6 @@
+using Microsoft.Extensions.Caching.Memory;
+using Beacon.Core.Models.Settings;
+using Beacon.Core;
 using Beacon.Core.ChangeApprovals;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
@@ -52,9 +55,23 @@ internal sealed class ChangeApprovalStore
 
     public List<Recipient> Recipients { get; } = [];
 
+    /// <summary>
+    /// What reads of the contract rules see instead of <see cref="Rules"/> (bulk writes match through it too): a view for a
+    /// test that changes the stored rules between two reads.
+    /// </summary>
+    public IEnumerable<DataContractRule>? RuleReads { get; set; }
+
+    /// <summary>The stored rule results of past evaluations.</summary>
+    public List<DataQualityRuleResult> Results { get; } = [];
+
     public List<ChangeApprovalRequest> Requests { get; } = [];
 
     public List<BeaconUser> Users { get; } = [];
+
+    /// <summary>The roles users hold (a grant of the Admin role reads and writes them).</summary>
+    public List<BeaconRole> Roles { get; } = [];
+
+    public List<BeaconUserRole> UserRoles { get; } = [];
 
     /// <summary>
     /// The stored admin settings (the LLM connection's change reads and writes them); a save adds the rows it inserts. Their
@@ -98,17 +115,20 @@ internal sealed class ChangeApprovalStore
             [typeof(Recipient)] = RecordingBeaconContext.MemorySet(Recipients, Saved),
             [typeof(ChangeApprovalRequest)] = RecordingBeaconContext.MemorySet(Requests, Saved),
             [typeof(BeaconUser)] = RecordingBeaconContext.MemorySet(Users, Saved),
+            [typeof(BeaconRole)] = RecordingBeaconContext.MemorySet(Roles, Saved),
+            [typeof(BeaconUserRole)] = RecordingBeaconContext.MemorySet(UserRoles, Saved),
+            [typeof(ApiKeyCredential)] = RecordingBeaconContext.MemorySet(new List<ApiKeyCredential>(), Saved),
             [typeof(ProjectDataSource)] = RecordingBeaconContext.MemorySet(ProjectLinks, Saved),
             [typeof(DatabaseMetadata)] = RecordingBeaconContext.MemorySet(Metadata, Saved),
             [typeof(AppSetting)] = RecordingBeaconContext.MemorySet(Settings, Saved),
             [typeof(ColumnMetadata)] = RecordingBeaconContext.MemorySet(new List<ColumnMetadata>(), Saved),
-            [typeof(DataQualityRuleResult)] = RecordingBeaconContext.MemorySet(new List<DataQualityRuleResult>(), Saved),
+            [typeof(DataQualityRuleResult)] = RecordingBeaconContext.MemorySet(Results, Saved),
             [typeof(DataQualityScore)] = RecordingBeaconContext.MemorySet(new List<DataQualityScore>(), Saved),
         };
         if (!trackContracts)
         {
             sets[typeof(DataContract)] = RecordingBeaconContext.MemorySet(Contracts, Saved);
-            sets[typeof(DataContractRule)] = RecordingBeaconContext.MemorySet(Rules, Saved);
+            sets[typeof(DataContractRule)] = RecordingBeaconContext.MemorySet(Rules, Saved, RuleReads);
         }
 
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
@@ -117,6 +137,19 @@ internal sealed class ChangeApprovalStore
             .ReturnsAsync(() => new RecordingBeaconContext(sets, Saved, Offline, OnSave));
 
         return factory.Object;
+    }
+
+    /// <summary>Stores <paramref name="settings"/> as the admin settings, written as Beacon's settings service writes them.</summary>
+    public void StoreSettings(AppSettingsData settings)
+    {
+        var service = new AppSettingsService(
+            Factory(),
+            new MemoryCache(new MemoryCacheOptions()),
+            new EncryptionService(TestEncryptionKey.Value),
+            new BeaconConfiguration(),
+            new RecordingSecurityAudit());
+
+        service.SaveSettingsAsync(settings).GetAwaiter().GetResult();
     }
 
     /// <summary>Moves what was saved into the lists, as a commit makes it visible to the next unit of work.</summary>

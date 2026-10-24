@@ -17,12 +17,13 @@ internal sealed class ApproveChangeHandler(IChangeApprovalService changeApproval
 
 /// <summary>
 /// Approves a pending change of a migration job, a data contract's Custom SQL rules, a recipient, a data source's
-/// connection or the LLM connection, as the caller: never its requester (403), a change of the LLM connection only by a
+/// connection, the LLM connection or a grant of the Admin role, as the caller: never its requester (403; for a grant of
+/// the Admin role whatever self-approval allows), a change of the LLM connection or a grant of the Admin role only by a
 /// live Admin (403), for exactly the payload the reviewer was shown (<see cref="ExpectedPayloadHash"/>, required; 409
 /// otherwise), while the resource still holds exactly the definition the request records (409 otherwise). A data source's
 /// server is checked against its declared engine first (409, the request stays pending).
 /// </summary>
-[ProjectScopeExempt("gated by the Approver permission: approving a change is an approval decision, and an Approver reads every change request but the LLM-connection ones, which only a live Admin reads", Policy = BeaconPermissions.ApproverPolicy)]
+[ProjectScopeExempt("gated by the Approver permission: approving a change is an approval decision, and an Approver reads every change request but the LLM-connection and Admin-grant ones, which only a live Admin reads", Policy = BeaconPermissions.ApproverPolicy)]
 public record ApproveChangeCommand : IRequest
 {
     public required int RequestId { get; init; }

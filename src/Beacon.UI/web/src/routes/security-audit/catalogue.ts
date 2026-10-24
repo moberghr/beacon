@@ -160,6 +160,7 @@ export const SECURITY_AUDIT_CATEGORIES: readonly SecurityAuditCategory[] = [
       'curation.glossary_term_updated',
       'curation.glossary_term_deleted',
       'curation.documentation_section_edited',
+      'curation.documentation_generated',
       'curation.documentation_generation_started',
     ],
   },
@@ -212,7 +213,16 @@ export const SECURITY_AUDIT_CATEGORIES: readonly SecurityAuditCategory[] = [
   {
     code: 'audit',
     label: 'The audit itself',
-    actions: ['audit.read', 'audit.verified', 'audit.purged', 'audit.mcp_audit_read', 'audit.mcp_audit_verified', 'audit.mcp_audit_sealing_started'],
+    actions: [
+      'audit.read',
+      'audit.verified',
+      'audit.purged',
+      'audit.mcp_audit_read',
+      'audit.mcp_audit_verified',
+      'audit.mcp_audit_sealing_started',
+      'audit.execution_log_read',
+      'audit.execution_log_exported',
+    ],
   },
 ];
 
@@ -242,6 +252,7 @@ export const SECURITY_AUDIT_RESOURCE_TYPES: readonly string[] = [
   'glossary_term',
   'documentation_section',
   'mcp_audit',
+  'execution_log',
   'attribute_definition',
   'row_policy',
   'table_classification',

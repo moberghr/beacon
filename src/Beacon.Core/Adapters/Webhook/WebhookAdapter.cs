@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Helpers;
 using Beacon.Core.Notifications;
 
 namespace Beacon.Core.Adapters.Webhook;
@@ -32,7 +33,7 @@ internal class WebhookAdapter(
             try
             {
                 var templateData = Shared.TemplateDataBuilder.BuildTemplateData(recipientQueryResult, lastNotificationResultCount, configuration.BaseUrl);
-                bodyContent = Shared.AdapterTemplateProcessor.ProcessTemplate(recipientQueryResult.BodyTemplate, templateData);
+                bodyContent = Shared.AdapterTemplateProcessor.ProcessTemplate(recipientQueryResult.BodyTemplate, templateData, escapeJsonStrings: true);
             }
             catch (Exception ex)
             {
@@ -54,7 +55,7 @@ internal class WebhookAdapter(
         await sender.PostAsync(NotificationType.Webhook, recipientQueryResult.RecipientDestination, content, headers, cancellationToken);
     }
 
-    private string BuildDefaultPayload(RecipientQueryResult recipientQueryResult, int? lastNotificationResultCount)
+    internal string BuildDefaultPayload(RecipientQueryResult recipientQueryResult, int? lastNotificationResultCount)
     {
         var queryResult = recipientQueryResult.QueryResult;
 
@@ -70,8 +71,8 @@ internal class WebhookAdapter(
             PreviousResultCount = lastNotificationResultCount,
             TimedOut = queryResult.TimedOut,
             Records = queryResult.TopRecords,
-            NotificationUrl = !string.IsNullOrEmpty(configuration.BaseUrl) && recipientQueryResult.NotificationId.HasValue
-                ? $"{configuration.BaseUrl.TrimEnd('/')}/notifications/{recipientQueryResult.NotificationId}"
+            NotificationUrl = recipientQueryResult.NotificationId.HasValue
+                ? BaseUrlPolicy.Link(configuration.BaseUrl, $"notifications/{recipientQueryResult.NotificationId}")
                 : null
         };
 

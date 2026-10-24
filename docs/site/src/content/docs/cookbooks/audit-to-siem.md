@@ -120,7 +120,8 @@ builder.Services.AddOpenTelemetry()
     .ConfigureResource(x => x.AddService(serviceName: "your-app"))
     .WithTracing(x => x
         .AddAspNetCoreInstrumentation()
-        .AddBeaconInstrumentation()      // sources: "Beacon" and "Experimental.ModelContextProtocol"
+        .AddBeaconInstrumentation()      // source: "Beacon"
+        .AddBeaconMcpSdkTracing()        // source: "Experimental.ModelContextProtocol", status descriptions cleared
         .AddOtlpExporter())
     .WithMetrics(x => x
         .AddAspNetCoreInstrumentation()

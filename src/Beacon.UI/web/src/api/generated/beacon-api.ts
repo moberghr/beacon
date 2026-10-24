@@ -12057,6 +12057,190 @@ export class BeaconApiClient {
   }
 
   /**
+   * @param from (optional)
+   * @param to (optional)
+   * @param dataSourceId (optional)
+   * @param triggeredByUserId (optional)
+   * @param status (optional)
+   * @param executionContext (optional)
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @param sort (optional)
+   * @return OK
+   */
+  getExecutionLog(
+    from: Date | undefined,
+    to: Date | undefined,
+    dataSourceId: number | undefined,
+    triggeredByUserId: number | undefined,
+    status: QueryExecutionLogStatus | undefined,
+    executionContext: string | undefined,
+    page: number | undefined,
+    pageSize: number | undefined,
+    sort: string | undefined,
+  ): Promise<PagedListOfExecutionLogEntry> {
+    let url_ = this.baseUrl + "/beacon/api/execution-log?";
+    if (from === null) throw new Error("The parameter 'from' cannot be null.");
+    else if (from !== undefined)
+      url_ +=
+        "From=" + encodeURIComponent(from ? "" + from.toISOString() : "") + "&";
+    if (to === null) throw new Error("The parameter 'to' cannot be null.");
+    else if (to !== undefined)
+      url_ += "To=" + encodeURIComponent(to ? "" + to.toISOString() : "") + "&";
+    if (dataSourceId === null)
+      throw new Error("The parameter 'dataSourceId' cannot be null.");
+    else if (dataSourceId !== undefined)
+      url_ += "DataSourceId=" + encodeURIComponent("" + dataSourceId) + "&";
+    if (triggeredByUserId === null)
+      throw new Error("The parameter 'triggeredByUserId' cannot be null.");
+    else if (triggeredByUserId !== undefined)
+      url_ +=
+        "TriggeredByUserId=" + encodeURIComponent("" + triggeredByUserId) + "&";
+    if (status === null)
+      throw new Error("The parameter 'status' cannot be null.");
+    else if (status !== undefined)
+      url_ += "Status=" + encodeURIComponent("" + status) + "&";
+    if (executionContext === null)
+      throw new Error("The parameter 'executionContext' cannot be null.");
+    else if (executionContext !== undefined)
+      url_ +=
+        "ExecutionContext=" + encodeURIComponent("" + executionContext) + "&";
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (sort === null) throw new Error("The parameter 'sort' cannot be null.");
+    else if (sort !== undefined)
+      url_ += "Sort=" + encodeURIComponent("" + sort) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetExecutionLog(_response);
+    });
+  }
+
+  protected processGetExecutionLog(
+    response: Response,
+  ): Promise<PagedListOfExecutionLogEntry> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfExecutionLogEntry);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfExecutionLogEntry>(null as any);
+  }
+
+  /**
+   * @param from (optional)
+   * @param to (optional)
+   * @param dataSourceId (optional)
+   * @param triggeredByUserId (optional)
+   * @param status (optional)
+   * @param executionContext (optional)
+   * @return OK
+   */
+  exportExecutionLog(
+    from: Date | undefined,
+    to: Date | undefined,
+    dataSourceId: number | undefined,
+    triggeredByUserId: number | undefined,
+    status: QueryExecutionLogStatus | undefined,
+    executionContext: string | undefined,
+  ): Promise<void> {
+    let url_ = this.baseUrl + "/beacon/api/execution-log/export?";
+    if (from === null) throw new Error("The parameter 'from' cannot be null.");
+    else if (from !== undefined)
+      url_ +=
+        "From=" + encodeURIComponent(from ? "" + from.toISOString() : "") + "&";
+    if (to === null) throw new Error("The parameter 'to' cannot be null.");
+    else if (to !== undefined)
+      url_ += "To=" + encodeURIComponent(to ? "" + to.toISOString() : "") + "&";
+    if (dataSourceId === null)
+      throw new Error("The parameter 'dataSourceId' cannot be null.");
+    else if (dataSourceId !== undefined)
+      url_ += "DataSourceId=" + encodeURIComponent("" + dataSourceId) + "&";
+    if (triggeredByUserId === null)
+      throw new Error("The parameter 'triggeredByUserId' cannot be null.");
+    else if (triggeredByUserId !== undefined)
+      url_ +=
+        "TriggeredByUserId=" + encodeURIComponent("" + triggeredByUserId) + "&";
+    if (status === null)
+      throw new Error("The parameter 'status' cannot be null.");
+    else if (status !== undefined)
+      url_ += "Status=" + encodeURIComponent("" + status) + "&";
+    if (executionContext === null)
+      throw new Error("The parameter 'executionContext' cannot be null.");
+    else if (executionContext !== undefined)
+      url_ +=
+        "ExecutionContext=" + encodeURIComponent("" + executionContext) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processExportExecutionLog(_response);
+    });
+  }
+
+  protected processExportExecutionLog(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
    * @return OK
    */
   statusGET(): Promise<void> {
@@ -17987,6 +18171,14 @@ export interface AdminApiKeyEntry {
   [key: string]: any;
 }
 
+export interface AdminRoleGrantView {
+  userId?: number;
+  roleId?: number;
+  roleName?: string;
+
+  [key: string]: any;
+}
+
 export interface AdminSettingHistoryEntry {
   settingKey: string;
   oldValue: string | null;
@@ -18346,6 +18538,7 @@ export interface ChangeApprovalDetail {
   proposedDataSourceConnection?: DataSourceConnectionView | null;
   previousLlmConnection?: LlmConnectionView | null;
   proposedLlmConnection?: LlmConnectionView | null;
+  proposedAdminRoleGrant?: AdminRoleGrantView | null;
   currentProjects?: ChangeApprovalProject[];
   payloadHash?: string;
   isOwnRequest?: boolean;
@@ -18364,6 +18557,7 @@ export enum ChangeApprovalKind {
   RecipientDestination = 3,
   DataSourceConnection = 4,
   LlmConnection = 5,
+  AdminRoleGrant = 6,
 }
 
 export interface ChangeApprovalOutcome {
@@ -19312,6 +19506,24 @@ export interface ExecuteQueryPreviewRequest {
 export interface ExecuteStepPreviewRequest {
   parameters: ParameterValue[] | null;
   draft: QueryDraft | null;
+
+  [key: string]: any;
+}
+
+export interface ExecutionLogEntry {
+  id?: number;
+  createdTime?: Date;
+  completedTime?: Date | null;
+  status?: QueryExecutionLogStatus | null;
+  success?: boolean;
+  executionContext?: string | null;
+  dataSourceId?: number | null;
+  dataSourceName?: string | null;
+  triggeredByUserId?: number | null;
+  resultCount?: number;
+  executionTimeMs?: number;
+  queryText?: string;
+  errorMessage?: string | null;
 
   [key: string]: any;
 }
@@ -20381,6 +20593,14 @@ export interface PagedListOfDocumentationPatchEntry {
   [key: string]: any;
 }
 
+export interface PagedListOfExecutionLogEntry {
+  items: ExecutionLogEntry[];
+  totalCount: number;
+  pageCount: number;
+
+  [key: string]: any;
+}
+
 export interface PagedListOfEmbedGrantListItem {
   items: EmbedGrantListItem[];
   totalCount: number;
@@ -20662,6 +20882,7 @@ export interface ProjectDocSectionEntry {
   title: string;
   content: string;
   sortOrder: number;
+  editedTime?: Date | null;
 
   [key: string]: any;
 }
@@ -20891,6 +21112,15 @@ export interface QueryDraft {
   finalQuery?: string | null;
 
   [key: string]: any;
+}
+
+export enum QueryExecutionLogStatus {
+  Started = 1,
+  Succeeded = 2,
+  Failed = 3,
+  Cancelled = 4,
+  TimedOut = 5,
+  Abandoned = 6,
 }
 
 export interface QueryFolderData {
@@ -21951,6 +22181,7 @@ export interface UpdateDataSourceBody {
 
 export interface UpdateDocumentationSectionRequest {
   content: string;
+  releaseToGenerated?: boolean;
 
   [key: string]: any;
 }
