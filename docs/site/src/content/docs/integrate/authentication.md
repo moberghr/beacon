@@ -153,7 +153,7 @@ builder.Services.AddBeaconJwtAuthentication(jwt =>
     jwt.Validation.ValidAudiences = [ "api://<beacon-app-id>", "<beacon-app-id>" ];
 });
 // …
-app.UseBeaconJwtBearerAuthentication();   // in the pipeline, after ApiKeyAuthMiddleware
+app.UseBeaconAuthentication();   // judges the bearer token, the API key or the cookie, whichever is presented
 ```
 
 | Option | Default | Notes |

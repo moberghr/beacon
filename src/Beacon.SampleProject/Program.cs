@@ -278,15 +278,16 @@ app.UseApiExceptionHandler("/beacon/api");
 
 // MCP discovery challenge decoration (tier 3): adds the RFC 9728 WWW-Authenticate
 // resource_metadata pointer to every 401 from /beacon/mcp. Response-header-only — it never
-// authenticates or short-circuits; registered before ApiKeyAuthMiddleware so the OnStarting hook
-// also covers the 401s that the API-key/JWT middlewares write directly. §1.9 order below is untouched.
+// authenticates or short-circuits; registered before UseBeaconAuthentication so the OnStarting hook
+// also covers the 401s Beacon's authentication writes for a refused key or token. §1.9 order below is untouched.
 app.UseMcpResourceMetadataChallenge();
 
 // Middleware order is load-bearing per §1.9:
-//   ApiKey → JWT bearer → Authentication → Cookie (per-request cookie scheme) → Authorization → LoginForm.
-// UseBeaconAuthentication wires the first four. The API key runs before the cookie so MCP clients are never
-// redirected; BeaconCookieAuthMiddleware populates context.User from the Beacon.Auth cookie BEFORE
-// UseAuthorization evaluates policies. The Beacon middlewares act on /beacon and on
+//   Beacon (API key, JWT bearer or the Beacon.Auth cookie, whichever the request presents) → Authentication
+//   → Authorization → LoginForm.
+// UseBeaconAuthentication wires the first two. A presented key or token wins over the cookie so MCP clients are
+// never redirected, and the result is recorded as the request's authentication result BEFORE UseAuthorization
+// evaluates policies (the first cookie request is authorized). Beacon's authentication acts on /beacon and on
 // Beacon:Authentication:AdditionalPaths only (this sample lists /warp in appsettings.json): a Beacon
 // credential never authenticates another route of the host.
 app.UseBeaconAuthentication();
