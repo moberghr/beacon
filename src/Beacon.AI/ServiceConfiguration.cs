@@ -99,7 +99,7 @@ public static class ServiceConfiguration
         // GitHub Scanner
         services.AddOptions<GitHubScanOptions>().Bind(configuration.GetSection(GitHubScanOptions.SectionName));
         services.TryAddTransient<GitHubApiClient>();
-        services.AddTransient<ICodeAnalyzer, CSharpCodeAnalyzer>();
+        services.TryAddTransient<ICodeAnalyzer, CSharpCodeAnalyzer>();
         services.TryAddTransient<IGitHubScannerService, GitHubScannerService>();
 
         // Disabled by default; Moberg.Beacon.AI.Embeddings.Onnx replaces it through AddBeaconOnnxEmbeddings().
