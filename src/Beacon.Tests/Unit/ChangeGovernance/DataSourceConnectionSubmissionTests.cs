@@ -355,8 +355,8 @@ public class DataSourceConnectionSubmissionTests
     public async Task Update_OfASourceItsConnectorCannotRead_GovernsEvenARotation()
     {
         var store = new ChangeApprovalStore();
-        var stored = """{"projectId":"analytics","credentialsJson":"one"}""";
-        var rotated = """{"projectId":"analytics","credentialsJson":"two"}""";
+        var stored = """{"ProjectId":"analytics","ServiceAccountJson":"{\"type\":\"service_account\",\"private_key\":\"one\"}"}""";
+        var rotated = """{"ProjectId":"analytics","ServiceAccountJson":"{\"type\":\"service_account\",\"private_key\":\"two\"}"}""";
         var source = Stored(store, stored, approvedHash: null, DataSourceType.BigQuery);
 
         await Service(store, TestChangeApprovals.CoveringConnections()).UpdateDataSource(Data(rotated, source, confirmTargetChange: true, type: DataSourceType.BigQuery), CancellationToken.None);
@@ -366,7 +366,7 @@ public class DataSourceConnectionSubmissionTests
         var request = store.Requests.Should().ContainSingle().Subject;
         request.DefinitionHash.Should().Be(HashOf(rotated, DataSourceType.BigQuery));
         request.ChangeSummary.Should().Be("Connection changed (compare it by its fingerprint)");
-        request.ProposedJson.Should().Contain("\"secretOnlyDefinition\":true").And.NotContain("credentialsJson");
+        request.ProposedJson.Should().Contain("\"secretOnlyDefinition\":true").And.NotContain("private_key");
     }
 
     [Test]
@@ -536,7 +536,7 @@ public class DataSourceConnectionSubmissionTests
         new(
             store.Factory(),
             Encryption,
-            Mock.Of<IDataSourceProviderFactory>(),
+            TestProviderFactory.Accepting(),
             new MemoryCache(new MemoryCacheOptions()),
             Mock.Of<ISchemaGraphService>(),
             audit ?? new RecordingSecurityAudit(),
