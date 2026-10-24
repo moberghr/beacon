@@ -11,13 +11,13 @@ internal sealed class UpdateUserHandler(IUserManagementService userService, User
     public async Task Handle(UpdateUserCommand request, CancellationToken cancellationToken)
     {
         await rules.DemandMayChangeUserAsync(request.UserId, cancellationToken);
-        await rules.DemandMayChangeSignInIdentityAsync(request.UserId, request.UserName, request.Email, cancellationToken);
+        var (userName, email) = await rules.DemandMayChangeSignInIdentityAsync(request.UserId, request.UserName, request.Email, cancellationToken);
 
         var serviceRequest = new UpdateUserRequest
         {
             UserId = request.UserId,
-            UserName = request.UserName,
-            Email = request.Email,
+            UserName = userName,
+            Email = email,
             DisplayName = request.DisplayName,
             IsEnabled = request.IsEnabled,
         };
