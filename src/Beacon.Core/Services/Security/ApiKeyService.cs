@@ -19,14 +19,16 @@ internal sealed class ApiKeyService(
     TimeProvider timeProvider,
     ISecurityAuditRecorder securityAudit,
     IBeaconActorAccessor actorAccessor,
-    ILogger<ApiKeyService> logger) : IApiKeyService
+    ILogger<ApiKeyService> logger,
+    ApiKeyLastUsedThrottle? lastUsedThrottle = null) : IApiKeyService
 {
     private const string KeyPrefix = "sk-sem_";
 
     private static readonly TimeSpan LastUsedWriteInterval = TimeSpan.FromMinutes(1);
 
-    // When this process last wrote each key's LastUsedAt (one small entry per key that has been used).
-    private static readonly ConcurrentDictionary<int, DateTime> LastUsedWrites = new();
+    // When this process last wrote each key's LastUsedAt. The host shares one throttle (singleton); an instance built
+    // without one (a test) gets its own, so no state outlives it.
+    private readonly ApiKeyLastUsedThrottle _lastUsedThrottle = lastUsedThrottle ?? new ApiKeyLastUsedThrottle();
 
     // Keys stored without an expiry that have already been warned about in this process: one warning per key.
     private static readonly ConcurrentDictionary<int, byte> NonExpiringKeysWarned = new();
@@ -237,7 +239,7 @@ internal sealed class ApiKeyService(
         // write a minute instead of one per request. The write is conditional, so concurrent requests (and processes)
         // that all pass the check still land one update.
         var now = timeProvider.GetUtcNow().UtcDateTime;
-        if (LastUsedWrites.TryGetValue(keyId, out var written) && written <= now && now - written < LastUsedWriteInterval)
+        if (_lastUsedThrottle.Writes.TryGetValue(keyId, out var written) && written <= now && now - written < LastUsedWriteInterval)
         {
             return;
         }
@@ -250,7 +252,7 @@ internal sealed class ApiKeyService(
             .Where(x => x.LastUsedAt == null || x.LastUsedAt < staleBefore)
             .ExecuteUpdateAsync(x => x.SetProperty(y => y.LastUsedAt, now), ct);
 
-        LastUsedWrites[keyId] = now;
+        _lastUsedThrottle.Writes[keyId] = now;
     }
 
     private DateTime ResolveExpiry(DateTime? requested)
@@ -370,4 +372,10 @@ internal sealed class ApiKeyService(
                     }
             };
     }
+}
+
+/// <summary>When each API key's LastUsedAt was last written by this process; registered as a singleton.</summary>
+internal sealed class ApiKeyLastUsedThrottle
+{
+    public ConcurrentDictionary<int, DateTime> Writes { get; } = new();
 }

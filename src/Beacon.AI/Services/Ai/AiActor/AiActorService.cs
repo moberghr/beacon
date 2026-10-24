@@ -1388,13 +1388,15 @@ public class AiActorService : IAiActorServiceExtended
                                 y.Id,
                                 y.CronExpression,
                                 y.NotificationTrigger,
-                                LastExecutionTime = y.QueryExecutionHistory
+                                Latest = y.QueryExecutionHistory
                                     .OrderByDescending(z => z.CreatedTime)
-                                    .Select(z => (DateTime?)z.CreatedTime)
-                                    .FirstOrDefault(),
-                                LastResultCount = y.QueryExecutionHistory
-                                    .OrderByDescending(z => z.CreatedTime)
-                                    .Select(z => (int?)z.ResultCount)
+                                    .ThenByDescending(z => z.Id)
+                                    .Select(z =>
+                                        new
+                                        {
+                                            z.CreatedTime,
+                                            z.ResultCount
+                                        })
                                     .FirstOrDefault()
                             })
                         .ToList()
@@ -1416,8 +1418,8 @@ public class AiActorService : IAiActorServiceExtended
                                 SubscriptionId = y.Id,
                                 CronExpression = y.CronExpression,
                                 NotificationTrigger = y.NotificationTrigger.ToString(),
-                                LastExecutionTime = y.LastExecutionTime,
-                                LastResultCount = y.LastResultCount
+                                LastExecutionTime = y.Latest == null ? null : y.Latest.CreatedTime,
+                                LastResultCount = y.Latest == null ? null : y.Latest.ResultCount
                             })
                         .ToList()
                 })

@@ -129,6 +129,17 @@ public class QueryHotPathTests
     }
 
     [Test]
+    public async Task UpdateLastUsed_ThrottleIsPerServiceInstance_WhenNoneIsShared()
+    {
+        var capture = new SqlCapture().ThenRowsAffected(1).ThenRowsAffected(1);
+
+        await BuildApiKeys(capture, Now).UpdateLastUsedAsync(910004);
+        await BuildApiKeys(capture, Now).UpdateLastUsedAsync(910004);
+
+        capture.Commands.Should().HaveCount(2);
+    }
+
+    [Test]
     public async Task ControlTowerLastExecutions_ReadsTheLatestRunOfThePagesSubscriptionsInOneRowNumberPass_Translates()
     {
         var capture = new SqlCapture();
@@ -148,7 +159,63 @@ public class QueryHotPathTests
     public async Task AiActorQueryContext_ReadsTheLatestRunInTheQuery_WithoutLoadingTheHistory_Translates()
     {
         var capture = new SqlCapture();
-        var actors = new AiActorService(
+        var actors = BuildAiActors(capture);
+        var method = typeof(AiActorService).GetMethod("GetQueryContextAsync", BindingFlags.NonPublic | BindingFlags.Instance)!;
+
+        var call = () => (Task)method.Invoke(actors, [1, CancellationToken.None])!;
+        await call.Should().ThrowAsync<SqlCapturedException>();
+
+        var sql = capture.Commands.Should().ContainSingle().Subject;
+        sql.Should().Contain("FROM beacon.queries");
+        sql.Should().Contain("beacon.query_execution_history");
+        sql.Should().Contain("LIMIT 1");
+    }
+
+    [Test]
+    public async Task ApiKeyValidationQuery_NestedOwnerProjection_TranslatesOnSqlServer()
+    {
+        var capture = SqlCapture.OnSqlServer().ThenNoRows();
+
+        await BuildApiKeys(capture, Now).ValidateApiKeyAsync("sk-sem_hotpathkey-1");
+
+        var sql = capture.Commands.Should().ContainSingle().Subject;
+        sql.Should().NotContain("PasswordHash", because: "the owner's credentials are never selected");
+        sql.Should().NotContain("PasswordSalt");
+        sql.Should().Contain("KeyHash");
+    }
+
+    [Test]
+    public async Task ControlTowerLastExecutions_LatestRunPick_TranslatesOnSqlServer()
+    {
+        var capture = SqlCapture.OnSqlServer();
+        await using var context = await capture.Factory().CreateDbContextAsync();
+        var method = typeof(ControlTowerService).GetMethod("LoadLastExecutions", BindingFlags.NonPublic | BindingFlags.Static)!;
+
+        var call = () => (Task)method.Invoke(null, [context, new List<int> { 1, 2 }, CancellationToken.None])!;
+        await call.Should().ThrowAsync<SqlCapturedException>();
+
+        var sql = capture.Commands.Should().ContainSingle().Subject;
+        sql.Should().Contain("ROW_NUMBER() OVER(PARTITION BY");
+    }
+
+    [Test]
+    public async Task AiActorQueryContext_CorrelatedLatestRun_TranslatesOnSqlServer()
+    {
+        var capture = SqlCapture.OnSqlServer();
+        var actors = BuildAiActors(capture);
+        var method = typeof(AiActorService).GetMethod("GetQueryContextAsync", BindingFlags.NonPublic | BindingFlags.Instance)!;
+
+        var call = () => (Task)method.Invoke(actors, [1, CancellationToken.None])!;
+        await call.Should().ThrowAsync<SqlCapturedException>();
+
+        var sql = capture.Commands.Should().ContainSingle().Subject;
+        sql.Should().Contain("FROM [beacon].[Queries]");
+        sql.Should().Contain("[beacon].[QueryExecutionHistory]");
+        sql.Should().Contain("ROW_NUMBER() OVER(PARTITION BY [q1].[SubscriptionId] ORDER BY [q1].[CreatedTime] DESC, [q1].[Id] DESC)");
+    }
+
+    private static AiActorService BuildAiActors(SqlCapture capture) =>
+        new AiActorService(
             capture.Factory(),
             Mock.Of<ILlmProvider>(),
             Mock.Of<IDatabaseMetadataService>(),
@@ -163,16 +230,6 @@ public class QueryHotPathTests
             new BeaconConfiguration(),
             new RecordingSecurityAudit(),
             NullLogger<AiActorService>.Instance);
-        var method = typeof(AiActorService).GetMethod("GetQueryContextAsync", BindingFlags.NonPublic | BindingFlags.Instance)!;
-
-        var call = () => (Task)method.Invoke(actors, [1, CancellationToken.None])!;
-        await call.Should().ThrowAsync<SqlCapturedException>();
-
-        var sql = capture.Commands.Should().ContainSingle().Subject;
-        sql.Should().Contain("FROM beacon.queries");
-        sql.Should().Contain("beacon.query_execution_history");
-        sql.Should().Contain("LIMIT 1");
-    }
 
     private static ApiKeyService BuildApiKeys(SqlCapture capture, DateTimeOffset now) =>
         BuildApiKeys(capture, new FakeTimeProvider(now));

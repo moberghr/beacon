@@ -198,6 +198,7 @@ public class AnomalyDetectionService : IAnomalyDetectionService
         return newConfig.Id;
     }
 
+    // lookbackDays is clamped to 1..MaxChartDays: a smaller value reads one day, a larger one is cut to a year.
     private const int MaxChartDays = 365;
 
     public async Task<AnomalyChartData> GetAnomalyChartDataAsync(
