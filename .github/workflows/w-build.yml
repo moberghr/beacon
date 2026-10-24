@@ -1,4 +1,4 @@
-﻿name: Build the Beacon Release
+name: Build the Beacon Release
 
 # Two jobs. `build` has a read-only token: it checks the version and that the commit is on main, then builds, tests and
 # packs. `publish` waits for approval in the `nuget-release` environment and is the only job that can request an OIDC
@@ -157,7 +157,7 @@ jobs:
         ls -1 artifacts/*.nupkg
 
     - name: Upload packages
-      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+      uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
       with:
         name: packages
         path: artifacts/*.nupkg
