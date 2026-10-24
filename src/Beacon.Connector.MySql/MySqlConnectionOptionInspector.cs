@@ -110,6 +110,6 @@ public sealed partial class MySqlConnectionOptionInspector : IDataSourceConnecti
         return DataSourceConnectionOptionVerdict.Refuse(option, remedy, DataSourceConnectionOptionRisk.HostCredentials, hosts);
     }
 
-    [GeneratedRegex(@"address\s*=\s*([^,)]+)", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"address\s*=\s*([^,)]+)", RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 1000)]
     private static partial Regex Address();
 }
