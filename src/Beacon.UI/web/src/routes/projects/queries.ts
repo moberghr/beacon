@@ -1,6 +1,10 @@
 import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { beaconApi } from '@/api/client';
-import { fetchJson, unwrap } from '@/lib/api';
+import { ApiError, describeError, fetchJson, unwrap } from '@/lib/api';
+import { beaconFetch } from '@/lib/csrf';
+import { useBackgroundTaskStatus } from '@/lib/useBackgroundTask';
+import type { BackgroundTaskStatus, BackgroundTaskTicket } from '@/api/generated/beacon-api';
 import { ProjectMembershipManagement, ProjectRole } from '@/lib/enums';
 import { fetchPagedList } from '@/lib/paging';
 import { usePagedList } from '@/lib/usePagedList';
@@ -245,6 +249,70 @@ export function useUpdateDocumentationSection() {
   );
 }
 
+/**
+ * Starts the regeneration of a project's documentation as a background task (202 with its ticket). Its progress is
+ * followed with useProjectDocumentationGenerationStatus; the 5.0 route (generateProjectDocumentation) stays for API callers.
+ */
+export function useStartProjectDocumentationGeneration() {
+  return useMutation({
+    mutationFn: async (projectId: number) =>
+      unwrap<BackgroundTaskTicket>(await beaconApi().startProjectDocumentationGeneration(projectId)),
+  });
+}
+
+export function useProjectDocumentationGenerationStatus(projectId: number, ticket: BackgroundTaskTicket | null) {
+  return useBackgroundTaskStatus(['projects', projectId, 'documentation-generation'] as const, ticket, async (taskId) =>
+    unwrap<BackgroundTaskStatus>(await beaconApi().getProjectDocumentationGeneration(projectId, taskId)),
+  );
+}
+
+/** What the LLM made of an instruction for one section: the section's text is not changed until the caller saves it. */
+export function useInstructDocumentationSection() {
+  return useMutation({
+    mutationFn: async ({ sectionId, instruction }: { sectionId: number; instruction: string }) =>
+      unwrap<{ updatedContent: string }>(await beaconApi().instructDocumentation(sectionId, { instruction })).updatedContent,
+    onError: (err) => toast.error(describeError(err, 'The instruction could not be applied')),
+  });
+}
+
+/** The file name a Content-Disposition header names, or null. */
+export function fileNameOf(disposition: string | null): string | null {
+  if (disposition == null) {
+    return null;
+  }
+  const encoded = /filename\*=UTF-8''([^;]+)/i.exec(disposition);
+  if (encoded != null) {
+    try {
+      return decodeURIComponent(encoded[1]);
+    } catch {
+      // Fall through to the plain name.
+    }
+  }
+  const plain = /filename="?([^";]+)"?/i.exec(disposition);
+
+  return plain != null ? plain[1] : null;
+}
+
+/** Downloads one generated documentation as a Markdown or HTML file (the generated client discards the body). */
+export async function downloadProjectDocumentation(documentationId: number, asHtml: boolean): Promise<string> {
+  const response = await beaconFetch(`/beacon/api/projects/documentation/${documentationId}/export?asHtml=${asHtml}`);
+  if (!response.ok) {
+    throw new ApiError(response.status, await response.text().catch(() => ''));
+  }
+  const blob = await response.blob();
+  const name = fileNameOf(response.headers.get('Content-Disposition')) ?? (asHtml ? 'documentation.html' : 'documentation.md');
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement('a');
+  link.href = url;
+  link.download = name;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+
+  return name;
+}
+
 // ---------- Project access: members, data-source links, restriction ----------
 
 export const PROJECT_ROLE_LABEL: Record<ProjectRole, string> = {
@@ -397,5 +465,21 @@ export function useLinkProjectDataSources(projectId: number) {
       successMsg: (ids) => (ids.length === 1 ? 'Data source linked' : `${ids.length} data sources linked`),
       errorFallback: 'Linking data sources failed',
     }),
+  );
+}
+
+/**
+ * Starts a scan of every repository of the project as a background task (202 with its ticket). Its progress is followed
+ * with useRepositoryScanStatus; the scan in the request (scanAllRepositories) stays for API callers.
+ */
+export function useStartRepositoryScan() {
+  return useMutation({
+    mutationFn: async (projectId: number) => unwrap<BackgroundTaskTicket>(await beaconApi().startRepositoryScan(projectId)),
+  });
+}
+
+export function useRepositoryScanStatus(projectId: number, ticket: BackgroundTaskTicket | null) {
+  return useBackgroundTaskStatus(['projects', projectId, 'repository-scan'] as const, ticket, async (taskId) =>
+    unwrap<BackgroundTaskStatus>(await beaconApi().getRepositoryScan(projectId, taskId)),
   );
 }

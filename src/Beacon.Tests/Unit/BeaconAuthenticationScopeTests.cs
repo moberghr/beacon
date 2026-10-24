@@ -5,6 +5,7 @@ using System.Security.Cryptography;
 using System.Text;
 using System.Text.Encodings.Web;
 using Beacon.Api.Authentication;
+using Beacon.Api.Security;
 using Beacon.Core;
 using Beacon.Core.Authentication;
 using Beacon.Core.Configuration;
@@ -96,6 +97,35 @@ public class BeaconAuthenticationScopeTests
 
         response.StatusCode.Should().Be(HttpStatusCode.OK, $"{path} is Beacon's (a /warp prefix is listed in AdditionalPaths), matched ignoring case");
         (await response.Content.ReadAsStringAsync()).Should().Be(AuthenticationTypeOf(credential));
+    }
+
+    [Test]
+    public async Task UseBeaconAuthentication_AddsTheSecurityHeadersOnBeaconRoutesOnly()
+    {
+        await using var host = await ScopeHost.StartAsync();
+
+        var beacon = await host.SendAsync("/beacon/api/whoami", Credential.Cookie);
+        var hostRoute = await host.SendAsync("/reports", credential: null);
+
+        beacon.Headers.GetValues("X-Content-Type-Options").Should().Equal("nosniff");
+        beacon.Headers.Contains("Content-Security-Policy").Should().BeTrue();
+        hostRoute.Headers.Contains("X-Content-Type-Options").Should().BeFalse();
+        hostRoute.Headers.Contains("Content-Security-Policy").Should().BeFalse();
+    }
+
+    [Test]
+    public async Task UseBeaconAuthentication_ChecksTheOriginAfterAuthenticating()
+    {
+        await using var host = await ScopeHost.StartAsync(originGuard: "Enforce");
+        var cookie = await host.SignInAsync();
+
+        var crossOrigin = await host.PostWithCookieAsync("/beacon/api/echo", cookie, "https://other.example");
+        var sameOrigin = await host.PostWithCookieAsync("/beacon/api/echo", cookie, "http://localhost");
+        var hostRoute = await host.PostWithCookieAsync("/reports", cookie, "https://other.example");
+
+        crossOrigin.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+        sameOrigin.StatusCode.Should().Be(HttpStatusCode.OK);
+        hostRoute.StatusCode.Should().Be(HttpStatusCode.OK, "the host's own routes are the host's to check");
     }
 
     [Test]
@@ -314,7 +344,7 @@ public class BeaconAuthenticationScopeTests
 
         public CountingSessionStore SessionStore { get; }
 
-        public static async Task<ScopeHost> StartAsync(string? pathBase = null, bool firstRun = false, CookieDefault cookieDefault = CookieDefault.None)
+        public static async Task<ScopeHost> StartAsync(string? pathBase = null, bool firstRun = false, CookieDefault cookieDefault = CookieDefault.None, string? originGuard = null)
         {
             var configuration = new BeaconConfiguration();
             configuration.Authentication.EnableLoginForm = true;
@@ -326,8 +356,11 @@ public class BeaconAuthenticationScopeTests
             builder.Logging.ClearProviders();
             builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
-                ["Beacon:Authentication:AdditionalPaths:0"] = "/warp"
+                ["Beacon:Authentication:AdditionalPaths:0"] = "/warp",
+                ["Beacon:Security:OriginGuard"] = originGuard ?? "LogOnly"
             });
+            builder.Services.AddOptions<BeaconHostSecurityOptions>()
+                .Bind(builder.Configuration.GetSection(BeaconHostSecurityOptions.SectionName));
 
             // As AddBeaconServices binds it.
             builder.Services.AddOptions<AuthenticationPathOptions>()
@@ -390,9 +423,11 @@ public class BeaconAuthenticationScopeTests
             app.MapGet("/beaconx/orders", WhoAmI).RequireAuthorization();
             app.MapGet("/warpx", WhoAmI).RequireAuthorization();
             app.MapGet("/reports", () => "reports");
+            app.MapPost("/reports", () => "reported");
 
             // Beacon's routes, and the Warp dashboard the host lists in AdditionalPaths.
             app.MapGet("/beacon/api/whoami", WhoAmI).RequireAuthorization();
+            app.MapPost("/beacon/api/echo", WhoAmI).RequireAuthorization();
             app.MapGet("/beacon/api/hub", WhoAmI).RequireAuthorization();
             app.MapGet("/beacon/mcp", WhoAmI).RequireAuthorization();
             app.MapGet("/beacon/{**page}", () => "spa");
@@ -414,6 +449,15 @@ public class BeaconAuthenticationScopeTests
         {
             using var request = new HttpRequestMessage(HttpMethod.Get, path);
             request.Headers.Add("Cookie", cookie);
+
+            return await Client.SendAsync(request);
+        }
+
+        public async Task<HttpResponseMessage> PostWithCookieAsync(string path, string cookie, string origin)
+        {
+            using var request = new HttpRequestMessage(HttpMethod.Post, path);
+            request.Headers.Add("Cookie", cookie);
+            request.Headers.TryAddWithoutValidation("Origin", origin);
 
             return await Client.SendAsync(request);
         }

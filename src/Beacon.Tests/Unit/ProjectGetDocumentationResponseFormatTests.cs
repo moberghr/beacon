@@ -49,6 +49,7 @@ public class ProjectGetDocumentationResponseFormatTests
             documentationService: null!,
             contextFactory: null!,
             projectContext,
+            SettingsProviderMock.Create().Object,
             recorder);
 
         var result = await TestToolCalls.InvokeAsync(recorder, () => tool.ExecuteAsync(response_format: responseFormat, cancellationToken: CancellationToken.None));
@@ -198,6 +199,7 @@ public class ProjectGetDocumentationResponseFormatTests
             documentationService.Object,
             new HostDocs.DocsStore().Factory().Object,
             projectContext,
+            SettingsProviderMock.Create().Object,
             TestToolCalls.Recorder(auditService));
 
         var result = await tool.ExecuteAsync(response_format: responseFormat, cancellationToken: CancellationToken.None);

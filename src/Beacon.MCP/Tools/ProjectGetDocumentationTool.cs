@@ -18,6 +18,7 @@ internal sealed class ProjectGetDocumentationTool(
     IProjectDocumentationService documentationService,
     IDbContextFactory<BeaconContext> contextFactory,
     IProjectContext projectContext,
+    IMcpSettingsProvider settingsProvider,
     McpToolCallRecorder recorder)
 {
     internal const int ConciseCharBudget = 8000;
@@ -64,6 +65,8 @@ internal sealed class ProjectGetDocumentationTool(
 
         recorder.WithProject(projectId);
 
+        var maxResultBytes = (await settingsProvider.GetEffectiveSettingsAsync(projectId, cancellationToken)).MaxResultBytes;
+
         // No McpSignalService call here (audit-only) — see GetContextTool for the full rationale.
         if (!string.IsNullOrWhiteSpace(document))
         {
@@ -83,7 +86,7 @@ internal sealed class ProjectGetDocumentationTool(
             }
 
             recorder.Succeed();
-            return ToolHelper.Success(documentText!);
+            return ToolHelper.Success(ToolHelper.WithinByteBudget(documentText!, maxResultBytes));
         }
 
         // If no data source specified, return full project documentation
@@ -93,7 +96,7 @@ internal sealed class ProjectGetDocumentationTool(
             var concise = (format ?? "concise") == "concise";
             var docResult = await GetProjectDocumentationAsync(projectId, concise, cancellationToken);
             recorder.WithParameters(null).Succeed();
-            return ToolHelper.Success(docResult);
+            return ToolHelper.Success(ToolHelper.WithinByteBudget(docResult, maxResultBytes));
         }
 
         // Resolve data source
@@ -146,7 +149,7 @@ internal sealed class ProjectGetDocumentationTool(
         }
 
         recorder.WithDataSource(dsId).Succeed();
-        return ToolHelper.Success(result);
+        return ToolHelper.Success(ToolHelper.WithinByteBudget(result, maxResultBytes));
     }
 
     private async Task<int?> FindDataSourceForTableAsync(int projectId, string tableName, string? schemaName, CancellationToken ct)

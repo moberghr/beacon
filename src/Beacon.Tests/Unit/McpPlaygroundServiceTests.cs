@@ -530,6 +530,7 @@ public class McpPlaygroundServiceTests
             Mock.Of<IProjectDocumentationService>(),
             factory.Object,
             x.GetRequiredService<IProjectContext>(),
+            SettingsProviderMock.Create().Object,
             x.GetRequiredService<McpToolCallRecorder>()));
 
         return services.BuildServiceProvider();

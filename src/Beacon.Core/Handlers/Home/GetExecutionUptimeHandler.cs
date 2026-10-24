@@ -29,10 +29,23 @@ internal sealed class GetExecutionUptimeHandler(IDbContextFactory<BeaconContext>
         var currentHourStart = new DateTime(now.Year, now.Month, now.Day, now.Hour, 0, 0, DateTimeKind.Utc);
         var firstBucketStart = currentHourStart.AddHours(-(hours - 1));
 
+        // One row per (hour, status): the worst status per hour is picked below, so the rows read stay a
+        // few per bucket however many executions ran.
         var rows = await context.QueryExecutionHistory
             .WhereReadableWithin(context, runScope)
             .Where(x => x.CreatedTime >= firstBucketStart)
-            .Select(x => new { x.CreatedTime, x.NotificationStatus })
+            .GroupBy(x =>
+                new
+                {
+                    HourStart = UtcBuckets.Hour(x.CreatedTime),
+                    x.NotificationStatus
+                })
+            .Select(x =>
+                new
+                {
+                    x.Key.HourStart,
+                    x.Key.NotificationStatus
+                })
             .ToListAsync(cancellationToken);
 
         var ticks = new string[hours];
@@ -43,7 +56,8 @@ internal sealed class GetExecutionUptimeHandler(IDbContextFactory<BeaconContext>
 
         foreach (var row in rows)
         {
-            var hourIndex = (int)Math.Floor((row.CreatedTime - firstBucketStart).TotalHours);
+            var hourStart = DateTime.SpecifyKind(row.HourStart, DateTimeKind.Utc);
+            var hourIndex = (int)Math.Floor((hourStart - firstBucketStart).TotalHours);
             if (hourIndex < 0 || hourIndex >= hours)
             {
                 continue;

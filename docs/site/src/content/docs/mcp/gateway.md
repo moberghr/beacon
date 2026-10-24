@@ -110,6 +110,10 @@ app.UseBeaconMcpGateway();          // before UseAuthentication
 app.MapBeaconMcpGateway();          // /beacon/mcp, discovery documents, the admin UI
 ```
 
+`UseBeaconMcpGateway()` also adds Beacon's security headers and its Host and Origin check on `/beacon` (an OpenID
+Connect callback always passes the check), as `UseBeaconAuthentication()` does for a full host. See
+[Security headers and the origin check](/integrate/host-setup/#security-headers-and-the-origin-check).
+
 What you get, and what you do not have to write:
 
 - **Callers:** delegated tokens of your tenant and registration with the `mcp.access` scope (`RequireScope` changes it),

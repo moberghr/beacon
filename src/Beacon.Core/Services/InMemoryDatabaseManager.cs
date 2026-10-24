@@ -21,7 +21,7 @@ public class InMemoryDatabaseManager : IDisposable
     // allocations fail with SQLITE_TOOBIG instead of taking near a gigabyte per call.
     private const int MaxValueLength = 16 * 1024 * 1024;
 
-    private static readonly Regex ResultReferencePattern = new(@"@result(\d+)", RegexOptions.IgnoreCase);
+    private static readonly Regex ResultReferencePattern = new(@"@result(\d+)", RegexOptions.IgnoreCase, TimeSpan.FromMilliseconds(1000));
 
     // Table loading at the engine, from construction until the first query. Loading asks exactly this (verified):
     // BEGIN/COMMIT/ROLLBACK ask TRANSACTION; CREATE TABLE asks CREATE_TABLE and INSERT on sqlite_master, then UPDATEs
@@ -539,7 +539,7 @@ public class InMemoryDatabaseManager : IDisposable
             throw new InvalidOperationException("A table or column name containing a NUL character cannot be loaded into the in-memory join store.");
         }
 
-        return "\"" + name.Replace("\"", "\"\"") + "\"";
+        return SqlIdentifierGuard.Quote(name, "SQLite");
     }
 
     private static string PositionalParameter(int index) =>

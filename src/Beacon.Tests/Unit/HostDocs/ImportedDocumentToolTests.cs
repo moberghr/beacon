@@ -299,6 +299,7 @@ public class ImportedDocumentToolTests
             _documentation.Object,
             _store.Factory().Object,
             ProjectContext(),
+            SettingsProviderMock.Create().Object,
             recorder);
 
         return TestToolCalls.InvokeAsync(recorder, () => tool.ExecuteAsync(datasource_name: datasourceName, document: document, cancellationToken: CancellationToken.None));

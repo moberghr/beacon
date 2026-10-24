@@ -1,4 +1,6 @@
+using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Authorization;
+using Beacon.Core.Data;
 using Beacon.Core.Helpers;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.QueryExecutionHistory;
@@ -9,7 +11,7 @@ using MediatR;
 namespace Beacon.Core.Handlers.Notifications;
 
 internal sealed class GetNotificationsHandler(
-    INotificationService notificationService,
+    IDbContextFactory<BeaconContext> contextFactory,
     IProjectAccessEvaluator projectAccess)
     : IRequestHandler<GetNotificationsQuery, PagedList<NotificationEntry>>
 {
@@ -25,7 +27,7 @@ internal sealed class GetNotificationsHandler(
             Scope = await StoredRunAccess.ScopeOfAsync(projectAccess, cancellationToken),
         };
 
-        var data = await notificationService.GetQueryExecutionHistory(serviceRequest, cancellationToken);
+        var data = await Read(serviceRequest, cancellationToken);
 
         return data.Map(x =>
             new NotificationEntry(
@@ -42,6 +44,50 @@ internal sealed class GetNotificationsHandler(
                 x.Notifications
                     .Select(y => y.RecipientName)
                     .ToList()));
+    }
+
+    internal async Task<PagedList<QueryExecutionHistoryData>> Read(GetQueryExecutionHistoryRequest request, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var page = await context.QueryExecutionHistory
+            .WhereIf(request.SubscriptionId.HasValue, x => x.SubscriptionId == request.SubscriptionId)
+            .WhereIf(request.NotificationStatus.HasValue, x => x.NotificationStatus == request.NotificationStatus)
+            .WhereReadableWithin(context, request.Scope)
+            .Select(x =>
+                new QueryExecutionHistoryData
+                {
+                    QueryExecutionHistoryId = x.Id,
+                    Notifications = x.Notifications
+                        .Select(y =>
+                            new NotificationData
+                            {
+                                Id = y.Id,
+                                Created = y.CreatedTime,
+                                NotificationType = y.Type,
+                                RecipientName = y.Recipient.Name,
+                                SentAt = y.SentAt
+                            })
+                        .ToList(),
+                    ResultCount = x.ResultCount,
+                    CreatedTime = x.CreatedTime,
+                    NotificationStatus = x.NotificationStatus,
+                    QueryName = x.Subscription.Query.Name,
+                    SubscriptionId = x.SubscriptionId,
+                    ExecutionTimeMs = x.ExecutionTimeMs,
+                    Comment = x.Comment,
+                    AiActorId = x.Subscription.AiActorId,
+                    AiActorName = x.Subscription.AiActor != null ? x.Subscription.AiActor.Name : null
+                })
+            .ToPagedListAsync(request, cancellationToken, defaultSort: "-createdTime", tiebreaker: "queryExecutionHistoryId");
+
+        // A run's stored comment can hold failure detail recorded by earlier versions: only a recorded reason leaves.
+        foreach (var item in page.Items)
+        {
+            item.Comment = NotificationFailureReasons.Displayable(item.Comment);
+        }
+
+        return page;
     }
 }
 

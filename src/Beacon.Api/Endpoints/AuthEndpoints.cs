@@ -5,6 +5,7 @@ using Beacon.Core;
 using Beacon.Core.Authentication;
 using Beacon.Core.Authorization;
 using Beacon.Core.Configuration;
+using Beacon.Core.Services.Embed;
 using Microsoft.Extensions.Options;
 
 namespace Beacon.Api.Endpoints;
@@ -100,6 +101,7 @@ internal static class AuthEndpoints
         CancellationToken cancellationToken)
     {
         var migrationsEnabled = httpContext.RequestServices.GetService<IOptions<MigrationOptions>>()?.Value.Enabled == true;
+        var embedEnabled = BeaconEmbedPaths.IsEnabled(httpContext.RequestServices);
         var canRead = await authorization.HasReadPermissionAsync(cancellationToken);
         var canWrite = await authorization.HasWritePermissionAsync(cancellationToken);
         var accessor = httpContext.RequestServices.GetService<IBeaconPermissionAccessor>();
@@ -115,7 +117,8 @@ internal static class AuthEndpoints
                 .Where(permissions.Holds)
                 .ToArray(),
             migrationsEnabled,
-            httpContext.RequestServices.GetService<BeaconApiOptions>()?.GatewayMode == true);
+            httpContext.RequestServices.GetService<BeaconApiOptions>()?.GatewayMode == true,
+            embedEnabled);
     }
 }
 
@@ -158,7 +161,8 @@ internal sealed record CurrentPermissionsResponse(
     bool IsAdmin,
     IReadOnlyList<string> Permissions,
     bool MigrationsEnabled,
-    bool GatewayMode = false);
+    bool GatewayMode = false,
+    bool EmbedEnabled = false);
 
 /// <summary>Whether single sign-on is offered (<c>Enabled</c>), and whether password sign-in is open to everyone.</summary>
 internal sealed record SsoConfigResponse(bool Enabled, bool LocalLoginEnabled);

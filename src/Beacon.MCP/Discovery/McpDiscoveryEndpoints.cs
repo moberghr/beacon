@@ -32,7 +32,6 @@ namespace Beacon.MCP.Discovery;
 public static class McpDiscoveryEndpoints
 {
     private const string PublicBaseUrlConfigKey = "Beacon:PublicBaseUrl";
-    private const string OidcConfigSection = "Beacon:Authentication:Oidc";
     private const string CacheControlValue = "public, max-age=3600";
 
     /// <summary>
@@ -224,10 +223,7 @@ public static class McpDiscoveryEndpoints
 
     private static string? GetOidcAuthority(IConfiguration configuration)
     {
-        var oidcSection = configuration.GetSection(OidcConfigSection);
-        return oidcSection.GetValue<bool>("Enabled")
-            ? oidcSection.GetValue<string>("Authority")?.TrimEnd('/')
-            : null;
+        return OidcAuthenticationOptions.FromConfiguration(configuration).GetEnabledAuthority();
     }
 
     // Startup-time: an external-IdP metadata configuration that would send OAuth clients nowhere, or ask the IdP for
