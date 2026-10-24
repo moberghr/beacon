@@ -1,4 +1,4 @@
-﻿name: Build the Beacon Release
+name: Build the Beacon Release
 
 # Two jobs. `build` has a read-only token: it checks the version and that the commit is on main, then builds, tests and
 # packs. `publish` waits for approval in the `nuget-release` environment and is the only job that can request an OIDC
@@ -80,7 +80,7 @@ jobs:
     # accepts, failing the build on missing @esbuild/* optional platform entries. Pin it so CI
     # resolves the lock the same way local development does — bump this and the lock together.
     - name: Setup Node
-      uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4.4.0
+      uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
       with:
         node-version: '22'
         cache: npm
