@@ -38,7 +38,7 @@
  * - recipients
  * - ai-actors, ai-actors/:id
  * - mcp: settings, tools, learning-stats, learned-patterns, documentation-patches
- * - eval: golden/candidates, golden, grounding/recheck (honest empties)
+ * - eval: golden/candidates, golden, runs, run results, grounding/recheck (honest empties)
  * - control-tower: statistics, health, subscriptions/:id/detail
  * - migrations: jobs, executions (honest empties)
  * - admin: api-keys, users, users/roles, PUT users/:id/roles, POST users/:id/sign-out-everywhere (no state kept),
@@ -1397,6 +1397,9 @@ const mcpHandlers = [
   http.get('/beacon/api/eval/golden/paged', () => HttpResponse.json(paged([]))),
   http.get('/beacon/api/eval/runs/:runId/results/paged', () => HttpResponse.json(paged([]))),
   http.get('/beacon/api/glossary/paged', () => HttpResponse.json(paged([]))),
+
+  http.get('/beacon/api/eval/runs', () => HttpResponse.json([])),
+  http.get('/beacon/api/eval/runs/:runId/results', () => HttpResponse.json([])),
   http.get('/beacon/api/eval/grounding/recheck', ({ request }) =>
     HttpResponse.json({
       projectId: Number(new URL(request.url).searchParams.get('projectId')),
