@@ -133,15 +133,14 @@ public class NotificationResultAccessTests
     public async Task Handler_CallerThatReadsNoRun_GetsNoDetail_AndAnEmptyList(ClaimsPrincipal? caller)
     {
         var access = TestProjectAccess.ForPrincipal(caller);
-        var service = CreateService(Factory());
 
         foreach (var id in RunIds)
         {
-            var result = await new GetNotificationDetailHandler(service, access).Handle(new GetNotificationDetailQuery(id), CancellationToken.None);
+            var result = await new GetNotificationDetailHandler(Factory(), access).Handle(new GetNotificationDetailQuery(id), CancellationToken.None);
             result.Entry.Should().BeNull($"run {id} is not readable");
         }
 
-        var page = await new GetNotificationsHandler(service, access).Handle(new GetNotificationsQuery { PageSize = 50 }, CancellationToken.None);
+        var page = await new GetNotificationsHandler(Factory(), access).Handle(new GetNotificationsQuery { PageSize = 50 }, CancellationToken.None);
         page.Items.Should().BeEmpty();
     }
 
@@ -169,10 +168,9 @@ public class NotificationResultAccessTests
     {
         var caller = Principal(("auth_method", "mcp_caller"), ("scope", "Read"), ("allowed_projects", allowedProjects));
         var access = TestProjectAccess.ForPrincipal(caller);
-        var service = CreateService(Factory());
 
-        var detail = await new GetNotificationDetailHandler(service, access).Handle(new GetNotificationDetailQuery(runId), CancellationToken.None);
-        var page = await new GetNotificationsHandler(service, access).Handle(new GetNotificationsQuery { PageSize = 50 }, CancellationToken.None);
+        var detail = await new GetNotificationDetailHandler(Factory(), access).Handle(new GetNotificationDetailQuery(runId), CancellationToken.None);
+        var page = await new GetNotificationsHandler(Factory(), access).Handle(new GetNotificationsQuery { PageSize = 50 }, CancellationToken.None);
 
         if (readable)
         {
@@ -324,22 +322,21 @@ public class NotificationResultAccessTests
 
     private static GetNotificationDetailHandler DetailHandler(ClaimsPrincipal caller)
     {
-        return new GetNotificationDetailHandler(CreateService(Factory()), TestProjectAccess.ForPrincipal(caller));
+        return new GetNotificationDetailHandler(Factory(), TestProjectAccess.ForPrincipal(caller));
     }
 
     private static async Task<WebApplication> StartAsync(ClaimsPrincipal caller)
     {
         var accessor = new HttpContextAccessor();
         var access = TestProjectAccess.ForPrincipal(caller);
-        var service = CreateService(Factory());
 
         var mediator = new Mock<IMediator>();
         mediator
             .Setup(x => x.Send(It.IsAny<GetNotificationDetailQuery>(), It.IsAny<CancellationToken>()))
-            .Returns((GetNotificationDetailQuery q, CancellationToken ct) => new GetNotificationDetailHandler(service, access).Handle(q, ct));
+            .Returns((GetNotificationDetailQuery q, CancellationToken ct) => new GetNotificationDetailHandler(Factory(), access).Handle(q, ct));
         mediator
             .Setup(x => x.Send(It.IsAny<GetNotificationsQuery>(), It.IsAny<CancellationToken>()))
-            .Returns((GetNotificationsQuery q, CancellationToken ct) => new GetNotificationsHandler(service, access).Handle(q, ct));
+            .Returns((GetNotificationsQuery q, CancellationToken ct) => new GetNotificationsHandler(Factory(), access).Handle(q, ct));
         // The project route is decided by the project authorization behaviour, as the MediatR pipeline runs it.
         var authorizer = new ProjectRequestAuthorizer(
             access,

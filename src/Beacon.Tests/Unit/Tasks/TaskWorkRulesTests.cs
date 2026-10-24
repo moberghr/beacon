@@ -777,17 +777,12 @@ public class TaskWorkRulesTests
     [TestCase("ext-ben", RoleService.RoleNames.Admin, false)]
     public async Task Detail_SaysWhetherTheCallerIsTheAssignee(string? assignee, string? role, bool assignedToCaller)
     {
-        var details = new Mock<ITaskService>();
-        details
-            .Setup(x => x.GetTaskDetails(TaskId, It.IsAny<string?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Details(assignee));
         var caller = Interactive("ext-ana", role, beaconUserId: "ana");
-        var userContext = new HttpContextUserContext(Accessor(caller));
-        var handler = new GetTaskDetailHandler(details.Object, userContext, Actor(caller));
+        var actor = await Actor(caller).GetCurrentAsync(CancellationToken.None);
 
-        var result = await handler.Handle(new GetTaskDetailQuery(TaskId), CancellationToken.None);
+        var result = GetTaskDetailHandler.ToResult(Details(assignee), actor);
 
-        result!.AssignedToCaller.Should().Be(assignedToCaller);
+        result.AssignedToCaller.Should().Be(assignedToCaller);
         result.HasAssignee.Should().Be(assignee != null, "the detail says whether the task is assigned, not to which external id");
     }
 
@@ -796,7 +791,7 @@ public class TaskWorkRulesTests
     {
         var capture = new SqlCapture().ThenNoRows();
 
-        await new TaskService(capture.Factory(), NullLogger<TaskService>.Instance, new RecordingSecurityAudit()).GetTaskDetails(TaskId, null, CancellationToken.None);
+        await new GetTaskDetailHandler(capture.Factory(), null!, null!).Read(TaskId, null, CancellationToken.None);
 
         var sql = capture.Commands.Should().ContainSingle().Subject;
         sql.Should().Contain("'User '").And.NotContain("user_name", "a resolver or assignee is never named by their user name");
@@ -807,7 +802,7 @@ public class TaskWorkRulesTests
     {
         var capture = new SqlCapture().ThenNoRows();
 
-        var details = await new TaskService(capture.Factory(), NullLogger<TaskService>.Instance, new RecordingSecurityAudit()).GetTaskDetails(TaskId, null, CancellationToken.None);
+        var details = await new GetTaskDetailHandler(capture.Factory(), null!, null!).Read(TaskId, null, CancellationToken.None);
 
         details.Should().BeNull();
         var sql = capture.Commands.Should().ContainSingle().Subject;

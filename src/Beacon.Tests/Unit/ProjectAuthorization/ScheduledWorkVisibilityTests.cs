@@ -9,6 +9,7 @@ using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.AiActors;
 using Beacon.Core.Handlers.Home;
 using Beacon.Core.Handlers.Subscriptions;
+using Beacon.Core.Handlers.Tasks;
 using Beacon.Core.Models.ControlTower;
 using Beacon.Core.Models.Subscriptions;
 using Beacon.Core.Notifications;
@@ -138,7 +139,7 @@ public class ScheduledWorkVisibilityTests
     {
         var capture = new SqlCapture().ThenNoRows();
 
-        await new TaskService(capture.Factory(), NullLogger<TaskService>.Instance, new RecordingSecurityAudit()).GetTaskDetails(3, null, CancellationToken.None);
+        await new GetTaskDetailHandler(capture.Factory(), null!, null!).Read(3, null, CancellationToken.None);
 
         var sql = capture.Commands.Should().ContainSingle().Subject;
         sql.Should().MatchRegex(@"a\d*\.created_by_user_id IS NOT NULL AS c\d+", "only whether the actor has a creator is read");
