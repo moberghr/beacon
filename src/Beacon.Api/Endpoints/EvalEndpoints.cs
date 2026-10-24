@@ -73,7 +73,7 @@ internal static class EvalEndpoints
         {
             var userId = await actorResolver.ResolveActorUserIdAsync(ct);
             return await m.Send(new RunEvalCommand(body.ProjectId, userId), ct);
-        }).WithName("RunEval");
+        }).WithName("RunEval").WithBeaconLongRunning();
 
         eval.MapGet("/runs", (
                 [FromQuery] int? projectId,
