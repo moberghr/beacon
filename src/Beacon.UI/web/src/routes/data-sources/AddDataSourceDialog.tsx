@@ -217,7 +217,8 @@ function buildPayload(v: FormValues): BuiltPayload {
               Type: 'Bearer',
               ApiKeyName: null,
               ApiKeyValue: null,
-              ApiKeyLocation: null,
+              // The server's enum is not nullable: the default, unused without an API key.
+              ApiKeyLocation: 'header',
               Token: v.bearerToken,
               Username: null,
               Password: null,
@@ -227,7 +228,8 @@ function buildPayload(v: FormValues): BuiltPayload {
                 Type: 'Basic',
                 ApiKeyName: null,
                 ApiKeyValue: null,
-                ApiKeyLocation: null,
+                // The server's enum is not nullable: the default, unused without an API key.
+                ApiKeyLocation: 'header',
                 Token: null,
                 Username: v.basicUsername,
                 Password: v.basicPassword,
@@ -592,12 +594,11 @@ export function AddDataSourceDialog({ open, onClose }: AddDataSourceDialogProps)
               </BField>
               {authType === 'apiKey' && (
                 <>
-                  <DsField label="Header / param name" required name="apiKeyName" placeholder="X-Api-Key" register={register} errors={errors} />
+                  <DsField label="Header name" required name="apiKeyName" placeholder="X-Api-Key" register={register} errors={errors} />
                   <DsField label="API key value" required name="apiKeyValue" type="password" register={register} errors={errors} />
                   <BField label="Key location">
                     <Select {...register('apiKeyLocation' as never)}>
                       <option value="header">Header</option>
-                      <option value="query">Query parameter</option>
                     </Select>
                   </BField>
                 </>

@@ -78,3 +78,63 @@ describe('useHubEvent realtime gate', () => {
     expect(connectBeaconHub).not.toHaveBeenCalled();
   });
 });
+
+describe('disconnectBeaconHub', () => {
+  beforeEach(() => {
+    vi.clearAllMocks();
+    useAuth.mockReturnValue({ data: { realtimeEnabled: true } });
+  });
+
+  it('stops the open connection and does not reconnect after it closes', async () => {
+    vi.useFakeTimers();
+    try {
+      const stop = vi.fn(() => Promise.resolve());
+      let closed: (() => void) | undefined;
+      connectBeaconHub.mockImplementation(() =>
+        Promise.resolve({
+          onJobStatusChanged: () => () => undefined,
+          onApprovalUpdated: () => () => undefined,
+          onReconnected: () => () => undefined,
+          onClosed: (handler: () => void) => {
+            closed = handler;
+          },
+          stop: () => {
+            closed?.();
+            return stop();
+          },
+        }),
+      );
+      const { useHubEvent, disconnectBeaconHub } = await freshModule();
+      renderHook(() => useHubEvent('ApprovalUpdated', () => undefined));
+      await vi.waitFor(() => expect(closed).toBeDefined());
+
+      await disconnectBeaconHub();
+      await vi.advanceTimersByTimeAsync(60_000);
+
+      expect(stop).toHaveBeenCalledTimes(1);
+      expect(connectBeaconHub).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it('opens a fresh connection for the next subscriber', async () => {
+    connectBeaconHub.mockImplementation(stubHub);
+    const { useHubEvent, disconnectBeaconHub } = await freshModule();
+    const first = renderHook(() => useHubEvent('ApprovalUpdated', () => undefined));
+    await disconnectBeaconHub();
+    first.unmount();
+
+    renderHook(() => useHubEvent('ApprovalUpdated', () => undefined));
+
+    // The hub module loads on demand, so the second connect follows the import.
+    await vi.waitFor(() => expect(connectBeaconHub).toHaveBeenCalledTimes(2));
+  });
+
+  it('does nothing without a connection', async () => {
+    const { disconnectBeaconHub } = await freshModule();
+
+    await expect(disconnectBeaconHub()).resolves.toBeUndefined();
+    expect(connectBeaconHub).not.toHaveBeenCalled();
+  });
+});

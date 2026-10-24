@@ -1,0 +1,26 @@
+# Tables and Relationships
+
+## Data Source: core
+### sales.order_lines
+Description: One line per ordered item
+  - order_id (integer) [PK] FK→sales.orders.id
+  - tenant_id (integer) [PK] FK→sales.orders.tenant_id
+  - line_no (smallint) [PK]
+  Columns: order_id, tenant_id, line_no, sku, status, amount, contact_email, notes
+  - status values: [open, shipped, returned]
+### sales.orders
+  - id (bigint) [PK]
+  - tenant_id (integer) [PK]
+  - customer_id (integer) FK→crm.customers.id
+  Columns: id, tenant_id, customer_id, legacy_ref, placed_at
+### audit.events
+Description: Append-only event log
+  Columns: c01, c02, c03, c04, c05, c06, c07, c08, c09, c10, c11, c12, c13, c14, c15, c16, c17, c18, c19, c20, c21, c22, c23, c24, c25, c26, c27, c28, c29, c30
+  - c03 values: [a]
+
+## Data Source: billing-api
+### api.GET /invoices
+Description: Invoices
+  Columns: number, total
+
+# Code References by Class

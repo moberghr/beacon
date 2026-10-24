@@ -692,8 +692,9 @@ internal sealed class ValueGroundingService(
         return DateLikeRegex.IsMatch(word);
     }
 
+    // A value is rendered as a quoted literal on its match line: on one line, without hidden characters or data-block markers.
     private static string EscapeForRender(string value)
     {
-        return value.Replace("'", "''");
+        return PromptData.OneLine(value).Replace("'", "''");
     }
 }

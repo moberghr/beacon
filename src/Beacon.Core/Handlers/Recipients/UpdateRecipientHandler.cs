@@ -179,4 +179,13 @@ public record UpdateRecipientCommand(
     string? Destination,
     int NotificationType,
     string? HeadersJson,
-    string? BodyTemplate) : IRequest;
+    string? BodyTemplate) : IRequest
+{
+    // The compiler-generated ToString prints every member; the secrets are printed redacted.
+    protected virtual bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"Id = {Id}, Name = {Name}, Description = {Description}, Destination = {RedactedPrint.Of(Destination)}, NotificationType = {NotificationType}, HeadersJson = {RedactedPrint.Of(HeadersJson)}, BodyTemplate = {BodyTemplate}");
+
+        return true;
+    }
+}

@@ -20,6 +20,14 @@ public sealed record LlmConfiguration
     public string Model { get; init; } = string.Empty;
     public string? FastModel { get; init; }
     public ProviderLimits Limits { get; init; } = new();
+
+    // The compiler-generated ToString prints every member; the secrets are printed redacted.
+    private bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"Provider = {Provider}, ApiKey = {Core.RedactedPrint.Of(ApiKey)}, Endpoint = {Core.RedactedPrint.Of(Endpoint)}, Region = {Region}, SessionToken = {Core.RedactedPrint.Of(SessionToken)}, AwsAccessKeyId = {Core.RedactedPrint.Of(AwsAccessKeyId)}, AwsSecretAccessKey = {Core.RedactedPrint.Of(AwsSecretAccessKey)}, BedrockAuthMode = {BedrockAuthMode}, Model = {Model}, FastModel = {FastModel}, Limits = {Limits}");
+
+        return true;
+    }
 }
 
 public sealed record ProviderLimits

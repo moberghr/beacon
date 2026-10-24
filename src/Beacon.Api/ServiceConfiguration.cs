@@ -133,9 +133,24 @@ public static class ServiceConfiguration
         var signalR = services.AddSignalR();
         options.ConfigureSignalR?.Invoke(signalR);
 
-        services.TryAddSingleton<IUserIdProvider, HubUserIdProvider>();
+        UseHubUserIdProvider(services);
         services.TryAddScoped<IApprovalNotifier, SignalRApprovalNotifier>();
 
         return services;
+    }
+
+    // AddSignalR registers SignalR's own provider with TryAdd, so a TryAdd here would never win. Beacon's provider replaces
+    // that default (also when the host called AddSignalR first, and a later AddSignalR keeps it); one the host registered
+    // itself stays.
+    private static void UseHubUserIdProvider(IServiceCollection services)
+    {
+        var registered = services.LastOrDefault(x => x.ServiceType == typeof(IUserIdProvider));
+        if (registered != null && registered.ImplementationType != typeof(DefaultUserIdProvider))
+        {
+            return;
+        }
+
+        services.RemoveAll<IUserIdProvider>();
+        services.AddSingleton<IUserIdProvider, HubUserIdProvider>();
     }
 }

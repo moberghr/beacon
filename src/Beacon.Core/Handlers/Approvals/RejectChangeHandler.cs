@@ -16,11 +16,11 @@ internal sealed class RejectChangeHandler(IChangeApprovalService changeApprovals
 }
 
 /// <summary>
-/// Rejects a pending change as the caller (its requester may withdraw it; a change of the LLM connection only a live
-/// Admin, the requester included, 403 otherwise); 409 when it is no longer pending. The resource keeps the definition it
+/// Rejects a pending change as the caller (its requester may withdraw it; a change of the LLM connection or a grant of the
+/// Admin role only a live Admin, the requester included, 403 otherwise); 409 when it is no longer pending. The resource keeps the definition it
 /// holds and stays inactive until that is changed back, or changed and approved.
 /// </summary>
-[ProjectScopeExempt("gated by the Approver permission: rejecting a change is an approval decision, and an Approver reads every change request but the LLM-connection ones, which only a live Admin reads", Policy = BeaconPermissions.ApproverPolicy)]
+[ProjectScopeExempt("gated by the Approver permission: rejecting a change is an approval decision, and an Approver reads every change request but the LLM-connection and Admin-grant ones, which only a live Admin reads", Policy = BeaconPermissions.ApproverPolicy)]
 public record RejectChangeCommand : IRequest
 {
     public required int RequestId { get; init; }

@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Beacon.Core;
+using Beacon.Core.Configuration;
 using Beacon.Core.Mcp;
 
 namespace Beacon.Api.Authentication;
@@ -58,18 +59,19 @@ public sealed class LoginFormAuthMiddleware(
         }
 
         var path = context.Request.Path.Value ?? "";
+        var prefixes = context.RequestServices?.GetService<AuthenticationPathPrefixes>();
 
         // The pages a signed-out browser is sent to: the login page (never redirected to itself) and, while Beacon manages
         // users, the first-run setup page.
         if (BeaconLoginPage.IsRequestFor(context.Request.Path, _basePath, configuration)
             || (configuration.UserManagement.Enabled
-                && context.Request.Path.StartsWithSegments($"{_basePath}/setup", StringComparison.OrdinalIgnoreCase)))
+                && MiddlewarePathHelper.IsUnderSegment(context.Request.Path, _basePath, "/setup", prefixes)))
         {
             return true;
         }
 
         // The REST API, the realtime hub and MCP answer a caller with a status (a 401 or a 404), never an HTML redirect.
-        if (path.Contains("/api/", StringComparison.OrdinalIgnoreCase)
+        if (MiddlewarePathHelper.IsUnderSegment(context.Request.Path, _basePath, "/api", prefixes)
             || path.StartsWith(McpDiscoveryPaths.McpPath, StringComparison.OrdinalIgnoreCase))
         {
             return true;
@@ -82,7 +84,7 @@ public sealed class LoginFormAuthMiddleware(
             return true;
         }
 
-        return MiddlewarePathHelper.IsStaticOrFrameworkPath(path);
+        return MiddlewarePathHelper.IsStaticOrFrameworkPath(path, _basePath, prefixes);
     }
 
     // An anonymous route without parameters is anonymous at its mapped path only, compared Ordinal: the SPA's router and the

@@ -1,6 +1,7 @@
 using Microsoft.AspNetCore.Http;
 using Beacon.Core;
 using Beacon.Core.Services;
+using Beacon.Core.Configuration;
 using Beacon.Core.Mcp;
 using Beacon.Core.Services.Security;
 using Beacon.Api.Endpoints;
@@ -33,7 +34,7 @@ public sealed class FirstRunSetupMiddleware(
         }
 
         // Skip for setup page, static files, and framework endpoints
-        if (IsExcludedPath(context.Request.Path))
+        if (IsExcludedPath(context.Request.Path, _basePath, context.RequestServices?.GetService<AuthenticationPathPrefixes>()))
         {
             await next(context);
             return;
@@ -61,10 +62,11 @@ public sealed class FirstRunSetupMiddleware(
         await next(context);
     }
 
-    private static bool IsExcludedPath(PathString requestPath)
+    private static bool IsExcludedPath(PathString requestPath, string basePath, AuthenticationPathPrefixes? prefixes)
     {
         var path = requestPath.Value ?? "";
-        if (path.Contains("/setup", StringComparison.OrdinalIgnoreCase))
+        if (MiddlewarePathHelper.IsUnderSegment(requestPath, basePath, "/setup", prefixes)
+            || MiddlewarePathHelper.IsUnderSegment(requestPath, basePath, "/api/setup", prefixes))
         {
             return true;
         }
@@ -84,6 +86,6 @@ public sealed class FirstRunSetupMiddleware(
             return true;
         }
 
-        return MiddlewarePathHelper.IsStaticOrFrameworkPath(path);
+        return MiddlewarePathHelper.IsStaticOrFrameworkPath(path, basePath, prefixes);
     }
 }

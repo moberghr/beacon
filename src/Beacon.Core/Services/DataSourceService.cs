@@ -130,6 +130,7 @@ internal class DataSourceService(
 
         var connectionString = dataSourceData.ConnectionString;
         transportPolicy.EnsureNewConnectionAllowed(dataSourceData.DataSourceType, dataSourceData.DatabaseEngineType, connectionString);
+        providerFactory.GetProvider(dataSourceData.DataSourceType).EnsureNewConnectionDataAllowed(connectionString);
 
         // Under the workflow the source is held until approved: it connects to nothing now, and its engine is checked when
         // its connection is approved.
@@ -642,6 +643,7 @@ internal class DataSourceService(
 
         // Approving it makes the connection live: it is checked as a new one, then against the server, which must answer.
         transportPolicy.EnsureNewConnectionAllowed(dataSource.DataSourceType, dataSource.DatabaseEngineType, connectionString);
+        providerFactory.GetProvider(dataSource.DataSourceType).EnsureNewConnectionDataAllowed(connectionString);
         try
         {
             await EnsureDeclaredEngineAsync(dataSource.Id, dataSource.DataSourceType, dataSource.DatabaseEngineType, connectionString, refuseUnreachable: true, cancellationToken);
@@ -795,17 +797,18 @@ internal class DataSourceService(
             : Task.CompletedTask;
     }
 
-    // A connection test is refused, never opened, when the connection does not authenticate the server: its message names
-    // the option to change, never a value from the connection string.
+    // A connection test is refused, never opened, when the connection does not authenticate the server or its connector does
+    // not accept the configuration: its message names the option to change, never a value from the connection string.
     private BaseResponse? TransportRefusal(DataSourceType dataSourceType, DatabaseEngineType? databaseEngineType, string connectionString)
     {
         try
         {
             transportPolicy.EnsureNewConnectionAllowed(dataSourceType, databaseEngineType, connectionString);
+            providerFactory.GetProvider(dataSourceType).EnsureNewConnectionDataAllowed(connectionString);
 
             return null;
         }
-        catch (DataSourceTransportException ex)
+        catch (Exception ex) when (ex is BeaconException or InvalidOperationException)
         {
             return new BaseResponse
             {
@@ -950,6 +953,7 @@ internal class DataSourceService(
             // A connection kept as it is stays a stored one (warned about when it connects); a new one must authenticate
             // the server.
             transportPolicy.EnsureNewConnectionAllowed(dataSource.DataSourceType, dataSourceData.DatabaseEngineType, connectionString);
+            providerFactory.GetProvider(dataSource.DataSourceType).EnsureNewConnectionDataAllowed(connectionString);
         }
 
         var approval = ApprovalOf(requester, dataSource, storedConnection, dataSourceData.DatabaseEngineType, connectionString);

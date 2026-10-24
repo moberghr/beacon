@@ -132,6 +132,10 @@ public static class BeaconApiEndpoints
         // Notes at startup which key seals security audit events (a Warning when it is derived) and how long they are kept.
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, SecurityAuditStartupNote>());
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, RetentionStartupNote>());
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, RetentionScheduleStartupCheck>());
+
+        // Warns once after startup when every role can create objects in the PostgreSQL public schema Beacon's connections search.
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, PublicSchemaStartupWarning>());
 
         // Applies the stored Admin settings (base URL, LLM provider configuration) once the host has started.
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, StoredSettingsStartupApplier>());
@@ -228,6 +232,7 @@ public static class BeaconApiEndpoints
         group.MapTasksEndpoints();
         group.MapUsersEndpoints();
         group.MapSecurityAuditEndpoints();
+        group.MapExecutionLogEndpoints();
 
         // Mapped on `endpoints`, NOT on the group: the group carries the antiforgery filter,
         // which would reject the hub's negotiate handshake. Route and policy are the contract

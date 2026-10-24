@@ -4,7 +4,6 @@ using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -32,7 +31,6 @@ public static class AuthServiceExtensions
 
     private const string SecurityHeadersAddedKey = "Beacon.SecurityHeadersAdded";
     private const string OriginGuardAddedKey = "Beacon.OriginGuardAdded";
-
 
     /// <summary>
     /// Adds cookie authentication for Beacon login form.
@@ -241,18 +239,16 @@ public static class AuthServiceExtensions
     }
 
     /// <summary>
-    /// Registers host-level identity and SignalR plumbing that depends on the authenticated
-    /// user: the claims transformer that materialises Beacon role claims after cookie/OIDC
-    /// sign-in and the SignalR <c>IUserIdProvider</c> that maps connections to
-    /// <c>BeaconUser.Id</c>. The Warp → SignalR job-state bridge is <c>JobStatusChangedBehavior</c>,
-    /// a Warp pipeline behavior auto-registered by the source generator. Kept here (§2.12) so
-    /// <c>Program.cs</c> stays a thin composition root.
+    /// Registers host-level identity plumbing that depends on the authenticated user: the claims transformer that
+    /// materialises Beacon role claims after cookie/OIDC sign-in. The SignalR <c>IUserIdProvider</c>
+    /// (<see cref="HubUserIdProvider"/>) is registered once, by <c>AddBeaconApiServices</c>, with realtime on.
+    /// The Warp → SignalR job-state bridge is <c>JobStatusChangedBehavior</c>, a Warp pipeline behavior auto-registered
+    /// by the source generator. Kept here (§2.12) so <c>Program.cs</c> stays a thin composition root.
     /// </summary>
     public static IServiceCollection AddBeaconHostInfrastructure<TClaimsTransformation>(this IServiceCollection services)
         where TClaimsTransformation : class, Microsoft.AspNetCore.Authentication.IClaimsTransformation
     {
         services.AddScoped<Microsoft.AspNetCore.Authentication.IClaimsTransformation, TClaimsTransformation>();
-        services.AddSingleton<IUserIdProvider, HubUserIdProvider>();
         return services;
     }
 
@@ -271,6 +267,52 @@ public static class AuthServiceExtensions
         builder.Services.AddBeaconCookieAuthentication(AuthenticationPathOptions.BeaconPath);
 
         return builder;
+    }
+
+    /// <summary>
+    /// Adds SSO through the identity provider in <c>Beacon:Authentication:Oidc</c> (<see cref="AddBeaconOidcAuthentication"/>)
+    /// and, when it names a <see cref="OidcAuthenticationOptions.McpJwksEndpoint"/>, bearer JWTs from that provider
+    /// (<see cref="AddBeaconOidcMcpJwtAuthentication"/>). With SSO off it only registers the options. Call it after
+    /// <see cref="AddCookieAuth{TClaims}"/>: SSO signs users in to the <c>Beacon.Auth</c> cookie.
+    /// </summary>
+    public static BeaconBuilder AddOidc(this BeaconBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        builder.Services.AddBeaconOidcAuthentication(builder.Configuration);
+        builder.Services.AddBeaconOidcMcpJwtAuthentication(builder.Configuration);
+
+        return builder;
+    }
+
+    /// <summary>
+    /// Accepts bearer JWTs from the SSO identity provider on Beacon's API and on <c>/beacon/mcp</c>, when
+    /// <c>Beacon:Authentication:Oidc</c> is enabled and names a <see cref="OidcAuthenticationOptions.McpJwksEndpoint"/>:
+    /// a token is validated against that endpoint's signing keys, with the <c>Authority</c> (without a trailing slash) as
+    /// its issuer and the <c>ClientId</c> as its audience (<see cref="AddBeaconJwtAuthentication"/>). Which tokens become
+    /// MCP callers is decided by <c>Beacon:Mcp:Callers</c>. Without SSO or without the endpoint it registers nothing. A
+    /// host that sets up bearer JWTs itself with <see cref="AddBeaconJwtAuthentication"/> does not call this as well.
+    /// </summary>
+    public static IServiceCollection AddBeaconOidcMcpJwtAuthentication(this IServiceCollection services, IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        var options = OidcAuthenticationOptions.FromConfiguration(configuration);
+        if (!options.Enabled || string.IsNullOrWhiteSpace(options.McpJwksEndpoint))
+        {
+            return services;
+        }
+
+        return services.AddBeaconJwtAuthentication(x =>
+        {
+            x.EnableBearerAuthentication = true;
+            x.Validation.JwksEndpoint = options.McpJwksEndpoint;
+            x.Validation.ValidIssuer = options.GetEnabledAuthority();
+            x.Validation.ValidAudience = options.ClientId;
+            x.Validation.ValidateIssuer = true;
+            x.Validation.ValidateAudience = true;
+        });
     }
 
     public static IApplicationBuilder UseBeaconJwtBearerAuthentication(this IApplicationBuilder app)

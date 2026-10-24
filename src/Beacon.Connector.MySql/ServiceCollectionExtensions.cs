@@ -18,6 +18,7 @@ public static class ServiceCollectionExtensions
         ConnectorRegistry.RegisterDatabaseEngine(DatabaseEngineType.MySQL, "MySQL");
         builder.Services.AddTransient<IDatabaseMetadataExtractor, MySqlMetadataExtractor>();
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceTransportInspector, MySqlTransportInspector>());
+        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceConnectionOptionInspector, MySqlConnectionOptionInspector>());
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IMigrationBulkWriter, MySqlMigrationBulkWriter>());
         return builder;
     }

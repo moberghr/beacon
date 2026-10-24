@@ -22,5 +22,11 @@ public enum ChangeApprovalKind
     /// The stored LLM connection's provider, endpoint, region or authentication mode changed: the stored connection stays in
     /// use, and the change is staged until a live Admin approves it.
     /// </summary>
-    LlmConnection = 5
+    LlmConnection = 5,
+
+    /// <summary>
+    /// A user given the Admin role: the rest of the save applies, and the user holds the Admin role only once a live Admin
+    /// other than the requester approves the grant.
+    /// </summary>
+    AdminRoleGrant = 6
 }

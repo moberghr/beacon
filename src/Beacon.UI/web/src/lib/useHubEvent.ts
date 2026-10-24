@@ -34,11 +34,16 @@ function ensureConnected(): void {
   }
 
   // The SignalR client is imported on first use so it stays out of the entry chunk.
-  hubPromise = import('./hub').then(m => m.connectBeaconHub()).then(hub => {
+  const connecting: Promise<BeaconHub> = import('./hub').then(m => m.connectBeaconHub()).then(hub => {
     // When automatic reconnect exhausts, the connection is dead for good.
     // Drop the cached promise, mark every subscriber detached, and schedule
-    // a fresh connection so already-mounted pages recover.
+    // a fresh connection so already-mounted pages recover. A connection
+    // stopped on purpose (disconnectBeaconHub) is no longer the current one
+    // and schedules nothing.
     hub.onClosed(() => {
+      if (hubPromise !== connecting) {
+        return;
+      }
       console.warn('[beacon-hub] connection closed permanently — scheduling reconnect');
       hubPromise = undefined;
       for (const subscriber of subscribers) {
@@ -48,10 +53,18 @@ function ensureConnected(): void {
     });
     return hub;
   });
+  hubPromise = connecting;
 
-  hubPromise
-    .then(attachPendingSubscribers)
+  connecting
+    .then(hub => {
+      if (hubPromise === connecting) {
+        attachPendingSubscribers(hub);
+      }
+    })
     .catch(err => {
+      if (hubPromise !== connecting) {
+        return;
+      }
       // Hub is non-essential — log but don't crash the page. Reset so a
       // later subscribe (or the scheduled retry) can attempt a fresh connect.
       hubPromise = undefined;
@@ -64,6 +77,35 @@ function ensureConnected(): void {
       }
       scheduleReconnect();
     });
+}
+
+/**
+ * Stop the shared connection and cancel any scheduled reconnect: on sign-out
+ * and when the session has expired (a 401), the connection belongs to the
+ * user who just left. Subscribers stay registered and detached; the next
+ * subscriber to mount (after the next sign-in) opens a fresh connection.
+ */
+export async function disconnectBeaconHub(): Promise<void> {
+  const current = hubPromise;
+  hubPromise = undefined;
+  if (reconnectTimer !== undefined) {
+    clearTimeout(reconnectTimer);
+    reconnectTimer = undefined;
+  }
+  for (const subscriber of subscribers) {
+    subscriber.unsubscribe?.();
+    subscriber.unsubscribe = undefined;
+  }
+  if (current === undefined) {
+    return;
+  }
+  try {
+    const hub = await current;
+    await hub.stop();
+  } catch (err) {
+    // A connection that never opened has nothing to stop.
+    console.warn('[beacon-hub] failed to stop the connection', err);
+  }
 }
 
 function attachPendingSubscribers(hub: BeaconHub): void {
