@@ -85,6 +85,9 @@ public sealed record ChangeApprovalDetail
 
     public LlmConnectionView? ProposedLlmConnection { get; init; }
 
+    /// <summary>For a grant of the Admin role, the user and the role it grants (ids and the role's name only).</summary>
+    public AdminRoleGrantView? ProposedAdminRoleGrant { get; init; }
+
     /// <summary>
     /// For a data source's connection, the projects it is linked to now, read when the detail is shown: links are not part
     /// of what the request proposes, so one made or removed since does not make it stale. Empty for every other kind.
@@ -258,6 +261,19 @@ public sealed record DataSourceConnectionView
 
     /// <summary>The change points the source at another engine, host, port or database.</summary>
     public bool IsTargetChange { get; init; }
+}
+
+/// <summary>
+/// A grant of the Admin role, as a reviewer is shown it: the user by <c>Users.Id</c> and the role by its id and name; the
+/// user's label is read live (<see cref="ChangeApprovalDetail.ResourceName"/>), never stored with the request.
+/// </summary>
+public sealed record AdminRoleGrantView
+{
+    public int UserId { get; init; }
+
+    public int RoleId { get; init; }
+
+    public string RoleName { get; init; } = string.Empty;
 }
 
 /// <summary>

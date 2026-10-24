@@ -637,6 +637,7 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
 | `CoversRecipientDestinations` | `true` | While the workflow is on, a new recipient or changed destination receives nothing until approved |
 | `CoversDataSourceConnections` | `false` | While the workflow is on, a new data source or a connection changed in anything but its secrets connects to nothing until approved |
 | `CoversLlmConnection` | `false` | While the workflow is on, a change of the stored LLM connection's provider, endpoint, region or authentication mode waits for a live Admin's approval; the stored connection stays in use meanwhile |
+| `CoversAdminRoleGrants` | `false` | While the workflow is on, giving a user the Admin role (a new user or a role change) waits until another live Admin approves it, whatever `AllowSelfApproval` says; removing it, and functional roles, apply at once |
 | `LlmConnectionRequestDays` | `7` | How long a staged LLM connection change waits for a decision before it expires and what it staged is wiped; held between 1 and 30 |
 
 The `Covers…` switches apply only while `Enabled` is on. Turning a switch, or the workflow, off releases what it held; startup warns with the counts. Startup also logs how changes are governed (a Warning outside Development while the workflow is off).
