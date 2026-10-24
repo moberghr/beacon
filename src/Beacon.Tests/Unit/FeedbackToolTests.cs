@@ -47,7 +47,7 @@ public class FeedbackToolTests
 
         var (tool, _) = BuildTool(mediator);
 
-        var result = await tool.ExecuteAsync(SignalId, "correct", PiiSql, PiiNote, CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(SignalId, "correct", PiiSql, PiiNote, CancellationToken.None));
 
         result.IsError.Should().NotBe(true);
         mediator.Verify(x => x.Send(
@@ -66,7 +66,7 @@ public class FeedbackToolTests
         var mediator = new Mock<IMediator>(MockBehavior.Strict);
         var (tool, audit) = BuildTool(mediator);
 
-        var result = await tool.ExecuteAsync(SignalId, "maybe", null, null, CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(SignalId, "maybe", null, null, CancellationToken.None));
 
         result.IsError.Should().BeTrue();
         mediator.Verify(x => x.Send(It.IsAny<RecordQueryFeedbackCommand>(), It.IsAny<CancellationToken>()), Times.Never);
@@ -85,7 +85,7 @@ public class FeedbackToolTests
 
         var (tool, audit) = BuildTool(mediator);
 
-        await tool.ExecuteAsync(SignalId, "incorrect", PiiSql, PiiNote, CancellationToken.None);
+        await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(SignalId, "incorrect", PiiSql, PiiNote, CancellationToken.None));
 
         audit.Logs.Should().ContainSingle();
         var log = audit.Logs[0];
@@ -110,7 +110,7 @@ public class FeedbackToolTests
 
         var (tool, audit) = BuildTool(mediator);
 
-        var result = await tool.ExecuteAsync(unknownSignalId, "correct", null, null, CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(unknownSignalId, "correct", null, null, CancellationToken.None));
 
         result.IsError.Should().BeTrue();
         result.Content.OfType<TextContentBlock>().Single().Text
@@ -126,7 +126,7 @@ public class FeedbackToolTests
         var mediator = new Mock<IMediator>(MockBehavior.Strict);
         var (tool, audit) = BuildTool(mediator, access: TestProjectAccess.Unrestricted);
 
-        var result = await tool.ExecuteAsync(ProjectlessSignalId, "correct", null, null, CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(ProjectlessSignalId, "correct", null, null, CancellationToken.None));
 
         result.IsError.Should().BeTrue();
         result.Content.OfType<TextContentBlock>().Single().Text.Should().Be($"Query signal {ProjectlessSignalId} not found.");
@@ -141,7 +141,7 @@ public class FeedbackToolTests
         var mediator = new Mock<IMediator>(MockBehavior.Strict);
         var (tool, audit) = BuildTool(mediator, access: TestProjectAccess.Unrestricted, activeProjectId: 7, allowedProjectIds: [7]);
 
-        var result = await tool.ExecuteAsync(SignalId, "correct", null, null, CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(SignalId, "correct", null, null, CancellationToken.None));
 
         result.IsError.Should().BeTrue();
         result.Content.OfType<TextContentBlock>().Single().Text.Should().Be($"Query signal {SignalId} not found.");
@@ -155,7 +155,7 @@ public class FeedbackToolTests
         var mediator = new Mock<IMediator>(MockBehavior.Strict);
         var (tool, _) = BuildTool(mediator, access: TestProjectAccess.Unrestricted, allowedProjectIds: [7]);
 
-        var result = await tool.ExecuteAsync(SignalId, "correct", null, null, CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(SignalId, "correct", null, null, CancellationToken.None));
 
         result.IsError.Should().BeTrue();
         result.Content.OfType<TextContentBlock>().Single().Text.Should().Be($"Query signal {SignalId} not found.");
@@ -168,7 +168,7 @@ public class FeedbackToolTests
         var viewer = TestProjectAccess.Scope(new Dictionary<int, ProjectRole> { [SignalProjectId] = ProjectRole.Viewer }, includesOpen: false, notOpen: []);
         var (tool, _) = BuildTool(mediator, access: viewer, activeProjectId: SignalProjectId, allowedProjectIds: [SignalProjectId]);
 
-        var result = await tool.ExecuteAsync(SignalId, "correct", null, null, CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(SignalId, "correct", null, null, CancellationToken.None));
 
         result.IsError.Should().BeTrue();
         result.Content.OfType<TextContentBlock>().Single().Text.Should().Be($"Query signal {SignalId} not found.");
@@ -195,7 +195,7 @@ public class FeedbackToolTests
             allowedProjectIds: projectList == "empty" ? [] : [SignalProjectId],
             withoutProjectList: projectList == "none");
 
-        var result = await tool.ExecuteAsync(SignalId, "correct", null, null, CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(SignalId, "correct", null, null, CancellationToken.None));
 
         result.IsError.Should().Be(recorded ? null : true);
         mediator.Verify(x => x.Send(It.IsAny<RecordQueryFeedbackCommand>(), It.IsAny<CancellationToken>()), recorded ? Times.Once() : Times.Never());
@@ -211,7 +211,7 @@ public class FeedbackToolTests
         var editor = TestProjectAccess.Scope(new Dictionary<int, ProjectRole> { [SignalProjectId] = ProjectRole.Editor }, includesOpen: false, notOpen: []);
         var (tool, audit) = BuildTool(mediator, access: editor, activeProjectId: SignalProjectId, allowedProjectIds: [SignalProjectId]);
 
-        var result = await tool.ExecuteAsync(SignalId, "correct", null, null, CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(SignalId, "correct", null, null, CancellationToken.None));
 
         result.IsError.Should().BeTrue();
         audit.Logs.Should().ContainSingle().Which.ErrorMessage.Should().Be("Only the caller who asked can record feedback.");
@@ -226,7 +226,7 @@ public class FeedbackToolTests
         var editor = TestProjectAccess.Scope(new Dictionary<int, ProjectRole> { [SignalProjectId] = ProjectRole.Editor }, includesOpen: false, notOpen: []);
         var (tool, _) = BuildTool(mediator, access: editor, activeProjectId: SignalProjectId, allowedProjectIds: [SignalProjectId]);
 
-        var result = await tool.ExecuteAsync(SignalId, "correct", null, null, CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(SignalId, "correct", null, null, CancellationToken.None));
 
         result.IsError.Should().NotBe(true);
         mediator.Verify(x => x.Send(It.Is<RecordQueryFeedbackCommand>(y => y.SignalId == SignalId), It.IsAny<CancellationToken>()), Times.Once);
@@ -244,7 +244,7 @@ public class FeedbackToolTests
             .ReturnsAsync(new RecordQueryFeedbackResult(kept, reason));
         var (tool, audit) = BuildTool(mediator);
 
-        var result = await tool.ExecuteAsync(SignalId, verdict, kept || reason != null ? "SELECT 1" : null, null, CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(SignalId, verdict, kept || reason != null ? "SELECT 1" : null, null, CancellationToken.None));
 
         result.IsError.Should().NotBe(true);
         result.Content.OfType<TextContentBlock>().Single().Text.Should().Be($"Feedback recorded for signal {SignalId}. {answer}");
@@ -280,7 +280,7 @@ public class FeedbackToolTests
             .Returns<RecordQueryFeedbackCommand, CancellationToken>((command, ct) => handler.Handle(command, ct));
         var (tool, audit) = BuildTool(mediator);
 
-        var result = await tool.ExecuteAsync(SignalId, "correct", "DELETE FROM orders", null, CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(SignalId, "correct", "DELETE FROM orders", null, CancellationToken.None));
 
         result.IsError.Should().NotBe(true);
         result.Content.OfType<TextContentBlock>().Single().Text.Should().Contain(" The corrected SQL was not kept: it did not pass the SQL check: ");
@@ -315,13 +315,12 @@ public class FeedbackToolTests
         projectContext.SetupGet(x => x.AllowedProjectIds).Returns(withoutProjectList ? null : allowedProjectIds ?? [SignalProjectId]);
         projectContext.SetupGet(x => x.ApiKeyId).Returns((int?)null);
 
-        var tool = new FeedbackTool(
+        var tool = TestToolCalls.Track(recorder => new FeedbackTool(
             factory.Object,
             projectContext.Object,
-            auditService,
+            recorder,
             mediator.Object,
-            TestProjectAccess.Evaluator(access ?? TestProjectAccess.Unrestricted),
-            NullLogger<FeedbackTool>.Instance);
+            TestProjectAccess.Evaluator(access ?? TestProjectAccess.Unrestricted)), () => TestToolCalls.Recorder(auditService));
 
         return (tool, new AuditCapture(logs));
     }

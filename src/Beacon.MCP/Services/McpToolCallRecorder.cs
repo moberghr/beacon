@@ -1,5 +1,6 @@
 using System.Diagnostics;
 using Microsoft.Extensions.Logging;
+using ModelContextProtocol.Protocol;
 using Beacon.Core.Services.Security;
 
 namespace Beacon.MCP.Services;
@@ -34,6 +35,7 @@ internal sealed class McpToolCallRecorder(
     private bool _written;
     private bool _inInvocation;
     private int? _signalId;
+    private Func<int?, CallToolResult>? _answerWithSignalId;
 
     public string? Tool { get; private set; }
 
@@ -58,6 +60,12 @@ internal sealed class McpToolCallRecorder(
 
     /// <summary>The call has its outcome: <see cref="Succeed"/> or <see cref="Fail"/> was called.</summary>
     public bool IsCompleted { get; private set; }
+
+    /// <summary>
+    /// The tool recorded its failure and rethrew the exception it failed with (the caller's own cancellation): the record
+    /// keeps the tool's outcome and <see cref="McpAuditCallToolFilter"/> lets the exception propagate after writing it.
+    /// </summary>
+    internal bool RethrowsRecordedFailure { get; private set; }
 
     /// <summary>The SQL whose known names stay readable when a database error is redacted.</summary>
     internal string? RedactionSql => _signal?.GeneratedSql ?? _signalSql;
@@ -139,6 +147,34 @@ internal sealed class McpToolCallRecorder(
         _signalError = signalError ?? error;
         _signalSucceeded = false;
     }
+
+    /// <summary>
+    /// The caller cancelled the call: recorded as failed with <paramref name="error"/>, and the tool rethrows the
+    /// cancellation, which reaches the caller unchanged once the record is written.
+    /// </summary>
+    public void FailCancelled(string error)
+    {
+        Fail(error, Tables);
+        RethrowsRecordedFailure = true;
+    }
+
+    /// <summary>
+    /// The successful call's answer names the learning signal written for it (ask's <c>signal_id</c>, which
+    /// <c>feedback</c> rates). The signal is written after the tool returned, so the answer is built twice: returned now
+    /// without an id (what the call answers when no signal was persisted), and rebuilt by
+    /// <see cref="McpAuditCallToolFilter"/> with the persisted signal's id.
+    /// </summary>
+    public CallToolResult AnswerWithSignalId(Func<int?, CallToolResult> answer)
+    {
+        ArgumentNullException.ThrowIfNull(answer);
+        _answerWithSignalId = answer;
+
+        return answer(null);
+    }
+
+    /// <summary>The answer rebuilt with the persisted signal's id, or null when the tool's own answer stands.</summary>
+    internal CallToolResult? AnswerFor(int? signalId) =>
+        signalId != null && ErrorMessage == null ? _answerWithSignalId?.Invoke(signalId) : null;
 
     /// <summary>
     /// The call threw <paramref name="exception"/>: the audit row keeps its message (redacted there as the project's

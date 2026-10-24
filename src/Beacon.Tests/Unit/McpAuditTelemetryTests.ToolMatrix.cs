@@ -472,10 +472,8 @@ public partial class McpAuditTelemetryTests
                 queryExecution.Object,
                 sharedSettings,
                 x.GetRequiredService<IProjectContext>(),
-                x.GetRequiredService<McpAuditService>(),
-                x.GetRequiredService<McpSignalService>(),
-                x.GetRequiredService<McpQueryConcurrencyLimiter>(),
-                NullLogger<DryRunTool>.Instance));
+                x.GetRequiredService<McpToolCallRecorder>(),
+                x.GetRequiredService<McpQueryConcurrencyLimiter>()));
             services.AddScoped(x => new ProjectQueryTool(
                 toolFactory.Object,
                 providerFactory.Object,
@@ -486,8 +484,7 @@ public partial class McpAuditTelemetryTests
                 knowledgeGraph.Object,
                 sharedSettings,
                 x.GetRequiredService<IProjectContext>(),
-                x.GetRequiredService<McpAuditService>(),
-                x.GetRequiredService<McpSignalService>(),
+                x.GetRequiredService<McpToolCallRecorder>(),
                 x.GetRequiredService<McpQueryConcurrencyLimiter>(),
                 TestQueryCostLimit.Passing,
                 NullLogger<ProjectQueryTool>.Instance));
@@ -497,8 +494,7 @@ public partial class McpAuditTelemetryTests
                 sharedSettings,
                 x,
                 x.GetRequiredService<IProjectContext>(),
-                x.GetRequiredService<McpAuditService>(),
-                x.GetRequiredService<McpSignalService>(),
+                x.GetRequiredService<McpToolCallRecorder>(),
                 Mock.Of<IAskSqlPipeline>(),
                 Mock.Of<IAskSqlExecutor>(),
                 intent.Object,
@@ -512,10 +508,9 @@ public partial class McpAuditTelemetryTests
             services.AddScoped(x => new FeedbackTool(
                 toolFactory.Object,
                 x.GetRequiredService<IProjectContext>(),
-                x.GetRequiredService<McpAuditService>(),
+                x.GetRequiredService<McpToolCallRecorder>(),
                 mediator.Object,
-                TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted),
-                NullLogger<FeedbackTool>.Instance));
+                TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted)));
 
             return services.BuildServiceProvider();
         }

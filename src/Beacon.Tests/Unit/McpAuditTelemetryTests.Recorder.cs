@@ -245,6 +245,73 @@ public partial class McpAuditTelemetryTests
     }
 
     [Test]
+    public async Task RecordedCancellation_IsWrittenOnce_WithTheToolsOutcome_AndTheCancellationPropagates()
+    {
+        var harness = new RecorderHarness();
+
+        var act = () => harness.InvokeAsync("ask", recorder =>
+        {
+            recorder.Start("ask", MatrixUserId, MatrixQuestion)
+                .WithProject(MatrixProjectId)
+                .WithSignal(new McpSignalBuilder().SetTool("ask"));
+            recorder.FailCancelled("Cancelled by the caller.");
+
+            throw new OperationCanceledException();
+        });
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        var row = harness.AuditRows.Should().ContainSingle().Subject;
+        row.Tool.Should().Be("ask");
+        row.ProjectId.Should().Be(MatrixProjectId);
+        row.ErrorMessage.Should().Be("Cancelled by the caller.");
+        var signal = harness.Signals.Should().ContainSingle().Subject;
+        signal.IsSuccessful.Should().BeFalse();
+        signal.ExecutionFailed.Should().BeTrue();
+    }
+
+    [Test]
+    public async Task RecordedAnswerWithSignalId_IsRebuiltWithThePersistedSignalsId()
+    {
+        var harness = new RecorderHarness();
+
+        var result = await harness.InvokeAsync("ask", recorder =>
+        {
+            recorder.Start("ask", MatrixUserId, MatrixQuestion)
+                .WithProject(MatrixProjectId)
+                .WithSignal(new McpSignalBuilder().SetTool("ask").SetProjectId(MatrixProjectId));
+            recorder.Succeed(2);
+
+            return recorder.AnswerWithSignalId(x => ToolHelper.Success(x is { } id ? $"answer, signal {id}" : "answer"));
+        });
+
+        var signal = harness.Signals.Should().ContainSingle().Subject;
+        result.IsError.Should().NotBe(true);
+        result.Content.OfType<TextContentBlock>().Single().Text.Should().Be($"answer, signal {signal.Id}");
+        harness.AuditRows.Should().ContainSingle().Which.ResultRowCount.Should().Be(2);
+    }
+
+    [Test]
+    public async Task RecordedFailure_KeepsTheToolsAnswer_WhateverItsSignalId()
+    {
+        var harness = new RecorderHarness();
+
+        var result = await harness.InvokeAsync("ask", recorder =>
+        {
+            recorder.Start("ask", MatrixUserId, MatrixQuestion)
+                .WithProject(MatrixProjectId)
+                .WithSignal(new McpSignalBuilder().SetTool("ask").SetProjectId(MatrixProjectId));
+            recorder.AnswerWithSignalId(_ => ToolHelper.Success("answer"));
+            recorder.Fail("This project has no data sources configured.");
+
+            return ToolHelper.Error("This project has no data sources configured.");
+        });
+
+        result.IsError.Should().BeTrue();
+        result.Content.OfType<TextContentBlock>().Single().Text.Should().Be("This project has no data sources configured.");
+        harness.Signals.Should().ContainSingle().Which.IsSuccessful.Should().BeFalse();
+    }
+
+    [Test]
     public async Task UnknownToolOnTheTransport_IsAuditedOnce_AsThePlaygroundAuditsIt()
     {
         var harness = new RecorderHarness();

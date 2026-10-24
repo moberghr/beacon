@@ -457,24 +457,13 @@ public class AskStatementAuditTests
         auditFactory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => new AuditCapturingContext(logs));
-        var tool = new ProjectAskTool(
+        var tool = TestToolCalls.Track(recorder => new ProjectAskTool(
             knowledgeGraph.Object,
             settingsProvider.Object,
             SettingsProviderMock.Unshared(settingsProvider.Object),
             serviceProvider.Object,
             new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId] },
-            new McpAuditService(
-                auditFactory.Object,
-                settingsProvider.Object,
-                new HttpContextAccessor(),
-                Options.Create(new McpDeploymentOptions()),
-                NullLogger<McpAuditService>.Instance,
-                new McpAuditOutcome(),
-                Options.Create(new BeaconTelemetryOptions()),
-                NullLoggerFactory.Instance,
-                TestMcpAudit.ContentHasher,
-                log),
-            new McpSignalService(signalFactory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance),
+            recorder,
             pipeline.Object,
             new AskSqlExecutor(execution),
             intent.Object,
@@ -484,9 +473,19 @@ public class AskStatementAuditTests
             Options.Create(new McpDeploymentOptions()),
             limiter ?? new McpQueryConcurrencyLimiter(),
             TimeProvider.System,
-            NullLogger<ProjectAskTool>.Instance);
+            NullLogger<ProjectAskTool>.Instance), () => TestToolCalls.Recorder(new McpAuditService(
+                auditFactory.Object,
+                settingsProvider.Object,
+                new HttpContextAccessor(),
+                Options.Create(new McpDeploymentOptions()),
+                NullLogger<McpAuditService>.Instance,
+                new McpAuditOutcome(),
+                Options.Create(new BeaconTelemetryOptions()),
+                NullLoggerFactory.Instance,
+                TestMcpAudit.ContentHasher,
+                log), new McpSignalService(signalFactory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance)));
 
-        return await tool.ExecuteAsync(Question, cancellationToken: CancellationToken.None);
+        return await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(Question, cancellationToken: CancellationToken.None));
     }
 
     /// <summary>Captures the audit rows (with their statements) the service adds; no database (§4.7).</summary>

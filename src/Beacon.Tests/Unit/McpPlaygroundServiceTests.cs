@@ -508,10 +508,8 @@ public class McpPlaygroundServiceTests
             _queryExecution.Object,
             SettingsProviderMock.Unshared(settingsProvider.Object),
             x.GetRequiredService<IProjectContext>(),
-            x.GetRequiredService<McpAuditService>(),
-            new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance),
-            new McpQueryConcurrencyLimiter(),
-            NullLogger<DryRunTool>.Instance));
+            x.GetRequiredService<McpToolCallRecorder>(),
+            new McpQueryConcurrencyLimiter()));
 
         services.AddScoped(x => new GetQueryContextTool(
             _knowledgeGraph.Object,
