@@ -24,6 +24,7 @@ export const SECURITY_AUDIT_CATEGORIES: readonly SecurityAuditCategory[] = [
       'auth.sso_signed_in',
       'auth.sso_refused',
       'auth.setup_token_refused',
+      'auth.user_locked_out',
     ],
   },
   {

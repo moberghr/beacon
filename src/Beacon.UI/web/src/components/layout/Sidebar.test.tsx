@@ -294,4 +294,36 @@ describe('Sidebar', () => {
     expect(screen.queryByRole('menuitem', { name: 'Sign out' })).not.toBeInTheDocument();
     expect(screen.queryByRole('menuitem', { name: 'Sign out everywhere' })).not.toBeInTheDocument();
   });
+
+  it('badges AI Actors with the plans waiting for the user, and shows no badge while none waits', async () => {
+    signedInAs(['Editor']);
+    mswServer.use(http.get('*/beacon/api/ai-actors/pending-plans/count', () => HttpResponse.json({ count: 2 })));
+    const { unmount } = renderWithProviders(<Sidebar />);
+
+    expect(await screen.findByLabelText('2 AI actor plans pending in the projects you may decide for')).toHaveTextContent('2');
+    unmount();
+
+    mswServer.use(http.get('*/beacon/api/ai-actors/pending-plans/count', () => HttpResponse.json({ count: 0 })));
+    renderWithProviders(<Sidebar />);
+    expect(await screen.findByText('AI Actors')).toBeInTheDocument();
+    expect(screen.queryByLabelText(/AI actor plans? pending/)).not.toBeInTheDocument();
+  });
+
+  it('does not ask for the pending plans in gateway mode', async () => {
+    const asked = vi.fn();
+    sessionOf(true, ['Admin'], 'Tester');
+    mswServer.use(
+      permissionsHandler({ isAdmin: true, gatewayMode: true }),
+      http.get('*/beacon/api/ai-actors/pending-plans/count', () => {
+        asked();
+        return HttpResponse.json({ count: 3 });
+      }),
+    );
+
+    renderWithProviders(<Sidebar />);
+
+    expect(await screen.findByText('MCP Settings')).toBeInTheDocument();
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(asked).not.toHaveBeenCalled();
+  });
 });

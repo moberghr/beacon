@@ -164,12 +164,22 @@ is added only in a serializable transaction that first checks the actor has no p
 refinements or revisions finishing together never leave two pending plans. The one refused completes all the same: a
 think cycle or the initial setup keeps its proposals on its execution record, which names the pending plan; a
 refinement answers `409` naming it; a revision answers `409` saying the original plan was sent back but no revised plan
-was created. A revision for which the model proposes no action it can take creates no plan and fails. There is no plan review page in the UI yet; use the API:
+was created. A revision for which the model proposes no action it can take creates no plan and fails.
+
+In the UI, the actor's page lists its pending plans under **Plans waiting for approval**. **Review** opens the plan:
+its analysis, findings and proposed actions with their SQL (a refinement shows the query's current SQL next to the
+proposed SQL), read-only, and its earlier versions with the feedback that shaped them. The dialog offers only the
+decisions the server says the caller may take: **Approve and run** (optional comment), **Reject** (reason required) and
+**Request revision** (feedback required); when the caller cannot approve, it says why. In the sidebar, **AI Actors**
+carries a badge with the number of plans waiting for the caller's decision.
+
+The same through the API:
 
 | Route | What it does |
 |---|---|
 | `GET /beacon/api/ai-actors/{id}/pending-plans` | The actor's plans awaiting review |
-| `GET /beacon/api/ai-actors/plans/{id}` | One plan with its analysis and actions |
+| `GET /beacon/api/ai-actors/plans/{id}` | One plan with its analysis and actions, and what the caller may decide on it: `mayApprove` (with `approveBlockedReason` when not), `mayRejectOrRevise` |
+| `GET /beacon/api/ai-actors/pending-plans/count` | How many plans wait for the caller's decision: pending, not expired, of actors whose data source the caller may write; an Admin, or an Approver while the approval workflow is on, counts them all, anyone else only those of the actors they created |
 | `POST /beacon/api/ai-actors/plans/{id}/approve` | Approve (optional comment): the plan moves to `Executing`, its actions run, then `Executed`; if execution throws, the plan becomes `Rejected` |
 | `POST /beacon/api/ai-actors/plans/{id}/reject` | Reject (reason required); no action runs |
 | `POST /beacon/api/ai-actors/plans/{id}/request-revision` | Ask for changes (feedback required): a new plan is generated with an incremented version and a link to its parent |

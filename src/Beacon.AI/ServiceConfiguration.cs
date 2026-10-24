@@ -113,6 +113,8 @@ public static class ServiceConfiguration
         // Ask-time value grounding (spec item 5) — probes candidate string columns for literal-looking
         // words in the question, fail-closed, gated by EnableValueGrounding.
         services.TryAddTransient<IValueGroundingService, ValueGroundingService>();
+        // The per-credential slots its probes may take beside the call; Beacon.MCP serves an MCP caller's. None by default.
+        services.TryAddScoped<IProbeConcurrencyLeases, NoProbeConcurrencyLeases>();
 
         // Project Documentation (living knowledge base)
         services.TryAddTransient<IProjectDocumentationService, ProjectDocumentationService>();

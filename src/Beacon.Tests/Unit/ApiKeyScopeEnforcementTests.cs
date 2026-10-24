@@ -76,6 +76,7 @@ public class ApiKeyScopeEnforcementTests
     private static readonly string[] ReadScopeSurface =
     [
         "/beacon/api/ai-actors/",
+        "/beacon/api/ai-actors/pending-plans/count",
         "/beacon/api/ai-actors/plans/{id:int}",
         "/beacon/api/ai-actors/{id:int}",
         "/beacon/api/ai-actors/{id:int}/pending-plans",
@@ -95,6 +96,7 @@ public class ApiKeyScopeEnforcementTests
         "/beacon/api/data-quality/contracts/{id:int}",
         "/beacon/api/data-quality/contracts/{id:int}/evaluations",
         "/beacon/api/data-quality/overview",
+        "/beacon/api/data-quality/overview/paged",
         "/beacon/api/data-sources/",
         "/beacon/api/data-sources/{dataSourceId:int}/relationships",
         "/beacon/api/data-sources/{dataSourceId:int}/schema-health",
@@ -126,6 +128,7 @@ public class ApiKeyScopeEnforcementTests
         "/beacon/api/queries/{queryId:int}/change-history",
         "/beacon/api/queries/{queryId:int}/versions",
         "/beacon/api/query-folders/",
+        "/beacon/api/query-folders/paged",
         "/beacon/api/query-versions/diff",
         "/beacon/api/query-versions/{id:int}",
         "/beacon/api/recipients/",
