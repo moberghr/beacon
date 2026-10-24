@@ -42,6 +42,8 @@ public static class NotificationFailureReasons
 
     public const string DestinationUnreadable = "Notification delivery failed: the stored destination could not be read.";
 
+    public const string TooManyRecipients = "Notification delivery failed: the email destination lists more than 50 addresses.";
+
     public const string DestinationNotEncrypted = "Notification delivery failed: the stored destination is not encrypted.";
 
     /// <summary>

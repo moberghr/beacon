@@ -1,8 +1,6 @@
 using System.ComponentModel;
-using System.Diagnostics;
 using System.Text.Json.Nodes;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Beacon.AI.Services.Knowledge;
@@ -26,10 +24,8 @@ internal sealed class DryRunTool(
     IQueryExecutionService queryExecutionService,
     ISharedSourceSettings sharedSourceSettings,
     IProjectContext projectContext,
-    McpAuditService auditService,
-    McpSignalService signalService,
-    McpQueryConcurrencyLimiter concurrencyLimiter,
-    ILogger<DryRunTool> logger)
+    McpToolCallRecorder recorder,
+    McpQueryConcurrencyLimiter concurrencyLimiter)
 {
     // The dry-run preview applies the same default row budget the query tool uses, capped by settings.
     private const int DefaultMaxRows = 100;
@@ -51,7 +47,8 @@ internal sealed class DryRunTool(
         int? project_id = null,
         CancellationToken cancellationToken = default)
     {
-        var sw = Stopwatch.StartNew();
+        // Written by McpAuditCallToolFilter after the tool returns or throws (§1.7).
+        recorder.Start("dry_run", projectContext.UserId, sql);
 
         // dry_run IS part of the SQL-learning loop (unlike the read tools — see GetContextTool): the
         // caller-authored SQL passing or failing the gates is exactly the outcome McpQuerySignal models
@@ -61,10 +58,11 @@ internal sealed class DryRunTool(
             .SetTool("dry_run")
             .SetQuestion(sql ?? "")
             .SetUserId(projectContext.UserId);
+        recorder.WithSignal(signal, sql);
 
         if (string.IsNullOrEmpty(sql))
         {
-            return await FailAsync(signal, sw, null, datasource_id, sql, "Missing required parameter: sql", cancellationToken);
+            return Fail(null, datasource_id, "Missing required parameter: sql");
         }
 
         // The data source (and therefore the dialect) is not resolved yet, so the early-exit failures below
@@ -74,14 +72,15 @@ internal sealed class DryRunTool(
         var resolveError = ToolHelper.ResolveProjectId(projectContext, "dry_run", project_id, out var projectId);
         if (resolveError != null)
         {
-            return await FailAsync(signal, sw, null, datasource_id, sql, resolveError, cancellationToken);
+            return Fail(null, datasource_id, resolveError);
         }
 
         signal.SetProjectId(projectId);
+        recorder.WithProject(projectId);
 
         if (datasource_id == null && string.IsNullOrEmpty(datasource_name))
         {
-            return await FailAsync(signal, sw, projectId, null, sql, "Provide either datasource_name or datasource_id.", cancellationToken);
+            return Fail(projectId, null, "Provide either datasource_name or datasource_id.");
         }
 
         if (datasource_id == null && !string.IsNullOrEmpty(datasource_name))
@@ -89,161 +88,134 @@ internal sealed class DryRunTool(
             var (resolvedId, nameError) = await ToolHelper.ResolveDataSourceByNameAsync(contextFactory, projectId, datasource_name, cancellationToken);
             if (nameError != null)
             {
-                return await FailAsync(signal, sw, projectId, null, sql, nameError, cancellationToken);
+                return Fail(projectId, null, nameError);
             }
 
             datasource_id = resolvedId;
         }
 
         signal.SetDataSourceId(datasource_id);
+        recorder.WithDataSource(datasource_id);
 
         var projectError = await ToolHelper.ValidateDataSourceInProjectAsync(contextFactory, projectId, datasource_id!.Value, cancellationToken);
         if (projectError != null)
         {
-            return await FailAsync(signal, sw, projectId, datasource_id, sql, projectError, cancellationToken);
+            return Fail(projectId, datasource_id, projectError);
         }
 
-        try
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        var dataSource = await context.DataSources
+            .Where(x => x.Id == datasource_id.Value)
+            .FirstOrDefaultAsync(cancellationToken)
+            ?? throw new InvalidOperationException($"Data source {datasource_id} not found");
+
+        if (dataSource.DataSourceType == DataSourceType.Api)
         {
-            await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-            var dataSource = await context.DataSources
-                .Where(x => x.Id == datasource_id.Value)
-                .FirstOrDefaultAsync(cancellationToken)
-                ?? throw new InvalidOperationException($"Data source {datasource_id} not found");
-
-            if (dataSource.DataSourceType == DataSourceType.Api)
-            {
-                return await FailAsync(signal, sw, projectId, datasource_id, sql,
-                    "dry_run validates SQL only — API data sources are not supported.", cancellationToken);
-            }
-
-            var dialect = DataSourceSqlDialect.Of(dataSource);
-            // The strictest guardrails of the live projects that link the data source apply, whichever project asks.
-            var settings = await sharedSourceSettings.GetEffectiveSettingsAsync(projectId, [datasource_id.Value], cancellationToken);
-
-            // The provider dry-run reaches the database, so dry_run counts toward MaxConcurrentQueriesPerKey: refused at
-            // once, never queued, and audited like every other refusal (§1.7/§9.5).
-            using var lease = concurrencyLimiter.TryAcquire(McpQueryConcurrencyLimiter.CallerKeyOf(projectContext), settings.MaxConcurrentQueriesPerKey);
-            if (lease == null)
-            {
-                return await FailAsync(signal, sw, projectId, datasource_id, sql, McpQueryConcurrencyLimiter.RefusalMessage, cancellationToken);
-            }
-
-            var catalog = await knowledgeGraph.GetSchemaCatalogAsync(datasource_id.Value, projectId, cancellationToken);
-            var maxRows = Math.Min(DefaultMaxRows, settings.MaxRowLimit);
-            var rowSecurity = await rowSecurityResolver.ResolveAsync(datasource_id.Value, cancellationToken);
-
-            // Gates 1-3 (read-only, schema, row limit) run through the one shared gate (§1.5). The schema
-            // verdict is advisory here — every issue is collected so the caller sees all of them at once.
-            var report = gate.Evaluate(SqlGateRequest.FromSettings(sql, dialect, settings, rowSecurity) with
-            {
-                Catalog = catalog,
-                MaxRows = maxRows,
-                HostManagedKey = dataSource.HostManagedKey,
-                ConfiguredDatabase = configuredDatabases.Resolve(dataSource)
-            });
-            signal.SetGeneratedSql(sql, report.TablesUsed.ToList());
-
-            var issues = new List<GateIssue>();
-
-            var readOnly = report.Verdicts.ReadOnly;
-            var readOnlyGateRan = readOnly.Status != SqlGateStatus.Skipped;
-            if (readOnly.Status == SqlGateStatus.Fail)
-            {
-                issues.Add(new GateIssue(ReadOnlyGate, readOnly.Code ?? SqlGateCodes.Guardrail, readOnly.Message ?? "Query validation failed"));
-            }
-
-            var piiColumns = report.PiiColumns;
-
-            // An EMPTY catalog means the check cannot run at all — surface that as an advisory issue
-            // (making the verdict invalid: the caller asked for a validation that could not be
-            // performed) instead of rendering a vacuous "✓ schema".
-            var schema = report.Verdicts.Schema;
-            var schemaCheckSkipped = schema.Code == SqlGateCodes.EmptyCatalog;
-            var schemaNotEvaluated = schema.Code == SqlGateCodes.NotEvaluated;
-            if (schemaCheckSkipped)
-            {
-                issues.Add(new GateIssue(SchemaGate, SqlGateCodes.EmptyCatalog,
-                    "No schema metadata available for this data source yet — column check was skipped. Run metadata extraction, or verify column names manually."));
-            }
-            else if (schema.Status == SqlGateStatus.Fail)
-            {
-                issues.Add(new GateIssue(SchemaGate, schema.Code ?? SqlGateCodes.Schema, schema.Message ?? "Schema validation failed"));
-            }
-
-            // Gate 4: provider dry-run (EXPLAIN / sp_describe_first_result_set) — ONLY when every
-            // previous gate passed; running EXPLAIN on a known-write statement is pointless and unsafe.
-            // The schema-skip advisory alone does not block it: the parsers passed, so the provider
-            // dry-run is the only column check still available. An engine WITHOUT a dry-run strategy
-            // reports Skipped — surfaced as an advisory issue mirroring the empty-catalog pattern
-            // (verdict invalid: the caller asked for a validation that could not be performed).
-            var providerGateRan = false;
-            var providerGateSkipped = false;
-            if (issues.Count == 0 || (schemaCheckSkipped && issues.Count == 1))
-            {
-                providerGateRan = true;
-                var providerOutcome = await queryExecutionService.ValidateAsync(datasource_id.Value, sql, cancellationToken);
-                if (providerOutcome.Skipped)
-                {
-                    providerGateSkipped = true;
-                    issues.Add(new GateIssue(ProviderGate, "skipped",
-                        providerOutcome.Error ?? "Provider dry-run is not supported for this engine — validation was skipped. Verify the query manually."));
-                }
-                else if (providerOutcome.Error != null)
-                {
-                    issues.Add(new GateIssue(ProviderGate, "provider", providerOutcome.Error));
-                }
-            }
-
-            var valid = issues.Count == 0;
-            var executableSql = valid ? report.FinalSql : null;
-
-            var text = BuildMarkdown(valid, issues, readOnlyGateRan, schemaNotEvaluated, providerGateRan, providerGateSkipped, executableSql, piiColumns);
-            var structured = BuildStructuredContent(valid, issues, executableSql, piiColumns);
-
-            // Signal fields mirror the ask flow's failure taxonomy: schema-gate issues → schema
-            // validation failure, provider gate → dry-run failure, read-only gate → execution
-            // validation failure. IsSuccessful is the verdict itself.
-            RecordGateFailuresOnSignal(signal, issues, providerGateSkipped, sql);
-            sw.Stop();
-            signal.SetResult(null, (int)sw.ElapsedMilliseconds, valid);
-            await auditService.LogToolCallAsync(projectContext.UserId, "dry_run",
-                sql, datasource_id, projectId, (int)sw.ElapsedMilliseconds, null, null,
-                tables: report.TablesUsed.ToList(), ct: cancellationToken);
-            await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
-            return ToolHelper.Success(text, structured);
+            return Fail(projectId, datasource_id, "dry_run validates SQL only — API data sources are not supported.");
         }
-        catch (Exception ex)
+
+        var dialect = DataSourceSqlDialect.Of(dataSource);
+        // The strictest guardrails of the live projects that link the data source apply, whichever project asks.
+        var settings = await sharedSourceSettings.GetEffectiveSettingsAsync(projectId, [datasource_id.Value], cancellationToken);
+
+        // The provider dry-run reaches the database, so dry_run counts toward MaxConcurrentQueriesPerKey: refused at
+        // once, never queued, and audited like every other refusal (§1.7/§9.5).
+        using var lease = concurrencyLimiter.TryAcquire(McpQueryConcurrencyLimiter.CallerKeyOf(projectContext), settings.MaxConcurrentQueriesPerKey);
+        if (lease == null)
         {
-            sw.Stop();
-            signal.SetExecutionFailed(DatabaseErrorRedactor.ForCaller(ex.Message, sql, redact: true, logger));
-            signal.SetResult(null, (int)sw.ElapsedMilliseconds, false);
-            await auditService.LogToolCallAsync(projectContext.UserId, "dry_run",
-                sql, datasource_id, projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, ct: CancellationToken.None);
-            await signalService.RecordSignalAsync(signal.Build(), CancellationToken.None);
-            // §1.11 — ex.Message can quote the user's SQL; type only here, full detail is in the audit log.
-            logger.LogError("MCP tool {Tool} failed with {ExceptionType} (detail in MCP audit log)", "dry_run", ex.GetType().Name);
-            return ToolHelper.Error(ToolHelper.CallerSafeMessage(ex, "dry_run"));
+            return Fail(projectId, datasource_id, McpQueryConcurrencyLimiter.RefusalMessage);
         }
+
+        var catalog = await knowledgeGraph.GetSchemaCatalogAsync(datasource_id.Value, projectId, cancellationToken);
+        var maxRows = Math.Min(DefaultMaxRows, settings.MaxRowLimit);
+        var rowSecurity = await rowSecurityResolver.ResolveAsync(datasource_id.Value, cancellationToken);
+
+        // Gates 1-3 (read-only, schema, row limit) run through the one shared gate (§1.5). The schema
+        // verdict is advisory here — every issue is collected so the caller sees all of them at once.
+        var report = gate.Evaluate(SqlGateRequest.FromSettings(sql, dialect, settings, rowSecurity) with
+        {
+            Catalog = catalog,
+            MaxRows = maxRows,
+            HostManagedKey = dataSource.HostManagedKey,
+            ConfiguredDatabase = configuredDatabases.Resolve(dataSource)
+        });
+        signal.SetGeneratedSql(sql, report.TablesUsed.ToList());
+
+        var issues = new List<GateIssue>();
+
+        var readOnly = report.Verdicts.ReadOnly;
+        var readOnlyGateRan = readOnly.Status != SqlGateStatus.Skipped;
+        if (readOnly.Status == SqlGateStatus.Fail)
+        {
+            issues.Add(new GateIssue(ReadOnlyGate, readOnly.Code ?? SqlGateCodes.Guardrail, readOnly.Message ?? "Query validation failed"));
+        }
+
+        var piiColumns = report.PiiColumns;
+
+        // An EMPTY catalog means the check cannot run at all — surface that as an advisory issue
+        // (making the verdict invalid: the caller asked for a validation that could not be
+        // performed) instead of rendering a vacuous "✓ schema".
+        var schema = report.Verdicts.Schema;
+        var schemaCheckSkipped = schema.Code == SqlGateCodes.EmptyCatalog;
+        var schemaNotEvaluated = schema.Code == SqlGateCodes.NotEvaluated;
+        if (schemaCheckSkipped)
+        {
+            issues.Add(new GateIssue(SchemaGate, SqlGateCodes.EmptyCatalog,
+                "No schema metadata available for this data source yet — column check was skipped. Run metadata extraction, or verify column names manually."));
+        }
+        else if (schema.Status == SqlGateStatus.Fail)
+        {
+            issues.Add(new GateIssue(SchemaGate, schema.Code ?? SqlGateCodes.Schema, schema.Message ?? "Schema validation failed"));
+        }
+
+        // Gate 4: provider dry-run (EXPLAIN / sp_describe_first_result_set) — ONLY when every
+        // previous gate passed; running EXPLAIN on a known-write statement is pointless and unsafe.
+        // The schema-skip advisory alone does not block it: the parsers passed, so the provider
+        // dry-run is the only column check still available. An engine WITHOUT a dry-run strategy
+        // reports Skipped — surfaced as an advisory issue mirroring the empty-catalog pattern
+        // (verdict invalid: the caller asked for a validation that could not be performed).
+        var providerGateRan = false;
+        var providerGateSkipped = false;
+        if (issues.Count == 0 || (schemaCheckSkipped && issues.Count == 1))
+        {
+            providerGateRan = true;
+            var providerOutcome = await queryExecutionService.ValidateAsync(datasource_id.Value, sql, cancellationToken);
+            if (providerOutcome.Skipped)
+            {
+                providerGateSkipped = true;
+                issues.Add(new GateIssue(ProviderGate, "skipped",
+                    providerOutcome.Error ?? "Provider dry-run is not supported for this engine — validation was skipped. Verify the query manually."));
+            }
+            else if (providerOutcome.Error != null)
+            {
+                issues.Add(new GateIssue(ProviderGate, "provider", providerOutcome.Error));
+            }
+        }
+
+        var valid = issues.Count == 0;
+        var executableSql = valid ? report.FinalSql : null;
+
+        var text = BuildMarkdown(valid, issues, readOnlyGateRan, schemaNotEvaluated, providerGateRan, providerGateSkipped, executableSql, piiColumns);
+        var structured = BuildStructuredContent(valid, issues, executableSql, piiColumns);
+
+        // Signal fields mirror the ask flow's failure taxonomy: schema-gate issues → schema
+        // validation failure, provider gate → dry-run failure, read-only gate → execution
+        // validation failure. IsSuccessful is the verdict itself.
+        RecordGateFailuresOnSignal(signal, issues, providerGateSkipped, sql);
+        recorder.Succeed(tables: report.TablesUsed.ToList(), signalSucceeded: valid);
+        return ToolHelper.Success(text, structured);
     }
 
     // §1.7/§9.5 — audit AND signal must be recorded on every outcome, including the early-exit
     // failures before the gate pipeline (missing input, project/data-source resolution, access denied).
-    private async Task<CallToolResult> FailAsync(
-        McpSignalBuilder signal,
-        Stopwatch sw,
-        int? projectId,
-        int? dataSourceId,
-        string? sql,
-        string error,
-        CancellationToken cancellationToken)
+    // The recorder writes the error on the signal too.
+    private CallToolResult Fail(int? projectId, int? dataSourceId, string error)
     {
-        sw.Stop();
-        signal.SetExecutionFailed(error);
-        signal.SetResult(null, (int)sw.ElapsedMilliseconds, false);
-        await auditService.LogToolCallAsync(projectContext.UserId, "dry_run",
-            sql, dataSourceId, projectId, (int)sw.ElapsedMilliseconds, null, error, ct: cancellationToken);
-        await signalService.RecordSignalAsync(signal.Build(), cancellationToken);
+        recorder
+            .WithProject(projectId)
+            .WithDataSource(dataSourceId)
+            .Fail(error);
+
         return ToolHelper.Error(error);
     }
 

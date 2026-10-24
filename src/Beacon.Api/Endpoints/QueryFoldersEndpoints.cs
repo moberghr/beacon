@@ -10,7 +10,12 @@ internal static class QueryFoldersEndpoints
         var folders = group.MapGroup("/query-folders").WithTags("QueryFolders");
 
         folders.MapGet("/", (IMediator m, CancellationToken ct) => m.Send(new GetQueryFoldersQuery(), ct))
-            .WithName("GetQueryFolders");
+            .WithName("GetQueryFolders")
+            .AsDeprecatedUnpagedList("GET /query-folders/paged");
+
+        // Paged form of the list above (deprecated: all folders up to a 10,000 safety cap): page, pageSize, sort, search.
+        folders.MapGet("/paged", ([AsParameters] ListQueryFoldersQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
+            .WithName("ListQueryFolders");
 
         folders.MapPost("/", async (CreateQueryFolderCommand cmd, IMediator m, CancellationToken ct) =>
         {

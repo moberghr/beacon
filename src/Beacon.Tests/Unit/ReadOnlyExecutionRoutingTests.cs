@@ -141,8 +141,8 @@ public class ReadOnlyExecutionRoutingTests
                 Rows = [new Dictionary<string, object?> { ["id"] = 1, ["name"] = "Alice" }]
             });
 
-        var result = await CreateTool(provider).ExecuteAsync(
-            datasource_id: SqlDataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(provider), x => x.ExecuteAsync(
+            datasource_id: SqlDataSourceId, sql: ValidSql, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         provider.Verify(
@@ -175,8 +175,8 @@ public class ReadOnlyExecutionRoutingTests
                 It.IsAny<CancellationToken>()))
             .ReturnsAsync(new ProviderQueryResult { Success = true, Rows = [] });
 
-        var result = await CreateTool(provider).ExecuteAsync(
-            datasource_id: ApiDataSourceId, api_query: apiQuery, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(provider), x => x.ExecuteAsync(
+            datasource_id: ApiDataSourceId, api_query: apiQuery, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         provider.Verify(
@@ -697,7 +697,7 @@ public class ReadOnlyExecutionRoutingTests
                 ["customers"] = new(["id", "name"], StringComparer.OrdinalIgnoreCase)
             });
 
-        return new ProjectQueryTool(
+        return TestToolCalls.Track(recorder => new ProjectQueryTool(
             factory.Object,
             providerFactory.Object,
             guardrail.Object,
@@ -707,11 +707,10 @@ public class ReadOnlyExecutionRoutingTests
             knowledgeGraph.Object,
             SettingsProviderMock.Unshared(settingsProvider.Object),
             projectContext,
-            auditService,
-            signalService,
+            recorder,
             new McpQueryConcurrencyLimiter(),
             TestQueryCostLimit.Passing,
-            NullLogger<ProjectQueryTool>.Instance);
+            NullLogger<ProjectQueryTool>.Instance), () => TestToolCalls.Recorder(auditService, signalService));
     }
 
     /// <summary>Implements ONLY the abstract interface members — <c>ExecuteReadOnlyQueryAsync</c> is

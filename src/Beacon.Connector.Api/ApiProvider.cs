@@ -42,13 +42,11 @@ public class ApiProvider(
 
     public string GetQueryLanguageName() => "HTTP";
 
-    public async Task<ConnectionTestResult> TestConnectionAsync(
+    public Task<ConnectionTestResult> TestConnectionAsync(
         DataSource dataSource,
         CancellationToken cancellationToken = default)
     {
-        var stopwatch = Stopwatch.StartNew();
-
-        try
+        return ConnectorProviderSupport.TestConnectionAsync(logger, dataSource, "API", async () =>
         {
             var config = ParseConfiguration(dataSource);
             var client = httpClientFactory.CreateClient();
@@ -61,32 +59,13 @@ public class ApiProvider(
             using var response = await client.SendAsync(request, HttpCompletionOption.ResponseHeadersRead, cancellationToken);
             response.EnsureSuccessStatusCode();
 
-            stopwatch.Stop();
-
-            return new ConnectionTestResult
+            return new Dictionary<string, object?>
             {
-                Success = true,
-                TestDurationMs = stopwatch.Elapsed.TotalMilliseconds,
-                ConnectionInfo = new Dictionary<string, object?>
-                {
-                    ["BaseUrl"] = config.BaseUrl,
-                    ["SpecUrl"] = config.OpenApiSpecUrl,
-                    ["StatusCode"] = (int)response.StatusCode
-                }
+                ["BaseUrl"] = config.BaseUrl,
+                ["SpecUrl"] = config.OpenApiSpecUrl,
+                ["StatusCode"] = (int)response.StatusCode
             };
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Connection test failed for API data source {DataSourceId}", dataSource.Id);
-            stopwatch.Stop();
-
-            return new ConnectionTestResult
-            {
-                Success = false,
-                ErrorMessage = ConnectionFailureDescriber.Describe(ex),
-                TestDurationMs = stopwatch.Elapsed.TotalMilliseconds
-            };
-        }
+        });
     }
 
     public async Task<ProviderQueryResult> ExecuteQueryAsync(
@@ -258,12 +237,7 @@ public class ApiProvider(
             errors.Add($"Invalid JSON: {ex.Message}");
         }
 
-        return Task.FromResult(new QueryValidationResult
-        {
-            IsValid = errors.Count == 0,
-            Errors = errors,
-            Warnings = warnings
-        });
+        return ConnectorProviderSupport.ValidationVerdict(errors, warnings);
     }
 
     private static readonly string[] ReadOnlyMethods = ["GET", "HEAD", "OPTIONS"];
@@ -292,16 +266,10 @@ public class ApiProvider(
 
     private ApiConnectionConfig ParseConfiguration(DataSource dataSource)
     {
-        try
-        {
-            var decryptedJson = connectionResolver.GetConnectionData(dataSource);
-            var config = JsonSerializer.Deserialize<ApiConnectionConfig>(decryptedJson, JsonOptions)
-                ?? throw new BeaconException("Failed to parse API connection configuration");
-            return config;
-        }
-        catch (JsonException ex)
-        {
-            throw new BeaconException($"Invalid API configuration JSON: {ex.Message}", ex);
-        }
+        return ConnectorProviderSupport.ParseConfiguration<ApiConnectionConfig>(
+            connectionResolver.GetConnectionData(dataSource),
+            "Failed to parse API connection configuration",
+            "Invalid API configuration JSON: ",
+            JsonOptions);
     }
 }
