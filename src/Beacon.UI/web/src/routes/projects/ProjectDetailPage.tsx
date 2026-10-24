@@ -1,6 +1,8 @@
-import { Fragment, Suspense, useState } from 'react';
+import { Fragment, Suspense, useEffect, useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
+import { toast } from 'sonner';
 import { Link, useParams } from 'react-router-dom';
-import { AlertTriangle, BookOpen, Bot, Database, Folder, GitBranch, Key, Layers, Link2, Lock, Shield, Unlink, Users } from 'lucide-react';
+import { AlertTriangle, BookOpen, Bot, Database, Folder, GitBranch, Key, Layers, Link2, Lock, RefreshCw, Shield, Unlink, Users } from 'lucide-react';
 import {
   Banner,
   Button,
@@ -22,12 +24,16 @@ import { Tabs, type TabDef } from '@/components/Tabs';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import { useAccess } from '@/auth/useAuth';
 import { lazyWithRetry } from '@/lib/lazyWithRetry';
-import { isNotFound, NOT_FOUND_DETAIL } from '@/lib/api';
-import { ProjectMembershipManagement, ProjectRole } from '@/lib/enums';
+import { describeError, isNotFound, NOT_FOUND_DETAIL } from '@/lib/api';
+import { isBackgroundTaskFinished } from '@/lib/useBackgroundTask';
+import type { BackgroundTaskStatus, BackgroundTaskTicket } from '@/api/generated/beacon-api';
+import { BackgroundTaskState, ProjectMembershipManagement, ProjectRole } from '@/lib/enums';
 import { formatNumber, formatRelativeTime } from '@/lib/format';
 import {
   PROJECT_ROLE_LABEL,
   useProjectDetailQuery,
+  useRepositoryScanStatus,
+  useStartRepositoryScan,
   useSetProjectAccess,
   useUnlinkProjectDataSource,
   type ProjectDetailEntry,
@@ -188,7 +194,12 @@ export default function ProjectDetailPage() {
 
         {tab === 'members' && showMembers && <MembersTab projectId={project.id} />}
         {tab === 'repositories' && (
-          <RepositoriesTab repositories={project.repositories} canSetToken={access.hasPermission('SecurityAdmin')} />
+          <RepositoriesTab
+            projectId={project.id}
+            repositories={project.repositories}
+            canSetToken={access.hasPermission('SecurityAdmin')}
+            canScan={(project.myRole ?? 0) >= ProjectRole.Editor}
+          />
         )}
         {tab === 'documentation' && (
           <Suspense fallback={<CardBody><span className="text-text-muted">Loading documentation…</span></CardBody>}>
@@ -517,9 +528,58 @@ function SharedSourceGuardrails({ project }: { project: ProjectDetailEntry }) {
 
 // --- Repositories tab -------------------------------------------------
 
-/** `canSetToken`: setting a repository's access token is a SecurityAdmin's (an Admin holds it). */
-function RepositoriesTab({ repositories, canSetToken }: { repositories: ProjectRepositoryEntry[]; canSetToken: boolean }) {
+/**
+ * `canSetToken`: setting a repository's access token is a SecurityAdmin's (an Admin holds it). `canScan`: scanning the
+ * repositories changes the project (an Editor's); the scan runs as a background task followed until it finishes.
+ */
+function RepositoriesTab({
+  projectId,
+  repositories,
+  canSetToken,
+  canScan,
+}: {
+  projectId: number;
+  repositories: ProjectRepositoryEntry[];
+  canSetToken: boolean;
+  canScan: boolean;
+}) {
   const [tokenTarget, setTokenTarget] = useState<{ id: number; name: string } | null>(null);
+  const startScan = useStartRepositoryScan();
+  const [scanTicket, setScanTicket] = useState<BackgroundTaskTicket | null>(null);
+  const scanTask = useRepositoryScanStatus(projectId, scanTicket);
+  const queryClient = useQueryClient();
+  const finishedScan = isBackgroundTaskFinished(scanTask.status?.state) ? scanTask.status : null;
+  const scanReadFailed = scanTicket != null && scanTask.error != null;
+
+  useEffect(() => {
+    if (scanTicket == null || (finishedScan == null && !scanReadFailed)) {
+      return;
+    }
+    // Each repository's own result (status, partial scan, references) is on the project.
+    void queryClient.invalidateQueries({ queryKey: ['projects', projectId] });
+    if (finishedScan?.state === BackgroundTaskState.Succeeded) {
+      const incomplete = finishedScan.warningCount ?? 0;
+      if (incomplete > 0) {
+        toast.warning(
+          `Repositories scanned; ${incomplete} ${incomplete === 1 ? 'repository' : 'repositories'} failed or ${incomplete === 1 ? 'was' : 'were'} only partly scanned.`,
+        );
+      } else {
+        toast.success('Repositories scanned');
+      }
+    } else if (finishedScan != null) {
+      toast.error(describeScanFailure(finishedScan));
+    } else {
+      toast.error(describeError(scanTask.error, 'Could not read the scan progress'));
+    }
+    setScanTicket(null);
+  }, [scanTicket, finishedScan, scanReadFailed, scanTask.error, projectId, queryClient]);
+
+  const scanning = scanTicket != null || startScan.isPending;
+  const scanLabel = !scanning
+    ? 'Scan repositories'
+    : scanTask.state === BackgroundTaskState.Running
+      ? 'Scanning…'
+      : 'Scan queued…';
 
   const columns: Column<ProjectRepositoryEntry>[] = [
     {
@@ -575,6 +635,29 @@ function RepositoriesTab({ repositories, canSetToken }: { repositories: ProjectR
 
   return (
     <>
+      {canScan && repositories.length > 0 && (
+        <CardBody>
+          <div className="flex justify-end">
+            <Button
+              size="sm"
+              type="button"
+              onClick={async () => {
+                try {
+                  setScanTicket(await startScan.mutateAsync(projectId));
+                } catch (err) {
+                  // 409: a scan of the project is already queued or running; the server says so.
+                  toast.error(describeError(err, 'Could not start the scan'));
+                }
+              }}
+              disabled={scanning}
+              aria-busy={scanning}
+              icon={<RefreshCw className={scanning ? 'animate-spin' : undefined} />}
+            >
+              {scanLabel}
+            </Button>
+          </div>
+        </CardBody>
+      )}
       {partial.length > 0 && (
         <CardBody>
           <Banner
@@ -615,6 +698,20 @@ function RepositoriesTab({ repositories, canSetToken }: { repositories: ProjectR
       />
     </>
   );
+}
+
+// A scan that did not finish says why by its code; the server log has the rest.
+function describeScanFailure(status: BackgroundTaskStatus): string {
+  switch (status.failureCode) {
+    case 'forbidden':
+      return 'You can no longer change this project, so its repositories were not scanned.';
+    case 'abandoned':
+      return 'The repository scan stopped without finishing; try again.';
+    case 'cancelled':
+      return 'The repository scan was cancelled.';
+    default:
+      return 'The repository scan failed; the server log has the details.';
+  }
 }
 
 // --- Documentation tab: lazy, so marked + dompurify load only when it opens ---

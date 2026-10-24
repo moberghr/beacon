@@ -40,12 +40,16 @@ public static class BackgroundTaskFailureCodes
     /// <summary>The actor was paused or archived before the task ran (a skipped task).</summary>
     public const string Inactive = "inactive";
 
+    /// <summary>The work ran and failed; its own record says why (for a migration run, the run's history row).</summary>
+    public const string RunFailed = "run_failed";
+
     /// <summary>Anything else; the server log has the details.</summary>
     public const string Failed = "failed";
 
     /// <summary>The code for an exception a task failed with.</summary>
     public static string Of(Exception exception) => exception switch
     {
+        BackgroundTaskFailedException failed => failed.FailureCode,
         OperationCanceledException => Cancelled,
         BeaconRateLimitedException => Busy,
         DataSourceDisabledException => DataSourceDisabled,
@@ -54,4 +58,14 @@ public static class BackgroundTaskFailureCodes
         BeaconForbiddenException => Forbidden,
         _ => Failed
     };
+}
+
+/// <summary>
+/// Thrown by an executor whose work ran and failed in a way it reports itself (its own record says why): the task is
+/// recorded as failed with <see cref="FailureCode"/>, and its job fails too.
+/// </summary>
+public sealed class BackgroundTaskFailedException(string failureCode)
+    : Exception($"The background task failed ({failureCode}).")
+{
+    public string FailureCode { get; } = failureCode;
 }

@@ -38,14 +38,17 @@ public interface IBeaconScheduler
     Task<string> EnqueueAiActorThinkCycle(int actorId, int subscriptionId);              // AI actors
     Task<string> EnqueueMcpEval(int runId);                                              // MCP evaluation runs
     Task<string?> EnqueueMetadataRefresh(int dataSourceId);                              // metadata re-scan after a connection target change
-    Task<string?> EnqueueBackgroundTask(int taskId, string? notifyUserId);               // a task a user started and follows (background metadata refresh)
+    Task<string?> EnqueueBackgroundTask(int taskId, string? notifyUserId);               // a task a user started and follows (metadata refresh, migration run, repository scan)
 }
 ```
 
-`EnqueueBackgroundTask` is optional too. Beacon records long work a user starts from the UI (today: a forced metadata
-refresh and an AI actor's think-now) as a background task and hands its id to this method; your job calls `IBackgroundTaskService.ExecuteAsync(taskId, ct)`
-in a scope marked as system work; Beacon then runs it as the user who started it and re-checks their access first (a
-task they may no longer run is recorded as skipped, and the job succeeds). Return the job id (the UI follows
+`EnqueueBackgroundTask` is optional too. Beacon records long work a user starts from the UI (a forced metadata
+refresh, an AI actor's think-now, a manual migration run, a scan of a project's repositories) as a background task and hands its id to this method; your job calls `IBackgroundTaskService.ExecuteAsync(taskId, ct)`
+in a scope marked as system work; Beacon then runs it as the stored user who started it (by `Users.Id`) and re-checks
+their access first (a task they may no longer run is recorded as skipped, and the job succeeds). It runs with the
+user's own access, not the credential's: a start made with an API key is not capped by the key's scope or projects in
+the job, and revoking or narrowing the key after the start does not stop it (disabling the user, or removing its
+access, does). Return the job id (the UI follows
 `JobStatusChanged` for it, sent to `notifyUserId`: the id the SignalR hub addresses the caller by, a signed-in
 session's external id, or `null` for an API key or an MCP caller), or `null` (the default): Beacon then runs the task in
 the request that started it, as before.
@@ -69,7 +72,7 @@ Each job opens a **new DI scope**, marks it as system work, and calls one Beacon
 | Project documentation | `IProjectDocumentationService.GenerateDocumentationAsync(projectId, userId, ct)` (Beacon.AI) | `EnqueueProjectDocumentation` |
 | AI actor think cycle | `IAiActorServiceExtended.ExecuteThinkCycleBackgroundAsync(actorId, subscriptionId)` (Beacon.AI) | `EnqueueAiActorThinkCycle` |
 | MCP evaluation run | `IJobService.RunMcpEval(runId, ct)` | `EnqueueMcpEval` |
-| Background task (metadata refresh, AI actor think-now) | `IBackgroundTaskService.ExecuteAsync(taskId, ct)` | `EnqueueBackgroundTask` |
+| Background task (metadata refresh, AI actor think-now, migration run, repository scan) | `IBackgroundTaskService.ExecuteAsync(taskId, ct)` | `EnqueueBackgroundTask` |
 
 ### Recurring maintenance jobs
 

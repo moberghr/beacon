@@ -7,5 +7,11 @@ public enum BackgroundTaskKind
     MetadataRefresh = 1,
 
     /// <summary>A think cycle an AI actor's creator or an Admin asked for now; the subject is the AI actor.</summary>
-    AiActorThink = 2
+    AiActorThink = 2,
+
+    /// <summary>A manual run of a migration job; the subject is the migration job.</summary>
+    MigrationRun = 3,
+
+    /// <summary>A scan of every repository of a project for code references; the subject is the project.</summary>
+    RepositoryScan = 4
 }

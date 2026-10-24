@@ -10,8 +10,10 @@ namespace Beacon.Core.BackgroundTasks;
 /// <see cref="IBackgroundTaskExecutor"/>; the caller reads its state through the route of the resource it works on, and the
 /// host pushes <c>JobStatusChanged</c> for the job to the user who started it. One task of a kind per subject is queued or
 /// running at a time. The caller's project check runs on the request that starts it and on the one that reads it; the job
-/// runs as the user who started it and re-checks that user's access before the work (a refused task is skipped, never run
-/// as the system).
+/// runs as the stored user who started it (by <c>Users.Id</c>) and re-checks that user's access before the work (a refused
+/// task is skipped, never run as the system). It runs with the user's own access, not the credential's: a start made with an
+/// API key is not capped by the key's scope or projects in the job, and revoking or narrowing the key after the start does
+/// not stop the task (disabling the user, or removing its access, does).
 /// </summary>
 public interface IBackgroundTaskService
 {
@@ -29,10 +31,23 @@ public interface IBackgroundTaskService
         CancellationToken cancellationToken);
 
     /// <summary>
+    /// <see cref="StartAsync(BackgroundTaskKind, int, Func{int, SecurityAuditEntry}?, CancellationToken)"/> for a kind gated
+    /// by a functional permission: <paramref name="grant"/> records where the caller's permission came from, which the job
+    /// reads before relying on a permission the identity provider granted at the start.
+    /// </summary>
+    Task<BackgroundTaskTicket?> StartAsync(
+        BackgroundTaskKind kind,
+        int subjectId,
+        Func<int, SecurityAuditEntry>? auditEvent,
+        BackgroundTaskGrant? grant,
+        CancellationToken cancellationToken);
+
+    /// <summary>
     /// Runs a queued task: called by the host's job. A task that is no longer queued (finished, given up as abandoned, or
     /// taken by another run) is left alone. A failure is recorded with its code and thrown again, so the job fails too; a
     /// task that ran nothing (<see cref="BackgroundTaskOutcome.Skipped"/>, or the user who started it no longer exists) is
-    /// recorded as skipped with its code, and the job succeeds.
+    /// recorded as skipped with its code and its kind's <see cref="IBackgroundTaskExecutor.SkippedEvent"/>, and the job
+    /// succeeds. A task given up as abandoned while it still ran records its own outcome when it ends.
     /// </summary>
     Task ExecuteAsync(int taskId, CancellationToken cancellationToken);
 

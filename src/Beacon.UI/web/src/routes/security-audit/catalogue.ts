@@ -63,6 +63,7 @@ export const SECURITY_AUDIT_CATEGORIES: readonly SecurityAuditCategory[] = [
       'access.data_source_unlinked',
       'access.repository_token_changed',
       'access.repository_scan_requested',
+      'access.repository_scan_ran',
       'access.dashboard_shared',
       'access.dashboard_share_revoked',
     ],
@@ -174,7 +175,13 @@ export const SECURITY_AUDIT_CATEGORIES: readonly SecurityAuditCategory[] = [
   {
     code: 'migrations',
     label: 'Data migrations',
-    actions: ['migrations.job_created', 'migrations.job_deleted', 'migrations.job_started', 'migrations.job_run_ended'],
+    actions: [
+      'migrations.job_created',
+      'migrations.job_deleted',
+      'migrations.job_run_requested',
+      'migrations.job_started',
+      'migrations.job_run_ended',
+    ],
   },
   {
     code: 'embed',
