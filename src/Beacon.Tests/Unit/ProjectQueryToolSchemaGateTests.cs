@@ -87,7 +87,7 @@ public class ProjectQueryToolSchemaGateTests
             .Setup(x => x.GetEffectiveSettingsAsync(ProjectId, It.Is<IReadOnlyCollection<int>>(y => y.SequenceEqual(new[] { DataSourceId })), It.IsAny<CancellationToken>()))
             .ReturnsAsync(new McpSettingsData { MaxRowLimit = 5 });
 
-        var result = await CreateTool(settingsProvider, sharedSources.Object).ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(settingsProvider, sharedSources.Object), x => x.ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         _provider.Verify(
@@ -103,7 +103,7 @@ public class ProjectQueryToolSchemaGateTests
     {
         WithScannedCatalog();
 
-        var result = await CreateTool().ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", max_rows: maxRows, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(), x => x.ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", max_rows: maxRows, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         _provider.Verify(
@@ -119,7 +119,7 @@ public class ProjectQueryToolSchemaGateTests
         _configuredDatabases = TestConfiguredDatabases.Of("sales");
         WithScannedCatalog();
 
-        var result = await CreateTool().ExecuteAsync(datasource_id: DataSourceId, sql: sql, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(), x => x.ExecuteAsync(datasource_id: DataSourceId, sql: sql, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().Be(refused);
         _provider.Verify(
@@ -143,7 +143,7 @@ public class ProjectQueryToolSchemaGateTests
         WithScannedCatalog();
         var settingsProvider = SettingsProviderMock.Create(new McpSettingsData { EnforceReadOnly = false });
 
-        var refused = await CreateTool(settingsProvider).ExecuteAsync(datasource_id: DataSourceId, sql: sql, cancellationToken: CancellationToken.None);
+        var refused = await TestToolCalls.InvokeAsync(CreateTool(settingsProvider), x => x.ExecuteAsync(datasource_id: DataSourceId, sql: sql, cancellationToken: CancellationToken.None));
 
         (refused.IsError ?? false).Should().BeTrue();
         refused.Content.OfType<TextContentBlock>().Single().Text.Should().Contain(reason);
@@ -153,7 +153,7 @@ public class ProjectQueryToolSchemaGateTests
             Times.Never);
 
         const string batch = "UPDATE Sales.dbo.Customers SET tier = 'gold' WHERE id = 1; SELECT id FROM dbo.Customers";
-        var allowed = await CreateTool(settingsProvider).ExecuteAsync(datasource_id: DataSourceId, sql: batch, cancellationToken: CancellationToken.None);
+        var allowed = await TestToolCalls.InvokeAsync(CreateTool(settingsProvider), x => x.ExecuteAsync(datasource_id: DataSourceId, sql: batch, cancellationToken: CancellationToken.None));
 
         (allowed.IsError ?? false).Should().BeFalse();
         _provider.Verify(
@@ -172,7 +172,7 @@ public class ProjectQueryToolSchemaGateTests
         var settingsProvider = SettingsProviderMock.Create(new McpSettingsData { EnforceReadOnly = false });
         const string batch = "UPDATE Sales.dbo.Customers SET tier = 'gold' WHERE id = 1; SELECT id FROM dbo.Customers";
 
-        var refused = await CreateTool(settingsProvider).ExecuteAsync(datasource_id: DataSourceId, sql: batch, cancellationToken: CancellationToken.None);
+        var refused = await TestToolCalls.InvokeAsync(CreateTool(settingsProvider), x => x.ExecuteAsync(datasource_id: DataSourceId, sql: batch, cancellationToken: CancellationToken.None));
 
         (refused.IsError ?? false).Should().BeTrue();
         _provider.Verify(
@@ -197,7 +197,7 @@ public class ProjectQueryToolSchemaGateTests
             settingsProvider = SettingsProviderMock.Create(new McpSettingsData { EnforceReadOnly = false });
         }
 
-        var result = await CreateTool(settingsProvider).ExecuteAsync(datasource_id: DataSourceId, sql: sql, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(settingsProvider), x => x.ExecuteAsync(datasource_id: DataSourceId, sql: sql, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeTrue();
         result.Content.OfType<TextContentBlock>().Single().Text.Should().Contain("noncharacter");
@@ -215,8 +215,8 @@ public class ProjectQueryToolSchemaGateTests
         _warehouseEngine = null;
         WithScannedCatalog();
 
-        var result = await CreateTool().ExecuteAsync(
-            datasource_id: DataSourceId, sql: "SELECT id FROM orders", max_rows: 25, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(), x => x.ExecuteAsync(
+            datasource_id: DataSourceId, sql: "SELECT id FROM orders", max_rows: 25, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         _gate.Dialects.Should().Equal(dialect);
@@ -233,8 +233,8 @@ public class ProjectQueryToolSchemaGateTests
             ["orders"] = ["id", "customer_id", "total"]
         });
 
-        var result = await CreateTool().ExecuteAsync(
-            datasource_id: DataSourceId, sql: "SELECT bogus FROM orders", cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(), x => x.ExecuteAsync(
+            datasource_id: DataSourceId, sql: "SELECT bogus FROM orders", cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeTrue();
         var text = result.Content.OfType<TextContentBlock>().Single().Text;
@@ -258,8 +258,8 @@ public class ProjectQueryToolSchemaGateTests
     {
         WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
 
-        var result = await CreateTool().ExecuteAsync(
-            datasource_id: DataSourceId, sql: "SELECT bogus FROM orders", max_rows: 25, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(), x => x.ExecuteAsync(
+            datasource_id: DataSourceId, sql: "SELECT bogus FROM orders", max_rows: 25, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeTrue();
         result.Content.OfType<TextContentBlock>().Single().Text.Should().Be(ProjectQueryTool.NoMetadataMessage);
@@ -287,8 +287,8 @@ public class ProjectQueryToolSchemaGateTests
             .Returns(new Beacon.Core.HostData.HostPolicyResult(true, null, []));
         _hostGuard = hostGuard.Object;
 
-        var result = await CreateTool().ExecuteAsync(
-            datasource_id: DataSourceId, sql: "SELECT id FROM orders", max_rows: 25, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(), x => x.ExecuteAsync(
+            datasource_id: DataSourceId, sql: "SELECT id FROM orders", max_rows: 25, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         hostGuard.Verify(x => x.Check("efcore:Netgiro", It.IsAny<string>()), Times.Once);
@@ -306,10 +306,10 @@ public class ProjectQueryToolSchemaGateTests
             ["customers"] = ["id", "name"]
         });
 
-        var result = await CreateTool().ExecuteAsync(
+        var result = await TestToolCalls.InvokeAsync(CreateTool(), x => x.ExecuteAsync(
             datasource_id: DataSourceId,
             sql: "WITH recent AS (SELECT * FROM orders o) SELECT c.name FROM recent JOIN customers c ON c.id = recent.customer_id",
-            cancellationToken: CancellationToken.None);
+            cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         _signals.Should().ContainSingle();
@@ -327,8 +327,8 @@ public class ProjectQueryToolSchemaGateTests
             new McpSettingsData { MaxRowLimit = 1000 },
             projectSettings: new Dictionary<int, McpSettingsData> { [ProjectId] = new McpSettingsData { MaxRowLimit = 10 } });
 
-        var result = await CreateTool(settingsProvider).ExecuteAsync(
-            datasource_id: DataSourceId, sql: "SELECT id FROM orders", max_rows: 25, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(settingsProvider), x => x.ExecuteAsync(
+            datasource_id: DataSourceId, sql: "SELECT id FROM orders", max_rows: 25, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         _provider.Verify(
@@ -357,7 +357,7 @@ public class ProjectQueryToolSchemaGateTests
                 Rows = [new Dictionary<string, object?> { [resultColumn] = "ada@example.com", ["id"] = 1 }]
             });
 
-        var result = await CreateTool().ExecuteAsync(datasource_id: DataSourceId, sql: sql, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(), x => x.ExecuteAsync(datasource_id: DataSourceId, sql: sql, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         var text = string.Join("\n", result.Content.OfType<TextContentBlock>().Select(x => x.Text));
@@ -380,7 +380,7 @@ public class ProjectQueryToolSchemaGateTests
                 Rows = [new Dictionary<string, object?> { ["contact"] = "ada@example.com", ["id"] = 1 }]
             });
 
-        var result = await CreateTool().ExecuteAsync(datasource_id: DataSourceId, sql: sql, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(), x => x.ExecuteAsync(datasource_id: DataSourceId, sql: sql, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         var text = string.Join("\n", result.Content.OfType<TextContentBlock>().Select(x => x.Text));
@@ -393,7 +393,7 @@ public class ProjectQueryToolSchemaGateTests
     {
         WithScannedCatalog();
 
-        var result = await CreateTool().ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(), x => x.ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         _signals.Should().ContainSingle().Which.UserId.Should().Be(CallerUserId);
@@ -405,8 +405,8 @@ public class ProjectQueryToolSchemaGateTests
     {
         WithCatalog(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase) { ["orders"] = ["id"] });
 
-        var blocked = await CreateTool().ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT bogus FROM orders", cancellationToken: CancellationToken.None);
-        var failedEarly = await CreateTool().ExecuteAsync(cancellationToken: CancellationToken.None);
+        var blocked = await TestToolCalls.InvokeAsync(CreateTool(), x => x.ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT bogus FROM orders", cancellationToken: CancellationToken.None));
+        var failedEarly = await TestToolCalls.InvokeAsync(CreateTool(), x => x.ExecuteAsync(cancellationToken: CancellationToken.None));
 
         (blocked.IsError ?? false).Should().BeTrue();
         (failedEarly.IsError ?? false).Should().BeTrue();
@@ -428,7 +428,7 @@ public class ProjectQueryToolSchemaGateTests
             .ReturnsAsync(new ProviderQueryResult { Success = false, ErrorMessage = error });
         var settings = SettingsProviderMock.Create(new McpSettingsData { EnablePiiDetection = piiDetectionOn });
 
-        var result = await CreateTool(settings).ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(settings), x => x.ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None));
 
         var expected = piiDetectionOn ? redacted : error;
         (result.IsError ?? false).Should().BeTrue();
@@ -452,7 +452,7 @@ public class ProjectQueryToolSchemaGateTests
                 Metadata = new Dictionary<string, object?> { [Beacon.Core.HostData.HostResultMetadata.RenamedMaskedColumns] = 1 }
             });
 
-        var result = await CreateTool().ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(), x => x.ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None));
 
         string.Join("\n", result.Content.OfType<TextContentBlock>().Select(x => x.Text))
             .Should().Contain("*1 column(s) of this host data source result were masked because the database named them differently than the host policy checked them.*");
@@ -473,7 +473,7 @@ public class ProjectQueryToolSchemaGateTests
             });
         var watch = System.Diagnostics.Stopwatch.StartNew();
 
-        var result = await CreateTool(sharedSources: Shared(new McpSettingsData { StatementTimeoutSeconds = 1 })).ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(sharedSources: Shared(new McpSettingsData { StatementTimeoutSeconds = 1 })), x => x.ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None));
 
         watch.Elapsed.Should().BeLessThan(TimeSpan.FromSeconds(10), "the resolved 1 s timeout cancelled the statement, not the 30 s default");
         (result.IsError ?? false).Should().BeTrue();
@@ -494,7 +494,7 @@ public class ProjectQueryToolSchemaGateTests
                     .ToList()
             });
 
-        var result = await CreateTool(sharedSources: Shared(new McpSettingsData { MaxResultBytes = 4096 })).ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id, note FROM orders", cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(sharedSources: Shared(new McpSettingsData { MaxResultBytes = 4096 })), x => x.ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id, note FROM orders", cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse("a result over the size budget is truncated, never failed");
         result.Content.OfType<TextContentBlock>().Single().Text.Should().Contain("_Further rows omitted — response size budget reached._");
@@ -515,7 +515,7 @@ public class ProjectQueryToolSchemaGateTests
         using var running = limiter.TryAcquire($"user:{CallerUserId}", 2);
         using var another = limiter.TryAcquire($"user:{CallerUserId}", 2);
 
-        var result = await CreateTool(sharedSources: Shared(new McpSettingsData { MaxConcurrentQueriesPerKey = 2 }), limiter: limiter).ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(sharedSources: Shared(new McpSettingsData { MaxConcurrentQueriesPerKey = 2 }), limiter: limiter), x => x.ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeTrue();
         result.Content.OfType<TextContentBlock>().Single().Text.Should().Be(McpQueryConcurrencyLimiter.RefusalMessage);
@@ -546,7 +546,7 @@ public class ProjectQueryToolSchemaGateTests
                     : Task.FromResult(new ProviderQueryResult { Success = true, Rows = [new Dictionary<string, object?> { ["id"] = 1 }] });
             });
 
-        var result = await CreateTool(sharedSources: Shared(new McpSettingsData { MaxConcurrentQueriesPerKey = 1 }), limiter: limiter).ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(sharedSources: Shared(new McpSettingsData { MaxConcurrentQueriesPerKey = 1 }), limiter: limiter), x => x.ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().Be(providerThrows);
         inFlightDuringRun.Should().Be(1);
@@ -562,7 +562,7 @@ public class ProjectQueryToolSchemaGateTests
         const string refusal = "The query's estimated cost (5000) exceeds this project's limit (100). Narrow the query, add filters, or ask an administrator to raise MaxExplainCost.";
         var costLimit = CostLimit(new QueryCostCheck(refusal, null));
 
-        var result = await CreateTool(sharedSources: Shared(new McpSettingsData { MaxExplainCost = 100m }), costLimit: costLimit.Object).ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(sharedSources: Shared(new McpSettingsData { MaxExplainCost = 100m }), costLimit: costLimit.Object), x => x.ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeTrue();
         result.Content.OfType<TextContentBlock>().Single().Text.Should().Be(refusal);
@@ -585,7 +585,7 @@ public class ProjectQueryToolSchemaGateTests
         WithScannedCatalog();
         var costLimit = CostLimit(QueryCostCheck.Pass);
 
-        var result = await CreateTool(sharedSources: Shared(new McpSettingsData { MaxExplainCost = 100m }), costLimit: costLimit.Object).ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(sharedSources: Shared(new McpSettingsData { MaxExplainCost = 100m }), costLimit: costLimit.Object), x => x.ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         _provider.Verify(
@@ -600,7 +600,7 @@ public class ProjectQueryToolSchemaGateTests
         WithScannedCatalog();
         var costLimit = CostLimit(new QueryCostCheck(null, "canceling statement due to statement timeout"));
 
-        var result = await CreateTool(sharedSources: Shared(new McpSettingsData { MaxExplainCost = 100m }), costLimit: costLimit.Object).ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(CreateTool(sharedSources: Shared(new McpSettingsData { MaxExplainCost = 100m }), costLimit: costLimit.Object), x => x.ExecuteAsync(datasource_id: DataSourceId, sql: "SELECT id FROM orders", cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeTrue();
         result.Content.OfType<TextContentBlock>().Single().Text.Should().Be("Query execution failed: canceling statement due to statement timeout");
@@ -672,7 +672,7 @@ public class ProjectQueryToolSchemaGateTests
         var auditService = new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog());
         var signalService = new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance);
 
-        return new ProjectQueryTool(
+        return TestToolCalls.Track(recorder => new ProjectQueryTool(
             factory.Object,
             providerFactory.Object,
             guardrail,
@@ -682,11 +682,10 @@ public class ProjectQueryToolSchemaGateTests
             _knowledgeGraph.Object,
             sharedSources ?? SettingsProviderMock.Unshared(settingsProvider.Object),
             projectContext,
-            auditService,
-            signalService,
+            recorder,
             limiter ?? new McpQueryConcurrencyLimiter(),
             costLimit ?? TestQueryCostLimit.Passing,
-            NullLogger<ProjectQueryTool>.Instance);
+            NullLogger<ProjectQueryTool>.Instance), () => TestToolCalls.Recorder(auditService, signalService));
     }
 
     /// <summary>Data-source resolution over async-queryable doubles plus signal capture — no DB (§4.7).</summary>

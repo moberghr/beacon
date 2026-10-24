@@ -39,7 +39,7 @@ Everything lives in the schema `beacon`, including the migration history table (
 .UseSqlServer(connectionString);
 ```
 
-Every overload also takes a `schema` argument; it only accepts `"beacon"`.
+The overloads that also take a `schema` argument are obsolete (removed in 6.0): they accept only `"beacon"` and otherwise ignore it.
 
 `UsePostgreSql` / `UseSqlServer` register an `IDbContextFactory<BeaconContext>` and a scoped `BeaconContext` (Data Protection persists its key ring through it). Call them **last** in the `AddBeaconServices(...)` chain: they return `IServiceCollection`, and connectors, `ExposeDbContext` and `ExposeDocs` must come before.
 

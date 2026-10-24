@@ -67,6 +67,24 @@ public class SampleClaimsTransformationTests
     }
 
     [Test]
+    public async Task TransformAsync_CalledTwiceInOneScope_ReadsTheUserStoreOnce_AndGrantsTheRoleBothTimes()
+    {
+        SetupUser("alice", new BeaconUserData
+        {
+            UserName = "alice",
+            IsEnabled = true,
+            IsSuperAdmin = true
+        });
+
+        var first = await _transformation.TransformAsync(AuthenticatedPrincipal("alice"));
+        var second = await _transformation.TransformAsync(AuthenticatedPrincipal("alice"));
+
+        first.FindFirst(BeaconClaims.Role)!.Value.Should().Be(RoleService.RoleNames.Admin);
+        second.FindFirst(BeaconClaims.Role)!.Value.Should().Be(RoleService.RoleNames.Admin);
+        _userService.Verify(x => x.GetUserByExternalIdAsync(ExternalId("alice"), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
     public async Task TransformAsync_SuperAdminUser_GetsAdminRoleClaim()
     {
         SetupUser("alice", new BeaconUserData

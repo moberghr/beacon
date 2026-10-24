@@ -419,7 +419,6 @@ public class PatternReplayVerifierTests
 
         return new McpEvalService(
             factory.Object,
-            knowledge.Object,
             pipeline,
             providerFactory.Object,
             guardrail.Object,

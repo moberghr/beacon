@@ -5,6 +5,7 @@ using Beacon.Core.Authorization;
 using Beacon.Core.Configuration;
 using Beacon.Core.Mcp;
 using Beacon.Core.Services;
+using Beacon.Core.Services.Embed;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Options;
 using Microsoft.AspNetCore.Antiforgery;
@@ -46,6 +47,10 @@ public static class BeaconApiEndpoints
 
     public static IServiceCollection AddBeaconApiAuthorization(this IServiceCollection services)
     {
+        // The per-caller limits of /beacon/api and of the anonymous requests Beacon refuses (Beacon:RateLimits), here as
+        // well as in AddBeaconApiServices: every host that maps Beacon's routes registers its policies.
+        services.TryAddSingleton<BeaconApiRateLimiter>();
+
         services.AddAuthorization(options =>
         {
             // Scheme-agnostic on purpose: UseBeaconAuthentication records the API key, bearer or cookie
@@ -69,9 +74,6 @@ public static class BeaconApiEndpoints
                 .RequireAuthenticatedUser()
                 .RequireAssertion(x => BeaconScopes.SatisfiesExecuteScope(x.User))
                 .Build());
-
-            // The SPA's pages (MapBeaconUi): signed-in callers only while the login form is on.
-            BeaconUiPagePolicies.AddTo(options);
         });
 
         // One policy per functional permission (and per pair a route admits): the Admin role, or the role each permission
@@ -99,6 +101,12 @@ public static class BeaconApiEndpoints
                 }
             });
 
+        // The SPA's pages (MapBeaconUi): signed-in callers only while the login form is on, the host's FallbackPolicy while
+        // it is off. Post-configured, so the host's own FallbackPolicy is already set.
+        services.AddOptions<AuthorizationOptions>()
+            .PostConfigure<IServiceProvider>((options, serviceProvider) =>
+                BeaconUiPagePolicies.AddTo(options, serviceProvider.GetService<Beacon.Core.BeaconConfiguration>()));
+
         // Fails startup when Core would read no request's caller (its off-request principal is still registered).
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, RequestPrincipalStartupCheck>());
 
@@ -123,6 +131,7 @@ public static class BeaconApiEndpoints
 
         // Notes at startup which key seals security audit events (a Warning when it is derived) and how long they are kept.
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, SecurityAuditStartupNote>());
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, RetentionStartupNote>());
 
         // Applies the stored Admin settings (base URL, LLM provider configuration) once the host has started.
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, StoredSettingsStartupApplier>());
@@ -160,13 +169,15 @@ public static class BeaconApiEndpoints
     {
         // Group-level auth policy: every endpoint requires an authenticated cookie session.
         // Endpoints opt out via .AllowAnonymous() (health, auth/me, csrf).
-        // The access-exception filter is outermost: it maps refused and missing resources to 403/404 problems.
+        // The rate-limit filter is outermost: a caller over its Beacon:RateLimits:Api limit gets 429 before anything runs.
+        // The access-exception filter is next: it maps refused and missing resources to 403/404 problems.
         // The scope filter runs next: a scoped caller (API key, mapped MCP caller) needs the Execute scope for
         // every request that is not GET/HEAD/OPTIONS and for GETs marked RequiresExecuteScope().
         // The permission filter enforces Viewer (read) vs Editor (write) when authorization or user
         // management is on; it runs after antiforgery so a forged request never reaches the user lookup.
         var group = endpoints.MapGroup(GroupPrefix)
             .RequireAuthorization(AuthPolicyName)
+            .AddEndpointFilter<BeaconApiRateLimitFilter>()
             .AddEndpointFilter<BeaconAccessExceptionEndpointFilter>()
             .AddEndpointFilter<BeaconScopeEndpointFilter>()
             .AddEndpointFilter<AntiforgeryEndpointFilter>()
@@ -196,6 +207,15 @@ public static class BeaconApiEndpoints
         if (endpoints.ServiceProvider.GetService<IOptions<MigrationOptions>>()?.Value.Enabled == true)
         {
             group.MapMigrationsEndpoints();
+        }
+
+        // Embedding saved queries is off unless the host turned it on (Beacon:Embed:Enabled), and never on an MCP gateway:
+        // unmapped, every embed route answers 404. The anonymous token exchange, render and embed page sit outside the group
+        // (no cookie, antiforgery or BeaconApi policy): the embed middleware alone decides their caller.
+        if (BeaconEmbedPaths.IsEnabled(endpoints.ServiceProvider))
+        {
+            group.MapEmbedGrantsEndpoints();
+            endpoints.MapEmbedEndpoints();
         }
 
         group.MapRecipientsEndpoints();

@@ -1,5 +1,7 @@
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Beacon.UI;
 
@@ -94,6 +96,8 @@ public static class BeaconUiEndpointRouteBuilderExtensions
     // redirect still sends a differently cased path to the login page (LoginFormAuthMiddleware).
     private static void MapAuthPages(IEndpointRouteBuilder endpoints)
     {
+        RequirePagePolicies(endpoints.ServiceProvider);
+
         foreach (var page in AnonymousPages)
         {
             endpoints.MapFallbackToFile($"{BasePath}/{page}", IndexFile)
@@ -102,5 +106,19 @@ public static class BeaconUiEndpointRouteBuilderExtensions
 
         endpoints.MapFallbackToFile($"{BasePath}/setup", IndexFile)
             .RequireAuthorization(SetupPagePolicyName);
+    }
+
+    // At startup rather than as a failure of every page request: the pages' policies come from AddBeaconApiAuthorization().
+    private static void RequirePagePolicies(IServiceProvider services)
+    {
+        var policies = services.GetService<IAuthorizationPolicyProvider>();
+        foreach (var name in new[] { PagePolicyName, SetupPagePolicyName })
+        {
+            if (policies?.GetPolicyAsync(name).GetAwaiter().GetResult() == null)
+            {
+                throw new InvalidOperationException(
+                    $"MapBeaconUi needs the authorization policy '{name}': call builder.Services.AddBeaconApiAuthorization() when registering services.");
+            }
+        }
     }
 }

@@ -211,9 +211,8 @@ internal class DataQualitySqlGenerator : IDataQualitySqlGenerator
 
         return engineType switch
         {
-            DatabaseEngineType.PostgreSQL => $"\"{schema}\".\"{table}\"",
-            DatabaseEngineType.MSSQL => $"[{schema}].[{table}]",
-            DatabaseEngineType.MySQL => $"`{schema}`.`{table}`",
+            DatabaseEngineType.PostgreSQL or DatabaseEngineType.MSSQL or DatabaseEngineType.MySQL =>
+                $"{SqlIdentifierGuard.Quote(schema, engineType.ToString())}.{SqlIdentifierGuard.Quote(table, engineType.ToString())}",
             _ => $"{schema}.{table}"
         };
     }
@@ -224,9 +223,8 @@ internal class DataQualitySqlGenerator : IDataQualitySqlGenerator
 
         return engineType switch
         {
-            DatabaseEngineType.PostgreSQL => $"\"{column}\"",
-            DatabaseEngineType.MSSQL => $"[{column}]",
-            DatabaseEngineType.MySQL => $"`{column}`",
+            DatabaseEngineType.PostgreSQL or DatabaseEngineType.MSSQL or DatabaseEngineType.MySQL =>
+                SqlIdentifierGuard.Quote(column, engineType.ToString()),
             _ => column
         };
     }

@@ -4,6 +4,7 @@ using System.Security.Claims;
 using System.Text.Json;
 using Beacon.Api.Authentication;
 using Beacon.Api.Endpoints;
+using Beacon.Api.OpenApi;
 using Beacon.Core;
 using Beacon.Core.Authentication;
 using Beacon.Core.Authorization;
@@ -17,6 +18,7 @@ using Beacon.UI;
 using FluentAssertions;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
@@ -310,7 +312,6 @@ public class BeaconUiSignInRedirectTests
 
     [TestCase("/reports", "reports")]
     [TestCase("/login", "host-login")]
-    [TestCase("/openapi/v1.json", "openapi")]
     public async Task HostRoute_IsLeftToTheHost(string path, string body)
     {
         await using var host = await UiHost.StartAsync();
@@ -319,6 +320,65 @@ public class BeaconUiSignInRedirectTests
 
         response.StatusCode.Should().Be(HttpStatusCode.OK);
         (await response.Content.ReadAsStringAsync()).Should().Be(body);
+    }
+
+    [TestCase("Development", false)]
+    [TestCase("Testing", true)]
+    public async Task OpenApiDocument_ListedAsABeaconPath_IsAnonymous_InDevelopmentOrWithTheAnonymousSetting(string environment, bool anonymousSetting)
+    {
+        await using var host = await UiHost.StartAsync(environment: environment, openApiAnonymous: anonymousSetting);
+
+        var response = await host.SendAsync("/openapi/v1.json");
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, "code generation reads the document without signing in");
+        (await response.Content.ReadAsStringAsync()).Should().Contain("\"openapi\"");
+    }
+
+    [Test]
+    public async Task OpenApiDocument_ListedAsABeaconPath_OtherwiseNeedsASignedInCaller()
+    {
+        await using var host = await UiHost.StartAsync();
+        var cookie = await host.SignInAsync();
+
+        var anonymous = await host.SendAsync("/openapi/v1.json");
+        var signedIn = await host.SendAsync("/openapi/v1.json", cookie: cookie);
+
+        anonymous.StatusCode.Should().Be(HttpStatusCode.Redirect);
+        anonymous.Headers.Location!.OriginalString.Should().Contain("/beacon/login");
+        signedIn.StatusCode.Should().Be(HttpStatusCode.OK);
+    }
+
+    [Test]
+    public async Task LoginFormOff_TheHostsFallbackPolicy_StillGovernsTheUiPages()
+    {
+        await using var host = await UiHost.StartAsync(
+            loginForm: false,
+            authorization: x => x.FallbackPolicy = new AuthorizationPolicyBuilder().RequireAuthenticatedUser().Build());
+        var cookie = await host.SignInAsync();
+
+        var anonymous = await host.SendAsync("/beacon/home");
+        var bare = await host.SendAsync("/beacon");
+        var signedIn = await host.SendAsync("/beacon/home", cookie: cookie);
+
+        anonymous.StatusCode.Should().Be(HttpStatusCode.Redirect, "the host denies every endpoint without its own policy");
+        anonymous.Headers.Location!.OriginalString.Should().Contain("/beacon/login?ReturnUrl=");
+        bare.StatusCode.Should().Be(HttpStatusCode.Redirect);
+        signedIn.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await signedIn.Content.ReadAsStringAsync()).Should().Contain(IndexMarker);
+    }
+
+    [Test]
+    public async Task MapBeaconUi_WithoutBeaconsAuthorization_FailsWhenTheEndpointsAreMapped()
+    {
+        var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing" });
+        builder.WebHost.UseTestServer();
+        builder.Logging.ClearProviders();
+        builder.Services.AddAuthorization();
+        await using var app = builder.Build();
+
+        var map = () => app.MapBeaconUi();
+
+        map.Should().Throw<InvalidOperationException>().WithMessage("*AddBeaconApiAuthorization()*");
     }
 
     [Test]
@@ -374,7 +434,10 @@ public class BeaconUiSignInRedirectTests
             bool userManagement = true,
             bool firstRun = false,
             string? loginPath = null,
-            bool loginFormMiddleware = true)
+            bool loginFormMiddleware = true,
+            string environment = "Testing",
+            bool openApiAnonymous = false,
+            Action<Microsoft.AspNetCore.Authorization.AuthorizationOptions>? authorization = null)
         {
             var configuration = new BeaconConfiguration();
             configuration.Authentication.EnableLoginForm = loginForm;
@@ -385,13 +448,22 @@ public class BeaconUiSignInRedirectTests
             }
 
             var webRoot = CreateWebRoot();
-            var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing", WebRootPath = webRoot });
+            var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = environment, WebRootPath = webRoot });
             builder.WebHost.UseTestServer();
+            builder.Host.UseDefaultServiceProvider(x =>
+            {
+                x.ValidateOnBuild = false;
+                x.ValidateScopes = false;
+            });
             builder.Logging.ClearProviders();
+
+            // The sample's AdditionalPaths: the Warp dashboard and the OpenAPI document.
             builder.Configuration.AddInMemoryCollection(new Dictionary<string, string?>
             {
                 ["Beacon:PublicBaseUrl"] = "https://beacon.example.test",
-                [$"{AuthenticationPathOptions.SectionName}:AdditionalPaths:0"] = "/warp"
+                [$"{AuthenticationPathOptions.SectionName}:AdditionalPaths:0"] = "/warp",
+                [$"{AuthenticationPathOptions.SectionName}:AdditionalPaths:1"] = "/openapi",
+                [BeaconOpenApiExtensions.AnonymousSettingName] = openApiAnonymous ? "true" : "false"
             });
 
             builder.Services.AddOptions<AuthenticationPathOptions>()
@@ -411,6 +483,11 @@ public class BeaconUiSignInRedirectTests
             builder.Services.AddBeaconJwtAuthentication(x => x.EnableBearerAuthentication = false);
             builder.Services.AddMcpServer().WithHttpTransport();
             builder.Services.AddBeaconApiAuthorization();
+            builder.Services.AddOpenApi();
+            if (authorization != null)
+            {
+                builder.Services.AddAuthorization(authorization);
+            }
 
             var app = builder.Build();
 
@@ -446,7 +523,7 @@ public class BeaconUiSignInRedirectTests
             app.MapGet("/warp/{**page}", () => "warp");
             app.MapGet("/reports", () => "reports");
             app.MapGet("/login", () => "host-login");
-            app.MapGet("/openapi/v1.json", () => "openapi");
+            app.MapBeaconOpenApi();
             app.MapBeaconUi();
 
             await app.StartAsync();

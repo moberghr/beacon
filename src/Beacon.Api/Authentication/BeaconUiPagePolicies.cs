@@ -10,8 +10,9 @@ namespace Beacon.Api.Authentication;
 /// names them; Beacon.Api does not reference Beacon.UI, §2.4, so the names are repeated here and a test keeps them equal).
 /// With the login form on, a page admits a signed-in caller only, apart from the login page itself, and the setup page
 /// also admits a signed-out browser while Beacon manages users; a refused browser is sent to the login page by the
-/// cookie scheme's challenge, the same redirect <see cref="LoginFormAuthMiddleware"/> answers. With the login form off,
-/// without Beacon's configuration, or outside Beacon's routes (<see cref="BeaconRequestPaths"/>) the pages stay open.
+/// cookie scheme's challenge, the same redirect <see cref="LoginFormAuthMiddleware"/> answers. With the login form off (or
+/// without Beacon's configuration) both policies are the host's <c>FallbackPolicy</c>, which governed the pages before they
+/// carried a policy, and open without one; outside Beacon's routes (<see cref="BeaconRequestPaths"/>) the pages stay open.
 /// </summary>
 internal static class BeaconUiPagePolicies
 {
@@ -19,8 +20,18 @@ internal static class BeaconUiPagePolicies
 
     public const string SetupPagePolicyName = "BeaconUiSetupPage";
 
-    public static void AddTo(Microsoft.AspNetCore.Authorization.AuthorizationOptions options)
+    public static void AddTo(Microsoft.AspNetCore.Authorization.AuthorizationOptions options, BeaconConfiguration? configuration)
     {
+        if (configuration is not { Authentication.EnableLoginForm: true })
+        {
+            var hostPolicy = options.FallbackPolicy ?? new AuthorizationPolicyBuilder()
+                .RequireAssertion(_ => true)
+                .Build();
+            options.AddPolicy(PagePolicyName, hostPolicy);
+            options.AddPolicy(SetupPagePolicyName, hostPolicy);
+            return;
+        }
+
         options.AddPolicy(PagePolicyName, new AuthorizationPolicyBuilder()
             .RequireAssertion(x => Admits(x, setupPage: false))
             .Build());

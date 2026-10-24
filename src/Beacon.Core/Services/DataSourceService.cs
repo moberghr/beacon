@@ -97,7 +97,8 @@ internal class DataSourceService(
     ChangeApprovalSubmitter changeApprovals,
     ConnectionDefinitionHasher definitionHasher,
     ILogger<DataSourceService> logger,
-    IBeaconScheduler? scheduler = null) : IDataSourceService, IHeldDataSourceProbe
+    IBeaconScheduler? scheduler = null,
+    ICatalogSnapshotCache? catalogSnapshots = null) : IDataSourceService, IHeldDataSourceProbe
 {
     /// <summary>What a caller is told when a change of target is not confirmed (HTTP 409).</summary>
     public const string TargetChangeUnconfirmedMessage =
@@ -771,6 +772,7 @@ internal class DataSourceService(
             if (metadata.Endpoints?.Count > 0)
             {
                 await StoreApiEndpointsAsMetadata(context, dataSource.Id, metadata.Endpoints, cancellationToken);
+                catalogSnapshots?.Invalidate(dataSource.Id);
             }
         }
         catch (Exception ex)
@@ -820,6 +822,7 @@ internal class DataSourceService(
         cache.Remove(DatabaseMetadataService.GetCacheKey(dataSourceId));
         cache.Remove(ForcedMetadataRefreshCooldown.CacheKey(dataSourceId));
         schemaGraphService.Invalidate(dataSourceId);
+        catalogSnapshots?.Invalidate(dataSourceId);
     }
 
     // A source pointed at another target (or whose connection was approved) still has the tables and columns stored before:

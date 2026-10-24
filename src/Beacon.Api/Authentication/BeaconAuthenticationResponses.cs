@@ -21,6 +21,11 @@ internal static class BeaconAuthenticationResponses
 
     public static Task WriteRefusalAsync(HttpContext context, BeaconCredentialRefusal refusal)
     {
+        if (IsThrottled(context, refusal.StatusCode, out var throttled))
+        {
+            return throttled;
+        }
+
         if (refusal.Challenge != null)
         {
             context.Response.Headers.WWWAuthenticate = refusal.Challenge;
@@ -36,11 +41,32 @@ internal static class BeaconAuthenticationResponses
             ? null
             : new Dictionary<string, object?> { ["error"] = refusal.Error, ["message"] = refusal.Message };
 
-        return WriteProblemAsync(context, refusal.StatusCode, refusal.Message, extensions);
+        return WriteProblemCoreAsync(context, refusal.StatusCode, refusal.Message, extensions);
+    }
+
+    public static Task WriteProblemAsync(HttpContext context, int statusCode, string? detail = null, IDictionary<string, object?>? extensions = null)
+    {
+        return IsThrottled(context, statusCode, out var throttled)
+            ? throttled
+            : WriteProblemCoreAsync(context, statusCode, detail, extensions);
+    }
+
+    // A 401 is counted against the client address's limit of refused anonymous requests (Beacon:RateLimits:Anonymous):
+    // over it, 429 instead of the 401.
+    private static bool IsThrottled(HttpContext context, int statusCode, out Task refusal)
+    {
+        if (statusCode == StatusCodes.Status401Unauthorized && !AnonymousRefusalThrottle.TryAdmit(context, out var retryAfter))
+        {
+            refusal = RateLimitRefusal.WriteAsync(context, retryAfter);
+            return true;
+        }
+
+        refusal = Task.CompletedTask;
+        return false;
     }
 
     // Written without the request's services (the framework's problem writer needs them), so a bare pipeline answers too.
-    public static Task WriteProblemAsync(HttpContext context, int statusCode, string? detail = null, IDictionary<string, object?>? extensions = null)
+    private static Task WriteProblemCoreAsync(HttpContext context, int statusCode, string? detail, IDictionary<string, object?>? extensions)
     {
         var problem = new ProblemDetails
         {

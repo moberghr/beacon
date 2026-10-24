@@ -230,12 +230,12 @@ public class ProjectBriefTests
     [Test]
     public async Task GetContext_AgentsMd_ReturnsTheBrief_AndAudits()
     {
-        var (tool, briefService, auditFactory) = BuildTool();
+        var (tool, briefService, auditFactory, recorder) = BuildTool();
         briefService
             .Setup(x => x.BuildAgentsMdAsync(ProjectId, It.IsAny<CancellationToken>()))
             .ReturnsAsync("# Brief\n");
 
-        var result = await tool.ExecuteAsync(format: "AGENTS_MD", cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(recorder, () => tool.ExecuteAsync(format: "AGENTS_MD", cancellationToken: CancellationToken.None));
 
         result.IsError.Should().NotBe(true);
         Text(result).Should().Be("# Brief\n");
@@ -245,12 +245,12 @@ public class ProjectBriefTests
     [Test]
     public async Task GetContext_AgentsMd_Failure_IsAuditedAndCallerSafe()
     {
-        var (tool, briefService, auditFactory) = BuildTool();
+        var (tool, briefService, auditFactory, recorder) = BuildTool();
         briefService
             .Setup(x => x.BuildAgentsMdAsync(ProjectId, It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("boom"));
 
-        var result = await tool.ExecuteAsync(format: "agents_md", cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(recorder, () => tool.ExecuteAsync(format: "agents_md", cancellationToken: CancellationToken.None));
 
         result.IsError.Should().BeTrue();
         auditFactory.Verify(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()), Times.Once);
@@ -259,9 +259,9 @@ public class ProjectBriefTests
     [Test]
     public async Task GetContext_UnknownFormat_IsRejected_AndAudited_WithoutBuildingABrief()
     {
-        var (tool, briefService, auditFactory) = BuildTool();
+        var (tool, briefService, auditFactory, recorder) = BuildTool();
 
-        var result = await tool.ExecuteAsync(format: "yaml", cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(recorder, () => tool.ExecuteAsync(format: "yaml", cancellationToken: CancellationToken.None));
 
         result.IsError.Should().BeTrue();
         Text(result).Should().Be("format must be 'overview' or 'agents_md'.");
@@ -269,20 +269,20 @@ public class ProjectBriefTests
         auditFactory.Verify(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    private static (GetContextTool Tool, Mock<IProjectBriefService> Brief, Mock<IDbContextFactory<BeaconContext>> AuditFactory) BuildTool()
+    private static (GetContextTool Tool, Mock<IProjectBriefService> Brief, Mock<IDbContextFactory<BeaconContext>> AuditFactory, McpToolCallRecorder Recorder) BuildTool()
     {
         var auditFactory = new Mock<IDbContextFactory<BeaconContext>>();
         var auditService = new McpAuditService(auditFactory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog());
+        var recorder = TestToolCalls.Recorder(auditService);
         var briefService = new Mock<IProjectBriefService>();
         var tool = new GetContextTool(
             new Mock<IKnowledgeGraphService>().Object,
             new Mock<IDbContextFactory<BeaconContext>>().Object,
             briefService.Object,
             new McpProjectContext { UserId = 1, ApiKeyId = 9, AllowedProjectIds = [ProjectId] },
-            auditService,
-            NullLogger<GetContextTool>.Instance);
+            recorder);
 
-        return (tool, briefService, auditFactory);
+        return (tool, briefService, auditFactory, recorder);
     }
 
     private static DatabaseMetadata Table(int id, DataSource dataSource, string name, string? description) =>
