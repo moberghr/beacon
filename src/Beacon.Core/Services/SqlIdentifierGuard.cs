@@ -42,8 +42,9 @@ public static partial class SqlIdentifierGuard
     /// <summary>
     /// <paramref name="identifier"/> as a quoted identifier of <paramref name="dialect"/> (the data source's dialect name),
     /// its own quote character doubled so no part of it is read as SQL: <c>[name]</c> with <c>]]</c> on SQL Server and
-    /// Synapse, <c>`name`</c> with doubled backticks on MySQL and Databricks, <c>"name"</c> with <c>""</c> everywhere
-    /// else (PostgreSQL, Snowflake, SQLite).
+    /// Synapse, <c>`name`</c> with doubled backticks on MySQL and Databricks, <c>`name`</c> with backslash-escaped
+    /// backticks and backslashes on BigQuery (which reads a double-quoted name as a string), <c>"name"</c> with
+    /// <c>""</c> everywhere else (PostgreSQL, Snowflake, SQLite).
     /// </summary>
     public static string Quote(string identifier, string? dialect)
     {
@@ -56,6 +57,11 @@ public static partial class SqlIdentifierGuard
         if (engine is "mysql" or "mariadb" or "databricks")
         {
             return $"`{EscapeQuote(identifier, '`')}`";
+        }
+
+        if (engine is "bigquery")
+        {
+            return $"`{identifier.Replace("\\", "\\\\").Replace("`", "\\`")}`";
         }
 
         return $"\"{EscapeQuote(identifier, '"')}\"";
