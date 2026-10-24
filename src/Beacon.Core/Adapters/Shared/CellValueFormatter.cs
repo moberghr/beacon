@@ -4,7 +4,7 @@ namespace Beacon.Core.Adapters.Shared;
 /// Provides consistent formatting for cell values across all notification adapters.
 /// Handles date/time types, booleans, and null values uniformly.
 /// </summary>
-internal static class CellValueFormatter
+internal static partial class CellValueFormatter
 {
     /// <summary>
     /// Formats a cell value for display in notifications.

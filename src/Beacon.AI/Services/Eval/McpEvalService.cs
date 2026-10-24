@@ -35,7 +35,6 @@ namespace Beacon.AI.Services.Eval;
 /// </summary>
 internal sealed class McpEvalService(
     IDbContextFactory<BeaconContext> contextFactory,
-    IKnowledgeGraphService knowledgeGraph,
     IAskSqlPipeline askSqlPipeline,
     IDataSourceProviderFactory providerFactory,
     IQueryGuardrailService guardrailService,
@@ -325,9 +324,6 @@ internal sealed class McpEvalService(
         string callerId,
         CancellationToken ct)
     {
-        // An eval run executes the generated SQL against the source, so live probes may run.
-        var smartContext = await knowledgeGraph.GetSmartContextForAskAsync(dataSource.Id, projectId, question, liveValueProbes: true, ct);
-
         var evalExecutor = new EvalReadOnlySqlExecutor(contextFactory, providerFactory, sqlGate, configuredDatabases, rowSecurityResolver, settings);
         evalExecutor.UseDataSource(dataSource);
 
@@ -368,7 +364,7 @@ internal sealed class McpEvalService(
             && goldFingerprint != null
             && generatedFingerprint == goldFingerprint;
 
-        return new CaseOutcome(passed, outcome.FinalSql, outcome.TablesUsed, smartContext.RelevantTables, goldExec, generatedExec);
+        return new CaseOutcome(passed, outcome.FinalSql, outcome.TablesUsed, outcome.RelevantTables, goldExec, generatedExec);
     }
 
     private async Task<string?> RunJudgeAsync(
