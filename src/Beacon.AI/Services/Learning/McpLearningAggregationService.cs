@@ -376,39 +376,44 @@ internal sealed class McpLearningAggregationService(
             return;
         }
 
-        // One read for every correction (the scope narrowed in SQL, the exact match made here), not one per correction.
-        // Names compare ignoring case so a case-insensitive database still finds what it always found; a column kept by
-        // mistake is the safe error, a live one marked superseded is not.
-        var dataSourceIds = corrections
-            .Select(x => x.DataSourceId)
-            .Distinct()
-            .ToList();
-        var tableNames = corrections
-            .Select(x => x.TableName)
-            .Distinct()
-            .ToList();
-        var columnNames = corrections
-            .Select(x => x.ColumnName)
-            .Distinct()
-            .ToList();
+        // A few reads for all the corrections (the scope narrowed in SQL, the exact match made here), not one per
+        // correction; each read carries at most LookupBatchSize corrections so no list passes a provider's parameter
+        // limit. Names compare Ordinal, as PostgreSQL's `=` did: a case-only rename leaves the correction stale.
+        var existingKeys = new HashSet<string>(StringComparer.Ordinal);
+        foreach (var batch in Batches(corrections))
+        {
+            var dataSourceIds = batch
+                .Select(x => x.DataSourceId)
+                .Distinct()
+                .ToList();
+            var tableNames = batch
+                .Select(x => x.TableName)
+                .Distinct()
+                .ToList();
+            var columnNames = batch
+                .Select(x => x.ColumnName)
+                .Distinct()
+                .ToList();
 
-        var existingColumns = await context.ColumnMetadata
-            .Where(x => dataSourceIds.Contains(x.DatabaseMetadata.DataSourceId))
-            .Where(x => tableNames.Contains(x.DatabaseMetadata.TableName))
-            .Where(x => columnNames.Contains(x.ColumnName))
-            .Select(x =>
-                new
-                {
-                    x.DatabaseMetadata.DataSourceId,
-                    x.DatabaseMetadata.SchemaName,
-                    x.DatabaseMetadata.TableName,
-                    x.ColumnName
-                })
-            .ToListAsync(ct);
+            var existingColumns = await context.ColumnMetadata
+                .Where(x => dataSourceIds.Contains(x.DatabaseMetadata.DataSourceId))
+                .Where(x => tableNames.Contains(x.DatabaseMetadata.TableName))
+                .Where(x => columnNames.Contains(x.ColumnName))
+                .Select(x =>
+                    new
+                    {
+                        x.DatabaseMetadata.DataSourceId,
+                        x.DatabaseMetadata.SchemaName,
+                        x.DatabaseMetadata.TableName,
+                        x.ColumnName
+                    })
+                .ToListAsync(ct);
 
-        var existingKeys = existingColumns
-            .Select(x => ColumnKey(x.DataSourceId, x.SchemaName, x.TableName, x.ColumnName))
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+            foreach (var column in existingColumns)
+            {
+                existingKeys.Add(ColumnKey(column.DataSourceId, column.SchemaName, column.TableName, column.ColumnName));
+            }
+        }
 
         foreach (var correction in corrections)
         {
@@ -419,8 +424,18 @@ internal sealed class McpLearningAggregationService(
         }
     }
 
-    private static string ColumnKey(int dataSourceId, string? schemaName, string? tableName, string? columnName) =>
-        $"{dataSourceId}\u001f{schemaName}\u001f{tableName}\u001f{columnName}";
+    /// <summary>The most values one batched lookup sends in a list, so no query nears SQL Server's 2,100-parameter limit (three lists per query).</summary>
+    internal const int LookupBatchSize = 500;
+
+    internal static IEnumerable<T[]> Batches<T>(IReadOnlyList<T> items) =>
+        items.Chunk(LookupBatchSize);
+
+    // A null part is kept apart from an empty one.
+    internal static string ColumnKey(int dataSourceId, string? schemaName, string? tableName, string? columnName) =>
+        $"{dataSourceId}\u001f{KeyPart(schemaName)}\u001f{KeyPart(tableName)}\u001f{KeyPart(columnName)}";
+
+    private static string KeyPart(string? value) =>
+        value == null ? "\u001e" : "v" + value;
 
     // LLM-PRIMARY (§ Architecture ⑦): per correction cluster, the LLM lesson extractor is tried first;
     // its structured lesson is used when present, otherwise the deterministic regex + ColumnSimilarity
@@ -1209,37 +1224,44 @@ internal sealed class McpLearningAggregationService(
             return [];
         }
 
-        var dataSourceIds = wanted
-            .Select(x => x.DataSourceId)
-            .Distinct()
-            .ToList();
-        var tableNames = wanted
-            .Select(x => x.TableName)
-            .Distinct()
-            .ToList();
-        var columnNames = wanted
-            .Select(x => x.ColumnName)
-            .Distinct()
-            .ToList();
+        var result = new List<(string Key, string? Description)>();
+        foreach (var batch in Batches(wanted))
+        {
+            var dataSourceIds = batch
+                .Select(x => x.DataSourceId)
+                .Distinct()
+                .ToList();
+            var tableNames = batch
+                .Select(x => x.TableName)
+                .Distinct()
+                .ToList();
+            var columnNames = batch
+                .Select(x => x.ColumnName)
+                .Distinct()
+                .ToList();
 
-        var rows = await context.ColumnMetadata
-            .Where(x => dataSourceIds.Contains(x.DatabaseMetadata.DataSourceId))
-            .Where(x => tableNames.Contains(x.DatabaseMetadata.TableName))
-            .Where(x => columnNames.Contains(x.ColumnName))
-            .Select(x =>
-                new
-                {
-                    x.DatabaseMetadata.DataSourceId,
-                    x.DatabaseMetadata.SchemaName,
-                    x.DatabaseMetadata.TableName,
-                    x.ColumnName,
-                    x.Description
-                })
-            .ToListAsync(ct);
+            var rows = await context.ColumnMetadata
+                .Where(x => dataSourceIds.Contains(x.DatabaseMetadata.DataSourceId))
+                .Where(x => tableNames.Contains(x.DatabaseMetadata.TableName))
+                .Where(x => columnNames.Contains(x.ColumnName))
+                .Select(x =>
+                    new
+                    {
+                        x.DatabaseMetadata.DataSourceId,
+                        x.DatabaseMetadata.SchemaName,
+                        x.DatabaseMetadata.TableName,
+                        x.ColumnName,
+                        x.Description
+                    })
+                .ToListAsync(ct);
 
-        return rows
-            .Select(x => (ColumnKey(x.DataSourceId, x.SchemaName, x.TableName, x.ColumnName), x.Description))
-            .ToList();
+            foreach (var row in rows)
+            {
+                result.Add((ColumnKey(row.DataSourceId, row.SchemaName, row.TableName, row.ColumnName), row.Description));
+            }
+        }
+
+        return result;
     }
 
     private static async Task<List<(string Key, string? Description)>> ReadTableDescriptionsAsync(
@@ -1253,50 +1275,46 @@ internal sealed class McpLearningAggregationService(
             return [];
         }
 
-        var dataSourceIds = wanted
-            .Select(x => x.DataSourceId)
-            .Distinct()
-            .ToList();
-        var tableNames = wanted
-            .Select(x => x.TableName)
-            .Distinct()
-            .ToList();
+        var result = new List<(string Key, string? Description)>();
+        foreach (var batch in Batches(wanted))
+        {
+            var dataSourceIds = batch
+                .Select(x => x.DataSourceId)
+                .Distinct()
+                .ToList();
+            var tableNames = batch
+                .Select(x => x.TableName)
+                .Distinct()
+                .ToList();
 
-        var rows = await context.DatabaseMetadata
-            .Where(x => dataSourceIds.Contains(x.DataSourceId))
-            .Where(x => tableNames.Contains(x.TableName))
-            .Select(x =>
-                new
-                {
-                    x.DataSourceId,
-                    x.SchemaName,
-                    x.TableName,
-                    x.TableDescription
-                })
-            .ToListAsync(ct);
+            var rows = await context.DatabaseMetadata
+                .Where(x => dataSourceIds.Contains(x.DataSourceId))
+                .Where(x => tableNames.Contains(x.TableName))
+                .Select(x =>
+                    new
+                    {
+                        x.DataSourceId,
+                        x.SchemaName,
+                        x.TableName,
+                        x.TableDescription
+                    })
+                .ToListAsync(ct);
 
-        return rows
-            .Select(x => (ColumnKey(x.DataSourceId, x.SchemaName, x.TableName, null), x.TableDescription))
-            .ToList();
+            foreach (var row in rows)
+            {
+                result.Add((ColumnKey(row.DataSourceId, row.SchemaName, row.TableName, null), row.TableDescription));
+            }
+        }
+
+        return result;
     }
 
-    // The exact-case row first, then one that differs only in case (a case-insensitive database matched those too).
-    private static string? FindDescription(List<(string Key, string? Description)> rows, string key)
-    {
-        var exact = rows
+    // Ordinal, as the per-pattern query's `=` was on PostgreSQL (a case-only rename is a different column).
+    private static string? FindDescription(List<(string Key, string? Description)> rows, string key) =>
+        rows
             .Where(x => string.Equals(x.Key, key, StringComparison.Ordinal))
             .Select(x => x.Description)
             .FirstOrDefault();
-        if (exact != null)
-        {
-            return exact;
-        }
-
-        return rows
-            .Where(x => string.Equals(x.Key, key, StringComparison.OrdinalIgnoreCase))
-            .Select(x => x.Description)
-            .FirstOrDefault();
-    }
 
     private static List<string> TryDeserializeJsonArray(string json)
     {

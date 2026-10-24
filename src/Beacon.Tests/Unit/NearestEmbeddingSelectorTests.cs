@@ -44,6 +44,17 @@ public class NearestEmbeddingSelectorTests
     }
 
     [Test]
+    public async Task TopK_NaNScore_SortsLast()
+    {
+        var nan = EmbeddingCodec.ToBytes([float.NaN, 0f]);
+        var rows = new[] { new Row(1, nan), new Row(2, EmbeddingCodec.ToBytes([0f, 1f])), new Row(3, EmbeddingCodec.ToBytes([1f, 0f])) };
+
+        var actual = await NearestEmbeddingSelector.TopKAsync(ToAsync(rows), x => x.Bytes, [1f, 0f], 3, CancellationToken.None);
+
+        actual.Select(x => x.Id).Should().Equal(3, 2, 1);
+    }
+
+    [Test]
     public async Task TopK_NonPositiveLimit_ReturnsNothing()
     {
         var rows = new[] { new Row(1, EmbeddingCodec.ToBytes([1f, 0f])) };

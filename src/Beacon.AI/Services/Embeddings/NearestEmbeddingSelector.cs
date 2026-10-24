@@ -5,7 +5,7 @@ namespace Beacon.AI.Services.Embeddings;
 /// <summary>
 /// Picks the stored vectors most similar to a query vector while the rows stream past, keeping only the best
 /// <c>limit</c> of them instead of decoding and sorting every row. Rows whose vector has another length are skipped;
-/// equal scores keep the order the rows arrived in.
+/// equal scores keep the order the rows arrived in and a NaN score ranks last.
 /// </summary>
 internal static class NearestEmbeddingSelector
 {
@@ -28,6 +28,11 @@ internal static class NearestEmbeddingSelector
             }
 
             var score = EmbeddingCodec.Cosine(queryVector, bytes);
+            if (double.IsNaN(score))
+            {
+                score = double.NegativeInfinity;
+            }
+
             if (best.Count == limit && score <= best[^1].Score)
             {
                 continue;
