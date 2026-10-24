@@ -91,7 +91,22 @@ internal sealed class OnnxEmbeddingService : IBeaconEmbeddingService, IDisposabl
         var tokenizer = BertTokenizer.Create(_options.TokenizerPath!, options);
         var session = new InferenceSession(_options.ModelPath!);
 
-        return new LoadedModel(session, tokenizer);
+        var loaded = new LoadedModel(session, tokenizer);
+        WarmUp(loaded);
+        return loaded;
+    }
+
+    // The first inference pays for kernel setup and memory arenas; do it at load so the first real batch does not.
+    private void WarmUp(LoadedModel model)
+    {
+        try
+        {
+            Embed(model, "warm up");
+        }
+        catch (Exception ex)
+        {
+            _logger.LogWarning(ex, "ONNX embedding warm-up inference failed; the first embedding will report the error if it persists.");
+        }
     }
 
     private float[] Embed(LoadedModel model, string text)
@@ -123,14 +138,17 @@ internal sealed class OnnxEmbeddingService : IBeaconEmbeddingService, IDisposabl
         }
 
         using var results = model.Session.Run(inputs);
-        var hidden = results.First().AsEnumerable<float>().ToArray();
+        var hidden = results.First().AsTensor<float>();
 
         // last_hidden_state is row-major [1, tokenCount, EmbeddingDimensions]. bge-small-en-v1.5 is trained
         // for CLS pooling: the sentence embedding is the [CLS] token's hidden state (position 0), not a mean
         // over tokens. Mean pooling would place the vector in a different region than the model was calibrated
-        // for and degrade retrieval quality. Take token 0's row, then L2-normalize.
+        // for and degrade retrieval quality. Read token 0's row only (not the whole tensor), then L2-normalize.
         var pooled = new float[EmbeddingDimensions];
-        Array.Copy(hidden, 0, pooled, 0, EmbeddingDimensions);
+        for (var i = 0; i < EmbeddingDimensions; i++)
+        {
+            pooled[i] = hidden[0, 0, i];
+        }
 
         Normalize(pooled);
         return pooled;

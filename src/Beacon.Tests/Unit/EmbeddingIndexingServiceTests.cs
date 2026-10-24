@@ -473,7 +473,9 @@ public class EmbeddingIndexingServiceTests
         List<McpEmbedding> removed,
         out Mock<IDbContextFactory<BeaconContext>> factory,
         FakeVectorColumnWriter? vectorWriter = null,
-        List<ProjectDataSource>? projectLinks = null)
+        List<ProjectDataSource>? projectLinks = null,
+        IBeaconEmbeddingService? embeddingService = null,
+        IEmbeddingVectorColumnWriter? columnWriter = null)
     {
         var metadataSet = BuildDbSet(tables);
         var patternSet = BuildDbSet(patterns);
@@ -510,10 +512,124 @@ public class EmbeddingIndexingServiceTests
 
         return new EmbeddingIndexingService(
             factory.Object,
-            new FakeEmbeddingService(),
+            embeddingService ?? new FakeEmbeddingService(),
             settings.Object,
-            vectorWriter ?? new FakeVectorColumnWriter(),
+            columnWriter ?? vectorWriter ?? new FakeVectorColumnWriter(),
             NullLogger<EmbeddingIndexingService>.Instance);
+    }
+
+    private sealed class FailingVectorColumnWriter : IEmbeddingVectorColumnWriter
+    {
+        public Task WriteAsync(BeaconContext context, IReadOnlyList<(int Id, float[] Vector)> writes, CancellationToken ct) =>
+            throw new InvalidOperationException("vector column unavailable");
+    }
+
+    private sealed class CountingEmbeddingService : IBeaconEmbeddingService
+    {
+        private readonly FakeEmbeddingService _inner = new();
+
+        public List<string> Embedded { get; } = [];
+
+        public int Dimensions => _inner.Dimensions;
+
+        public bool IsAvailable => true;
+
+        public Task<float[]> EmbedAsync(string text, CancellationToken ct)
+        {
+            Embedded.Add(text);
+            return _inner.EmbedAsync(text, ct);
+        }
+
+        public Task<IReadOnlyList<float[]>> EmbedBatchAsync(IReadOnlyList<string> texts, CancellationToken ct)
+        {
+            Embedded.AddRange(texts);
+            return _inner.EmbedBatchAsync(texts, ct);
+        }
+    }
+
+    private static DatabaseMetadata OrdersTable(string description) =>
+        new()
+        {
+            Id = 10,
+            DataSourceId = 1,
+            SchemaName = "public",
+            TableName = "orders",
+            TableDescription = description,
+            Columns = new List<ColumnMetadata> { new() { Id = 101, ColumnName = "id", DataType = "int", Description = "pk" } }
+        };
+
+    [Test]
+    public async Task ReindexDataSourceAsync_UnchangedContentIsNotEmbeddedAgain_ChangedContentIs()
+    {
+        var embedder = new CountingEmbeddingService();
+        var vectors = new FakeVectorColumnWriter();
+
+        var firstAdded = new List<McpEmbedding>();
+        var first = BuildService([OrdersTable("orders")], [], [], firstAdded, [], out _, vectors, embeddingService: embedder);
+        await first.ReindexDataSourceAsync(1, CancellationToken.None);
+
+        firstAdded.Should().HaveCount(2);
+        embedder.Embedded.Should().HaveCount(2);
+        firstAdded.Should().OnlyContain(x => x.ContentHash != null && x.ContentHash.Length == 64);
+        var stored = firstAdded.Select(x => (x.OwnerId, x.ContentHash)).ToList();
+
+        // Same content again: nothing is embedded and no vector is rewritten.
+        embedder.Embedded.Clear();
+        vectors.Writes.Clear();
+        var second = BuildService([OrdersTable("orders")], [], firstAdded, [], [], out _, vectors, embeddingService: embedder);
+        await second.ReindexDataSourceAsync(1, CancellationToken.None);
+
+        embedder.Embedded.Should().BeEmpty("the stored vectors already match the content");
+        vectors.Writes.Should().BeEmpty();
+        firstAdded.Select(x => (x.OwnerId, x.ContentHash)).Should().BeEquivalentTo(stored);
+
+        // A changed table description re-embeds the table only; its unchanged column is skipped.
+        var third = BuildService([OrdersTable("customer orders")], [], firstAdded, [], [], out _, vectors, embeddingService: embedder);
+        await third.ReindexDataSourceAsync(1, CancellationToken.None);
+
+        embedder.Embedded.Should().Equal("public.orders: customer orders");
+        vectors.Writes.Should().ContainSingle();
+        firstAdded.Single(x => x.OwnerType == McpEmbeddingOwnerType.MetadataTable).ContentHash
+            .Should().NotBe(stored.Single(x => x.OwnerId == 10).ContentHash);
+    }
+
+    [Test]
+    public async Task ReindexDataSourceAsync_AModelOrVersionChangeStillEmbedsEverything()
+    {
+        var embedder = new CountingEmbeddingService();
+        var added = new List<McpEmbedding>();
+        await BuildService([OrdersTable("orders")], [], [], added, [], out _, embeddingService: embedder)
+            .ReindexDataSourceAsync(1, CancellationToken.None);
+
+        embedder.Embedded.Clear();
+        foreach (var row in added)
+        {
+            row.EmbeddingVersion = 0;
+        }
+
+        await BuildService([OrdersTable("orders")], [], added, [], [], out _, embeddingService: embedder)
+            .ReindexDataSourceAsync(1, CancellationToken.None);
+
+        embedder.Embedded.Should().HaveCount(2);
+        added.Should().OnlyContain(x => x.EmbeddingVersion == 1 && x.ContentHash != null);
+    }
+
+    [Test]
+    public async Task ReindexDataSourceAsync_AFailedVectorWriteLeavesNoHash_SoTheRowIsEmbeddedAgain()
+    {
+        var added = new List<McpEmbedding>();
+
+        var act = () => BuildService([OrdersTable("orders")], [], [], added, [], out _, columnWriter: new FailingVectorColumnWriter())
+            .ReindexDataSourceAsync(1, CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        added.Should().OnlyContain(x => x.ContentHash == null);
+
+        var embedder = new CountingEmbeddingService();
+        await BuildService([OrdersTable("orders")], [], added, [], [], out _, embeddingService: embedder)
+            .ReindexDataSourceAsync(1, CancellationToken.None);
+
+        embedder.Embedded.Should().HaveCount(2, "a row without a stored hash is never skipped");
     }
 
     private static Mock<DbSet<T>> BuildDbSet<T>(IEnumerable<T> data) where T : class

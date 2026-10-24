@@ -125,6 +125,7 @@ public static class McpRetentionDenyList
         Rule<McpDocChunk>(nameof(McpDocChunk.ContextualBlurb), RetentionKind.Structural),
 
         Rule<McpEmbedding>(nameof(McpEmbedding.Model), RetentionKind.Structural),
+        Rule<McpEmbedding>(nameof(McpEmbedding.ContentHash), RetentionKind.Structural),
 
         // Admin configuration: prompts, tool descriptions, PII patterns.
         Rule<McpSettings>(nameof(McpSettings.AskSystemPrompt), RetentionKind.Structural),

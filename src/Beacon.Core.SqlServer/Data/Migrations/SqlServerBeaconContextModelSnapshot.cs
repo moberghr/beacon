@@ -1706,6 +1706,10 @@ namespace Beacon.Core.SqlServer.Data.Migrations
 
                     SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("ContentHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("datetime2");
 
@@ -2768,6 +2772,8 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.HasIndex("QueryExecutionHistoryId");
 
                     b.HasIndex("RecipientId");
+
+                    b.HasIndex("SentAt");
 
                     b.HasIndex("TaskId");
 
