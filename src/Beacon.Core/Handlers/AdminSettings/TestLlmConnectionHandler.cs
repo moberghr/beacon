@@ -21,21 +21,23 @@ internal sealed class TestLlmConnectionHandler(
         var current = await settingsService.GetSettingsAsync(cancellationToken);
 
         // A SecurityAdmin tests the stored connection only: the stored credentials never go to an endpoint they chose.
+        var connectionRequest = new LlmConnectionRequest(
+            request.LlmProvider,
+            request.LlmRegion,
+            request.LlmBedrockAuthMode,
+            request.LlmApiKey,
+            request.LlmEndpoint,
+            request.LlmSessionToken,
+            request.LlmAwsAccessKeyId,
+            request.LlmAwsSecretAccessKey);
         LlmConnectionSettings.DemandAdminForChanges(
             await permissionAccessor.GetCurrentAsync(cancellationToken),
             await actorAccessor.GetCurrentAsync(cancellationToken),
             logger,
             current,
-            new LlmConnectionRequest(
-                request.LlmProvider,
-                request.LlmRegion,
-                request.LlmBedrockAuthMode,
-                request.LlmApiKey,
-                request.LlmEndpoint,
-                request.LlmSessionToken,
-                request.LlmAwsAccessKeyId,
-                request.LlmAwsSecretAccessKey),
+            connectionRequest,
             nullKeepsStored: true);
+        LlmConnectionSettings.DemandCredentialsForNewDestination(current, connectionRequest);
 
         LlmProviderInstallation.DemandInstalled(providerCatalog, request.LlmProvider, current.LlmProvider);
 

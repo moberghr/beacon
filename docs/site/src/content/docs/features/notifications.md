@@ -253,10 +253,13 @@ The email and API token are a Jira Cloud account's that may create issues in the
 REST API; an on-premises Jira is reachable only when the host allows its host (`AllowedHosts:Jira`) and network
 (`AllowedPrivateNetworks:Jira`).
 
-A delivery creates an issue of type **Task** in the project, with the summary `BEACON: {query name}`, the label
-`Beacon` and priority **Medium**, its description holding the total row count, the query text when shown and the preview
+A delivery creates an issue of type **Task** in the project, with the summary `BEACON: {query name}`, the labels
+`Beacon` and `beacon-sub-{subscription id}-rcpt-{recipient id}` and priority **Medium**, its description holding the total row count, the query text when shown and the preview
 rows as a table; the same content is added as a comment. A later delivery adds a comment to that issue when Beacon finds
-it, and creates a new one otherwise. Jira gets no attachment.
+it, and creates a new one otherwise. Beacon finds the issue by that second label among the project's open issues
+(a resolved issue is not reused: the next delivery with rows opens a new one). For this release an open issue created
+before the label existed is still matched by its `BEACON: {query name}` summary within the same project and reporter,
+but it never gets the label, so it is replaced by a labelled issue after it is resolved. Jira gets no attachment.
 
 ## Webhook
 

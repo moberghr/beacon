@@ -1,5 +1,7 @@
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Beacon.Core.Helpers;
 
 namespace Beacon.Core.Services;
 
@@ -19,7 +21,8 @@ public sealed class StoredSettingsApplier(
     BeaconConfiguration configuration,
     ILogger<StoredSettingsApplier> logger,
     ILlmConfigurationUpdater? llmUpdater = null,
-    IServiceProvider? services = null)
+    IServiceProvider? services = null,
+    IHostEnvironment? hostEnvironment = null)
 {
     public async Task ApplyAsync(CancellationToken cancellationToken)
     {
@@ -55,6 +58,11 @@ public sealed class StoredSettingsApplier(
             if (baseUrlApplied)
             {
                 configuration.BaseUrl = settings.BaseUrl;
+            }
+
+            if (BaseUrlPolicy.Validate(configuration.BaseUrl, hostEnvironment?.IsDevelopment() == true) != null)
+            {
+                logger.LogWarning("The configured base URL is not usable and is left out of the links Beacon sends: {Message}", BaseUrlPolicy.InvalidMessage);
             }
 
             var llmApplied = settings.LlmProvider != null && llmUpdater != null;

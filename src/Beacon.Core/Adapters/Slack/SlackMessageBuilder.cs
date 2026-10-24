@@ -1,5 +1,6 @@
 using System.Text;
 using Beacon.Core.Adapters.Shared;
+using Beacon.Core.Helpers;
 using Beacon.Core.Models.Anomaly;
 
 namespace Beacon.Core.Adapters.Slack;
@@ -58,9 +59,12 @@ internal class SlackMessageBuilder
         blocks.Add(BuildSummaryBlock(queryResult, shownRows));
 
         // View full results button (if BaseUrl configured)
-        if (!string.IsNullOrEmpty(_configuration.BaseUrl) && notificationId.HasValue)
+        var resultsLink = notificationId.HasValue
+            ? BaseUrlPolicy.Link(_configuration.BaseUrl, $"notifications/{notificationId}")
+            : null;
+        if (resultsLink != null)
         {
-            blocks.Add(BuildActionsBlock(_configuration.BaseUrl, notificationId.Value));
+            blocks.Add(BuildActionsBlock(resultsLink));
         }
 
         // Data table (if records exist)
@@ -158,7 +162,7 @@ internal class SlackMessageBuilder
         };
     }
 
-    private object BuildActionsBlock(string baseUrl, int notificationId)
+    private object BuildActionsBlock(string resultsLink)
     {
         return new
         {
@@ -173,7 +177,7 @@ internal class SlackMessageBuilder
                         type = "plain_text",
                         text = "View Full Results"
                     },
-                    url = $"{baseUrl.TrimEnd('/')}/notifications/{notificationId}"
+                    url = resultsLink
                 }
             }
         };

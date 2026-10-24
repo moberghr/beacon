@@ -194,7 +194,7 @@ public class LlmConnectionApprovalTests
         await harness.Settings().GetSettingsAsync(CancellationToken.None);
         harness.ReplaceStoredConnection();
 
-        await harness.Handler(Ben).Handle(Save(), CancellationToken.None);
+        await harness.Handler(Ben).Handle(Save(apiKey: StoredKey), CancellationToken.None);
         harness.Store.Commit();
 
         harness.Store.Requests.Should().ContainSingle().Which.ChangeSummary.Should().Be("Provider changed");
@@ -563,7 +563,7 @@ public class LlmConnectionApprovalTests
     {
         var harness = new Harness();
         harness.StoreConnection();
-        await harness.Handler(Ben).Handle(Save(endpoint: "https://api.openai.example/v2"), CancellationToken.None);
+        await harness.Handler(Ben).Handle(Save(endpoint: "https://api.openai.example/v2", apiKey: StoredKey), CancellationToken.None);
         harness.Store.Commit();
         var request = harness.Store.Requests.Single();
 
