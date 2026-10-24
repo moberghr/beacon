@@ -1,3 +1,4 @@
+using System.Text;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 
@@ -14,25 +15,49 @@ internal static partial class AdapterTemplateProcessor
     [GeneratedRegex(@"\{\{([^}]+)\}\}", RegexOptions.Compiled, matchTimeoutMilliseconds: 1000)]
     private static partial Regex PlaceholderRegex();
 
-    /// <summary>
-    /// Processes a template string, replacing placeholders with values from the data dictionary
-    /// </summary>
-    public static string ProcessTemplate(string template, Dictionary<string, object?> templateData)
-    {
-        var result = template;
-        var matches = PlaceholderRegex().Matches(template);
+    private const int MaxOutputLength = 1_048_576;
 
-        foreach (Match match in matches)
+    /// <summary>
+    /// Processes a template string, replacing placeholders with values from the data dictionary. The template is read once:
+    /// a substituted value is never searched for placeholders. With <paramref name="escapeJsonStrings"/> a value is escaped
+    /// to sit inside a JSON string; the serialized <c>_Pretty</c> and collection placeholders stay raw JSON.
+    /// </summary>
+    public static string ProcessTemplate(string template, Dictionary<string, object?> templateData, bool escapeJsonStrings = false)
+    {
+        var result = new StringBuilder(template.Length);
+        var position = 0;
+
+        foreach (Match match in PlaceholderRegex().Matches(template))
         {
+            result.Append(template, position, match.Index - position);
+            position = match.Index + match.Length;
+
             var placeholder = match.Groups[1].Value.Trim();
-            var value = GetPlaceholderValue(placeholder, templateData);
-            result = result.Replace(match.Value, value);
+            var value = GetPlaceholderValue(placeholder, templateData, escapeJsonStrings);
+            result.Append(value);
+
+            if (result.Length > MaxOutputLength)
+            {
+                throw new InvalidOperationException("The expanded template exceeds the size limit.");
+            }
         }
 
-        return result;
+        result.Append(template, position, template.Length - position);
+
+        if (result.Length > MaxOutputLength)
+        {
+            throw new InvalidOperationException("The expanded template exceeds the size limit.");
+        }
+
+        return result.ToString();
     }
 
-    private static string GetPlaceholderValue(string placeholder, Dictionary<string, object?> templateData)
+    private static readonly JsonSerializerOptions EscapeOptions = new()
+    {
+        Encoder = System.Text.Encodings.Web.JavaScriptEncoder.UnsafeRelaxedJsonEscaping
+    };
+
+    private static string GetPlaceholderValue(string placeholder, Dictionary<string, object?> templateData, bool escapeJsonStrings)
     {
         // Handle nested properties (e.g., Anomaly.IsAnomaly)
         var parts = placeholder.Split('.');
@@ -60,7 +85,22 @@ internal static partial class AdapterTemplateProcessor
                 return $"{{{{UNKNOWN:{placeholder}}}}}";
         }
 
-        return FormatValue(placeholder, value);
+        var formatted = FormatValue(placeholder, value);
+
+        return escapeJsonStrings && !IsSerializedJson(placeholder, value) ? EscapeJsonString(formatted) : formatted;
+    }
+
+    private static bool IsSerializedJson(string placeholder, object? value)
+    {
+        return value != null
+            && (placeholder.EndsWith("_Pretty", StringComparison.OrdinalIgnoreCase) || (value is System.Collections.IEnumerable && value is not string));
+    }
+
+    private static string EscapeJsonString(string value)
+    {
+        var encoded = JsonSerializer.Serialize(value, EscapeOptions);
+
+        return encoded[1..^1];
     }
 
     private static string FormatValue(string placeholder, object? value)

@@ -327,6 +327,9 @@ Placeholders are written `{{Name}}`, case-insensitive: `{{Timestamp}}`, `{{Sourc
 - Dates are ISO 8601, booleans `true`/`false`, decimals two places; a missing value is empty.
 - Text values are inserted as they are, without JSON escaping: quote string placeholders yourself, and prefer
   `{{Records}}` for row data.
+- The template is read once: a value that itself contains `{{...}}` is inserted as text, never expanded again. Text values are
+  escaped for JSON (quotes, backslashes, control characters), so write `"{{SubscriptionName}}"` inside quotes; `{{Records}}` and
+  `_Pretty` placeholders stay raw JSON. An expansion over 1 MB fails and the default message is sent.
 - An unknown placeholder is left as `{{UNKNOWN:Name}}`. If the template cannot be processed, Beacon sends the default
   body.
 

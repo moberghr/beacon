@@ -54,7 +54,7 @@ internal class SlackAdapter : IAdapter
             try
             {
                 var templateData = Shared.TemplateDataBuilder.BuildTemplateData(recipientQueryResult, lastNotificationResultCount, _configuration.BaseUrl);
-                jsonPayload = Shared.AdapterTemplateProcessor.ProcessTemplate(recipientQueryResult.BodyTemplate, templateData);
+                jsonPayload = Shared.AdapterTemplateProcessor.ProcessTemplate(recipientQueryResult.BodyTemplate, templateData, escapeJsonStrings: true);
             }
             catch (Exception ex)
             {
