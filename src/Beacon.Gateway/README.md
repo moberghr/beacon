@@ -41,6 +41,10 @@ app.UseBeaconMcpGateway();          // before UseAuthentication
 app.MapBeaconMcpGateway();          // /beacon/mcp and the discovery documents
 ```
 
+`AddBeaconMcpGateway` is a profile of Beacon's host chain (`AddBeacon(...).AddAI().AddApi().AddMcp()`) with your
+application owning sign-in. The package's `UseBeaconPipeline()` and `MapBeacon()` serve a full Beacon host instead and
+throw on a gateway host.
+
 `IMcpHostUserResolver` maps the Entra token (by object id, `oid`) to exactly one active user of your application, or to
 nobody. It never creates users. It runs on every call, so deactivating someone cuts MCP off at their next call.
 

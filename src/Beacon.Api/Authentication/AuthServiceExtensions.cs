@@ -223,6 +223,23 @@ public static class AuthServiceExtensions
         return services;
     }
 
+    /// <summary>
+    /// Adds the <c>Beacon.Auth</c> cookie sign-in for Beacon's shell at <c>/beacon</c>
+    /// (<see cref="AddBeaconCookieAuthentication"/>) and the host plumbing that depends on the signed-in user
+    /// (<see cref="AddBeaconHostInfrastructure{TClaimsTransformation}"/>): <typeparamref name="TClaims"/> materialises
+    /// Beacon's role claims after a cookie or OIDC sign-in.
+    /// </summary>
+    public static BeaconBuilder AddCookieAuth<TClaims>(this BeaconBuilder builder)
+        where TClaims : class, Microsoft.AspNetCore.Authentication.IClaimsTransformation
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        builder.Services.AddBeaconHostInfrastructure<TClaims>();
+        builder.Services.AddBeaconCookieAuthentication(AuthenticationPathOptions.BeaconPath);
+
+        return builder;
+    }
+
     public static IApplicationBuilder UseBeaconJwtBearerAuthentication(this IApplicationBuilder app)
     {
         var options = app.ApplicationServices.GetService<JwtAuthenticationOptions>();

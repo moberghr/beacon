@@ -11,16 +11,51 @@ using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
 
 using Beacon.AI.Services.Mcp;
+using Beacon.Core;
 
 namespace Beacon.AI;
 
 public static class ServiceConfiguration
 {
     /// <summary>
+    /// Adds Beacon's AI services and switches AI on (<see cref="Core.BeaconConfiguration.UseAI"/>): the stand-ins Core
+    /// registered while AI was off are removed, so the real implementations are the ones resolved. LLM configuration in
+    /// appsettings.json is optional — it can be configured later via Admin Settings.
+    /// </summary>
+    public static BeaconBuilder AddAI(this BeaconBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        var options = builder.Options
+            ?? throw new InvalidOperationException("AddAI() needs the builder services.AddBeacon(...) returns.");
+        if (options.UseAI)
+        {
+            throw new InvalidOperationException("AI is already on: call AddAI() once, and do not also set UseAI = true.");
+        }
+
+        options.UseAI = true;
+        Core.Services.AiDisabled.RemoveStandIns(builder.Services);
+        builder.Services.AddBeaconAIServices(builder.Configuration);
+
+        return builder;
+    }
+
+    /// <summary>
     /// Adds AI services to the service collection.
     /// LLM configuration in appsettings.json is optional — it can be configured later via Admin Settings.
     /// </summary>
+    /// <remarks>
+    /// The fluent chain is the preferred way to wire Beacon: <see cref="AddAI"/> on the builder <c>services.AddBeacon(...)</c>
+    /// returns, which also switches AI on. This method stays supported and becomes obsolete in a later release.
+    /// </remarks>
     public static IServiceCollection AddBeaconAI(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        return services.AddBeaconAIServices(configuration);
+    }
+
+    internal static IServiceCollection AddBeaconAIServices(
         this IServiceCollection services,
         IConfiguration configuration)
     {

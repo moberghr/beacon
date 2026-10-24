@@ -6,7 +6,9 @@ using ModelContextProtocol;
 using ModelContextProtocol.AspNetCore;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
+using Beacon.AI.Models.Configuration;
 using Beacon.AI.Services.Mcp;
+using Beacon.Core;
 using Beacon.Core.Authorization;
 using Beacon.Core.Services;
 using Beacon.Core.SavedQueries;
@@ -20,12 +22,35 @@ namespace Beacon.MCP;
 public static class ServiceConfiguration
 {
     /// <summary>
+    /// Adds Beacon's MCP server (the official ModelContextProtocol SDK), serving the built-in tools and the saved-query
+    /// tools <paramref name="configure"/> chooses (<see cref="BeaconMcpOptions"/>; all of them when it is null). Call it
+    /// after <c>.AddAI()</c>: the tools depend on Beacon's AI services, and without them it throws.
+    /// </summary>
+    public static BeaconBuilder AddMcp(this BeaconBuilder builder, Action<BeaconMcpOptions>? configure = null)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        if (!builder.Services.Any(x => x.ServiceType == typeof(LlmConfiguration)))
+        {
+            throw new InvalidOperationException("AddMcp() needs Beacon's AI services: call .AddAI() before it.");
+        }
+
+        builder.Services.AddBeaconMcpServices(configure ?? (_ => { }));
+
+        return builder;
+    }
+
+    /// <summary>
     /// Adds Beacon MCP server services using the official ModelContextProtocol SDK, with all eight built-in tools and the
     /// saved-query tools. Prerequisites: Beacon.Core and Beacon.AI services must be registered first.
     /// </summary>
+    /// <remarks>
+    /// The fluent chain is the preferred way to wire Beacon: <see cref="AddMcp"/> on the builder <c>services.AddBeacon(...)</c>
+    /// returns, after <c>.AddAI()</c>. This method stays supported and becomes obsolete in a later release.
+    /// </remarks>
     public static IServiceCollection AddBeaconMcp(this IServiceCollection services)
     {
-        return services.AddBeaconMcp(_ => { });
+        return services.AddBeaconMcpServices(_ => { });
     }
 
     /// <summary>
@@ -33,7 +58,16 @@ public static class ServiceConfiguration
     /// saved-query tools <paramref name="configure"/> chooses (<see cref="BeaconMcpOptions"/>). Prerequisites:
     /// Beacon.Core and Beacon.AI services must be registered first.
     /// </summary>
+    /// <remarks>
+    /// The fluent chain is the preferred way to wire Beacon: <see cref="AddMcp"/> on the builder <c>services.AddBeacon(...)</c>
+    /// returns, after <c>.AddAI()</c>. This method stays supported and becomes obsolete in a later release.
+    /// </remarks>
     public static IServiceCollection AddBeaconMcp(this IServiceCollection services, Action<BeaconMcpOptions> configure)
+    {
+        return services.AddBeaconMcpServices(configure);
+    }
+
+    internal static IServiceCollection AddBeaconMcpServices(this IServiceCollection services, Action<BeaconMcpOptions> configure)
     {
         var mcpOptions = new BeaconMcpOptions();
         configure(mcpOptions);
