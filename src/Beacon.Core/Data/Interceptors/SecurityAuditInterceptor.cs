@@ -185,33 +185,35 @@ public sealed class SecurityAuditInterceptor(SecurityAuditIntegrity integrity, I
     // once the save succeeded, in the transaction it ran in when there is one.
     private void WriteUnsealed(DbContext? context)
     {
-        foreach (var (sql, parameters) in TakeUnsealed(context))
+        foreach (var row in TakeUnsealed(context))
         {
-            context!.Database.ExecuteSqlRaw(sql, parameters);
+            var (sql, parameters) = AuditTableSealSchema.InsertWithoutSeal(context!, row);
+            row.Id = context!.Database.SqlQueryRaw<int>(sql, parameters).AsEnumerable().Single();
         }
     }
 
     private async Task WriteUnsealedAsync(DbContext? context, CancellationToken cancellationToken)
     {
-        foreach (var (sql, parameters) in TakeUnsealed(context))
+        foreach (var row in TakeUnsealed(context))
         {
-            await context!.Database.ExecuteSqlRawAsync(sql, parameters, cancellationToken);
+            var (sql, parameters) = AuditTableSealSchema.InsertWithoutSeal(context!, row);
+            var ids = await context!.Database.SqlQueryRaw<int>(sql, parameters).ToListAsync(cancellationToken);
+            row.Id = ids.Single();
         }
     }
 
-    private List<(string Sql, object[] Parameters)> TakeUnsealed(DbContext? context)
+    // The rows kept out of the save, each given its id once written (a caller reads it, as after EF's own insert).
+    private List<BaseEntity> TakeUnsealed(DbContext? context)
     {
         if (context == null || !_pending.TryGetValue(context, out var pending) || pending.Unsealed.Count == 0)
         {
             return [];
         }
 
-        var inserts = pending.Unsealed
-            .Select(x => AuditTableSealSchema.InsertWithoutSeal(context, x))
-            .ToList();
+        var rows = pending.Unsealed.ToList();
         pending.Unsealed.Clear();
 
-        return inserts;
+        return rows;
     }
 
     // A failed save puts the rows it kept out back into the change tracker, as the caller added them, so a retried save
@@ -364,6 +366,6 @@ public sealed class SecurityAuditInterceptor(SecurityAuditIntegrity integrity, I
 
         public List<SecurityAuditEvent> InTransaction { get; } = [];
 
-        public List<object> Unsealed { get; } = [];
+        public List<BaseEntity> Unsealed { get; } = [];
     }
 }

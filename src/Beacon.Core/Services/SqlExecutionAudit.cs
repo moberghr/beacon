@@ -126,7 +126,9 @@ internal sealed class SqlExecutionAudit(
     IBeaconActorAccessor actorAccessor,
     IOptions<SecurityAuditOptions> options,
     ILogger<SqlExecutionAudit> logger,
-    TimeProvider? timeProvider = null) : ISqlExecutionAudit
+    TimeProvider? timeProvider = null,
+    SecurityAudit.SecurityAuditIntegrity? integrity = null,
+    SecurityAudit.AuditTableSealSchema? sealSchema = null) : ISqlExecutionAudit
 {
     // The column's length (BeaconContext.ConfigureManualQueryExecutionLogEntity).
     internal const int MaxErrorMessageLength = 4000;
@@ -201,22 +203,89 @@ internal sealed class SqlExecutionAudit(
         try
         {
             await using var context = await contextFactory.CreateDbContextAsync(CancellationToken.None);
-            await context.ManualQueryExecutionLogs
-                .Where(x => x.Id == entry.Id)
-                .Where(x => x.Status == QueryExecutionLogStatus.Started)
-                .ExecuteUpdateAsync(
-                    x => x
-                        .SetProperty(y => y.Status, end.Status)
-                        .SetProperty(y => y.Success, end.Status == QueryExecutionLogStatus.Succeeded)
-                        .SetProperty(y => y.ResultCount, end.ResultCount)
-                        .SetProperty(y => y.ExecutionTimeMs, end.ExecutionTimeMs)
-                        .SetProperty(y => y.ErrorMessage, error)
-                        .SetProperty(y => y.CompletedTime, completedTime),
-                    CancellationToken.None);
+            if (integrity == null
+                || (sealSchema != null && await sealSchema.SealColumnsMissingAsync(context, typeof(ManualQueryExecutionLog), CancellationToken.None)))
+            {
+                // No seal to keep (none configured, or the seal migration not applied): the row is closed as it is.
+                await context.ManualQueryExecutionLogs
+                    .Where(x => x.Id == entry.Id)
+                    .Where(x => x.Status == QueryExecutionLogStatus.Started)
+                    .ExecuteUpdateAsync(
+                        x => x
+                            .SetProperty(y => y.Status, end.Status)
+                            .SetProperty(y => y.Success, end.Status == QueryExecutionLogStatus.Succeeded)
+                            .SetProperty(y => y.ResultCount, end.ResultCount)
+                            .SetProperty(y => y.ExecutionTimeMs, end.ExecutionTimeMs)
+                            .SetProperty(y => y.ErrorMessage, error)
+                            .SetProperty(y => y.CompletedTime, completedTime),
+                        CancellationToken.None);
+
+                return;
+            }
+
+            await CloseSealedAsync(context, entry.Id, end, error, completedTime, integrity);
         }
         catch (Exception ex)
         {
             logger.LogWarning(ex, "The end of logged statement {ExecutionLogId} could not be recorded; its row stays Started", entry.Id);
         }
+    }
+
+    // The row is read and its seal verified; the close is applied to it and, when the seal verified, it is sealed again over
+    // the closed row; then one update writes the close (and the new seal) only while the row is still Started and carries
+    // the seal it was read with. A row whose seal does not verify is closed without a new seal, so it keeps failing.
+    private static async Task CloseSealedAsync(
+        BeaconContext context,
+        int id,
+        SqlExecutionEnd end,
+        string? error,
+        DateTime completedTime,
+        SecurityAudit.SecurityAuditIntegrity integrity)
+    {
+        var row = await context.ManualQueryExecutionLogs
+            .AsNoTracking()
+            .Where(x => x.Id == id)
+            .Where(x => x.Status == QueryExecutionLogStatus.Started)
+            .FirstOrDefaultAsync(CancellationToken.None);
+        if (row == null)
+        {
+            return;
+        }
+
+        var store = SecurityAudit.AuditTableStores.ExecutionLog;
+        var intact = SecurityAudit.AuditTableSeal.Verify(row, store, integrity) == SecurityAudit.SecurityAuditVerdicts.Intact;
+        var readHmac = row.Hmac;
+        row.Status = end.Status;
+        row.Success = end.Status == QueryExecutionLogStatus.Succeeded;
+        row.ResultCount = end.ResultCount;
+        row.ExecutionTimeMs = end.ExecutionTimeMs;
+        row.ErrorMessage = error;
+        row.CompletedTime = SecurityAudit.SecurityAuditIntegrity.StoredTime(completedTime);
+        if (intact)
+        {
+            SecurityAudit.AuditTableSeal.Seal(row, store, integrity);
+        }
+
+        await context.ManualQueryExecutionLogs
+            .Where(x => x.Id == id)
+            .Where(x => x.Status == QueryExecutionLogStatus.Started)
+            .Where(x => x.Hmac == readHmac)
+            .ExecuteUpdateAsync(
+                x =>
+                {
+                    x.SetProperty(y => y.Status, row.Status);
+                    x.SetProperty(y => y.Success, row.Success);
+                    x.SetProperty(y => y.ResultCount, row.ResultCount);
+                    x.SetProperty(y => y.ExecutionTimeMs, row.ExecutionTimeMs);
+                    x.SetProperty(y => y.ErrorMessage, row.ErrorMessage);
+                    x.SetProperty(y => y.CompletedTime, row.CompletedTime);
+                    if (intact)
+                    {
+                        x.SetProperty(y => y.Hmac, row.Hmac);
+                        x.SetProperty(y => y.HmacKeyId, row.HmacKeyId);
+                        x.SetProperty(y => y.SealVersion, row.SealVersion);
+                    }
+                },
+                CancellationToken.None);
     }
 }

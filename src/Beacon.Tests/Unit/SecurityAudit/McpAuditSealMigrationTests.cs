@@ -21,8 +21,8 @@ namespace Beacon.Tests.Unit.SecurityAudit;
 /// row's guid, seal version, key id and HMAC, all nullable without a default (every existing row stays unsealed, and is
 /// reported so), and a unique index on the guid. It runs no SQL and backfills nothing. Up is exactly the difference between
 /// the model before it and its target model, and Down is exactly the way back. Its target model differs from the next
-/// migration's only by that migration, the model has no pending changes, and it sorts right after the MCP audit
-/// correlation migration.
+/// migration's only by that migration, the model has no pending changes, and it sorts right after the documentation
+/// section edits migration.
 /// </summary>
 [TestFixture]
 public class McpAuditSealMigrationTests
@@ -68,7 +68,7 @@ public class McpAuditSealMigrationTests
         context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
         migrations.Migrations.Keys
             .Order(StringComparer.Ordinal)
-            .SkipWhile(x => !x.EndsWith("_AddMcpAuditCorrelationAndHeartbeats", StringComparison.Ordinal))
+            .SkipWhile(x => !x.EndsWith("_AddDocumentationSectionEdits", StringComparison.Ordinal))
             .Skip(1)
             .First()
             .Should().EndWith(Suffix, "it sorts after every earlier migration");

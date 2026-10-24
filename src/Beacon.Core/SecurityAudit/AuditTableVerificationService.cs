@@ -115,10 +115,13 @@ public interface IAuditTableRetention
 }
 
 /// <summary>
-/// The windows of the data retention job (<c>Beacon:Retention</c>): the execution log is its <c>execution-log</c> target
-/// (<see cref="Configuration.RetentionOptions.DaysFor"/>, <c>0</c> keeping it forever); nothing purges the settings history.
+/// The windows the execution log is purged by, the shorter one first: the data retention job's <c>execution-log</c> target
+/// (<see cref="Configuration.RetentionOptions.DaysFor"/>, <c>0</c> keeping it forever) and the execution log purge
+/// (<c>Beacon:Audit:ExecutionLog:RetentionDays</c>, unset keeping it forever). Nothing purges the settings history.
 /// </summary>
-internal sealed class DataRetentionAuditTableRetention(Microsoft.Extensions.Options.IOptions<Configuration.RetentionOptions> options) : IAuditTableRetention
+internal sealed class DataRetentionAuditTableRetention(
+    Microsoft.Extensions.Options.IOptions<Configuration.RetentionOptions> options,
+    Microsoft.Extensions.Options.IOptions<Configuration.SecurityAuditOptions>? auditOptions = null) : IAuditTableRetention
 {
     public int? RetentionDaysOf(string store)
     {
@@ -128,8 +131,10 @@ internal sealed class DataRetentionAuditTableRetention(Microsoft.Extensions.Opti
         }
 
         var days = options.Value.DaysFor(Services.Retention.RetentionTargetNames.ExecutionLog);
+        int? dataRetention = days > 0 ? days : null;
+        var purge = auditOptions?.Value.ExecutionLog.RetentionDays;
 
-        return days > 0 ? days : null;
+        return dataRetention is { } a && purge is { } b ? Math.Min(a, b) : dataRetention ?? purge;
     }
 }
 

@@ -134,6 +134,9 @@ internal static class AuditTableStores
         (writer, row) =>
         {
             writer.Text(row.UserId);
+            writer.Int(row.TriggeredByUserId);
+            writer.Int((int?)row.Status);
+            writer.Time(row.CompletedTime);
             writer.Text(row.QueryText);
             writer.Int(row.ResultCount);
             writer.Double(row.ExecutionTimeMs);
@@ -145,7 +148,8 @@ internal static class AuditTableStores
         x => x.ManualQueryExecutionLogs,
         SecurityAuditActions.ExecutionLogVerified,
         SecurityAuditActions.ExecutionLogSealingStarted,
-        SecurityAuditResources.ExecutionLog);
+        SecurityAuditResources.ExecutionLog,
+        x => x.CompletedTime = x.CompletedTime is { } completed ? SecurityAuditIntegrity.StoredTime(completed) : null);
 
     /// <summary>The settings history (<see cref="AppSettingHistory"/>): every field but the database id.</summary>
     public static readonly AuditTableStore<AppSettingHistory> SettingHistory = new(
@@ -215,6 +219,18 @@ internal sealed class SealWriter(Stream stream) : IDisposable
     {
         _writer.Write(LongTag);
         _writer.Write(value);
+    }
+
+    public void Time(DateTime? value)
+    {
+        if (value == null)
+        {
+            _writer.Write(NullTag);
+
+            return;
+        }
+
+        Long(value.Value.Ticks);
     }
 
     // The value's bits: both providers store a double as the same 64 bits.

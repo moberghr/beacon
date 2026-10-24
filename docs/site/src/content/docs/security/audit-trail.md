@@ -559,11 +559,17 @@ system events in this trail). Rows written before this version are **unsealed**:
 while an upgrade rolls out; any other row without a seal is reported as modified. Failures are logged at Error
 (`Beacon.Audit` 9113, naming the table) and counted on `beacon.security_audit.verification_failures` (tagged with the
 table's verified action); every run writes a checkpoint per table to the log stream (9114). The execution log's retention is
-the data retention job's `execution-log` window (`Beacon:Retention:Targets:execution-log`, else `Beacon:Retention:Days`);
-nothing purges the settings history. A row the purge deletes past that window is never counted, so it never fails the
+the shorter of the data retention job's `execution-log` window (`Beacon:Retention:Targets:execution-log`, else
+`Beacon:Retention:Days`) and the execution log purge (`Beacon:Audit:ExecutionLog:RetentionDays`); nothing purges the
+settings history. A row the purge deletes past that window is never counted, so it never fails the
 verification; a counted row deleted inside it is reported as missing. An intact row older than the window (the
 retention job late, failing or not scheduled) is reported at Warning, never as a failure; a sealed row dated in the
 future is out of range and fails.
+
+An execution log row is written as Started before its statement runs and closed when it ends. The close reads the row,
+verifies its seal and writes the end together with a new seal over the closed row, only while the row is still Started
+and carries the seal that was verified; a row whose seal does not verify is closed without a new seal, so it keeps
+failing verification.
 
 The content expiry (`Beacon:Retention:ContentDays`) clears an execution log row's statement text and reduces its error
 to its class in place. A row whose seal verifies is sealed again over what is left, by the same update, which applies

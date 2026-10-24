@@ -135,7 +135,10 @@ public class ExecutionLogContentExpirySealTests
             ["result_count"] = row.ResultCount,
             ["seal_version"] = row.SealVersion,
             ["success"] = row.Success,
-            ["user_id"] = row.UserId
+            ["user_id"] = row.UserId,
+            ["triggered_by_user_id"] = row.TriggeredByUserId,
+            ["status"] = (int?)row.Status,
+            ["completed_time"] = row.CompletedTime
         };
 
         return columns

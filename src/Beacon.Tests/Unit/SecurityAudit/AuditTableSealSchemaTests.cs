@@ -26,8 +26,8 @@ public class AuditTableSealSchemaTests
         var schema = FakeSealProbe.Schema(true, loggerFactory: LoggerFactory.Create(x => x.AddProvider(logs)));
         var interceptor = new SecurityAuditInterceptor(SecurityAuditTestKit.Integrity, NullLoggerFactory.Instance, schema);
         var capture = new SqlCapture()
-            .ThenRowsAffected(1)
-            .ThenRowsAffected(1);
+            .ThenRow(41)
+            .ThenRow(42);
         await using var context = await capture.Factory(interceptor).CreateDbContextAsync();
         var first = History("Mcp:MaxRows");
         var second = History("Mcp:ForceReadOnly");
@@ -40,6 +40,8 @@ public class AuditTableSealSchemaTests
         capture.Commands[0].Should().Contain("setting_key").And.NotContain("hmac").And.NotContain("audit_guid").And.NotContain("seal_version");
         capture.CommandParameters[0].Values.Should().Contain("Mcp:MaxRows");
         first.Hmac.Should().BeNull("there is no place for the seal");
+        (first.Id, second.Id).Should().Be((41, 42), "each row gets its id, as after EF's own insert");
+        capture.Commands[0].Should().Contain("RETURNING id");
         logs.Entries.Should().ContainSingle(x => x.Level == LogLevel.Warning).Which.Message.Should().Contain("AddAuditTableSeal");
     }
 

@@ -32,6 +32,9 @@ internal sealed class AuditTableSealSchema(IAuditTableSealProbe probe, TimeProvi
         nameof(ISealedAuditRow.Hmac)
     ];
 
+    private const string SqlServerProvider = "Microsoft.EntityFrameworkCore.SqlServer";
+    private const string IdColumnAlias = "Value";
+
     /// <summary>How long a table found without its seal columns is taken as such before the catalog is read again.</summary>
     internal static readonly TimeSpan RecheckMissingAfter = TimeSpan.FromMinutes(5);
 
@@ -66,8 +69,9 @@ internal sealed class AuditTableSealSchema(IAuditTableSealProbe probe, TimeProvi
     }
 
     /// <summary>
-    /// The parameterised insert of <paramref name="row"/> without its seal columns, with the table, column names and
-    /// parameter types of the context's own model, so it holds on either provider and under its naming convention.
+    /// The parameterised insert of <paramref name="row"/> without its seal columns, returning the row's id, with the table,
+    /// column names and parameter types of the context's own model, so it holds on either provider and under its naming
+    /// convention.
     /// </summary>
     internal static (string Sql, object[] Parameters) InsertWithoutSeal(DbContext context, object row)
     {
@@ -95,14 +99,26 @@ internal sealed class AuditTableSealSchema(IAuditTableSealProbe probe, TimeProvi
             names.Add(name);
         }
 
+        var idColumn = generation.DelimitIdentifier(key.GetColumnName(table)!);
+        var alias = generation.DelimitIdentifier(IdColumnAlias);
         var sql = new StringBuilder()
             .Append("INSERT INTO ")
             .Append(generation.DelimitIdentifier(table.Name, table.Schema))
             .Append(" (")
             .AppendJoin(", ", columns)
-            .Append(") VALUES (")
+            .Append(')');
+        if (context.Database.ProviderName == SqlServerProvider)
+        {
+            sql.Append(" OUTPUT INSERTED.").Append(idColumn).Append(" AS ").Append(alias);
+        }
+
+        sql.Append(" VALUES (")
             .AppendJoin(", ", names)
             .Append(')');
+        if (context.Database.ProviderName != SqlServerProvider)
+        {
+            sql.Append(" RETURNING ").Append(idColumn).Append(" AS ").Append(alias);
+        }
 
         return (sql.ToString(), parameters.ToArray());
     }
