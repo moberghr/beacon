@@ -56,6 +56,6 @@ internal static partial class DataSourceHostName
         return host.Length > 0 && (host.All(x => char.IsAsciiDigit(x) || x == '.') || host.Contains(':'));
     }
 
-    [GeneratedRegex(@"^(?=.{1,253}\.?$)[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?(?:\.[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*\.?$")]
+    [GeneratedRegex(@"^(?=.{1,253}\.?$)[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?(?:\.[A-Za-z0-9_](?:[A-Za-z0-9_-]{0,61}[A-Za-z0-9_])?)*\.?$", RegexOptions.None, matchTimeoutMilliseconds: 1000)]
     private static partial Regex HostName();
 }

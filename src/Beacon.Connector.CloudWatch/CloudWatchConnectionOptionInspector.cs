@@ -43,6 +43,6 @@ public sealed partial class CloudWatchConnectionOptionInspector : IDataSourceCon
 
     // An AWS region name in any partition (eu-central-1, us-gov-west-1, cn-north-1, us-isob-east-1, eusc-de-east-1):
     // lower-case labels the SDK writes into the endpoint's host name, ending in the region's number.
-    [GeneratedRegex(@"^[a-z]{2,4}(-[a-z0-9]+)+-[0-9]{1,2}$")]
+    [GeneratedRegex(@"^[a-z]{2,4}(-[a-z0-9]+)+-[0-9]{1,2}$", RegexOptions.None, matchTimeoutMilliseconds: 1000)]
     private static partial Regex RegionName();
 }

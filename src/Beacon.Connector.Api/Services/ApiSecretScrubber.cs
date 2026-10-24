@@ -83,7 +83,7 @@ internal sealed class ApiSecretScrubber
     }
 
     private static string LowerHex(string encoded) =>
-        Regex.Replace(encoded, "%[0-9A-F]{2}", x => x.Value.ToLowerInvariant());
+        Regex.Replace(encoded, "%[0-9A-F]{2}", x => x.Value.ToLowerInvariant(), RegexOptions.None, TimeSpan.FromSeconds(1));
 
     private static IEnumerable<string> FormsOf(string secret)
     {
