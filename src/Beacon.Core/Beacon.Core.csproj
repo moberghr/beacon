@@ -25,6 +25,12 @@
 		<InternalsVisibleTo Include="Beacon.Connector.SqlServer" />
 		<InternalsVisibleTo Include="Beacon.Connector.AzureSynapse" />
 		<InternalsVisibleTo Include="Beacon.Tests" />
+		<InternalsVisibleTo Include="Beacon.Core.PostgreSql" />
+		<InternalsVisibleTo Include="Beacon.Core.SqlServer" />
+		<InternalsVisibleTo Include="Beacon.Connector.Api" />
+		<InternalsVisibleTo Include="Beacon.Connector.BigQuery" />
+		<InternalsVisibleTo Include="Beacon.Connector.CloudWatch" />
+		<InternalsVisibleTo Include="Beacon.Connector.Databricks" />
 	</ItemGroup>
 
 	<ItemGroup>

@@ -166,7 +166,7 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<IDbContextFactory<BeaconContext>>(sp =>
         {
             var factory = sp.GetRequiredService<IDbContextFactory<PostgreSqlBeaconContext>>();
-            return new BeaconContextFactoryAdapter(factory);
+            return new BeaconContextFactoryAdapter<PostgreSqlBeaconContext>(factory);
         });
 
         // Register BeaconContext as scoped (required for Data Protection key persistence)
@@ -198,21 +198,6 @@ public static class ServiceCollectionExtensions
                 "Beacon cannot share this NpgsqlDataSource: No Reset On Close is on, so the search path Beacon sets would survive the "
                 + "connection's return to the pool and redirect the host's next query on it. Turn it off, or give Beacon a data "
                 + "source of its own.");
-        }
-    }
-
-    private class BeaconContextFactoryAdapter : IDbContextFactory<BeaconContext>
-    {
-        private readonly IDbContextFactory<PostgreSqlBeaconContext> _factory;
-
-        public BeaconContextFactoryAdapter(IDbContextFactory<PostgreSqlBeaconContext> factory)
-        {
-            _factory = factory;
-        }
-
-        public BeaconContext CreateDbContext()
-        {
-            return _factory.CreateDbContext();
         }
     }
 }

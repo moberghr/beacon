@@ -48,7 +48,7 @@ public static class ServiceCollectionExtensions
         builder.Services.AddSingleton<IDbContextFactory<BeaconContext>>(sp =>
         {
             var factory = sp.GetRequiredService<IDbContextFactory<SqlServerBeaconContext>>();
-            return new BeaconContextFactoryAdapter(factory);
+            return new BeaconContextFactoryAdapter<SqlServerBeaconContext>(factory);
         });
 
         // Register BeaconContext as scoped (required for Data Protection key persistence)
@@ -68,20 +68,5 @@ public static class ServiceCollectionExtensions
         return options
             .UseSqlServer(connectionString, x => x.MigrationsHistoryTable("__EFMigrationsHistory", BeaconDatabaseConfiguration.DefaultSchema))
             .ReplaceService<IMigrationsSqlGenerator, SchemaAwareMigrationsSqlGenerator>();
-    }
-
-    private class BeaconContextFactoryAdapter : IDbContextFactory<BeaconContext>
-    {
-        private readonly IDbContextFactory<SqlServerBeaconContext> _factory;
-
-        public BeaconContextFactoryAdapter(IDbContextFactory<SqlServerBeaconContext> factory)
-        {
-            _factory = factory;
-        }
-
-        public BeaconContext CreateDbContext()
-        {
-            return _factory.CreateDbContext();
-        }
     }
 }

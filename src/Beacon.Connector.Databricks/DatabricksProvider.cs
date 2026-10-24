@@ -39,10 +39,9 @@ public class DatabricksProvider(
     public DataSourceType SupportedType => DataSourceType.Databricks;
     public string GetQueryLanguageName() => "Databricks SQL";
 
-    public async Task<ConnectionTestResult> TestConnectionAsync(DataSource dataSource, CancellationToken cancellationToken = default)
+    public Task<ConnectionTestResult> TestConnectionAsync(DataSource dataSource, CancellationToken cancellationToken = default)
     {
-        var stopwatch = Stopwatch.StartNew();
-        try
+        return ConnectorProviderSupport.TestConnectionAsync(logger, dataSource, "Databricks", async () =>
         {
             var config = ParseConfiguration(dataSource);
             using var client = CreateHttpClient(config);
@@ -50,31 +49,14 @@ public class DatabricksProvider(
             using var response = await client.GetAsync($"https://{config.Host}/api/2.0/sql/warehouses", cancellationToken);
             response.EnsureSuccessStatusCode();
 
-            stopwatch.Stop();
-            return new ConnectionTestResult
+            return new Dictionary<string, object?>
             {
-                Success = true,
-                TestDurationMs = stopwatch.Elapsed.TotalMilliseconds,
-                ConnectionInfo = new Dictionary<string, object?>
-                {
-                    ["Host"] = config.Host,
-                    ["HttpPath"] = config.HttpPath,
-                    ["Catalog"] = config.Catalog,
-                    ["Schema"] = config.Schema
-                }
+                ["Host"] = config.Host,
+                ["HttpPath"] = config.HttpPath,
+                ["Catalog"] = config.Catalog,
+                ["Schema"] = config.Schema
             };
-        }
-        catch (Exception ex)
-        {
-            logger.LogError(ex, "Connection test failed for Databricks data source {DataSourceId}", dataSource.Id);
-            stopwatch.Stop();
-            return new ConnectionTestResult
-            {
-                Success = false,
-                ErrorMessage = ConnectionFailureDescriber.Describe(ex),
-                TestDurationMs = stopwatch.Elapsed.TotalMilliseconds
-            };
-        }
+        });
     }
 
     public Task<ProviderQueryResult> ExecuteQueryAsync(DataSource dataSource, string query, Dictionary<string, object?> parameters, CancellationToken cancellationToken = default)
@@ -298,11 +280,7 @@ public class DatabricksProvider(
             errors.Add(readOnlyError);
         }
 
-        return Task.FromResult(new QueryValidationResult
-        {
-            IsValid = errors.Count == 0,
-            Errors = errors
-        });
+        return ConnectorProviderSupport.ValidationVerdict(errors);
     }
 
     // The catalog the source is configured for; null (no catalog may be named) when none is set, undetermined (no catalog either) when its settings cannot be read.
@@ -321,9 +299,9 @@ public class DatabricksProvider(
 
     private DatabricksConfiguration ParseConfiguration(DataSource dataSource)
     {
-        var decryptedJson = connectionResolver.GetConnectionData(dataSource);
-        return JsonSerializer.Deserialize<DatabricksConfiguration>(decryptedJson)
-            ?? throw new BeaconException("Failed to parse Databricks configuration");
+        return ConnectorProviderSupport.ParseConfiguration<DatabricksConfiguration>(
+            connectionResolver.GetConnectionData(dataSource),
+            "Failed to parse Databricks configuration");
     }
 
     private HttpClient CreateHttpClient(DatabricksConfiguration config)
