@@ -7,6 +7,7 @@ using Beacon.Core.Adapters.Jira;
 using Beacon.Core.Adapters.Mail;
 using Beacon.Core.Adapters.Slack;
 using Beacon.Core.Adapters.Teams;
+using Beacon.Core.Http;
 using Beacon.Core.Adapters.Webhook;
 using Beacon.Core.Authentication;
 using Beacon.Core.Authentication.Providers;
@@ -78,6 +79,7 @@ public static class ServiceConfiguration
         services.AddSingleton(configurationOptions);
 
         services.AddHttpClient();
+        services.AddBeaconOutboundHttpClients();
         services.AddMemoryCache();
 
         // Note: IBeaconUserContext is registered by the UI layer; Core provides the interfaces and implementations.
@@ -135,6 +137,7 @@ public static class ServiceConfiguration
         // their own derivation; and the scoped log of the statements a call ran on data sources, which its audit row takes.
         services.TryAddSingleton(new Mcp.McpContentHasher(Mcp.McpCallerSubjectHasher.KeySource(configuration, encryptionKey)));
         services.TryAddScoped<Mcp.IMcpStatementLog, Mcp.McpStatementLog>();
+        services.TryAddScoped<Helpers.LegacyListTruncation>();
 
         // The security audit trail (Beacon:Audit): append-only events with a keyed HMAC each (the integrity key, else one
         // derived for this purpose from the caller-hash secret; earlier keys still verify), sealed and kept append-only by
@@ -225,6 +228,9 @@ public static class ServiceConfiguration
         services.TryAddTransient<Services.Metadata.IColumnValueSampler, Services.Metadata.ColumnValueSampler>();
         services.TryAddTransient<Services.Metadata.ISchemaRelationshipSyncService, Services.Metadata.SchemaRelationshipSyncService>();
         services.TryAddTransient<Services.Metadata.ISchemaGraphService, Services.Metadata.SchemaGraphService>();
+        // The stored catalog the ask path reads, cached per data source and project; every catalog write invalidates it.
+        services.TryAddSingleton<Services.Metadata.CatalogSnapshotCache>();
+        services.TryAddSingleton<Services.Metadata.ICatalogSnapshotCache>(x => x.GetRequiredService<Services.Metadata.CatalogSnapshotCache>());
         services.TryAddTransient<IAnomalyDetectionService, AnomalyDetectionService>();
         services.TryAddTransient<IDataQualitySqlGenerator, DataQualitySqlGenerator>();
         services.TryAddTransient<IDataQualityEvaluationService, DataQualityEvaluationService>();
@@ -263,6 +269,7 @@ public static class ServiceConfiguration
         services.TryAddSingleton<ContentRetentionInterceptor>();
 
         // API key service (always registered — used for stateless API authentication)
+        services.TryAddSingleton<Services.Security.ApiKeyLastUsedThrottle>();
         services.TryAddTransient<Services.Security.IApiKeyService, Services.Security.ApiKeyService>();
 
         // Query guardrail service (always registered — enforces read-only access and PII detection)
@@ -368,6 +375,12 @@ public static class ServiceConfiguration
             .ValidateOnStart();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.MigrationOptions>, Configuration.MigrationOptionsValidator>());
 
+        // Request bounds on Beacon's own routes (Beacon:RequestLimits). ValidateOnStart so a negative value fails the host at boot.
+        services.AddOptions<Configuration.RequestLimitsOptions>()
+            .Bind(configuration.GetSection(Configuration.RequestLimitsOptions.SectionName))
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.RequestLimitsOptions>, Configuration.RequestLimitsOptionsValidator>());
+
         // AI actor think cooldown (Beacon:AiActors). ValidateOnStart so a cooldown out of range fails the host at boot.
         services.AddOptions<Configuration.AiActorOptions>()
             .Bind(configuration.GetSection(Configuration.AiActorOptions.SectionName))
@@ -381,12 +394,28 @@ public static class ServiceConfiguration
             .ValidateOnStart();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.MetadataRefreshOptions>, Configuration.MetadataRefreshOptionsValidator>());
         services.TryAddSingleton<Services.Metadata.ForcedMetadataRefreshCooldown>();
+        services.TryAddTransient<Services.Metadata.ForcedMetadataRefresh>();
+
+        // Long work a caller starts and follows (a background metadata refresh, ...): one executor per task kind.
+        services.TryAddScoped<BackgroundTasks.IBackgroundTaskService, BackgroundTasks.BackgroundTaskService>();
+        services.TryAddEnumerable(ServiceDescriptor.Transient<BackgroundTasks.IBackgroundTaskExecutor, Services.Metadata.MetadataRefreshTaskExecutor>());
+        services.TryAddEnumerable(ServiceDescriptor.Transient<BackgroundTasks.IBackgroundTaskExecutor, Handlers.DataMigration.MigrationRunTaskExecutor>());
+        services.TryAddScoped<BackgroundTasks.BackgroundTaskRequesterPermissions>();
+        services.TryAddTransient<BackgroundTasks.IBackgroundTaskHeartbeat, BackgroundTasks.BackgroundTaskHeartbeat>();
 
         // The stored sample values a metadata response carries: an Admin's only.
         services.TryAddTransient<Handlers.DataSources.MetadataSampleView>();
 
         // Rate limiter (singleton so the in-memory sliding windows are shared across requests)
         services.TryAddSingleton<Services.Security.RateLimiter>();
+
+        // Request limits on Beacon's routes and the password lockout (Beacon:RateLimits). ValidateOnStart so a limit out of
+        // range fails the host at boot. The API and the MCP server keep the counts (Beacon.Api, Beacon.MCP); the lockout is
+        // stored on the user.
+        services.AddOptions<Configuration.RateLimitOptions>()
+            .Bind(configuration.GetSection(Configuration.RateLimitOptions.SectionName))
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.RateLimitOptions>, Configuration.RateLimitOptionsValidator>());
 
         // Password sign-in through the login form (Beacon:UserManagement:LocalLogin), bound onto the code-configured
         // options whether or not user management is on: the login endpoint and the password providers read it. Binding
@@ -474,9 +503,21 @@ public static class ServiceConfiguration
         // is refused.
         services.TryAddSingleton<ILlmProviderCatalog, AiDisabledLlmProviderCatalog>();
 
-        // Embed token service (HS256 mint/validate for embeddable Beacon integrations)
+        // Embed token service (HS256 mint/validate for embeddable Beacon integrations). Obsolete: the embed routes use
+        // Beacon:Embed and its own codec; kept registered for hosts that resolve it until 6.0.
         services.Configure<EmbedTokenOptions>(configuration.GetSection("Beacon:EmbedToken"));
         services.AddSingleton<IValidateOptions<EmbedTokenOptions>, EmbedTokenOptionsValidator>();
+
+        // Embedding saved queries (Beacon:Embed): off by default, a deployment lock. ValidateOnStart so an enabled host
+        // without a strong signing key (or with the encryption key as one) fails at boot; the message never holds a key.
+        services.AddOptions<EmbedOptions>()
+            .Bind(configuration.GetSection(EmbedOptions.SectionName))
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<EmbedOptions>>(new EmbedOptionsValidator(
+            encryptionKey,
+            PreviousEncryptionKeys(configuration),
+            configuration.GetSection("Beacon:EmbedToken")["SigningKey"])));
+        services.TryAddSingleton<EmbedTokenCodec>();
 
         // Deployment-level MCP locks and ceilings (Beacon:Mcp). An absent section = no locks, no ceilings.
         // ValidateOnStart so a non-positive ceiling fails the host at boot, not on the first query.
@@ -488,6 +529,34 @@ public static class ServiceConfiguration
         // MCP audit retention purge (Beacon:Mcp:Audit:RetentionDays); a null window is a no-op. Scheduled by
         // the host as a Warp recurring job (Beacon.SampleProject/Warp/Jobs/McpMaintenanceJobs.cs).
         services.TryAddTransient<IMcpAuditRetentionService, McpAuditRetentionService>();
+
+        // Data retention (Beacon:Retention): one job over every registered IRetentionTarget (0 = keep forever, the
+        // default: nothing is deleted unless the host sets a window) plus the content expiry of the content stores, content first, each step within its share of the run's time budget. ValidateOnStart so an unknown target name, a
+        // negative window or a keep-forever window under the lock fails the host at boot. A component adds a store with
+        // one more TryAddEnumerable target. Scheduled by the host (the sample's Warp job data-retention).
+        services.AddOptions<Configuration.RetentionOptions>()
+            .Bind(configuration.GetSection(Configuration.RetentionOptions.SectionName))
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.RetentionOptions>, Configuration.RetentionOptionsValidator>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IRetentionTarget, SubscriptionRunsRetentionTarget>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IRetentionTarget, NotificationsRetentionTarget>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IRetentionTarget, AnomalyBaselinesRetentionTarget>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IRetentionTarget, AnomalyEventsRetentionTarget>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IRetentionTarget, AiActorExecutionsRetentionTarget>());
+
+        // After the executions: a plan whose execution that target just deleted can go in the same run.
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IRetentionTarget, AiActorPlansRetentionTarget>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IRetentionTarget, MigrationRunsRetentionTarget>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IRetentionTarget, McpEvalRunsRetentionTarget>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IRetentionTarget, ExecutionLogRetentionTarget>());
+        services.TryAddTransient<IDataRetentionService, DataRetentionService>();
+
+        // Under the retention lock the learning-signal window Admins edit at runtime resolves to at most Retention:Days.
+        // Bound from the section directly: the retention validator reads the MCP options, so IOptions here would loop.
+        services.AddOptions<Configuration.McpDeploymentOptions>()
+            .PostConfigure(x => Configuration.RetentionLock.CapLearningSignals(
+                x,
+                configuration.GetSection(Configuration.RetentionOptions.SectionName).Get<Configuration.RetentionOptions>() ?? new Configuration.RetentionOptions()));
 
         // Telemetry (Beacon:Telemetry). An absent section = no content on spans.
         services.AddOptions<Configuration.BeaconTelemetryOptions>()
@@ -554,7 +623,9 @@ public static class ServiceConfiguration
         services.TryAddScoped<Handlers.DataMigration.MigrationJobAccess>();
         services.TryAddScoped<Handlers.DataMigration.MigrationWritePolicy>();
         services.TryAddSingleton<TimeProvider>(TimeProvider.System);
+#pragma warning disable CS0618 // the obsolete embed token service stays registered until 6.0
         services.TryAddSingleton<IEmbedTokenService, EmbedTokenService>();
+#pragma warning restore CS0618
 
         return new BeaconBuilder(services, configuration);
     }

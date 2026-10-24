@@ -767,6 +767,82 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.ToTable("app_setting_history", "beacon");
                 });
 
+            modelBuilder.Entity("Beacon.Core.Data.Entities.BackgroundTask", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<string>("FailureCode")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("failure_code");
+
+                    b.Property<DateTime?>("FinishedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("finished_time");
+
+                    b.Property<DateTime?>("HeartbeatTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("heartbeat_time");
+
+                    b.Property<string>("JobId")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("job_id");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer")
+                        .HasColumnName("kind");
+
+                    b.Property<string>("PermissionSource")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("permission_source");
+
+                    b.Property<int?>("RequestedByUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("requested_by_user_id");
+
+                    b.Property<string>("RequesterStampHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("requester_stamp_hash");
+
+                    b.Property<DateTime?>("StartedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("started_time");
+
+                    b.Property<int>("State")
+                        .HasColumnType("integer")
+                        .HasColumnName("state");
+
+                    b.Property<int>("SubjectId")
+                        .HasColumnType("integer")
+                        .HasColumnName("subject_id");
+
+                    b.Property<int?>("WarningCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("warning_count");
+
+                    b.HasKey("Id")
+                        .HasName("pk_background_tasks");
+
+                    b.HasIndex("Kind", "SubjectId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_background_tasks_kind_subject_id")
+                        .HasFilter("state IN (0, 1)");
+
+                    b.ToTable("background_tasks", "beacon");
+                });
+
             modelBuilder.Entity("Beacon.Core.Data.Entities.BeaconRole", b =>
                 {
                     b.Property<int>("Id")
@@ -846,6 +922,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("character varying(200)")
                         .HasColumnName("external_id");
 
+                    b.Property<int>("FailedSignInCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("failed_sign_in_count");
+
                     b.Property<string>("IdentityProvider")
                         .HasMaxLength(500)
                         .HasColumnType("character varying(500)")
@@ -863,9 +943,17 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("is_super_admin");
 
+                    b.Property<DateTime?>("LastFailedSignInTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_failed_sign_in_time");
+
                     b.Property<DateTime?>("LastLoginAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("last_login_at");
+
+                    b.Property<DateTime?>("LockoutEndTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("lockout_end_time");
 
                     b.Property<bool>("MustChangePassword")
                         .HasColumnType("boolean")
@@ -1798,6 +1886,122 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasDatabaseName("ix_data_sources_host_managed_key");
 
                     b.ToTable("data_sources", "beacon");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.EmbedGrant", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("AllowedOriginsJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("allowed_origins_json");
+
+                    b.Property<string>("CreatedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("created_by_user_id");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<DateTime>("ExpiresTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("expires_time");
+
+                    b.Property<string>("FixedParametersJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("fixed_parameters_json");
+
+                    b.Property<DateTime?>("LastTokenIssuedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("last_token_issued_time");
+
+                    b.Property<string>("LockedParameterNamesJson")
+                        .IsRequired()
+                        .HasColumnType("text")
+                        .HasColumnName("locked_parameter_names_json");
+
+                    b.Property<string>("ModifiedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("modified_by_user_id");
+
+                    b.Property<DateTime?>("ModifiedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("modified_time");
+
+                    b.Property<string>("Name")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("name");
+
+                    b.Property<int>("ProjectId")
+                        .HasColumnType("integer")
+                        .HasColumnName("project_id");
+
+                    b.Property<string>("PublicId")
+                        .IsRequired()
+                        .HasMaxLength(32)
+                        .IsUnicode(false)
+                        .HasColumnType("character(32)")
+                        .HasColumnName("public_id")
+                        .IsFixedLength();
+
+                    b.Property<int>("QueryId")
+                        .HasColumnType("integer")
+                        .HasColumnName("query_id");
+
+                    b.Property<int>("QueryVersionId")
+                        .HasColumnType("integer")
+                        .HasColumnName("query_version_id");
+
+                    b.Property<string>("RevokedByUserId")
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("revoked_by_user_id");
+
+                    b.Property<DateTime?>("RevokedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("revoked_time");
+
+                    b.Property<string>("SecretHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .IsUnicode(false)
+                        .HasColumnType("character(64)")
+                        .HasColumnName("secret_hash")
+                        .IsFixedLength();
+
+                    b.HasKey("Id")
+                        .HasName("pk_embed_grants");
+
+                    b.HasIndex("PublicId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_embed_grants_public_id");
+
+                    b.HasIndex("QueryId")
+                        .HasDatabaseName("ix_embed_grants_query_id");
+
+                    b.HasIndex("QueryVersionId")
+                        .HasDatabaseName("ix_embed_grants_query_version_id");
+
+                    b.HasIndex("SecretHash")
+                        .IsUnique()
+                        .HasDatabaseName("ix_embed_grants_secret_hash");
+
+                    b.HasIndex("ProjectId", "RevokedTime")
+                        .HasDatabaseName("ix_embed_grants_project_id_revoked_time");
+
+                    b.ToTable("embed_grants", "beacon");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.ManualQueryExecutionLog", b =>
@@ -5707,6 +5911,36 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasConstraintName("fk_data_quality_scores_data_sources_data_source_id");
 
                     b.Navigation("DataSource");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.EmbedGrant", b =>
+                {
+                    b.HasOne("Beacon.Core.Data.Entities.Projects.Project", "Project")
+                        .WithMany()
+                        .HasForeignKey("ProjectId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_embed_grants_projects_project_id");
+
+                    b.HasOne("Beacon.Core.Data.Entities.Query", "Query")
+                        .WithMany()
+                        .HasForeignKey("QueryId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_embed_grants_queries_query_id");
+
+                    b.HasOne("Beacon.Core.Data.Entities.QueryVersion", "QueryVersion")
+                        .WithMany()
+                        .HasForeignKey("QueryVersionId")
+                        .OnDelete(DeleteBehavior.Restrict)
+                        .IsRequired()
+                        .HasConstraintName("fk_embed_grants_query_versions_query_version_id");
+
+                    b.Navigation("Project");
+
+                    b.Navigation("Query");
+
+                    b.Navigation("QueryVersion");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.ManualQueryExecutionLog", b =>

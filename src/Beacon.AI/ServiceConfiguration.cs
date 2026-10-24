@@ -95,12 +95,19 @@ public static class ServiceConfiguration
         services.TryAddScoped<AiActorService>();
         services.TryAddScoped<IAiActorServiceExtended>(sp => sp.GetRequiredService<AiActorService>());
         services.TryAddScoped<Core.Services.IAiActorService>(sp => sp.GetRequiredService<AiActorService>());
+        services.TryAddEnumerable(ServiceDescriptor.Transient<Core.BackgroundTasks.IBackgroundTaskExecutor, AiActorThinkTaskExecutor>());
 
         // GitHub Scanner
-        services.AddOptions<GitHubScanOptions>().Bind(configuration.GetSection(GitHubScanOptions.SectionName));
+        services.AddOptions<GitHubScanOptions>()
+            .Bind(configuration.GetSection(GitHubScanOptions.SectionName))
+            .Validate(
+                x => x.TaskDeadline > TimeSpan.Zero && x.TaskDeadline <= TimeSpan.FromHours(GitHubScanOptions.MaxTaskDeadlineHours),
+                $"{GitHubScanOptions.SectionName}:TaskDeadline must be more than zero and at most {GitHubScanOptions.MaxTaskDeadlineHours} hours.")
+            .ValidateOnStart();
         services.TryAddTransient<GitHubApiClient>();
         services.AddTransient<ICodeAnalyzer, CSharpCodeAnalyzer>();
         services.TryAddTransient<IGitHubScannerService, GitHubScannerService>();
+        services.TryAddEnumerable(ServiceDescriptor.Transient<Beacon.Core.BackgroundTasks.IBackgroundTaskExecutor, Handlers.Projects.RepositoryScanTaskExecutor>());
 
         // Disabled by default; Moberg.Beacon.AI.Embeddings.Onnx replaces it through AddBeaconOnnxEmbeddings().
         services.TryAddSingleton<IBeaconEmbeddingService, DisabledEmbeddingService>();
@@ -112,6 +119,8 @@ public static class ServiceConfiguration
         // Ask-time value grounding (spec item 5) — probes candidate string columns for literal-looking
         // words in the question, fail-closed, gated by EnableValueGrounding.
         services.TryAddTransient<IValueGroundingService, ValueGroundingService>();
+        // The per-credential slots its probes may take beside the call; Beacon.MCP serves an MCP caller's. None by default.
+        services.TryAddScoped<IProbeConcurrencyLeases, NoProbeConcurrencyLeases>();
 
         // Project Documentation (living knowledge base)
         services.TryAddTransient<IProjectDocumentationService, ProjectDocumentationService>();

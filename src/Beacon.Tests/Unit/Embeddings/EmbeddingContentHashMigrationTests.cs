@@ -39,7 +39,7 @@ public class EmbeddingContentHashMigrationTests
         var differ = context.GetService<IMigrationsModelDiffer>();
 
         var migration = MigrationNamed(context, migrations, Suffix);
-        var previous = MigrationNamed(context, migrations, "_AddConnectionChangeApproval");
+        var previous = MigrationNamed(context, migrations, "_AddBackgroundTaskGrantAndHeartbeat");
         var before = Initialized(previous.TargetModel!, initializer).GetRelationalModel();
         var target = Initialized(migration.TargetModel!, initializer).GetRelationalModel();
 

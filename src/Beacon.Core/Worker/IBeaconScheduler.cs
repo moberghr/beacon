@@ -32,4 +32,11 @@ public interface IBeaconScheduler
     // caller logs that the old target's schema stays until a refresh).
     Task<string?> EnqueueMetadataRefresh(int dataSourceId)
         => Task.FromResult<string?>(null);
+
+    // Fire-and-forget run of a recorded background task (Beacon.Core.BackgroundTasks): the host's job calls
+    // IBackgroundTaskService.ExecuteAsync(taskId). notifyUserId, when set, is the user who receives the job's JobStatusChanged
+    // push events. Returns the job id, or null when this host runs no such job: the task then runs in the request that
+    // started it.
+    Task<string?> EnqueueBackgroundTask(int taskId, string? notifyUserId)
+        => Task.FromResult<string?>(null);
 }

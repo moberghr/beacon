@@ -2,12 +2,14 @@ using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 using ModelContextProtocol;
 using ModelContextProtocol.AspNetCore;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Beacon.AI.Services.Mcp;
 using Beacon.Core.Authorization;
+using Beacon.Core.Configuration;
 using Beacon.Core.Services;
 using Beacon.Core.SavedQueries;
 using Beacon.MCP.Discovery;
@@ -65,6 +67,12 @@ public static class ServiceConfiguration
 
         // MaxConcurrentQueriesPerKey: one in-process count per instance, shared by every request.
         services.TryAddSingleton<McpQueryConcurrencyLimiter>();
+        // Value-grounding probes that run beside an MCP call take further slots of the caller's count (Beacon.AI's default
+        // gives none). Beacon.AI registers first, so its default is replaced.
+        services.Replace(ServiceDescriptor.Scoped<Beacon.AI.Services.Knowledge.IProbeConcurrencyLeases, McpProbeConcurrencyLeases>());
+
+        // Requests per caller on the MCP route and questions per caller on the ask tool (Beacon:RateLimits).
+        services.TryAddSingleton<McpRateLimiter>();
 
         // Ask SQL pipeline executor seam: adapts IQueryExecutionService onto IAskSqlPipeline's execution
         // interface (§ Architecture ①) so ProjectAskTool never touches the pipeline's execution details.
@@ -117,6 +125,18 @@ public static class ServiceConfiguration
                 options.SessionMode = HttpServerSessionMode.StatefulForInitializeClients;
                 options.IdleTimeout = TimeSpan.FromMinutes(30);
             });
+
+        // The idle-session cap comes from Beacon:RequestLimits; registered after the transport options above, and before any
+        // host Configure<HttpServerTransportOptions>, so a host's own value wins.
+        services.AddOptions<HttpServerTransportOptions>()
+            .Configure<IOptions<RequestLimitsOptions>>((transport, limits) =>
+            {
+                if (limits.Value.McpMaxIdleSessions > 0)
+                {
+                    transport.MaxIdleSessionCount = limits.Value.McpMaxIdleSessions;
+                }
+            });
+        services.TryAddSingleton<McpInitializeLimiter>();
 
         // Clients are told at initialize the name the discovery documents publish: the host's ResourceName when set.
         services.AddOptions<McpServerOptions>()

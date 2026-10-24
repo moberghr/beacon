@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
-import { fireEvent, screen, within } from '@testing-library/react';
+import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { mswServer } from '../../../vitest.setup';
 import { renderWithProviders } from '@/test/render';
 import { HealthStatus, NotificationStatus } from '@/lib/enums';
@@ -56,7 +56,7 @@ function serve(rows: Array<Record<string, unknown>>, ownerNotAuthorizedContracts
         },
       }),
     ),
-    http.get('*/beacon/api/query-folders', () => HttpResponse.json({ folders: [] })),
+    http.get('*/beacon/api/query-folders/paged', () => HttpResponse.json({ items: [], totalCount: 0, pageCount: 0 })),
     http.get('*/beacon/api/control-tower/subscriptions/2/detail', () =>
       HttpResponse.json({
         detail: {
@@ -92,6 +92,23 @@ describe('ControlTowerPage', () => {
 
     expect(await screen.findByText('2 data contracts are not being evaluated')).toBeInTheDocument();
     expect(screen.getByRole('link', { name: 'Data quality' })).toHaveAttribute('href', '/data-quality');
+  });
+
+  it('names the folder picked in the URL after a reload, resolving it by id', async () => {
+    serve([healthRow({})]);
+    mswServer.use(
+      http.get('*/beacon/api/query-folders/paged', ({ request }) =>
+        HttpResponse.json(
+          new URL(request.url).searchParams.get('folderId') === '5'
+            ? { items: [{ id: 5, name: 'Finance', path: '/Finance' }], totalCount: 1, pageCount: 1 }
+            : { items: [], totalCount: 0, pageCount: 0 },
+        ),
+      ),
+    );
+
+    renderWithProviders(<ControlTowerPage />, { initialEntries: ['/control-tower?folderId=5'] });
+
+    await waitFor(() => expect(screen.getByRole('button', { name: 'Folder' })).toHaveTextContent('/Finance'));
   });
 
   it('shows no contract warning while every contract is evaluated', async () => {
