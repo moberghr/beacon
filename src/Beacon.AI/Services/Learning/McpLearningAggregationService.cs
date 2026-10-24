@@ -376,21 +376,51 @@ internal sealed class McpLearningAggregationService(
             return;
         }
 
+        // One read for every correction (the scope narrowed in SQL, the exact match made here), not one per correction.
+        // Names compare ignoring case so a case-insensitive database still finds what it always found; a column kept by
+        // mistake is the safe error, a live one marked superseded is not.
+        var dataSourceIds = corrections
+            .Select(x => x.DataSourceId)
+            .Distinct()
+            .ToList();
+        var tableNames = corrections
+            .Select(x => x.TableName)
+            .Distinct()
+            .ToList();
+        var columnNames = corrections
+            .Select(x => x.ColumnName)
+            .Distinct()
+            .ToList();
+
+        var existingColumns = await context.ColumnMetadata
+            .Where(x => dataSourceIds.Contains(x.DatabaseMetadata.DataSourceId))
+            .Where(x => tableNames.Contains(x.DatabaseMetadata.TableName))
+            .Where(x => columnNames.Contains(x.ColumnName))
+            .Select(x =>
+                new
+                {
+                    x.DatabaseMetadata.DataSourceId,
+                    x.DatabaseMetadata.SchemaName,
+                    x.DatabaseMetadata.TableName,
+                    x.ColumnName
+                })
+            .ToListAsync(ct);
+
+        var existingKeys = existingColumns
+            .Select(x => ColumnKey(x.DataSourceId, x.SchemaName, x.TableName, x.ColumnName))
+            .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
         foreach (var correction in corrections)
         {
-            var columnExists = await context.ColumnMetadata
-                .Where(x => x.DatabaseMetadata.DataSourceId == correction.DataSourceId)
-                .Where(x => x.DatabaseMetadata.SchemaName == correction.SchemaName)
-                .Where(x => x.DatabaseMetadata.TableName == correction.TableName)
-                .Where(x => x.ColumnName == correction.ColumnName)
-                .AnyAsync(ct);
-
-            if (!columnExists)
+            if (!existingKeys.Contains(ColumnKey(correction.DataSourceId, correction.SchemaName, correction.TableName, correction.ColumnName)))
             {
                 correction.SupersededAt = DateTime.UtcNow;
             }
         }
     }
+
+    private static string ColumnKey(int dataSourceId, string? schemaName, string? tableName, string? columnName) =>
+        $"{dataSourceId}\u001f{schemaName}\u001f{tableName}\u001f{columnName}";
 
     // LLM-PRIMARY (§ Architecture ⑦): per correction cluster, the LLM lesson extractor is tried first;
     // its structured lesson is used when present, otherwise the deterministic regex + ColumnSimilarity
@@ -1093,6 +1123,14 @@ internal sealed class McpLearningAggregationService(
 
         var patchCount = 0;
 
+        // The current descriptions the new patches quote, read once for every pattern still to propose instead of once
+        // per pattern.
+        var pending = approvedPatterns
+            .Where(x => !existingSet.Contains(PatchKey(x)))
+            .ToList();
+        var columnDescriptions = await ReadColumnDescriptionsAsync(context, pending, ct);
+        var tableDescriptions = await ReadTableDescriptionsAsync(context, pending, ct);
+
         foreach (var pattern in approvedPatterns)
         {
             switch (pattern.PatternType)
@@ -1103,13 +1141,7 @@ internal sealed class McpLearningAggregationService(
                         var key = $"{pattern.DataSourceId}:{McpDocPatchTarget.ColumnDescription}:{targetId}";
                         if (existingSet.Contains(key)) continue;
 
-                        var currentDesc = await context.ColumnMetadata
-                            .Where(c => c.DatabaseMetadata.DataSourceId == pattern.DataSourceId)
-                            .Where(c => c.DatabaseMetadata.SchemaName == pattern.SchemaName)
-                            .Where(c => c.DatabaseMetadata.TableName == pattern.TableName)
-                            .Where(c => c.ColumnName == pattern.ColumnName)
-                            .Select(c => c.Description)
-                            .FirstOrDefaultAsync(ct);
+                        var currentDesc = FindDescription(columnDescriptions, ColumnKey(pattern.DataSourceId, pattern.SchemaName, pattern.TableName, pattern.ColumnName));
 
                         context.McpDocumentationPatches.Add(new McpDocumentationPatch
                         {
@@ -1133,12 +1165,7 @@ internal sealed class McpLearningAggregationService(
                         var key = $"{pattern.DataSourceId}:{McpDocPatchTarget.TableDescription}:{targetId}";
                         if (existingSet.Contains(key)) continue;
 
-                        var currentDesc = await context.DatabaseMetadata
-                            .Where(m => m.DataSourceId == pattern.DataSourceId)
-                            .Where(m => m.SchemaName == pattern.SchemaName)
-                            .Where(m => m.TableName == pattern.TableName)
-                            .Select(m => m.TableDescription)
-                            .FirstOrDefaultAsync(ct);
+                        var currentDesc = FindDescription(tableDescriptions, ColumnKey(pattern.DataSourceId, pattern.SchemaName, pattern.TableName, null));
 
                         var proposed = string.IsNullOrEmpty(currentDesc)
                             ? $"[Auto-generated] {pattern.PatternContent}"
@@ -1164,6 +1191,111 @@ internal sealed class McpLearningAggregationService(
         }
 
         return patchCount;
+    }
+
+    private static string PatchKey(McpLearnedPattern pattern) =>
+        pattern.PatternType == McpPatternType.SchemaCorrection
+            ? $"{pattern.DataSourceId}:{McpDocPatchTarget.ColumnDescription}:{pattern.SchemaName}.{pattern.TableName}.{pattern.ColumnName}"
+            : $"{pattern.DataSourceId}:{McpDocPatchTarget.TableDescription}:{pattern.SchemaName}.{pattern.TableName}";
+
+    private static async Task<List<(string Key, string? Description)>> ReadColumnDescriptionsAsync(
+        BeaconContext context, List<McpLearnedPattern> patterns, CancellationToken ct)
+    {
+        var wanted = patterns
+            .Where(x => x.PatternType == McpPatternType.SchemaCorrection)
+            .ToList();
+        if (wanted.Count == 0)
+        {
+            return [];
+        }
+
+        var dataSourceIds = wanted
+            .Select(x => x.DataSourceId)
+            .Distinct()
+            .ToList();
+        var tableNames = wanted
+            .Select(x => x.TableName)
+            .Distinct()
+            .ToList();
+        var columnNames = wanted
+            .Select(x => x.ColumnName)
+            .Distinct()
+            .ToList();
+
+        var rows = await context.ColumnMetadata
+            .Where(x => dataSourceIds.Contains(x.DatabaseMetadata.DataSourceId))
+            .Where(x => tableNames.Contains(x.DatabaseMetadata.TableName))
+            .Where(x => columnNames.Contains(x.ColumnName))
+            .Select(x =>
+                new
+                {
+                    x.DatabaseMetadata.DataSourceId,
+                    x.DatabaseMetadata.SchemaName,
+                    x.DatabaseMetadata.TableName,
+                    x.ColumnName,
+                    x.Description
+                })
+            .ToListAsync(ct);
+
+        return rows
+            .Select(x => (ColumnKey(x.DataSourceId, x.SchemaName, x.TableName, x.ColumnName), x.Description))
+            .ToList();
+    }
+
+    private static async Task<List<(string Key, string? Description)>> ReadTableDescriptionsAsync(
+        BeaconContext context, List<McpLearnedPattern> patterns, CancellationToken ct)
+    {
+        var wanted = patterns
+            .Where(x => x.PatternType == McpPatternType.DocumentationGap)
+            .ToList();
+        if (wanted.Count == 0)
+        {
+            return [];
+        }
+
+        var dataSourceIds = wanted
+            .Select(x => x.DataSourceId)
+            .Distinct()
+            .ToList();
+        var tableNames = wanted
+            .Select(x => x.TableName)
+            .Distinct()
+            .ToList();
+
+        var rows = await context.DatabaseMetadata
+            .Where(x => dataSourceIds.Contains(x.DataSourceId))
+            .Where(x => tableNames.Contains(x.TableName))
+            .Select(x =>
+                new
+                {
+                    x.DataSourceId,
+                    x.SchemaName,
+                    x.TableName,
+                    x.TableDescription
+                })
+            .ToListAsync(ct);
+
+        return rows
+            .Select(x => (ColumnKey(x.DataSourceId, x.SchemaName, x.TableName, null), x.TableDescription))
+            .ToList();
+    }
+
+    // The exact-case row first, then one that differs only in case (a case-insensitive database matched those too).
+    private static string? FindDescription(List<(string Key, string? Description)> rows, string key)
+    {
+        var exact = rows
+            .Where(x => string.Equals(x.Key, key, StringComparison.Ordinal))
+            .Select(x => x.Description)
+            .FirstOrDefault();
+        if (exact != null)
+        {
+            return exact;
+        }
+
+        return rows
+            .Where(x => string.Equals(x.Key, key, StringComparison.OrdinalIgnoreCase))
+            .Select(x => x.Description)
+            .FirstOrDefault();
     }
 
     private static List<string> TryDeserializeJsonArray(string json)

@@ -556,7 +556,9 @@ internal sealed class KnowledgeGraphService(
                 .Where(x => dataSourceIds.Contains(x.DataSourceId!.Value));
         }
 
-        var candidates = await scoped
+        // Rows stream through a bounded top-k selection: the vectors are scored where they arrive, so the scope's
+        // bytes are never all held at once.
+        var rows = scoped
             .Where(x => ownerTypeFilter.Contains(x.OwnerType))
             .Select(x =>
                 new
@@ -565,21 +567,11 @@ internal sealed class KnowledgeGraphService(
                     x.OwnerId,
                     x.EmbeddingBytes
                 })
-            .ToListAsync(ct);
+            .AsAsyncEnumerable();
 
-        var expectedBytes = queryVector.Length * sizeof(float);
+        var nearest = await NearestEmbeddingSelector.TopKAsync(rows, x => x.EmbeddingBytes, queryVector, limit, ct);
 
-        return candidates
-            .Where(x => x.EmbeddingBytes.Length == expectedBytes)
-            .Select(x =>
-                new
-                {
-                    x.OwnerType,
-                    x.OwnerId,
-                    Score = EmbeddingCodec.Cosine(queryVector, EmbeddingCodec.FromBytes(x.EmbeddingBytes))
-                })
-            .OrderByDescending(x => x.Score)
-            .Take(limit)
+        return nearest
             .Select(x => new EmbeddingHit(x.OwnerType, x.OwnerId))
             .ToList();
     }
