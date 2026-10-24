@@ -23,6 +23,11 @@ internal sealed class ApiKeyService(
 {
     private const string KeyPrefix = "sk-sem_";
 
+    private static readonly TimeSpan LastUsedWriteInterval = TimeSpan.FromMinutes(1);
+
+    // When this process last wrote each key's LastUsedAt (one small entry per key that has been used).
+    private static readonly ConcurrentDictionary<int, DateTime> LastUsedWrites = new();
+
     // Keys stored without an expiry that have already been warned about in this process: one warning per key.
     private static readonly ConcurrentDictionary<int, byte> NonExpiringKeysWarned = new();
 
@@ -97,15 +102,57 @@ internal sealed class ApiKeyService(
 
         // One query loads the key, its owner and the owner's roles: the Execute scope follows the owner's current write
         // permission. IgnoreQueryFilters so an archived owner is loaded (and refused below) rather than hidden by the
-        // soft-delete filter.
-        var credential = await context.ApiKeyCredentials
+        // soft-delete filter. Only the columns the checks and the caller read are selected: the owner's password hash
+        // and salt are never loaded, and nothing is tracked.
+        var row = await context.ApiKeyCredentials
             .IgnoreQueryFilters()
-            .Include(x => x.User)
-            .ThenInclude(x => x!.UserRoles)
-            .ThenInclude(x => x.Role)
+            .AsNoTracking()
             .Where(x => x.KeyHash == keyHash)
             .OrderBy(x => x.Id)
+            .Select(x =>
+                new ApiKeyRow
+                {
+                    Id = x.Id,
+                    UserId = x.UserId,
+                    Name = x.Name,
+                    KeyHash = x.KeyHash,
+                    KeyPrefix = x.KeyPrefix,
+                    Scopes = x.Scopes,
+                    AllowedProjectIds = x.AllowedProjectIds,
+                    ExpiresAt = x.ExpiresAt,
+                    LastUsedAt = x.LastUsedAt,
+                    IsRevoked = x.IsRevoked,
+                    RevokedAt = x.RevokedAt,
+                    OwnerGeneration = x.OwnerGeneration,
+                    CreatedTime = x.CreatedTime,
+                    Owner = x.User == null
+                        ? null
+                        : new OwnerRow
+                        {
+                            Id = x.User.Id,
+                            ExternalId = x.User.ExternalId,
+                            UserName = x.User.UserName,
+                            Email = x.User.Email,
+                            DisplayName = x.User.DisplayName,
+                            IsSuperAdmin = x.User.IsSuperAdmin,
+                            IsEnabled = x.User.IsEnabled,
+                            ArchivedTime = x.User.ArchivedTime,
+                            ApiKeyGeneration = x.User.ApiKeyGeneration,
+                            LastLoginAt = x.User.LastLoginAt,
+                            CreatedTime = x.User.CreatedTime,
+                            Roles = x.User.UserRoles
+                                .Select(y =>
+                                    new OwnerRoleRow
+                                    {
+                                        Name = y.Role.Name,
+                                        Level = y.Role.Level
+                                    })
+                                .ToList()
+                        }
+                })
             .FirstOrDefaultAsync(ct);
+
+        var credential = row == null ? null : row.ToCredential();
 
         // An unknown key is not logged: there is no id to log, and the presented value never is (§1.3).
         if (credential == null)
@@ -186,13 +233,24 @@ internal sealed class ApiKeyService(
 
     public async Task UpdateLastUsedAsync(int keyId, CancellationToken ct = default)
     {
-        await using var context = await contextFactory.CreateDbContextAsync(ct);
-        var key = await context.ApiKeyCredentials.FindAsync([keyId], ct);
-        if (key != null)
+        // LastUsedAt is bookkeeping, not an audit record: it moves at most once per interval, so a busy key costs one
+        // write a minute instead of one per request. The write is conditional, so concurrent requests (and processes)
+        // that all pass the check still land one update.
+        var now = timeProvider.GetUtcNow().UtcDateTime;
+        if (LastUsedWrites.TryGetValue(keyId, out var written) && written <= now && now - written < LastUsedWriteInterval)
         {
-            key.LastUsedAt = DateTime.UtcNow;
-            await context.SaveChangesAsync(ct);
+            return;
         }
+
+        var staleBefore = now - LastUsedWriteInterval;
+        await using var context = await contextFactory.CreateDbContextAsync(ct);
+        await context.ApiKeyCredentials
+            .IgnoreQueryFilters()
+            .Where(x => x.Id == keyId)
+            .Where(x => x.LastUsedAt == null || x.LastUsedAt < staleBefore)
+            .ExecuteUpdateAsync(x => x.SetProperty(y => y.LastUsedAt, now), ct);
+
+        LastUsedWrites[keyId] = now;
     }
 
     private DateTime ResolveExpiry(DateTime? requested)
@@ -226,5 +284,90 @@ internal sealed class ApiKeyService(
     {
         var bytes = SHA256.HashData(Encoding.UTF8.GetBytes(key));
         return Convert.ToHexString(bytes).ToLowerInvariant();
+    }
+
+    private sealed class OwnerRoleRow
+    {
+        public required string Name { get; init; }
+        public int Level { get; init; }
+    }
+
+    private sealed class OwnerRow
+    {
+        public int Id { get; init; }
+        public required string ExternalId { get; init; }
+        public required string UserName { get; init; }
+        public string? Email { get; init; }
+        public string? DisplayName { get; init; }
+        public bool IsSuperAdmin { get; init; }
+        public bool IsEnabled { get; init; }
+        public DateTime? ArchivedTime { get; init; }
+        public int ApiKeyGeneration { get; init; }
+        public DateTime? LastLoginAt { get; init; }
+        public DateTime CreatedTime { get; init; }
+        public List<OwnerRoleRow> Roles { get; init; } = [];
+    }
+
+    private sealed class ApiKeyRow
+    {
+        public int Id { get; init; }
+        public int? UserId { get; init; }
+        public required string Name { get; init; }
+        public required string KeyHash { get; init; }
+        public required string KeyPrefix { get; init; }
+        public string? Scopes { get; init; }
+        public string? AllowedProjectIds { get; init; }
+        public DateTime? ExpiresAt { get; init; }
+        public DateTime? LastUsedAt { get; init; }
+        public bool IsRevoked { get; init; }
+        public DateTime? RevokedAt { get; init; }
+        public int OwnerGeneration { get; init; }
+        public DateTime CreatedTime { get; init; }
+        public OwnerRow? Owner { get; init; }
+
+        public ApiKeyCredential ToCredential() =>
+            new()
+            {
+                Id = Id,
+                UserId = UserId,
+                Name = Name,
+                KeyHash = KeyHash,
+                KeyPrefix = KeyPrefix,
+                Scopes = Scopes,
+                AllowedProjectIds = AllowedProjectIds,
+                ExpiresAt = ExpiresAt,
+                LastUsedAt = LastUsedAt,
+                IsRevoked = IsRevoked,
+                RevokedAt = RevokedAt,
+                OwnerGeneration = OwnerGeneration,
+                CreatedTime = CreatedTime,
+                User = Owner == null
+                    ? null
+                    : new BeaconUser
+                    {
+                        Id = Owner.Id,
+                        ExternalId = Owner.ExternalId,
+                        UserName = Owner.UserName,
+                        Email = Owner.Email,
+                        DisplayName = Owner.DisplayName,
+                        IsSuperAdmin = Owner.IsSuperAdmin,
+                        IsEnabled = Owner.IsEnabled,
+                        ArchivedTime = Owner.ArchivedTime,
+                        ApiKeyGeneration = Owner.ApiKeyGeneration,
+                        LastLoginAt = Owner.LastLoginAt,
+                        CreatedTime = Owner.CreatedTime,
+                        UserRoles = Owner.Roles
+                            .Select(x =>
+                                new BeaconUserRole
+                                {
+                                    Role = new BeaconRole
+                                    {
+                                        Name = x.Name,
+                                        Level = x.Level
+                                    }
+                                })
+                            .ToList()
+                    }
+            };
     }
 }

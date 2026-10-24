@@ -1366,34 +1366,62 @@ public class AiActorService : IAiActorServiceExtended
     {
         await using var context = await _contextFactory.CreateDbContextAsync(cancellationToken);
 
+        // Projected: the latest run of each subscription is read in the query, not by loading every stored run.
         var queries = await context.Queries
-            .Where(q => q.AiActorId == actorId)
-            .Include(q => q.Subscriptions)
-                .ThenInclude(s => s.QueryExecutionHistory)
-            .Include(q => q.Steps)
+            .AsNoTracking()
+            .Where(x => x.AiActorId == actorId)
+            .Select(x =>
+                new
+                {
+                    x.Id,
+                    x.Name,
+                    x.Description,
+                    x.FinalQuery,
+                    FirstStepSql = x.Steps
+                        .OrderBy(y => y.StepOrder)
+                        .Select(y => y.SqlValue)
+                        .FirstOrDefault(),
+                    Subscriptions = x.Subscriptions
+                        .Select(y =>
+                            new
+                            {
+                                y.Id,
+                                y.CronExpression,
+                                y.NotificationTrigger,
+                                LastExecutionTime = y.QueryExecutionHistory
+                                    .OrderByDescending(z => z.CreatedTime)
+                                    .Select(z => (DateTime?)z.CreatedTime)
+                                    .FirstOrDefault(),
+                                LastResultCount = y.QueryExecutionHistory
+                                    .OrderByDescending(z => z.CreatedTime)
+                                    .Select(z => (int?)z.ResultCount)
+                                    .FirstOrDefault()
+                            })
+                        .ToList()
+                })
             .ToListAsync(cancellationToken);
 
-        return queries.Select(q => new AiActorPrompts.QueryContext
-        {
-            QueryId = q.Id,
-            QueryName = q.Name,
-            Sql = q.Steps.OrderBy(s => s.StepOrder).FirstOrDefault()?.SqlValue ?? q.FinalQuery ?? "",
-            Description = q.Description,
-            Subscriptions = q.Subscriptions.Select(s =>
-            {
-                var latestExecution = s.QueryExecutionHistory?
-                    .OrderByDescending(h => h.CreatedTime)
-                    .FirstOrDefault();
-                return new AiActorPrompts.SubscriptionContext
+        return queries
+            .Select(x =>
+                new AiActorPrompts.QueryContext
                 {
-                    SubscriptionId = s.Id,
-                    CronExpression = s.CronExpression,
-                    NotificationTrigger = s.NotificationTrigger.ToString(),
-                    LastExecutionTime = latestExecution?.CreatedTime,
-                    LastResultCount = latestExecution?.ResultCount
-                };
-            }).ToList()
-        }).ToList();
+                    QueryId = x.Id,
+                    QueryName = x.Name,
+                    Sql = x.FirstStepSql ?? x.FinalQuery ?? "",
+                    Description = x.Description,
+                    Subscriptions = x.Subscriptions
+                        .Select(y =>
+                            new AiActorPrompts.SubscriptionContext
+                            {
+                                SubscriptionId = y.Id,
+                                CronExpression = y.CronExpression,
+                                NotificationTrigger = y.NotificationTrigger.ToString(),
+                                LastExecutionTime = y.LastExecutionTime,
+                                LastResultCount = y.LastResultCount
+                            })
+                        .ToList()
+                })
+            .ToList();
     }
 
     private async Task<string?> GetRecentResultsAsync(int subscriptionId, CancellationToken cancellationToken)
