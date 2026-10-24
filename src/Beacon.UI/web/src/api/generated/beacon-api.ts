@@ -20152,6 +20152,7 @@ export interface MigrationExecutionDto {
   errorMessage: string | null;
   retryAttempt: number;
   isRetry: boolean;
+  jobArchived?: boolean;
 
   [key: string]: any;
 }
