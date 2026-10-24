@@ -49,6 +49,8 @@ Open **Embeds** in the sidebar (shown only to a SecurityAdmin, and only while em
 - **Expiry**: at most `MaxGrantDays` (default 90).
 - **Parameters**: every parameter of the query is either *fixed* (a value stored on the grant) or *locked* (your backend supplies it when it asks for a token). Viewers cannot change either. An unknown or missing parameter is refused.
 
+While the approval workflow is on (and self-approval is not allowed), whoever requested or approved the query's active version cannot create a grant for it; someone else must.
+
 Copy the secret now; it is not shown again. The same operations are `POST /beacon/api/embed-grants`, `GET /beacon/api/embed-grants` and `POST /beacon/api/embed-grants/{id}/revoke`. A grant is never deleted, so the audit trail stays intact. To rotate a secret, revoke the grant and create a new one.
 
 The render acts as the **grant's creator**, with at most Viewer rights and never the Admin bypass. Creation is refused when the creator could not render the query, for example an Admin who is not a member of a restricted project. If the creator is later disabled or loses the membership, the grant renders nothing.
@@ -72,7 +74,7 @@ curl -sS -X POST https://beacon.example.com/beacon/api/embed/tokens \
 }
 ```
 
-`parameters` holds a value for each *locked* parameter, as text. `ttlSeconds` is optional and can only shorten the lifetime. The token never outlives the grant.
+`parameters` holds a value for each *locked* parameter, as text. `ttlSeconds` is optional. Without it the token lives `TokenTtlSeconds` (default 300). The backend may ask for anything from 1 up to `MaxTokenTtlSeconds` (default 900), so it can also ask for a longer token than the default. The token never outlives the grant. To bound token lifetime for every caller, lower `MaxTokenTtlSeconds`.
 
 The same call from a server in C#:
 
@@ -103,7 +105,7 @@ Put the origin and `embedPath` in the iframe's `src`. The token travels in the U
   referrerpolicy="no-referrer"></iframe>
 ```
 
-When the token expires, the page shows "expired, reload" and posts this message to the host page so it can mint a new token and set a new `src`:
+When the token expires, the page shows "expired, reload" and posts this message to the host page so it can mint a new token and set a new `src`. The message carries no data, only its `type`:
 
 ```js
 window.addEventListener('message', (event) => {
@@ -132,7 +134,7 @@ The table shows the title, the columns and rows, a note when the result was cut 
 ## Threat model: what it does not protect
 
 - **The token is readable.** It is signed, not encrypted. Anyone holding it, including the viewer, can base64-decode its payload and read the grant id and the **locked parameter values**. Do not put a secret in a locked parameter. Use a value that identifies what to show (a customer id), never one that authorises something.
-- **Whoever holds a live token can render.** The token is the credential until it expires, so the short lifetime is the bound on theft. Keep `TokenTtlSeconds` low and mint per page view.
+- **Whoever holds a live token can render.** The token is the credential until it expires, so the short lifetime is the bound on theft. Lower `MaxTokenTtlSeconds` (it is the bound; `TokenTtlSeconds` is only the default) and mint per page view.
 - **An unframed open still renders.** Opening `embedPath` in its own tab shows the same table. `frame-ancestors` stops other sites from framing the page; it is not a check on who is looking. The token holder is the intended viewer, so Beacon does not block a top-level visit.
 - **Origins limit framing, not access.** The origin list is enforced by the viewer's browser. A server-side client can fetch the embed page for its own purposes, but without a token the page shows only "This view is unavailable".
 - **The grant secret is a password.** Anyone with it can mint tokens until the grant is revoked or expires. Store it as a secret on your backend, never ship it to a browser or commit it. If it leaks, revoke the grant at once.
