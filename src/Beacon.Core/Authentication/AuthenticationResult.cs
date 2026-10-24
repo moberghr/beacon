@@ -56,6 +56,12 @@ public class AuthenticationResult
     public bool LocalLoginRefused { get; init; }
 
     /// <summary>
+    /// The user is locked out after too many wrong passwords (<c>Beacon:RateLimits:Lockout</c>): refused whatever password
+    /// was sent, with the same answer as a wrong one. <see cref="Success"/> is false; for the security audit only.
+    /// </summary>
+    public bool LockedOut { get; init; }
+
+    /// <summary>
     /// The credentials were right, but the user must choose a new password before signing in (an administrator set the
     /// current one). <see cref="Success"/> is false, so no session is issued; <see cref="ErrorMessage"/> says what to do.
     /// </summary>

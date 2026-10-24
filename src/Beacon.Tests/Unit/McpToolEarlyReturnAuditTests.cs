@@ -39,12 +39,12 @@ public class McpToolEarlyReturnAuditTests
     [Test]
     public async Task GetContext_ResolveFailure_IsAudited()
     {
-        var (logs, factory, projectContext, audit) = Arrange();
+        var (logs, factory, projectContext, recorder) = Arrange();
         var tool = new GetContextTool(
             new Mock<IKnowledgeGraphService>().Object, factory, new Mock<IProjectBriefService>().Object,
-            projectContext, audit, NullLogger<GetContextTool>.Instance);
+            projectContext, recorder);
 
-        var result = await tool.ExecuteAsync(project_id: ForbiddenProjectId, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(recorder, () => tool.ExecuteAsync(project_id: ForbiddenProjectId, cancellationToken: CancellationToken.None));
 
         AssertError(result, AccessDenied);
         AssertSingleErrorRow(logs, "get_context", expectedProjectId: null);
@@ -53,10 +53,10 @@ public class McpToolEarlyReturnAuditTests
     [Test]
     public async Task Search_OffsetOverCap_IsAudited()
     {
-        var (logs, _, projectContext, audit) = Arrange();
-        var tool = BuildSearchTool(projectContext, audit);
+        var (logs, _, projectContext, recorder) = Arrange();
+        var tool = BuildSearchTool(projectContext, recorder);
 
-        var result = await tool.ExecuteAsync("customer", offset: 201, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(recorder, () => tool.ExecuteAsync("customer", offset: 201, cancellationToken: CancellationToken.None));
 
         AssertError(result, "offset must be between 0 and 200.");
         AssertSingleErrorRow(logs, "search", expectedProjectId: null);
@@ -66,10 +66,10 @@ public class McpToolEarlyReturnAuditTests
     [TestCase("   ")]
     public async Task Search_MissingQuery_IsAudited(string query)
     {
-        var (logs, _, projectContext, audit) = Arrange();
-        var tool = BuildSearchTool(projectContext, audit);
+        var (logs, _, projectContext, recorder) = Arrange();
+        var tool = BuildSearchTool(projectContext, recorder);
 
-        var result = await tool.ExecuteAsync(query, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(recorder, () => tool.ExecuteAsync(query, cancellationToken: CancellationToken.None));
 
         AssertError(result, "Missing required parameter: query");
         AssertSingleErrorRow(logs, "search", expectedProjectId: null);
@@ -78,10 +78,10 @@ public class McpToolEarlyReturnAuditTests
     [Test]
     public async Task Search_ResolveFailure_IsAudited()
     {
-        var (logs, _, projectContext, audit) = Arrange();
-        var tool = BuildSearchTool(projectContext, audit);
+        var (logs, _, projectContext, recorder) = Arrange();
+        var tool = BuildSearchTool(projectContext, recorder);
 
-        var result = await tool.ExecuteAsync("customer", project_id: ForbiddenProjectId, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(recorder, () => tool.ExecuteAsync("customer", project_id: ForbiddenProjectId, cancellationToken: CancellationToken.None));
 
         AssertError(result, AccessDenied);
         AssertSingleErrorRow(logs, "search", expectedProjectId: null);
@@ -90,10 +90,10 @@ public class McpToolEarlyReturnAuditTests
     [Test]
     public async Task GetDocumentation_ResolveFailure_IsAudited()
     {
-        var (logs, factory, projectContext, audit) = Arrange();
-        var tool = BuildDocumentationTool(factory, projectContext, audit);
+        var (logs, factory, projectContext, recorder) = Arrange();
+        var tool = BuildDocumentationTool(factory, projectContext, recorder);
 
-        var result = await tool.ExecuteAsync(project_id: ForbiddenProjectId, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(recorder, () => tool.ExecuteAsync(project_id: ForbiddenProjectId, cancellationToken: CancellationToken.None));
 
         AssertError(result, AccessDenied);
         AssertSingleErrorRow(logs, "get_documentation", expectedProjectId: null);
@@ -102,10 +102,10 @@ public class McpToolEarlyReturnAuditTests
     [Test]
     public async Task GetDocumentation_UnknownDataSourceName_IsAudited()
     {
-        var (logs, factory, projectContext, audit) = Arrange();
-        var tool = BuildDocumentationTool(factory, projectContext, audit);
+        var (logs, factory, projectContext, recorder) = Arrange();
+        var tool = BuildDocumentationTool(factory, projectContext, recorder);
 
-        var result = await tool.ExecuteAsync(datasource_name: "missing-source", cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(recorder, () => tool.ExecuteAsync(datasource_name: "missing-source", cancellationToken: CancellationToken.None));
 
         AssertError(result, "Data source 'missing-source' not found in this project.");
         AssertSingleErrorRow(logs, "get_documentation", expectedProjectId: AllowedProjectId);
@@ -114,13 +114,40 @@ public class McpToolEarlyReturnAuditTests
     [Test]
     public async Task GetDocumentation_TableNotFound_IsAudited()
     {
-        var (logs, factory, projectContext, audit) = Arrange();
-        var tool = BuildDocumentationTool(factory, projectContext, audit);
+        var (logs, factory, projectContext, recorder) = Arrange();
+        var tool = BuildDocumentationTool(factory, projectContext, recorder);
 
-        var result = await tool.ExecuteAsync(table_name: "missing_table", cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(recorder, () => tool.ExecuteAsync(table_name: "missing_table", cancellationToken: CancellationToken.None));
 
         AssertError(result, "Could not find table 'missing_table' in any data source of this project.");
         AssertSingleErrorRow(logs, "get_documentation", expectedProjectId: AllowedProjectId);
+    }
+
+    // The tools record the call; only McpAuditCallToolFilter writes it, after the tool returned, so a call has one writer.
+    [TestCase("get_context")]
+    [TestCase("search")]
+    [TestCase("get_documentation")]
+    public async Task CatalogTool_RecordsItsCall_AndLeavesTheWriteToTheAuditFilter(string toolName)
+    {
+        var (logs, factory, projectContext, recorder) = Arrange();
+
+        var result = toolName switch
+        {
+            "get_context" => await new GetContextTool(
+                new Mock<IKnowledgeGraphService>().Object, factory, new Mock<IProjectBriefService>().Object,
+                projectContext, recorder).ExecuteAsync(project_id: ForbiddenProjectId, cancellationToken: CancellationToken.None),
+            "search" => await BuildSearchTool(projectContext, recorder)
+                .ExecuteAsync("customer", project_id: ForbiddenProjectId, cancellationToken: CancellationToken.None),
+            _ => await BuildDocumentationTool(factory, projectContext, recorder)
+                .ExecuteAsync(project_id: ForbiddenProjectId, cancellationToken: CancellationToken.None)
+        };
+
+        AssertError(result, AccessDenied);
+        logs.Should().BeEmpty("the tool never writes its own audit row");
+        recorder.Tool.Should().Be(toolName);
+        recorder.IsCompleted.Should().BeTrue();
+        recorder.ErrorMessage.Should().Be(AccessDenied);
+        recorder.ProjectId.Should().BeNull();
     }
 
     private static void AssertError(CallToolResult result, string expectedMessage)
@@ -141,21 +168,21 @@ public class McpToolEarlyReturnAuditTests
         logs[0].ProjectId.Should().Be(expectedProjectId);
     }
 
-    private static ProjectSearchTool BuildSearchTool(McpProjectContext projectContext, McpAuditService audit)
+    private static ProjectSearchTool BuildSearchTool(McpProjectContext projectContext, McpToolCallRecorder recorder)
     {
         return new ProjectSearchTool(
-            new Mock<IKnowledgeGraphService>().Object, projectContext, audit, NullLogger<ProjectSearchTool>.Instance);
+            new Mock<IKnowledgeGraphService>().Object, projectContext, recorder);
     }
 
     private static ProjectGetDocumentationTool BuildDocumentationTool(
-        IDbContextFactory<BeaconContext> factory, McpProjectContext projectContext, McpAuditService audit)
+        IDbContextFactory<BeaconContext> factory, McpProjectContext projectContext, McpToolCallRecorder recorder)
     {
         return new ProjectGetDocumentationTool(
             new Mock<IKnowledgeGraphService>().Object, new Mock<IProjectDocumentationService>().Object,
-            factory, projectContext, audit, NullLogger<ProjectGetDocumentationTool>.Instance);
+            factory, projectContext, SettingsProviderMock.Create().Object, recorder);
     }
 
-    private static (List<McpAuditLog> Logs, IDbContextFactory<BeaconContext> Factory, McpProjectContext ProjectContext, McpAuditService Audit) Arrange()
+    private static (List<McpAuditLog> Logs, IDbContextFactory<BeaconContext> Factory, McpProjectContext ProjectContext, McpToolCallRecorder Recorder) Arrange()
     {
         var logs = new List<McpAuditLog>();
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
@@ -169,7 +196,7 @@ public class McpToolEarlyReturnAuditTests
 
         var projectContext = new McpProjectContext { UserId = 1, ApiKeyId = 9, AllowedProjectIds = [AllowedProjectId] };
 
-        return (logs, factory.Object, projectContext, audit);
+        return (logs, factory.Object, projectContext, TestToolCalls.Recorder(audit));
     }
 
     private sealed class CapturingContext : BeaconContext

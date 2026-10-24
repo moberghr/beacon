@@ -18,6 +18,7 @@ import { useAccess, useIsAdmin } from '@/auth/useAuth';
 import { McpDocPatchStatus, McpPatternStatus } from '@/lib/enums';
 import { GoldenCandidatesTab, GoldenCasesTab } from './GoldenTabs';
 import { GroundingRecheckTab } from './GroundingRecheckTab';
+import { EvalRunsTab } from './EvalRunsTab';
 import { PatchDetailModal, PatternDetailModal, UNKNOWN_REVIEWER } from './LearningDetailModals';
 import {
   PATCH_STATUS_LABEL,
@@ -39,9 +40,9 @@ import {
   type LearnedPatternEntry,
 } from './queries';
 
-type TabKey = 'patterns' | 'patches' | 'problems' | 'candidates' | 'golden' | 'recheck';
+type TabKey = 'patterns' | 'patches' | 'problems' | 'candidates' | 'golden' | 'recheck' | 'eval';
 
-const ADMIN_TABS: TabKey[] = ['candidates', 'golden', 'recheck'];
+const ADMIN_TABS: TabKey[] = ['candidates', 'golden', 'recheck', 'eval'];
 
 export default function McpLearningPage() {
   const statsQ = useLearningStats();
@@ -116,6 +117,7 @@ export default function McpLearningPage() {
       { key: 'candidates', label: 'Golden candidates' },
       { key: 'golden', label: 'Golden examples' },
       { key: 'recheck', label: 'Grounding recheck' },
+      { key: 'eval', label: 'Eval runs' },
     );
   }
   const activeTab: TabKey = (!isAdmin || gateway) && ADMIN_TABS.includes(tab) || (gateway && tab === 'patches') ? 'patterns' : tab;
@@ -395,6 +397,7 @@ export default function McpLearningPage() {
         {activeTab === 'candidates' && <GoldenCandidatesTab />}
         {activeTab === 'golden' && <GoldenCasesTab />}
         {activeTab === 'recheck' && <GroundingRecheckTab />}
+        {activeTab === 'eval' && <EvalRunsTab />}
       </Card>
 
       <PatternDetailModal

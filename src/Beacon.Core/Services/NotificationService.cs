@@ -6,6 +6,7 @@ using Beacon.Core.ChangeApprovals;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Handlers.Notifications;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models.QueryExecutionHistory;
 using Beacon.Core.Notifications;
@@ -76,115 +77,17 @@ internal class NotificationService(
         }
     }
 
-    public async Task<PagedList<QueryExecutionHistoryData>> GetQueryExecutionHistory(GetQueryExecutionHistoryRequest request, CancellationToken cancellationToken)
+    // The two reads live in their handlers now; these forwarders keep the 5.0 surface for one release.
+    [Obsolete("Use GetNotificationsQuery; removed in 6.0.")]
+    public Task<PagedList<QueryExecutionHistoryData>> GetQueryExecutionHistory(GetQueryExecutionHistoryRequest request, CancellationToken cancellationToken)
     {
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-        // A run is a record of what executed: it stays listed after its subscription, query or recipient is archived.
-        var page = await context.QueryExecutionHistory
-            .IgnoreQueryFilters()
-            .WhereIf(request.SubscriptionId.HasValue, x => x.SubscriptionId == request.SubscriptionId)
-            .WhereIf(request.NotificationStatus.HasValue, x => x.NotificationStatus == request.NotificationStatus)
-            .WhereReadableWithin(context, request.Scope)
-            .Select(x => new QueryExecutionHistoryData
-            {
-                QueryExecutionHistoryId = x.Id,
-                Notifications = x.Notifications.Select(y => new NotificationData
-                {
-                    Id = y.Id,
-                    Created = y.CreatedTime,
-                    NotificationType = y.Type,
-                    RecipientName = y.Recipient.Name,
-                    SentAt = y.SentAt
-                }).ToList(),
-                ResultCount = x.ResultCount,
-                CreatedTime = x.CreatedTime,
-                NotificationStatus = x.NotificationStatus,
-                QueryName = x.Subscription.Query.Name,
-                SubscriptionId = x.SubscriptionId,
-                SubscriptionArchived = x.Subscription.ArchivedTime != null || x.Subscription.Query.ArchivedTime != null,
-                ExecutionTimeMs = x.ExecutionTimeMs,
-                Comment = x.Comment,
-                AiActorId = x.Subscription.AiActorId,
-                AiActorName = x.Subscription.AiActor != null ? x.Subscription.AiActor.Name : null
-            })
-            .ToPagedListAsync(request, cancellationToken, defaultSort: "-createdTime", tiebreaker: "queryExecutionHistoryId");
-
-        // A run's stored comment can hold failure detail recorded by earlier versions: only a recorded reason leaves.
-        foreach (var item in page.Items)
-        {
-            item.Comment = NotificationFailureReasons.Displayable(item.Comment);
-        }
-
-        return page;
+        return new GetNotificationsHandler(contextFactory, null!).Read(request, cancellationToken);
     }
 
-    public async Task<NotificationDetailsData?> GetNotificationDetails(
-        int queryExecutionHistoryId,
-        StoredRunScope scope,
-        CancellationToken cancellationToken)
+    [Obsolete("Use GetNotificationDetailQuery; removed in 6.0.")]
+    public Task<NotificationDetailsData?> GetNotificationDetails(int queryExecutionHistoryId, StoredRunScope scope, CancellationToken cancellationToken)
     {
-        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-
-        // The notifications list exposes one row per QueryExecutionHistory (aggregating
-        // its notifications by recipient). Clicking through passes that history id, so
-        // resolve the detail by history id and surface its first notification's recipient
-        // / type — matches the single-recipient detail UI on the React side.
-        //
-        // Two-step load: scalar subqueries over an empty Notifications collection caused
-        // EF/Npgsql to materialize the entire projected row as null, surfacing as a 404
-        // for histories that have no notifications yet.
-        var details = await context.QueryExecutionHistory
-            .IgnoreQueryFilters()
-            .Where(x => x.Id == queryExecutionHistoryId)
-            .WhereReadableWithin(context, scope)
-            .Select(x =>
-                new NotificationDetailsData
-                {
-                    Id = x.Id,
-                    CreatedTime = x.CreatedTime,
-                    SentAt = x.CreatedTime,
-                    Type = default,
-                    Results = x.Results,
-                    RecipientName = string.Empty,
-                    QueryName = x.Subscription.Query.Name,
-                    QueryId = x.Subscription.QueryId,
-                    SubscriptionId = x.SubscriptionId,
-                    ExecutionTimeMs = x.ExecutionTimeMs,
-                    ResultCount = x.ResultCount,
-                    NotificationStatus = x.NotificationStatus
-                })
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (details == null)
-        {
-            return null;
-        }
-
-        // The run passed the scope check above: a delivery stays part of that record after its recipient is archived.
-        var firstNotification = await context.Notifications
-            .IgnoreQueryFilters()
-            .Where(x => x.QueryExecutionHistoryId == queryExecutionHistoryId)
-            .OrderBy(x => x.Id)
-            .Select(x =>
-                new
-                {
-                    x.SentAt,
-                    x.Type,
-                    x.Results,
-                    RecipientName = x.Recipient.Name
-                })
-            .FirstOrDefaultAsync(cancellationToken);
-
-        if (firstNotification != null)
-        {
-            details.SentAt = firstNotification.SentAt;
-            details.Type = firstNotification.Type;
-            details.Results = details.Results ?? firstNotification.Results;
-            details.RecipientName = firstNotification.RecipientName ?? string.Empty;
-        }
-
-        return details;
+        return new GetNotificationDetailHandler(contextFactory, null!).Read(queryExecutionHistoryId, scope, cancellationToken);
     }
 
     private async Task<RecipientQueryResult> ResolveDestinationAsync(RecipientQueryResult recipientQueryResult, CancellationToken cancellationToken)

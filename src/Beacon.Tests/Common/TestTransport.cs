@@ -7,6 +7,8 @@ using Beacon.Connector.MySql;
 using Beacon.Connector.PostgreSql;
 using Beacon.Connector.Snowflake;
 using Beacon.Connector.SqlServer;
+using Beacon.Core;
+using Beacon.Core.ChangeApprovals;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.HostData;
@@ -49,9 +51,24 @@ internal static class TestTransport
             logger ?? NullLogger<DataSourceTransportPolicy>.Instance);
     }
 
-    /// <summary>The connection resolver over <paramref name="encryption"/>, with no host connection strings configured.</summary>
-    public static IDataSourceConnectionResolver Resolver(IEncryptionService encryption, IDataSourceTransportPolicy? policy = null)
+    /// <summary>The key the tests' connection definition hasher derives its keys from: a test value, never a deployment's.</summary>
+    public const string DefinitionKey = "connection-definition-test-key-resolver";
+
+    /// <summary>The connection definition hasher under <see cref="DefinitionKey"/>.</summary>
+    public static ConnectionDefinitionHasher Hasher()
     {
-        return new DataSourceConnectionResolver(encryption, new ConfigurationBuilder().Build(), policy ?? Policy());
+        return new ConnectionDefinitionHasher(DefinitionKey);
+    }
+
+    /// <summary>
+    /// The connection resolver over <paramref name="encryption"/>, with no host connection strings configured; the approval
+    /// workflow is off unless <paramref name="configuration"/> turns it on.
+    /// </summary>
+    public static IDataSourceConnectionResolver Resolver(
+        IEncryptionService encryption,
+        IDataSourceTransportPolicy? policy = null,
+        BeaconConfiguration? configuration = null)
+    {
+        return new DataSourceConnectionResolver(encryption, new ConfigurationBuilder().Build(), policy ?? Policy(), configuration ?? new BeaconConfiguration(), Hasher());
     }
 }

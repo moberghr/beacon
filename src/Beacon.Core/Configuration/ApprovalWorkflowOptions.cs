@@ -3,12 +3,18 @@ using Beacon.Core.Data.Enums;
 namespace Beacon.Core;
 
 /// <summary>
-/// The change approval workflow: query changes, and (each with its own switch, all on by default) migration jobs, Custom
-/// SQL rules and recipient destinations. Opt-in (<see cref="Enabled"/>): a host cannot tell a new installation from an
+/// The change approval workflow: query changes, and (each with its own switch, on by default) migration jobs, Custom SQL
+/// rules and recipient destinations, and (each with its own switch, off by default) data-source connections and the LLM
+/// connection. Opt-in (<see cref="Enabled"/>): a host cannot tell a new installation from an
 /// existing one, so turning it on is the host's decision; a startup note says when it is off.
 /// </summary>
 public class ApprovalWorkflowOptions
 {
+    private const int MinLlmConnectionRequestDays = 1;
+    private const int MaxLlmConnectionRequestDays = 30;
+
+    private int _llmConnectionRequestDays = 7;
+
     /// <summary>
     /// Enable approval workflow for query changes. Default: false (backward compatible, opt-in).
     /// When enabled, every change to a query's executable content (its steps, their order, names, data sources,
@@ -59,6 +65,31 @@ public class ApprovalWorkflowOptions
     /// </summary>
     public bool CoversRecipientDestinations { get; set; } = true;
 
+    /// <summary>
+    /// With the workflow on, a data source created, or whose connection changed in anything but its secrets (host, port,
+    /// database, login, or any other connection setting), makes no connection until a second person approved exactly that
+    /// connection; a change of its secrets alone (a rotated password) applies at once. Default: false. Sources stored before
+    /// Beacon reviewed connections, last saved with this switch off, or managed by the host connect as before.
+    /// </summary>
+    public bool CoversDataSourceConnections { get; set; } = false;
+
+    /// <summary>
+    /// With the workflow on, a change of the stored LLM connection's provider, endpoint, region or authentication mode is
+    /// staged, encrypted, until a live Admin other than the requester approves it; the stored connection stays in use
+    /// meanwhile. A change of credentials or models alone applies at once. Default: false.
+    /// </summary>
+    public bool CoversLlmConnection { get; set; } = false;
+
+    /// <summary>
+    /// How many days a staged LLM connection change waits for a decision before it expires and its staged values are wiped.
+    /// Default: 7; values are held between 1 and 30.
+    /// </summary>
+    public int LlmConnectionRequestDays
+    {
+        get => _llmConnectionRequestDays;
+        set => _llmConnectionRequestDays = Math.Clamp(value, MinLlmConnectionRequestDays, MaxLlmConnectionRequestDays);
+    }
+
     /// <summary>True when the workflow is on and covers changes of <paramref name="kind"/>.</summary>
     public bool Covers(ChangeApprovalKind kind)
     {
@@ -67,6 +98,8 @@ public class ApprovalWorkflowOptions
             ChangeApprovalKind.MigrationJob => CoversMigrationJobs,
             ChangeApprovalKind.CustomSqlRules => CoversCustomSqlRules,
             ChangeApprovalKind.RecipientDestination => CoversRecipientDestinations,
+            ChangeApprovalKind.DataSourceConnection => CoversDataSourceConnections,
+            ChangeApprovalKind.LlmConnection => CoversLlmConnection,
             _ => false
         };
     }

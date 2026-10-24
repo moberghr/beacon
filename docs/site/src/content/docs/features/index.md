@@ -47,7 +47,7 @@ Security has its own section: start at the [security model](/security/). Its pag
 |---|---|
 | [Security model](/security/) | The trust boundaries, deployment locks and guarantees in one place. |
 | [Authorization](/security/authorization/) | Projects as the access boundary, project roles and actions, functional permissions, and host seams. |
-| [Approvals](/security/approvals/) | The opt-in four-eyes review of query changes, migration jobs, Custom SQL rules and recipient destinations. |
+| [Approvals](/security/approvals/) | The opt-in four-eyes review of query changes, migration jobs, Custom SQL rules, recipient destinations, data-source connections and the LLM connection. |
 | [User management](/security/user-management/) | Users, roles, password and SSO sign-in, and the first-run setup. |
 | [API keys](/security/api-keys/) | Read and Execute keys bound to their owner, with project lists and a mandatory expiry, stored hashed. |
 | [Security audit trail](/security/audit-trail/) | An append-only, signed record of sign-ins and of changes to identities, keys, access, data sources, delivery, settings, approvals and curation, read and verified by an Auditor and copied to the `Beacon.Audit` log stream. |

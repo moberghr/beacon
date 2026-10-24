@@ -141,6 +141,12 @@ Snowflake, BigQuery, Databricks, CloudWatch and API sources are not checked.
 - **A disabled data source** is not checked (it makes no connection, also when its credentials are rotated): the check
   runs the next time its connection or engine changes while it is enabled.
 - A refused connection's pooled connections are emptied, so none opened with the refused credentials is reused.
+- **Under the approval workflow** (`CoversDataSourceConnections`), a source created or changed in anything but its
+  secrets connects to nothing until approved, so neither the create nor the change runs the check: it runs when an
+  Approver approves the connection. Then a clear mismatch, and a server that cannot be reached or whose engine cannot be
+  read, refuse the approval (`409`) and the request stays pending; a disabled source is enabled first (`409`). A change
+  of the secrets alone is checked when it is saved, as without the workflow. See
+  [Approvals](/security/approvals/).
 
 ## Manage data sources
 
@@ -213,11 +219,14 @@ that is left out or `null` keeps the stored value, and an empty schema list clea
 
 A data source the host registered (a [host DbContext](/mcp/host-dbcontext/) source) cannot be edited here
 (`400`): the host rotates its credentials in its own configuration. A rotation takes effect at once; it needs no second
-person's approval.
+person's approval. Under the approval workflow (`CoversDataSourceConnections`) that holds for a change of the secrets
+alone (the password, a key); a change of any other setting of the connection (host, port, database, login, options) is
+saved and the source connects to nothing until a second person approves it.
 
 - **Who may point a source elsewhere.** A DataSourceAdmin may point a data source at another server or database, as one
   may create a data source there. The change must be confirmed and is recorded with `targetChanged: true`, so the audit
-  trail shows every such change; a second person's approval of a target change is not required.
+  trail shows every such change; a second person's approval of a target change is not required unless the approval
+  workflow covers data-source connections.
 - **Concurrent edits.** Two edits of the same data source saved at the same time are not merged: the one saved last is
   kept. Queries already running when the connection changes finish on the connection they opened.
 
@@ -277,22 +286,39 @@ cannot read the catalog.
 
 ### Refreshing metadata
 
-**Refresh metadata** on a data source (`POST /beacon/api/data-sources/{id}/refresh-metadata`) re-reads its tables and
-columns from the database now. It changes what every project that links the data source sees, so it needs Write in each
-of them, or an Admin; a DataSourceAdmin needs Manage only where it acts (see [Projects and access](#projects-and-access)).
-A [migration write target](#migration-write-targets) has no refresh, because Beacon never reads it.
+**Refresh metadata** on a data source re-reads its tables and columns from the database. It changes what every project
+that links the data source sees, so it needs Write in each of them, or an Admin; a DataSourceAdmin needs Manage only
+where it acts (see [Projects and access](#projects-and-access)). A [migration write target](#migration-write-targets) has
+no refresh, because Beacon never reads it. There are two ways to start one:
+
+- **As a background task** (what the page's button does): `POST /beacon/api/data-sources/{id}/metadata-refreshes`
+  answers `202` at once with `{ taskId, jobId, state }` and a `Location` header. Read its progress with
+  `GET /beacon/api/data-sources/{id}/metadata-refreshes/{taskId}` (`state`: `0` queued, `1` running, `2` succeeded,
+  `3` failed, `4` skipped; `failureCode` says why a failed or skipped one did not finish, `warningCount` is the number
+  of names left out), with the same access check. The job runs as the user who started it and checks again, right
+  before the scan, that they may still manage the data source: if not, it is skipped (`forbidden`). A refresh that
+  finds another refresh of the source running in the same Beacon process is skipped too (`busy`; that refresh's result
+  is the current catalog). A signed-in user who started it also gets `JobStatusChanged` events for `jobId` on the
+  SignalR hub (an API key does not). One refresh of a data source is queued or running at a time; one queued or
+  running for more than an hour, or still queued without a job after five minutes, is given up (`abandoned`) when the
+  next one starts or its progress is read. The job runs through your host's
+  [`IBeaconScheduler.EnqueueBackgroundTask`](/integrate/background-jobs/); a host that does not implement it runs the
+  refresh in the request, and the `202` then carries the state it finished in.
+- **In the request** (kept for API callers of Beacon 5.0): `POST /beacon/api/data-sources/{id}/refresh-metadata`
+  answers with the refreshed catalog once the scan is done, which holds the request open for as long as the scan takes.
 
 - **Cooldown.** A data source's metadata is force-refreshed at most once per
   `Beacon:Metadata:ForcedRefreshCooldownMinutes` (default `15`; `0` turns the cooldown off; at most `1440`), whoever asks
   (Admins and DataSourceAdmins are not held to it) and from whichever project: the cooldown belongs to the data source.
   A second refresh inside the cooldown, or while one is running, answers `429`. The cooldown counts from the last refresh
-  that succeeded, so a failed refresh can be retried at once. It is kept in memory per Beacon process: on a host running
-  several instances, each instance keeps its own.
+  that succeeded, so a failed refresh can be retried at once. It is kept in memory per Beacon process (for a background
+  refresh, the process whose job ran it): on a host running several instances, each instance keeps its own. A background
+  refresh queued or running anywhere refuses another start on every instance.
 - **Curated descriptions are kept.** A table or column description set by applying a documentation patch stays; every
   other description is taken from the database catalog again (and cleared when the catalog has none).
 - **Names that cannot be quoted safely are left out.** A table or column whose name carries a quote, backtick, bracket,
   semicolon or control character is not stored, because Beacon builds SQL from catalog names. The refresh answers
-  `skippedNameCount` (the page says how many were left out), and the server log lists their names: control characters
+  `skippedNameCount` (a background refresh: `warningCount`; the page says how many were left out), and the server log lists their names: control characters
   written as `\uXXXX`, at most 50 names. A table left out loses its stored description, a curated one included.
 - **Sampling is logged per table.** With sample-value collection on, each table that could not be sampled is logged by
   name with the reason (refused by the execution gate, failed on the data source, timed out, or a name that is not a
@@ -362,7 +388,9 @@ row data, so:
 Loaded metadata tells Beacon what tables exist; **schema relationships** tell it how to join them. Open a data source
 and click **Relationships** (`/beacon/data-sources/{id}/relationships`) to review and curate them.
 
-- **Foreign key** relationships come from the database's declared constraints and are verified by default.
+- **Foreign key** relationships come from the database's declared constraints and are verified by default: one per
+  column pair of every constraint, so a column in several foreign keys (on its own and inside a composite key) gets one
+  for each.
 - **Inferred** relationships are proposed from column naming with a confidence score. Click **Discover** to preview
   proposals without saving, then accept the ones that are correct.
 - **Manual** relationships are declared by hand. One is verified only when its creator may
