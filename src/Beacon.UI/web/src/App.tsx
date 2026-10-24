@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes } from 'react-router-dom';
 import { Toaster } from 'sonner';
 import { RequireAuth } from './auth/RequireAuth';
 import { GATEWAY_LANDING_PATH, RequireFullBeacon } from './auth/RequireFullBeacon';
+import { RequireEmbed } from './auth/RequireEmbed';
 import { RequireMigrations } from './auth/RequireMigrations';
 import { useAccess } from './auth/useAuth';
 import { AppShell } from './components/layout/AppShell';
@@ -49,6 +50,7 @@ const McpLearningPage = lazyWithRetry(() => import('./routes/mcp/McpLearningPage
 const McpSettingsPage = lazyWithRetry(() => import('./routes/mcp/McpSettingsPage'));
 const McpAuditPage = lazyWithRetry(() => import('./routes/mcp/McpAuditPage'));
 const SecurityAuditPage = lazyWithRetry(() => import('./routes/security-audit/SecurityAuditPage'));
+const EmbedsPage = lazyWithRetry(() => import('./routes/embeds/EmbedsPage'));
 const AiActorsListPage = lazyWithRetry(() => import('./routes/ai-actors/AiActorsListPage'));
 const AiActorDetailPage = lazyWithRetry(() => import('./routes/ai-actors/AiActorDetailPage'));
 const MigrationJobsListPage = lazyWithRetry(() => import('./routes/migration-jobs/MigrationJobsListPage'));
@@ -130,6 +132,10 @@ export default function App() {
                       <Route path="/migration-jobs" element={lazyRoute(MigrationJobsListPage)} />
                       <Route path="/migration-jobs/new" element={lazyRoute(NewMigrationJobPage)} />
                       <Route path="/migration-jobs/:id" element={lazyRoute(MigrationJobDetailPage)} />
+                    </Route>
+                    {/* Embed grants exist only while the deployment serves embeds (Beacon:Embed:Enabled). */}
+                    <Route element={<RequireEmbed />}>
+                      <Route path="/embeds" element={lazyRoute(EmbedsPage)} />
                     </Route>
                     <Route path="/queries" element={lazyRoute(QueriesListPage)} />
                     <Route path="/queries/new" element={lazyRoute(NewQueryPage)} />

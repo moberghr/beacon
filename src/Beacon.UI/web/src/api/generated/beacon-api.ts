@@ -25,6 +25,135 @@ export class BeaconApiClient {
   }
 
   /**
+   * @param body (optional)
+   * @return OK
+   */
+  issueEmbedToken(body: IssueEmbedTokenBody | null | undefined): Promise<void> {
+    let url_ = this.baseUrl + "/beacon/api/embed/tokens";
+    url_ = url_.replace(/[?&]$/, "");
+
+    const content_ = JSON.stringify(body);
+
+    let options_: RequestInit = {
+      body: content_,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processIssueEmbedToken(_response);
+    });
+  }
+
+  protected processIssueEmbedToken(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  renderEmbedQuery(): Promise<void> {
+    let url_ = this.baseUrl + "/beacon/api/embed/render";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "POST",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processRenderEmbedQuery(_response);
+    });
+  }
+
+  protected processRenderEmbedQuery(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  getEmbedFrame(publicId: string): Promise<void> {
+    let url_ = this.baseUrl + "/beacon/embed/{publicId}";
+    if (publicId === undefined || publicId === null)
+      throw new Error("The parameter 'publicId' must be defined.");
+    url_ = url_.replace("{publicId}", encodeURIComponent("" + publicId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetEmbedFrame(_response);
+    });
+  }
+
+  protected processGetEmbedFrame(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
    * @return OK
    */
   login(body: LoginRequest): Promise<LoginResponse> {
@@ -7582,6 +7711,194 @@ export class BeaconApiClient {
       });
     }
     return Promise.resolve<PagedListOfMigrationExecutionDto>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  createEmbedGrant(
+    body: CreateEmbedGrantBody,
+  ): Promise<CreateEmbedGrantResult> {
+    let url_ = this.baseUrl + "/beacon/api/embed-grants";
+    url_ = url_.replace(/[?&]$/, "");
+
+    const content_ = JSON.stringify(body);
+
+    let options_: RequestInit = {
+      body: content_,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processCreateEmbedGrant(_response);
+    });
+  }
+
+  protected processCreateEmbedGrant(
+    response: Response,
+  ): Promise<CreateEmbedGrantResult> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as CreateEmbedGrantResult);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<CreateEmbedGrantResult>(null as any);
+  }
+
+  /**
+   * @param projectId (optional)
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @param sort (optional)
+   * @return OK
+   */
+  listEmbedGrants(
+    projectId: number | undefined,
+    page: number | undefined,
+    pageSize: number | undefined,
+    sort: string | undefined,
+  ): Promise<PagedListOfEmbedGrantListItem> {
+    let url_ = this.baseUrl + "/beacon/api/embed-grants?";
+    if (projectId === null)
+      throw new Error("The parameter 'projectId' cannot be null.");
+    else if (projectId !== undefined)
+      url_ += "ProjectId=" + encodeURIComponent("" + projectId) + "&";
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (sort === null) throw new Error("The parameter 'sort' cannot be null.");
+    else if (sort !== undefined)
+      url_ += "Sort=" + encodeURIComponent("" + sort) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processListEmbedGrants(_response);
+    });
+  }
+
+  protected processListEmbedGrants(
+    response: Response,
+  ): Promise<PagedListOfEmbedGrantListItem> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfEmbedGrantListItem);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfEmbedGrantListItem>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  revokeEmbedGrant(id: number): Promise<RevokeEmbedGrantResult> {
+    let url_ = this.baseUrl + "/beacon/api/embed-grants/{id}/revoke";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processRevokeEmbedGrant(_response);
+    });
+  }
+
+  protected processRevokeEmbedGrant(
+    response: Response,
+  ): Promise<RevokeEmbedGrantResult> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as RevokeEmbedGrantResult);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<RevokeEmbedGrantResult>(null as any);
   }
 
   /**
@@ -17624,6 +17941,31 @@ export interface CreateDataSourceResult {
   [key: string]: any;
 }
 
+export interface CreateEmbedGrantBody {
+  projectId: number;
+  queryId: number;
+  name: string;
+  allowedOrigins: string[] | null;
+  expiresInDays: number;
+  fixedParameters: { [key: string]: string } | null;
+  lockedParameters: string[] | null;
+
+  [key: string]: any;
+}
+
+export interface CreateEmbedGrantResult {
+  id: number;
+  publicId: string;
+  secret: string;
+  queryVersionId: number;
+  versionNumber: number;
+  expiresTime: Date;
+  allowedOrigins: string[];
+  lockedParameters: string[];
+
+  [key: string]: any;
+}
+
 export interface CreateExternalUserCommand {
   externalId: string;
   userName: string;
@@ -18163,6 +18505,28 @@ export interface DocumentationPatchEntry {
   [key: string]: any;
 }
 
+export interface EmbedGrantListItem {
+  id?: number;
+  publicId?: string;
+  name?: string;
+  projectId?: number;
+  projectName?: string | null;
+  queryId?: number;
+  queryName?: string | null;
+  queryVersionId?: number;
+  versionNumber?: number;
+  allowedOrigins?: string[];
+  lockedParameters?: string[];
+  createdByLabel?: string | null;
+  createdTime?: Date;
+  expiresTime?: Date;
+  revokedTime?: Date | null;
+  lastTokenIssuedTime?: Date | null;
+  status?: string;
+
+  [key: string]: any;
+}
+
 export enum ErrorGroupStatus {
   Unresolved = 1,
   Resolved = 2,
@@ -18688,6 +19052,13 @@ export interface InstructDocumentationRequest {
 
 export interface InstructDocumentationResult {
   updatedContent: string;
+
+  [key: string]: any;
+}
+
+export interface IssueEmbedTokenBody {
+  parameters: { [key: string]: string } | null;
+  ttlSeconds: number | null;
 
   [key: string]: any;
 }
@@ -19241,6 +19612,14 @@ export interface PagedListOfDataSourceEntry {
 
 export interface PagedListOfDocumentationPatchEntry {
   items: DocumentationPatchEntry[];
+  totalCount: number;
+  pageCount: number;
+
+  [key: string]: any;
+}
+
+export interface PagedListOfEmbedGrantListItem {
+  items: EmbedGrantListItem[];
   totalCount: number;
   pageCount: number;
 
@@ -20059,6 +20438,14 @@ export interface RestoreQueryVersionResponse {
 export interface ResumeAiActorResult {
   success?: boolean;
   actorId?: number;
+
+  [key: string]: any;
+}
+
+export interface RevokeEmbedGrantResult {
+  id: number;
+  revokedTime: Date;
+  revoked: boolean;
 
   [key: string]: any;
 }
