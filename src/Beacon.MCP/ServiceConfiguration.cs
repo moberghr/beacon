@@ -6,7 +6,9 @@ using Microsoft.Extensions.Options;
 using ModelContextProtocol;
 using ModelContextProtocol.AspNetCore;
 using ModelContextProtocol.Server;
+using Beacon.AI.Models.Configuration;
 using Beacon.AI.Services.Mcp;
+using Beacon.Core;
 using Beacon.Core.Authorization;
 using Beacon.Core.Configuration;
 using Beacon.Core.Services;
@@ -21,12 +23,43 @@ namespace Beacon.MCP;
 public static class ServiceConfiguration
 {
     /// <summary>
+    /// Adds Beacon's MCP server (the official ModelContextProtocol SDK), serving the built-in tools and the saved-query
+    /// tools <paramref name="configure"/> chooses (<see cref="BeaconMcpOptions"/>; all of them when it is null). Call it
+    /// after <c>.AddAI()</c>: the tools depend on Beacon's AI services, and without them it throws.
+    /// </summary>
+    public static BeaconBuilder AddMcp(this BeaconBuilder builder, Action<BeaconMcpOptions>? configure = null)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        if (!builder.AiAdded || !builder.Services.Any(x => x.ServiceType == typeof(LlmConfiguration)))
+        {
+            throw new InvalidOperationException("AddMcp() needs Beacon's AI services: call .AddAI() before it.");
+        }
+
+        if (builder.Services.Any(x => x.ServiceType == typeof(BeaconMcpOptions)))
+        {
+            throw new InvalidOperationException("Beacon's MCP server is already registered: call .AddMcp() once, and not beside AddBeaconMcp.");
+        }
+
+        builder.Services.AddBeaconMcpServices(configure ?? (_ => { }));
+        BeaconBuilder.MarkChain(builder.Services);
+
+        return builder;
+    }
+
+    /// <summary>
     /// Adds Beacon MCP server services using the official ModelContextProtocol SDK, with all eight built-in tools and the
     /// saved-query tools. Prerequisites: Beacon.Core and Beacon.AI services must be registered first.
     /// </summary>
+    /// <remarks>
+    /// The fluent chain is the preferred way to wire Beacon: <see cref="AddMcp"/> on the builder <c>services.AddBeacon(...)</c>
+    /// returns, after <c>.AddAI()</c>. This method stays supported and becomes obsolete in a later release.
+    /// </remarks>
     public static IServiceCollection AddBeaconMcp(this IServiceCollection services)
     {
-        return services.AddBeaconMcp(_ => { });
+        RefuseBesideChain(services);
+
+        return services.AddBeaconMcpServices(_ => { });
     }
 
     /// <summary>
@@ -34,7 +67,18 @@ public static class ServiceConfiguration
     /// saved-query tools <paramref name="configure"/> chooses (<see cref="BeaconMcpOptions"/>). Prerequisites:
     /// Beacon.Core and Beacon.AI services must be registered first.
     /// </summary>
+    /// <remarks>
+    /// The fluent chain is the preferred way to wire Beacon: <see cref="AddMcp"/> on the builder <c>services.AddBeacon(...)</c>
+    /// returns, after <c>.AddAI()</c>. This method stays supported and becomes obsolete in a later release.
+    /// </remarks>
     public static IServiceCollection AddBeaconMcp(this IServiceCollection services, Action<BeaconMcpOptions> configure)
+    {
+        RefuseBesideChain(services);
+
+        return services.AddBeaconMcpServices(configure);
+    }
+
+    internal static IServiceCollection AddBeaconMcpServices(this IServiceCollection services, Action<BeaconMcpOptions> configure)
     {
         var mcpOptions = new BeaconMcpOptions();
         configure(mcpOptions);
@@ -175,6 +219,11 @@ public static class ServiceConfiguration
 
         // Notes at startup that provisioned user callers get the Viewer role (catalog only) by default.
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, McpUserCallerStartupNote>());
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, McpAuditStartupWarning>());
+
+        // Checks the MCP audit seal once the host has started: the sealing interceptor, the seal columns, when sealing
+        // started, and whether the verification runs.
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, McpAuditSealingStartupCheck>());
 
         return services;
     }
@@ -192,4 +241,13 @@ public static class ServiceConfiguration
             ["dry_run"] = x => x.WithTools<DryRunTool>(),
             ["get_query_context"] = x => x.WithTools<GetQueryContextTool>()
         };
+
+    private static void RefuseBesideChain(IServiceCollection services)
+    {
+        if (BeaconBuilder.UsesChain(services))
+        {
+            throw new InvalidOperationException(
+                "This host is wired with the chain (services.AddBeacon(...), .AddAI(), .AddMcp()): add the MCP server with .AddMcp() on its builder, not AddBeaconMcp.");
+        }
+    }
 }

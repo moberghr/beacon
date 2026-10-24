@@ -1,9 +1,9 @@
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.Http;
-using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
@@ -26,14 +26,11 @@ namespace Beacon.Api.Authentication;
 /// </summary>
 public static class AuthServiceExtensions
 {
+    // The framework's switch that turns off "the only scheme is the default".
+    private const string SuppressAutoDefaultSchemeSwitch = "Microsoft.AspNetCore.Authentication.SuppressAutoDefaultScheme";
+
     private const string SecurityHeadersAddedKey = "Beacon.SecurityHeadersAdded";
     private const string OriginGuardAddedKey = "Beacon.OriginGuardAdded";
-
-    // A problem body without the members it does not carry (a plain refusal has no detail).
-    private static readonly System.Text.Json.JsonSerializerOptions ProblemJson = new()
-    {
-        DefaultIgnoreCondition = System.Text.Json.Serialization.JsonIgnoreCondition.WhenWritingNull
-    };
 
     /// <summary>
     /// Adds cookie authentication for Beacon login form.
@@ -57,7 +54,7 @@ public static class AuthServiceExtensions
         services.TryAddScoped<IBeaconAuthenticationService, BeaconAuthenticationService>();
 
         // Register the cookie scheme without changing the host app's default authenticate scheme
-        // (ApiKeyAuthMiddleware assigns its principal directly and must not be overridden).
+        // (UseBeaconAuthentication records Beacon's own result, which must not be overridden).
         // The challenge/forbid defaults must point at the cookie scheme so anonymous requests to
         // protected endpoints get a 401/403 instead of an InvalidOperationException when other
         // remote schemes (OIDC) are also registered.
@@ -86,16 +83,18 @@ public static class AuthServiceExtensions
                 options.Events.OnCheckSlidingExpiration = BeaconSessionEvents.CheckSlidingExpirationAsync;
                 options.Events.OnRedirectToLogin = context =>
                 {
-                    if (IsApiRequest(context))
+                    // A UI page refused a signed-out browser (BeaconUiPagePolicies): the login form's own redirect, without
+                    // a return URL, the target LoginFormAuthMiddleware answers.
+                    if (BeaconUiPagePolicies.IsPage(context.HttpContext)
+                        && context.HttpContext.RequestServices.GetService<BeaconConfiguration>() is { Authentication.EnableLoginForm: true } configuration)
                     {
-                        // An anonymous request to a Beacon route is counted against its address's limit of refused
-                        // anonymous requests (Beacon:RateLimits:Anonymous): over it, 429 instead of the 401.
-                        if (!AnonymousRefusalThrottle.TryAdmit(context.HttpContext, out var retryAfter))
-                        {
-                            return RateLimitRefusal.WriteAsync(context.HttpContext, retryAfter);
-                        }
+                        context.Response.Redirect(BeaconLoginPage.PathFor(AuthenticationPathOptions.BeaconPath, configuration));
+                        return Task.CompletedTask;
+                    }
 
-                        return WriteJsonStatusAsync(context, StatusCodes.Status401Unauthorized, "Unauthorized");
+                    if (BeaconApiRequest.Is(context.HttpContext))
+                    {
+                        return BeaconAuthenticationResponses.WriteProblemAsync(context.HttpContext, StatusCodes.Status401Unauthorized);
                     }
 
                     context.Response.Redirect(context.RedirectUri);
@@ -103,9 +102,9 @@ public static class AuthServiceExtensions
                 };
                 options.Events.OnRedirectToAccessDenied = context =>
                 {
-                    if (IsApiRequest(context))
+                    if (BeaconApiRequest.Is(context.HttpContext))
                     {
-                        return WriteJsonStatusAsync(context, StatusCodes.Status403Forbidden, "Forbidden", ApiKeyRefusalDetail(context.HttpContext));
+                        return BeaconAuthenticationResponses.WriteProblemAsync(context.HttpContext, StatusCodes.Status403Forbidden, ApiKeyRefusalDetail(context.HttpContext));
                     }
 
                     context.Response.Redirect(context.RedirectUri);
@@ -117,6 +116,9 @@ public static class AuthServiceExtensions
         // whatever the request's scheme (the default stays SameAsRequest). Plain-HTTP listeners outside Development are warned about.
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IConfigureOptions<CookieAuthenticationOptions>, BeaconCookieSecurePolicyConfigurator>());
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, CookieTransportStartupWarning>());
+
+        // The API-key and bearer schemes and the "Beacon" policy scheme that picks between them and the cookie.
+        AddBeaconAuthenticationSchemes(services);
 
         // Data Protection, which protects the session cookie, is the host's: Beacon sets no application name and no key
         // storage here (AddBeaconDataProtection is Beacon's default, for a host that asks for it). Outside Development the
@@ -222,6 +224,12 @@ public static class AuthServiceExtensions
         services.AddBeaconOutboundHttpClients();
         services.TryAddScoped(CreateJwtProvider);
 
+        // One authenticator for the bearer scheme: it keeps the refusal-log throttle across requests.
+        // The bearer scheme itself is registered by AddBeaconCookieAuthentication, which UseBeaconAuthentication needs.
+        services.TryAddSingleton(x => new BeaconJwtAuthenticator(
+            x.GetRequiredService<JwtAuthenticationOptions>(),
+            x.GetRequiredService<ILogger<BeaconJwtAuthenticationHandler>>()));
+
         if (!string.IsNullOrEmpty(options.ExternalLoginEndpoint))
         {
             services.Replace(ServiceDescriptor.Scoped<IBeaconAuthenticationProvider>(CreateExternalLoginProvider));
@@ -231,19 +239,80 @@ public static class AuthServiceExtensions
     }
 
     /// <summary>
-    /// Registers host-level identity and SignalR plumbing that depends on the authenticated
-    /// user: the claims transformer that materialises Beacon role claims after cookie/OIDC
-    /// sign-in and the SignalR <c>IUserIdProvider</c> that maps connections to
-    /// <c>BeaconUser.Id</c>. The Warp → SignalR job-state bridge is <c>JobStatusChangedBehavior</c>,
-    /// a Warp pipeline behavior auto-registered by the source generator. Kept here (§2.12) so
-    /// <c>Program.cs</c> stays a thin composition root.
+    /// Registers host-level identity plumbing that depends on the authenticated user: the claims transformer that
+    /// materialises Beacon role claims after cookie/OIDC sign-in. The SignalR <c>IUserIdProvider</c>
+    /// (<see cref="HubUserIdProvider"/>) is registered once, by <c>AddBeaconApiServices</c>, with realtime on.
+    /// The Warp → SignalR job-state bridge is <c>JobStatusChangedBehavior</c>, a Warp pipeline behavior auto-registered
+    /// by the source generator. Kept here (§2.12) so <c>Program.cs</c> stays a thin composition root.
     /// </summary>
     public static IServiceCollection AddBeaconHostInfrastructure<TClaimsTransformation>(this IServiceCollection services)
         where TClaimsTransformation : class, Microsoft.AspNetCore.Authentication.IClaimsTransformation
     {
         services.AddScoped<Microsoft.AspNetCore.Authentication.IClaimsTransformation, TClaimsTransformation>();
-        services.AddSingleton<IUserIdProvider, HubUserIdProvider>();
         return services;
+    }
+
+    /// <summary>
+    /// Adds the <c>Beacon.Auth</c> cookie sign-in for Beacon's shell at <c>/beacon</c>
+    /// (<see cref="AddBeaconCookieAuthentication"/>) and the host plumbing that depends on the signed-in user
+    /// (<see cref="AddBeaconHostInfrastructure{TClaimsTransformation}"/>): <typeparamref name="TClaims"/> materialises
+    /// Beacon's role claims after a cookie or OIDC sign-in.
+    /// </summary>
+    public static BeaconBuilder AddCookieAuth<TClaims>(this BeaconBuilder builder)
+        where TClaims : class, Microsoft.AspNetCore.Authentication.IClaimsTransformation
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        builder.Services.AddBeaconHostInfrastructure<TClaims>();
+        builder.Services.AddBeaconCookieAuthentication(AuthenticationPathOptions.BeaconPath);
+
+        return builder;
+    }
+
+    /// <summary>
+    /// Adds SSO through the identity provider in <c>Beacon:Authentication:Oidc</c> (<see cref="AddBeaconOidcAuthentication"/>)
+    /// and, when it names a <see cref="OidcAuthenticationOptions.McpJwksEndpoint"/>, bearer JWTs from that provider
+    /// (<see cref="AddBeaconOidcMcpJwtAuthentication"/>). With SSO off it only registers the options. Call it after
+    /// <see cref="AddCookieAuth{TClaims}"/>: SSO signs users in to the <c>Beacon.Auth</c> cookie.
+    /// </summary>
+    public static BeaconBuilder AddOidc(this BeaconBuilder builder)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        builder.Services.AddBeaconOidcAuthentication(builder.Configuration);
+        builder.Services.AddBeaconOidcMcpJwtAuthentication(builder.Configuration);
+
+        return builder;
+    }
+
+    /// <summary>
+    /// Accepts bearer JWTs from the SSO identity provider on Beacon's API and on <c>/beacon/mcp</c>, when
+    /// <c>Beacon:Authentication:Oidc</c> is enabled and names a <see cref="OidcAuthenticationOptions.McpJwksEndpoint"/>:
+    /// a token is validated against that endpoint's signing keys, with the <c>Authority</c> (without a trailing slash) as
+    /// its issuer and the <c>ClientId</c> as its audience (<see cref="AddBeaconJwtAuthentication"/>). Which tokens become
+    /// MCP callers is decided by <c>Beacon:Mcp:Callers</c>. Without SSO or without the endpoint it registers nothing. A
+    /// host that sets up bearer JWTs itself with <see cref="AddBeaconJwtAuthentication"/> does not call this as well.
+    /// </summary>
+    public static IServiceCollection AddBeaconOidcMcpJwtAuthentication(this IServiceCollection services, IConfiguration configuration)
+    {
+        ArgumentNullException.ThrowIfNull(services);
+        ArgumentNullException.ThrowIfNull(configuration);
+
+        var options = OidcAuthenticationOptions.FromConfiguration(configuration);
+        if (!options.Enabled || string.IsNullOrWhiteSpace(options.McpJwksEndpoint))
+        {
+            return services;
+        }
+
+        return services.AddBeaconJwtAuthentication(x =>
+        {
+            x.EnableBearerAuthentication = true;
+            x.Validation.JwksEndpoint = options.McpJwksEndpoint;
+            x.Validation.ValidIssuer = options.GetEnabledAuthority();
+            x.Validation.ValidAudience = options.ClientId;
+            x.Validation.ValidateIssuer = true;
+            x.Validation.ValidateAudience = true;
+        });
     }
 
     public static IApplicationBuilder UseBeaconJwtBearerAuthentication(this IApplicationBuilder app)
@@ -272,23 +341,22 @@ public static class AuthServiceExtensions
     }
 
     /// <summary>
-    /// Beacon's authentication in the order it needs (§1.9): API keys, bearer JWTs (when enabled), the host's
-    /// <c>UseAuthentication</c>, the <c>Beacon.Auth</c> cookie, then the embed routes' own credentials (when embedding is
-    /// on), so nothing before it leaves a caller on an embed path, followed by the Host and Origin check
-    /// (<c>Beacon:Security</c>). Before them come the security response headers, unless the host added them earlier with
-    /// <c>UseBeaconSecurityHeaders</c>. Call it in place of <c>UseAuthentication</c>, before <c>UseAuthorization</c>. The
-    /// Beacon middlewares act on <c>/beacon</c> and <c>Beacon:Authentication:AdditionalPaths</c> only
-    /// (<see cref="BeaconRequestPaths"/>), the embed middleware on the embed routes only (<see cref="BeaconEmbedPaths"/>);
-    /// every other route keeps the host's own authentication.
+    /// Beacon's authentication in the order it needs (§1.9): the host's <c>UseAuthentication</c>, then one Beacon step —
+    /// a presented API key or bearer JWT (when enabled), which decides whatever the host's schemes read, else the
+    /// <c>Beacon.Auth</c> cookie (<see cref="BeaconAuthenticationDefaults"/>), recorded as the request's authentication
+    /// result — then the embed routes' own credentials (when embedding is on), so nothing before it leaves a caller on an
+    /// embed path, followed by the Host and Origin check (<c>Beacon:Security</c>). Before them come the security response
+    /// headers, unless the host added them earlier with <c>UseBeaconSecurityHeaders</c>, and the request limits. Call it in
+    /// place of <c>UseAuthentication</c>, before <c>UseAuthorization</c>. Beacon's step acts on <c>/beacon</c> and
+    /// <c>Beacon:Authentication:AdditionalPaths</c> only (<see cref="BeaconRequestPaths"/>), the embed middleware on the
+    /// embed routes only (<see cref="BeaconEmbedPaths"/>); every other route keeps the host's own authentication.
     /// </summary>
     public static IApplicationBuilder UseBeaconAuthentication(this IApplicationBuilder app)
     {
         app.UseBeaconSecurityHeaders();
         app.UseMiddleware<BeaconRequestLimitsMiddleware>();
-        app.UseMiddleware<ApiKeyAuthMiddleware>();
-        app.UseBeaconJwtBearerAuthentication();
         app.UseAuthentication();
-        app.UseMiddleware<BeaconCookieAuthMiddleware>();
+        app.UseMiddleware<BeaconAuthenticationMiddleware>();
         app.UseBeaconEmbedAuthentication();
 
         // After authentication: a remote sign-in callback (an OIDC form post from the identity provider) is answered by
@@ -333,23 +401,6 @@ public static class AuthServiceExtensions
         return app.UseMiddleware<OriginGuardMiddleware>();
     }
 
-    private static bool IsApiRequest(Microsoft.AspNetCore.Authentication.RedirectContext<Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationOptions> context)
-    {
-        var path = context.Request.Path;
-        if (path.StartsWithSegments("/beacon/api") || path.StartsWithSegments("/beacon/mcp"))
-        {
-            return true;
-        }
-
-        var accept = context.Request.Headers.Accept.ToString();
-        if (!string.IsNullOrEmpty(accept) && accept.Contains("application/json", StringComparison.OrdinalIgnoreCase))
-        {
-            return true;
-        }
-
-        return false;
-    }
-
     // An API key refused by a route that requires a functional permission (its policy names roles a key never carries)
     // is told why; every other refusal keeps the plain body.
     internal static string? ApiKeyRefusalDetail(HttpContext httpContext)
@@ -361,24 +412,30 @@ public static class AuthServiceExtensions
             : null;
     }
 
-    private static async Task WriteJsonStatusAsync(
-        Microsoft.AspNetCore.Authentication.RedirectContext<Microsoft.AspNetCore.Authentication.Cookies.CookieAuthenticationOptions> context,
-        int statusCode,
-        string title,
-        string? detail = null)
+    // Beacon's schemes never take "the only scheme is the default" from the host: when the host has one scheme of its own
+    // and names no default, that scheme stays its default, as it was before Beacon's schemes were added.
+    private static void AddBeaconAuthenticationSchemes(IServiceCollection services)
     {
-        context.Response.StatusCode = statusCode;
-        context.Response.ContentType = "application/problem+json";
-        var payload = System.Text.Json.JsonSerializer.Serialize(
-            new
+        services.AddAuthentication()
+            .AddScheme<AuthenticationSchemeOptions, ApiKeyAuthenticationHandler>(BeaconAuthenticationDefaults.ApiKeyScheme, null)
+            .AddScheme<AuthenticationSchemeOptions, BeaconJwtAuthenticationHandler>(BeaconAuthenticationDefaults.BearerScheme, null)
+            .AddPolicyScheme(BeaconAuthenticationDefaults.AuthenticationScheme, null, x => x.ForwardDefaultSelector = BeaconAuthenticationDefaults.SelectScheme);
+        services.PostConfigure<Microsoft.AspNetCore.Authentication.AuthenticationOptions>(options =>
+        {
+            if (options.DefaultScheme != null
+                || (AppContext.TryGetSwitch(SuppressAutoDefaultSchemeSwitch, out var suppressed) && suppressed))
             {
-                type = "about:blank",
-                title,
-                status = statusCode,
-                detail
-            },
-            ProblemJson);
-        await context.Response.WriteAsync(payload, context.HttpContext.RequestAborted);
+                return;
+            }
+
+            var hostSchemes = options.Schemes
+                .Where(x => !BeaconAuthenticationDefaults.RegisteredSchemes.Contains(x.Name))
+                .ToList();
+            if (hostSchemes.Count == 1)
+            {
+                options.DefaultScheme = hostSchemes[0].Name;
+            }
+        });
     }
 
     private static JwtExternalApiAuthenticationProvider CreateJwtProvider(IServiceProvider services)

@@ -20,6 +20,12 @@ public class McpAuditLog : BaseEntity
     /// <summary>HMAC-SHA256 hex of the JWT caller's tenant and subject (never the raw oid or email).</summary>
     public string? CallerHash { get; set; }
 
+    /// <summary>
+    /// Minted by Beacon for every audited call (32 hex characters) and never taken from a request: the one identifier on
+    /// the row, and on the audit log event, that a caller cannot choose. Null on rows written before it existed.
+    /// </summary>
+    public string? CorrelationId { get; set; }
+
     /// <summary>W3C trace id (32 hex chars) of the activity current when the call was audited.</summary>
     public string? TraceId { get; set; }
 
@@ -29,7 +35,11 @@ public class McpAuditLog : BaseEntity
     /// <summary>The <c>Mcp-Session-Id</c> transport header; null for stateless clients.</summary>
     public string? McpSessionId { get; set; }
 
-    /// <summary>The sanitised upstream request id header named by <c>Beacon:Mcp:Audit:RequestIdHeader</c>.</summary>
+    /// <summary>
+    /// The upstream request id header named by <c>Beacon:Mcp:Audit:RequestIdHeader</c>, as the caller sent it (length-capped
+    /// and limited to a safe character set). Supplied by the caller and not verified: <see cref="CorrelationId"/> is the
+    /// identifier Beacon vouches for.
+    /// </summary>
     public string? UpstreamRequestId { get; set; }
 
     /// <summary>The <c>api_key_id</c> claim of an API-key caller. No FK — the audit must outlive a deleted key.</summary>
@@ -41,6 +51,31 @@ public class McpAuditLog : BaseEntity
     /// </summary>
     public string? ContentHash { get; set; }
 
+    /// <summary>
+    /// The row's own id within the seal, unique across the table, so a sealed row cannot be copied into a second one. Null
+    /// on rows written before rows were sealed.
+    /// </summary>
+    public Guid? AuditGuid { get; set; }
+
+    /// <summary>
+    /// Which field list the seal covers (<c>McpAuditSeal.CurrentVersion</c>), so a field added later is sealed without
+    /// breaking the rows sealed before it. Null on rows written before rows were sealed.
+    /// </summary>
+    public int? SealVersion { get; set; }
+
+    /// <summary>The id of the integrity key the row was sealed under (the security audit trail's key ids).</summary>
+    public string? HmacKeyId { get; set; }
+
+    /// <summary>
+    /// The keyed HMAC-SHA256 over the row's fields and its statements, written when the row is saved
+    /// (<c>McpAuditSeal</c>); null on rows written before rows were sealed.
+    /// </summary>
+    public string? Hmac { get; set; }
+
+    /// <summary>
+    /// The user, by <see cref="UserId"/>. The key sets it to null when the user row is deleted at the database (Beacon only
+    /// archives users), which changes the sealed row: the verification then reports it as modified.
+    /// </summary>
     public BeaconUser? User { get; set; }
 
     /// <summary>The statements the call ran on data sources; deleted with the row.</summary>

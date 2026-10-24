@@ -59,9 +59,10 @@ public static class BeaconMcpGatewayServiceCollectionExtensions
         services.AddSingleton(options);
         var entra = options.EntraConfiguration!;
 
-        // Beacon's user store exists (the admin UI provisions its administrators in it) but holds no password and has no
-        // first-run setup: the host owns sign-in. No scheduler: a gateway has no subscriptions or data sources to schedule.
-        var beacon = services.AddBeaconServices(configuration, x =>
+        // A profile of the host chain (AddBeacon → AddAI → AddMcp) that keeps AI off. Beacon's user store exists (the
+        // admin UI provisions its administrators in it) but holds no password and has no first-run setup: the host owns
+        // sign-in. No scheduler: a gateway has no subscriptions or data sources to schedule.
+        var beacon = services.AddBeacon(configuration, x =>
         {
             x.AddBeaconScheduler<UnavailableBeaconScheduler>();
             x.BaseUrl = configuration["Beacon:PublicBaseUrl"];
@@ -94,8 +95,9 @@ public static class BeaconMcpGatewayServiceCollectionExtensions
             }
         });
 
-        // The MCP tools' hard dependency; no LLM provider is configured, the client brings its own model.
-        services.AddBeaconAI(configuration);
+        // The MCP tools' hard dependency; no LLM provider is configured, the client brings its own model. AI stays off: the
+        // evaluation harness and pattern replay keep refusing (the AI-off stand-ins stay).
+        beacon.AddAIKeepingAiOff();
         var admin = options.AdminConfiguration;
         services.AddBeaconApiServices(x =>
         {
@@ -108,10 +110,12 @@ public static class BeaconMcpGatewayServiceCollectionExtensions
         });
         if (admin != null)
         {
-            // Beacon's REST API policies and antiforgery (its shell sends the token in this header), and the identity bridge
-            // that makes a holder of the host's admin policy Beacon's administrator on /beacon.
+            // Beacon's REST API policies and antiforgery (its shell sends the token in this header; the cookie keeps the
+            // host's name), and the identity bridge that makes a holder of the host's admin policy Beacon's administrator
+            // on /beacon.
             services.AddBeaconApiAuthorization();
-            services.AddAntiforgery(x => x.HeaderName = "X-XSRF-TOKEN");
+            services.AddAntiforgery(x => x.HeaderName = Beacon.Api.ServiceConfiguration.AntiforgeryHeaderName);
+            services.AddMemoryCache();
             services.AddScoped<BeaconGatewayAdminDirectory>();
             services.AddScoped<IClaimsTransformation, BeaconGatewayAdminClaimsTransformation>();
             services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, BeaconGatewayAdminStartupCheck>());
@@ -127,7 +131,7 @@ public static class BeaconMcpGatewayServiceCollectionExtensions
             x.Validation.ValidateAudience = true;
         });
 
-        services.AddBeaconMcp(x =>
+        beacon.AddMcp(x =>
         {
             x.BuiltInTools.Clear();
             x.BuiltInTools.UnionWith(options.BuiltInTools);

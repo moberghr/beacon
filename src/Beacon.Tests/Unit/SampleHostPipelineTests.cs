@@ -13,6 +13,8 @@ using Beacon.Core.Services;
 using Beacon.Core.Services.Security;
 using Beacon.MCP;
 using Beacon.MCP.Discovery;
+using Beacon.Gateway;
+using Beacon.Tests.Common;
 using FluentAssertions;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
@@ -42,28 +44,47 @@ namespace Beacon.Tests.Unit;
 /// observable behaviour of that pipeline, so a change of how a host wires it must leave them green.
 /// <para>
 /// Not mirrored from <c>Program.cs</c>: <c>UseForwardedHeaders</c>, <c>UseHttpsRedirection</c>, <c>UseStaticFiles</c>,
-/// <c>UseApiExceptionHandler</c> (which the sample runs before the authentication chain), <c>UseAntiforgery</c>,
+/// <c>UseBeaconApiExceptionHandler</c> (the chain adds it first; pinned by <c>BeaconApiHostHelpersTests</c>), <c>UseAntiforgery</c>,
 /// <c>MapOpenApi</c>, <c>MapBeaconApi</c>, <c>MapLoginEndpoints</c>, <c>MapSetupEndpoints</c>, <c>UseWarpUI</c> and
 /// <c>MapBeaconUi</c>; the Warp dashboard, the SPA and the whoami and sign-in routes are <c>MapGet</c> stand-ins, so the
 /// "spa" and "warp" assertions prove the Beacon middlewares' decisions, not the real dashboard or SPA. Bearer
 /// authentication is disabled here (the sample enables it only when OIDC is configured with a JWKS endpoint), so the
 /// JWT middleware's position for a bearer caller is pinned elsewhere: <c>BeaconAuthenticationScopeTests</c> (a JWT
 /// through <c>UseBeaconAuthentication</c>) and <c>RestBearerUserBindingTests</c>.
-/// <see cref="Program_KeepsTheMirroredCallsInTheOrderThisPipelineUses"/> fails when <c>Program.cs</c> reorders the seven
-/// calls that are mirrored.
+/// <see cref="Program_KeepsTheMirroredCallsInTheOrderThisPipelineUses"/> fails when <c>Program.cs</c> leaves the chain
+/// (<c>UseBeaconSecurityHeaders</c>, <c>UseStaticFiles</c>, <c>UseBeaconPipeline</c>, <c>MapBeaconOpenApi</c>,
+/// <c>MapBeacon</c>, in that order) or adds back a call the chain makes.
+/// </para>
+/// <para>
+/// Every test runs twice: on the individual calls the sample made before the chain and a host on the older entry points
+/// still makes (<see cref="HostWiring.SampleCalls"/>), and on a host built with the fluent chain the sample uses now
+/// (<see cref="HostWiring.Chain"/>: <c>AddBeacon(...).AddAI().AddMcp().AddApi().AddCookieAuth&lt;T&gt;()</c>,
+/// <c>UseBeaconPipeline()</c> and <c>MapBeacon()</c>), which must behave the same.
 /// </para>
 /// </summary>
-[TestFixture]
-public class SampleHostPipelineTests
+[TestFixture(HostWiring.SampleCalls)]
+[TestFixture(HostWiring.Chain)]
+public class SampleHostPipelineTests(SampleHostPipelineTests.HostWiring wiring)
 {
+    public enum HostWiring
+    {
+        SampleCalls,
+        Chain
+    }
+
+    private readonly HostWiring _wiring = wiring;
+
     private const string ExecuteKey = "sk-sem_pipeline-execute-key";
     private const string ReadKey = "sk-sem_pipeline-read-key";
-    private const string McpBody = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"tools/list\"}";
+    // An initialize request: both MCP servers here (the bare SDK one and Beacon's own) answer it without a session, so a
+    // 200 shows the caller got past authentication and the route policy.
+    private const string McpBody =
+        "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"initialize\",\"params\":{\"protocolVersion\":\"2025-06-18\",\"capabilities\":{},\"clientInfo\":{\"name\":\"pipeline-test\",\"version\":\"1.0\"}}}";
 
     [Test]
     public async Task CookieSession_FirstRequestAfterSignIn_IsAuthorized_AndReachesTheSpa_NotTheLoginPage()
     {
-        await using var host = await PipelineHost.StartAsync();
+        await using var host = await PipelineHost.StartAsync(_wiring);
         var cookie = await host.SignInAsync();
 
         var api = await host.SendAsync(HttpMethod.Get, "/beacon/api/whoami", cookie: cookie);
@@ -78,7 +99,7 @@ public class SampleHostPipelineTests
     [Test]
     public async Task AnonymousUiPage_InsideTheBeaconScope_RedirectsToTheLoginPage_AndAnApiPathIsNot()
     {
-        await using var host = await PipelineHost.StartAsync();
+        await using var host = await PipelineHost.StartAsync(_wiring);
 
         var page = await host.SendAsync(HttpMethod.Get, "/beacon/home");
         var api = await host.SendAsync(HttpMethod.Get, "/beacon/api/whoami");
@@ -91,7 +112,7 @@ public class SampleHostPipelineTests
     [Test]
     public async Task HostRoute_OutsideTheScope_IsNeverRedirected_WhateverTheFirstRunState([Values] bool firstRun)
     {
-        await using var host = await PipelineHost.StartAsync(firstRun: firstRun);
+        await using var host = await PipelineHost.StartAsync(_wiring, firstRun: firstRun);
 
         var response = await host.SendAsync(HttpMethod.Get, "/reports");
 
@@ -102,7 +123,7 @@ public class SampleHostPipelineTests
     [Test]
     public async Task WarpDashboard_ListedInAdditionalPaths_IsReachedWithoutALoginRedirect_ByItsExactCasedPrefix()
     {
-        await using var host = await PipelineHost.StartAsync();
+        await using var host = await PipelineHost.StartAsync(_wiring);
 
         var response = await host.SendAsync(HttpMethod.Get, "/warp/jobs");
 
@@ -113,7 +134,7 @@ public class SampleHostPipelineTests
     [Test]
     public async Task WarpDashboard_MixedCasePath_IsRedirectedToLogin()
     {
-        await using var host = await PipelineHost.StartAsync();
+        await using var host = await PipelineHost.StartAsync(_wiring);
 
         var response = await host.SendAsync(HttpMethod.Get, "/WARP/jobs");
 
@@ -121,6 +142,11 @@ public class SampleHostPipelineTests
         response.Headers.Location!.OriginalString.Should().Be("/beacon/login");
     }
 
+    // Program.cs wires Beacon through the chain (the HostWiring.Chain fixture): UseBeaconPipeline in place of the five
+    // pipeline calls the SampleCalls fixture makes, MapBeacon in place of its MCP and discovery mappings. None of those
+    // calls may come back beside the chain: UseBeaconPipeline already adds them, and a second copy would run Beacon's
+    // middlewares twice. The security headers come before UseStaticFiles (so the SPA's files carry them), and the OpenAPI
+    // document is mapped with MapBeaconOpenApi (gated outside Development), never with a bare MapOpenApi beside it.
     [Test]
     public void Program_KeepsTheMirroredCallsInTheOrderThisPipelineUses()
     {
@@ -130,13 +156,30 @@ public class SampleHostPipelineTests
             .ToList();
         string[] mirrored =
         [
-            "app.UseMcpResourceMetadataChallenge();",
-            "app.UseBeaconAuthentication();",
-            "app.UseAuthorization();",
+            "app.UseBeaconSecurityHeaders();",
+            "app.UseStaticFiles();",
+            "app.UseBeaconPipeline();",
+            "app.MapBeaconOpenApi();",
+            "app.MapBeacon();"
+        ];
+        string[] replacedByTheChain =
+        [
+            "app.UseApiExceptionHandler(",
+            "app.UseBeaconApiExceptionHandler(",
+            "app.UseMcpResourceMetadataChallenge(",
+            "app.UseBeaconAuthentication(",
+            "app.UseAuthentication(",
+            "app.UseAuthorization(",
             "app.UseMiddleware<LoginFormAuthMiddleware>(",
             "app.UseMiddleware<FirstRunSetupMiddleware>(",
-            "app.MapBeaconMcp();",
-            "app.MapMcpDiscovery();"
+            "app.UseAntiforgery(",
+            "app.MapBeaconApi(",
+            "app.MapLoginEndpoints(",
+            "app.MapSetupEndpoints(",
+            "app.MapBeaconMcp(",
+            "app.MapMcpDiscovery(",
+            "app.MapBeaconUi(",
+            "app.MapOpenApi("
         ];
 
         var positions = mirrored
@@ -145,12 +188,13 @@ public class SampleHostPipelineTests
 
         positions.Should().OnlyContain(x => x >= 0, "every mirrored call is still in Program.cs");
         positions.Should().BeInAscendingOrder().And.OnlyHaveUniqueItems();
+        code.Should().NotContain(x => replacedByTheChain.Any(y => x.StartsWith(y, StringComparison.Ordinal)));
     }
 
     [Test]
     public async Task SampleAdditionalPaths_AreTheWarpDashboardAndTheOpenApiDocument()
     {
-        await using var host = await PipelineHost.StartAsync();
+        await using var host = await PipelineHost.StartAsync(_wiring);
 
         // The OpenAPI document is gated behind Beacon's sign-in outside Development.
         host.AdditionalPaths.Should().Equal("/warp", "/openapi");
@@ -161,7 +205,7 @@ public class SampleHostPipelineTests
     [TestCase("/.well-known/mcp/server-card.json")]
     public async Task DiscoveryDocument_IsAnonymous200_WhileFirstRunSetupIsOpenAndTheLoginFormIsOn(string path)
     {
-        await using var host = await PipelineHost.StartAsync(firstRun: true);
+        await using var host = await PipelineHost.StartAsync(_wiring, firstRun: true);
 
         var response = await host.SendAsync(HttpMethod.Get, path);
 
@@ -175,7 +219,7 @@ public class SampleHostPipelineTests
     [TestCase("/.well-known/mcp/server-card.json")]
     public async Task DiscoveryDocument_StaysAnonymous_EvenWhenTheHostListsWellKnownInAdditionalPaths(string path)
     {
-        await using var host = await PipelineHost.StartAsync(additionalPaths: ["/.well-known"]);
+        await using var host = await PipelineHost.StartAsync(_wiring, additionalPaths: ["/.well-known"]);
 
         var response = await host.SendAsync(HttpMethod.Get, path);
 
@@ -188,7 +232,7 @@ public class SampleHostPipelineTests
     [TestCase("/.well-known/MCP/server-card.json")]
     public async Task OtherWellKnownPath_InsideTheScope_IsNotAnonymous_AndIsRedirectedToLogin(string path)
     {
-        await using var host = await PipelineHost.StartAsync(additionalPaths: ["/.well-known"]);
+        await using var host = await PipelineHost.StartAsync(_wiring, additionalPaths: ["/.well-known"]);
 
         var response = await host.SendAsync(HttpMethod.Get, path);
 
@@ -199,7 +243,7 @@ public class SampleHostPipelineTests
     [Test]
     public async Task FirstRun_RedirectsTheLoginPageToSetup_AndLetsTheSetupPageThrough()
     {
-        await using var host = await PipelineHost.StartAsync(firstRun: true);
+        await using var host = await PipelineHost.StartAsync(_wiring, firstRun: true);
 
         var login = await host.SendAsync(HttpMethod.Get, "/beacon/login");
         var setup = await host.SendAsync(HttpMethod.Get, "/beacon/setup");
@@ -213,7 +257,7 @@ public class SampleHostPipelineTests
     [Test]
     public async Task AfterFirstRun_TheLoginPageIsServed_NotRedirectedToSetup()
     {
-        await using var host = await PipelineHost.StartAsync(firstRun: false);
+        await using var host = await PipelineHost.StartAsync(_wiring, firstRun: false);
 
         var login = await host.SendAsync(HttpMethod.Get, "/beacon/login");
 
@@ -224,7 +268,7 @@ public class SampleHostPipelineTests
     [Test]
     public async Task Mcp_WithoutCredentials_Is401WithTheResourceMetadataChallenge_NotALoginRedirect()
     {
-        await using var host = await PipelineHost.StartAsync(firstRun: true);
+        await using var host = await PipelineHost.StartAsync(_wiring, firstRun: true);
 
         var response = await host.SendAsync(HttpMethod.Post, "/beacon/mcp", body: McpBody);
 
@@ -236,7 +280,7 @@ public class SampleHostPipelineTests
     [Test]
     public async Task Mcp_ApiKeyWithoutTheExecuteScope_IsForbidden()
     {
-        await using var host = await PipelineHost.StartAsync();
+        await using var host = await PipelineHost.StartAsync(_wiring);
 
         var response = await host.SendAsync(HttpMethod.Post, "/beacon/mcp", body: McpBody, apiKey: ReadKey);
 
@@ -246,7 +290,7 @@ public class SampleHostPipelineTests
     [Test]
     public async Task Mcp_ApiKeyWithTheExecuteScope_IsAdmitted_PastAuthenticationAndThePolicy()
     {
-        await using var host = await PipelineHost.StartAsync();
+        await using var host = await PipelineHost.StartAsync(_wiring);
 
         var response = await host.SendAsync(HttpMethod.Post, "/beacon/mcp", body: McpBody, apiKey: ExecuteKey);
 
@@ -256,7 +300,7 @@ public class SampleHostPipelineTests
     [Test]
     public async Task Mcp_ApiKeyCaller_NeedsNoCookie_AndTheKeyRunsBeforeASessionCookie()
     {
-        await using var host = await PipelineHost.StartAsync();
+        await using var host = await PipelineHost.StartAsync(_wiring);
         var cookie = await host.SignInAsync();
 
         var response = await host.SendAsync(HttpMethod.Post, "/beacon/mcp", body: McpBody, apiKey: ReadKey, cookie: cookie);
@@ -267,7 +311,7 @@ public class SampleHostPipelineTests
     [Test]
     public async Task SessionCookie_IsHttpOnly_Lax_AndNamedBeaconAuth_AndSecureOnlyOverHttps()
     {
-        await using var host = await PipelineHost.StartAsync();
+        await using var host = await PipelineHost.StartAsync(_wiring);
 
         var overHttp = await host.Client.GetAsync("/beacon/api/test/sign-in");
         using var httpsClient = host.CreateHttpsClient();
@@ -319,12 +363,8 @@ public class SampleHostPipelineTests
 
         public string[] AdditionalPaths { get; }
 
-        public static async Task<PipelineHost> StartAsync(bool firstRun = false, string[]? additionalPaths = null)
+        public static async Task<PipelineHost> StartAsync(HostWiring wiring, bool firstRun = false, string[]? additionalPaths = null)
         {
-            var beaconConfiguration = new BeaconConfiguration();
-            beaconConfiguration.Authentication.EnableLoginForm = true;
-            beaconConfiguration.UserManagement.Enabled = true;
-
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing" });
             builder.WebHost.UseTestServer();
             builder.Logging.ClearProviders();
@@ -334,7 +374,7 @@ public class SampleHostPipelineTests
             var paths = sample.GetSection(AuthenticationPathOptions.SectionName).Get<AuthenticationPathOptions>()?.AdditionalPaths.ToList() ?? [];
             var sampleSettings = paths.Count;
             paths.AddRange(additionalPaths ?? []);
-            var settings = new Dictionary<string, string?> { ["Beacon:PublicBaseUrl"] = "https://beacon.example.test" };
+            var settings = BeaconHostChain.RequiredSettings();
             for (var i = 0; i < paths.Count; i++)
             {
                 settings[$"{AuthenticationPathOptions.SectionName}:AdditionalPaths:{i}"] = paths[i];
@@ -343,19 +383,21 @@ public class SampleHostPipelineTests
             builder.Configuration.AddInMemoryCollection(settings);
             sampleSettings.Should().BeGreaterThan(0, "the sample lists the Warp dashboard");
 
+            if (wiring == HostWiring.Chain)
+            {
+                return await StartChainAsync(builder, firstRun, paths);
+            }
+
+            var beaconConfiguration = new BeaconConfiguration();
+            beaconConfiguration.Authentication.EnableLoginForm = true;
+            beaconConfiguration.UserManagement.Enabled = true;
+
             builder.Services.AddOptions<AuthenticationPathOptions>()
                 .Bind(builder.Configuration.GetSection(AuthenticationPathOptions.SectionName));
             builder.Services.AddSingleton<AuthenticationPathPrefixes>();
             builder.Services.AddSingleton(beaconConfiguration);
-            builder.Services.AddSingleton(UserStore(firstRun).Object);
-            builder.Services.AddSingleton<TimeProvider>(new FakeTimeProvider(DateTimeOffset.UtcNow));
-            builder.Services.AddSingleton<IUserSessionStore>(new BeaconAuthenticationScopeTests.CountingSessionStore());
-            builder.Services.AddSingleton(Options.Create(new SessionLifetimeOptions { RevalidateMinutes = 0, AbsoluteLifetimeHours = 12 }));
-            builder.Services.AddSingleton(ApiKeys().Object);
-            builder.Services.AddSingleton(Mock.Of<IBeaconAuthorizationProvider>(x => x.HasWritePermissionAsync(It.IsAny<CancellationToken>()) == Task.FromResult(true)));
-            builder.Services.AddSingleton(Mock.Of<IMcpCallerMapper>());
+            AddDoubles(builder.Services, firstRun);
             builder.Services.AddSingleton(new HttpClient());
-            builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider();
             builder.Services.AddBeaconCookieAuthentication("/beacon");
             builder.Services.AddBeaconJwtAuthentication(x => x.EnableBearerAuthentication = false);
             builder.Services.AddMcpServer().WithHttpTransport();
@@ -381,14 +423,65 @@ public class SampleHostPipelineTests
             }).AllowAnonymous();
             app.MapBeaconMcp();
             app.MapMcpDiscovery();
-            app.MapGet("/warp/{**page}", () => "warp");
-            app.MapGet("/reports", () => "reports");
-            app.MapGet("/beacon/{**page}", () => "spa");
-            app.MapGet("/.well-known/{**page}", () => "stand-in");
+            MapStandIns(app);
 
             await app.StartAsync();
 
             return new PipelineHost(app, paths.ToArray());
+        }
+
+        // The same host through the fluent chain: Beacon's own registrations, then the same doubles (registered last, so
+        // they are the ones resolved), UseBeaconPipeline in place of the five pipeline calls and MapBeacon in place of the
+        // MCP and discovery mappings (it maps the API, sign-in, setup and shell endpoints too; the stand-ins outrank the
+        // shell's fallback).
+        private static async Task<PipelineHost> StartChainAsync(WebApplicationBuilder builder, bool firstRun, List<string> paths)
+        {
+            BeaconHostChain.Add(builder.Services, builder.Configuration, x =>
+            {
+                x.Authentication.EnableLoginForm = true;
+                x.EnableUserManagement();
+            });
+            AddDoubles(builder.Services, firstRun);
+
+            var app = builder.Build();
+
+            app.UseBeaconPipeline();
+
+            app.MapGet("/beacon/api/whoami", (HttpContext context) => context.User.Identity?.AuthenticationType ?? string.Empty)
+                .RequireAuthorization();
+            app.MapGet("/beacon/api/test/sign-in", async (HttpContext context) =>
+            {
+                var principal = new ClaimsPrincipal(new ClaimsIdentity(
+                    [new Claim(ClaimTypes.NameIdentifier, "ana"), new Claim(ClaimTypes.Name, "ana")],
+                    CookieAuthenticationDefaults.AuthenticationScheme));
+                await context.SignInAsync(CookieAuthenticationDefaults.AuthenticationScheme, principal);
+            }).AllowAnonymous();
+            app.MapBeacon();
+            MapStandIns(app);
+
+            await app.StartAsync();
+
+            return new PipelineHost(app, paths.ToArray());
+        }
+
+        private static void AddDoubles(IServiceCollection services, bool firstRun)
+        {
+            services.AddSingleton(UserStore(firstRun).Object);
+            services.AddSingleton<TimeProvider>(new FakeTimeProvider(DateTimeOffset.UtcNow));
+            services.AddSingleton<IUserSessionStore>(new BeaconAuthenticationScopeTests.CountingSessionStore());
+            services.AddSingleton(Options.Create(new SessionLifetimeOptions { RevalidateMinutes = 0, AbsoluteLifetimeHours = 12 }));
+            services.AddSingleton(ApiKeys().Object);
+            services.AddSingleton(Mock.Of<IBeaconAuthorizationProvider>(x => x.HasWritePermissionAsync(It.IsAny<CancellationToken>()) == Task.FromResult(true)));
+            services.AddSingleton(Mock.Of<IMcpCallerMapper>());
+            services.AddDataProtection().UseEphemeralDataProtectionProvider();
+        }
+
+        private static void MapStandIns(WebApplication app)
+        {
+            app.MapGet("/warp/{**page}", () => "warp");
+            app.MapGet("/reports", () => "reports");
+            app.MapGet("/beacon/{**page}", () => "spa");
+            app.MapGet("/.well-known/{**page}", () => "stand-in");
         }
 
         public HttpClient CreateHttpsClient()

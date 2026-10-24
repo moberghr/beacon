@@ -40,15 +40,16 @@ curl -s -X POST $BEACON/beacon/api/setup/superadmin \
   -H "Content-Type: application/json" \
   -d '{"setupToken":"<token>","userName":"admin","displayName":"Admin","email":"admin@example.com","password":"<password>","confirmPassword":"<password>"}'
 
-# Sign in (no antiforgery token needed for login); keep the cookie jar for later calls.
-curl -s -c jar.txt -X POST $BEACON/beacon/api/auth/login \
-  -H "Content-Type: application/json" \
+# Sign in with an antiforgery token (login needs one too); keep the cookie jar for later calls.
+TOKEN=$(curl -s -c jar.txt $BEACON/beacon/api/csrf | jq -r .token)
+curl -s -b jar.txt -c jar.txt -X POST $BEACON/beacon/api/auth/login \
+  -H "Content-Type: application/json" -H "X-XSRF-TOKEN: $TOKEN" \
   -d '{"username":"admin","password":"<password>","rememberMe":false}'
 
 curl -s -b jar.txt $BEACON/beacon/api/auth/me
 ```
 
-State-changing calls with the cookie need an antiforgery token: `GET /beacon/api/csrf` returns `{"token":"…"}` and sets a cookie; send the token as `X-XSRF-TOKEN` **with the same cookie jar**:
+State-changing calls with the cookie need an antiforgery token: `GET /beacon/api/csrf` returns `{"token":"…"}` and sets a cookie; send the token as `X-XSRF-TOKEN` **with the same cookie jar**. The token is bound to the signed-in user, so fetch a new one after login:
 
 ```bash
 TOKEN=$(curl -s -b jar.txt -c jar.txt $BEACON/beacon/api/csrf | jq -r .token)
@@ -153,7 +154,7 @@ builder.Services.AddBeaconJwtAuthentication(jwt =>
     jwt.Validation.ValidAudiences = [ "api://<beacon-app-id>", "<beacon-app-id>" ];
 });
 // …
-app.UseBeaconJwtBearerAuthentication();   // in the pipeline, after ApiKeyAuthMiddleware
+app.UseBeaconAuthentication();   // judges the bearer token, the API key or the cookie, whichever is presented
 ```
 
 | Option | Default | Notes |
@@ -187,8 +188,9 @@ Send it as `Authorization: Bearer sk-sem_…`. Details: [API keys](/security/api
 |---|---|---|
 | `Beacon:Authentication:Session:RevalidateMinutes` | `5` | How often a session is re-checked against the user store (user enabled, not archived, unchanged security stamp; roles reloaded). `0` checks every request. |
 | `Beacon:Authentication:Session:AbsoluteLifetimeHours` | `12` | A session ends this long after sign-in, however often it is renewed. "Remember me" cannot extend it. |
+| `Beacon:Authentication:Session:PersistSsoCookie` | `false` | A single sign-on session gets a browser-session cookie, dropped when the browser closes. `true` keeps the cookie until it expires (still within `AbsoluteLifetimeHours`). Password sign-in follows "remember me". |
 
-The `Beacon.Auth` cookie is HttpOnly, SameSite=Lax and Secure on HTTPS. Changing a user's roles, password, enabled state or archiving them renews their **security stamp**, which ends every session they have. Users can sign out everywhere themselves; a UserAdmin can do it for them (`POST /beacon/api/users/{id}/sign-out-everywhere`). Realtime connections close when the session ends.
+The `Beacon.Auth` cookie is HttpOnly, SameSite=Lax and Secure on HTTPS. Changing a user's roles, password, enabled state or archiving them renews their **security stamp**, which ends every session they have. Users can sign out everywhere themselves; a UserAdmin can do it for them (`POST /beacon/api/users/{id}/sign-out-everywhere`). Realtime connections close when the session ends, and the UI stops its connection and drops its cached data when it signs out or gets a `401`.
 
 ## Your app owns sign-in
 

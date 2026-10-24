@@ -38,11 +38,21 @@ into whatever it already uses (OTLP to an ADOT collector, Phoenix, or another ba
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `Beacon:Mcp:Audit:Required` | `false` | When `true`, a tool result whose audit row failed to write is replaced with an error instead of being returned. |
+| `Beacon:Mcp:Audit:Required` | `false` | When `true`, a tool result whose audit row failed to write is replaced with an error instead of being returned. While it is `false` the host logs a Warning at startup: such a call is then recorded only by the `Beacon.Audit` 9100 event (`Persisted=false`) and the audit write failure metric. |
 | `Beacon:Mcp:Audit:RetentionDays` | `null` | Days audit rows are kept. `null` or `0` keeps them forever (`365` recommended); a negative value fails options validation at startup. Under `Beacon:Retention:Locked` it must be greater than 0. |
 | `Beacon:Mcp:Audit:RequestIdHeader` | `X-Request-Id` | The upstream header read into `UpstreamRequestId`. Must be a valid HTTP header token, or startup fails. Set to `null`/empty to read none. |
 | `Beacon:Mcp:Audit:RequireContent` | `false` | When `true`, pins `RetainQueryContent` on globally and for every project, so nobody, an Admin included, can switch the audit's question and SQL text off at runtime. See [Keeping audit content](#keeping-audit-content-the-requirecontent-lock). |
 | `Beacon:Telemetry:CaptureContent` | `false` | Puts the tool input on the current span as `beacon.tool.input`, only where the project's own content retention also allows content (double opt-in, never from this setting alone). |
+
+## Knowing the retention jobs run
+
+Beacon schedules no maintenance job itself: the audit purges and the security audit verification run only where the host
+schedules them (the sample host does, with Warp recurring jobs `mcp-audit-retention`, `security-audit-retention` and
+`security-audit-verify`). Each of those services records a heartbeat (`MaintenanceHeartbeats`, one row per job: its name and
+the time it last ran to its end) when it finishes. At startup the host looks the heartbeats up, bounded and best effort, and
+logs a Warning for each job that should be running and has no recorded run, or none within 36 hours (6 for the
+verification): a purge counts only while its `RetentionDays` is set. A first start has no heartbeat yet and warns once.
+`IRetentionScheduleCheck` runs the same check for a host that wants it on a schedule of its own.
 
 ## What's on an audit row
 
@@ -51,9 +61,10 @@ project's retention decision) parameters/error:
 
 | Column | Source |
 |---|---|
+| `CorrelationId` | Minted by Beacon for every audited call (32 hex characters) and never read from a request: the one identifier on the row, and on the 9100 event, that a caller cannot choose. `null` on rows written before it existed. |
 | `TraceId` / `SpanId` | `Activity.Current` (the MCP SDK's `tools/call` span) when one is current; otherwise `null`. |
 | `McpSessionId` | The `Mcp-Session-Id` transport header. `null` for stateless clients. |
-| `UpstreamRequestId` | The header named by `Beacon:Mcp:Audit:RequestIdHeader`, accepted only when it is at most 128 characters of `[A-Za-z0-9._:-]`; anything else is dropped, which blocks log injection. |
+| `UpstreamRequestId` | Supplied by the caller and not verified: use `CorrelationId` as the identifier Beacon vouches for. The header named by `Beacon:Mcp:Audit:RequestIdHeader`, accepted only when it is at most 128 characters of `[A-Za-z0-9._:-]`; anything else is dropped, which blocks log injection. |
 | `ApiKeyId` | The `api_key_id` claim of an API-key caller. No foreign key: the audit must outlive a deleted key. |
 | `CallerKind` / `CallerHash` | Set for a mapped [Entra ID caller](/mcp/entra-callers/); `null` for API keys and cookie sessions. |
 | `ContentHash` | A keyed hash of the call's parameters as received, written **whether or not** the parameters themselves are kept, so calls with the same input can be matched (and a disclosed input checked against the trail) without keeping it. See [Keyed hashes](#keyed-hashes). |
@@ -100,6 +111,15 @@ The secret itself is never the key, and nobody without it can test guesses again
 comparable across an encryption-key change while `Beacon:Mcp:CallerHashKey` is set (see
 [Replacing the Key](/getting-started/configuration/#replacing-the-key)).
 
+### Sealed rows
+
+Every row is sealed as it is saved: an HMAC-SHA256 over its fields and the statements it holds, under the
+[security audit trail](/security/audit-trail/#the-mcp-audit-rows)'s integrity keys (`Hmac`, `HmacKeyId`, `SealVersion`,
+`AuditGuid`). Beacon refuses to change or delete a row or a statement, and the scheduled security audit verification
+checks the rows written since its last run, checks again a rolling slice of the rows it checked before, and counts the
+rows up to its checkpoint, reporting changed and deleted ones at Error (9111) and writing a checkpoint (9112).
+Rows written before seals were introduced are reported as unsealed.
+
 ## The `Beacon.Audit` log event catalogue
 
 Every event below is logged at category **`Beacon.Audit`**, structured, with identifiers and counts only, never
@@ -108,12 +128,12 @@ your log sink (CloudWatch, a SIEM) at this category to get the audit trail witho
 
 | EventId | Name | Level | When | Notable fields |
 |---|---|---|---|---|
-| 9100 | `McpToolAudited` | Information | Once per `McpAuditService.LogToolCallAsync` call, including when the row failed to save. | `Tool`, `AuditId` (null if not persisted), `Persisted`, `ProjectId`, `DataSourceId`, `UserId`, `ApiKeyId`, `CallerKind`, `CallerHash`, `DurationMs`, `Rows`, `ErrorClass`, `TraceId`, `McpSessionId`, `UpstreamRequestId` |
+| 9100 | `McpToolAudited` | Information | Once per `McpAuditService.LogToolCallAsync` call, including when the row failed to save. | `Tool`, `AuditId` (null if not persisted), `Persisted`, `ProjectId`, `DataSourceId`, `UserId`, `ApiKeyId`, `CallerKind`, `CallerHash`, `DurationMs`, `Rows`, `ErrorClass`, `CorrelationId`, `TraceId`, `McpSessionId`, `UpstreamRequestId` |
 | 9101 | `McpToolResultWithheld` | Warning | `Beacon:Mcp:Audit:Required = true` and the audit write for that call failed, or a successful result was not audited (MCP transport and Playground/REST tool runs). | `Tool`, `TraceId` |
 | 9102 | `McpAuditPurged` | Information | The retention purge runs with `RetentionDays` set. | Deleted count, cutoff |
 | 9103 | `McpAuditRead` | Information | `GET /beacon/api/mcp/audit` is called. | `RequestedByUserId`, `From`, `To`, `ProjectId`, `HasToolFilter` (bool: the admin-supplied `Tool` filter is free text, so only its presence is logged, never the value), `UserId`, `HasCallerHashFilter` (bool, same reasoning), `Page`, `PageSize`, `ReturnedCount` |
 
-The same category carries the [security audit trail](/security/audit-trail/#shipping-to-a-siem)'s events 9104 to 9110: a copy of every committed security audit event, reads and verifications of the trail, purges, write and verification failures, and the checkpoints of its scheduled verification.
+The same category carries the [security audit trail](/security/audit-trail/#shipping-to-a-siem)'s events 9104 to 9112: a copy of every committed security audit event, reads and verifications of the trail, purges, write and verification failures, the checkpoints of its scheduled verification, and the failures (9111) and checkpoints (9112) of the MCP audit rows' verification.
 
 ### Row data sent to the LLM provider
 
@@ -139,7 +159,9 @@ logged as a Warning by type, and never fails the request). See
 
 The MCP SDK already opens one span per `tools/call` (activity source `Experimental.ModelContextProtocol`, tagged
 `gen_ai.tool.name`, `mcp.method.name`, `mcp.session.id`, `error.type`, `jsonrpc.request.id`) and records
-`mcp.server.operation.duration`. Beacon does not open a duplicate span; it tags the SDK's own current activity:
+`mcp.server.operation.duration`. Beacon does not open a duplicate span; it tags the SDK's own current activity. The
+SDK's spans are exported only when the host adds them with `AddBeaconMcpSdkTracing()` (see
+[Turning tracing on](#turning-tracing-on)):
 
 | Tag | Meaning |
 |---|---|
@@ -235,12 +257,18 @@ A completion made outside a request queue's provider (the admin connection test)
 
 Log events and metrics never carry content, regardless of either setting.
 
+The MCP SDK writes an error result's content, or an exception's message, into its span's status description.
+`AddBeaconMcpSdkTracing()` clears every such description when the span ends, before the provider's processors and
+exporters see it; the status code (`Error`) and `error.type` stay. Keep the SDK's `ModelContextProtocol` log category
+above `Trace` in production: at `Trace` the SDK logs whole requests and responses.
+
 ## Turning tracing on
 
 Beacon.Api exposes `BeaconTelemetryBuilderExtensions.AddBeaconInstrumentation()` for both `TracerProviderBuilder` and
-`MeterProviderBuilder`. It only depends on `OpenTelemetry.Api`; it adds the `"Beacon"` source/meter plus the MCP
-SDK's own `Experimental.ModelContextProtocol` source/meter to whatever provider the host builds. **Beacon never picks
-an exporter.** The sample host (`Beacon.SampleProject/Program.cs`) enables OpenTelemetry only when
+`MeterProviderBuilder`. It only depends on `OpenTelemetry.Api`; it adds the `"Beacon"` source to the tracer provider
+and the `"Beacon"` meter plus the MCP SDK's own `Experimental.ModelContextProtocol` meter to the meter provider.
+`AddBeaconMcpSdkTracing()` adds the SDK's `tools/call` spans (the spans Beacon tags) with their status descriptions
+cleared; without it those spans, and Beacon's tags on them, are not exported. **Beacon never picks an exporter.** The sample host (`Beacon.SampleProject/Program.cs`) enables OpenTelemetry only when
 `OTEL_EXPORTER_OTLP_ENDPOINT` is set:
 
 ```csharp
@@ -252,6 +280,7 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOIN
             .AddAspNetCoreInstrumentation(y => y.Filter = z => !z.Request.Path.StartsWithSegments("/beacon/api/health"))
             .AddHttpClientInstrumentation()
             .AddBeaconInstrumentation()
+            .AddBeaconMcpSdkTracing()
             .AddOtlpExporter())
         .WithMetrics(x => x
             .AddAspNetCoreInstrumentation()
@@ -265,8 +294,8 @@ With no `OTEL_EXPORTER_OTLP_ENDPOINT`, none of this runs: there is no OpenTeleme
 itself: `OTEL_SERVICE_NAME`, `OTEL_TRACES_SAMPLER`, `OTEL_EXPORTER_OTLP_ENDPOINT`, `OTEL_EXPORTER_OTLP_HEADERS`, and
 so on. No endpoint, header or credential is ever hardcoded in Beacon.
 
-A host that embeds Beacon (rather than running the sample host) calls `.AddBeaconInstrumentation()` from its own
-tracing/metrics configuration the same way, after adding whichever OpenTelemetry SDK and exporter packages it needs.
+A host that embeds Beacon (rather than running the sample host) calls `.AddBeaconInstrumentation()` (and, for the
+SDK's spans, `.AddBeaconMcpSdkTracing()`) from its own tracing/metrics configuration the same way, after adding whichever OpenTelemetry SDK and exporter packages it needs.
 
 ### Trace continuity into host endpoint dispatch
 
@@ -377,10 +406,9 @@ purges them. Plan the privacy review for that, and set `Beacon:Mcp:Audit:Retenti
 retention setting cannot be read while the lock is on, the call keeps its content (logged at Error); without the lock it
 is audited structurally, as before.
 
-The audit rows and their statements are **evidence, not sealed records**: they carry keyed hashes of their content
-(`ContentHash`, `SqlHash`) but no signature over the row, so an edit made at the database is not detected the way the
-[security audit trail](/security/audit-trail/#what-the-trail-does-and-does-not-prove) detects one. Ship the
-`Beacon.Audit` events to a store you control for a copy the database cannot change.
+The audit rows and their statements are [sealed](#sealed-rows): an edit made at the database is found by the next
+scheduled verification, as in the [security audit trail](/security/audit-trail/#what-the-trail-does-and-does-not-prove);
+a deleted row is found by the row count once a run has checked it. Ship the `Beacon.Audit` events to a store you control for a copy the database cannot change.
 
 ## Retention
 

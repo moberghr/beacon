@@ -59,7 +59,7 @@ These answer without a session. Everything else requires one, an API key or a be
 | `GET /beacon/api/auth/me` | The current session, if any | |
 | `GET /beacon/api/auth/sso` | Whether SSO is offered, for the login page | |
 | `GET /beacon/api/csrf` | Antiforgery token for the UI | `400` for callers authenticated by an `Authorization` header. |
-| `POST /beacon/api/auth/login` | Password sign-in | Mapped only while password sign-in is on or a break-glass account is configured. 10 attempts per minute per client IP, then `429` with `Retry-After`. |
+| `POST /beacon/api/auth/login` | Password sign-in | Mapped only while password sign-in is on or a break-glass account is configured. Needs the antiforgery token (`X-XSRF-TOKEN`), `400` without it. 10 attempts per minute per client IP, then `429` with `Retry-After`. |
 | `POST /beacon/api/auth/logout` | Sign out; `?everywhere=true` signs out every session of the user | |
 | `GET /beacon/api/auth/sso/challenge` | Start the OIDC sign-in | |
 | `GET /beacon/api/setup/status` | Whether first-run setup is open | Mapped when user management is on. |
@@ -80,7 +80,7 @@ Functional permissions named below are held by Admins too. A by-id request on a 
 
 | Prefix | Covers | Notable rules |
 |---|---|---|
-| `/auth/me`, `/auth/sso`, `/auth/permissions` | Current user, SSO config, current permissions | `permissions` returns `canRead`, `canWrite`, `isAdmin`, `permissions`, `migrationsEnabled`. |
+| `/auth/me`, `/auth/sso`, `/auth/permissions` | Current user, SSO config, current permissions | `permissions` returns `canRead`, `canWrite`, `isAdmin`, `permissions`, `migrationsEnabled`, `build` (`version`, `commit`). |
 | `/home` | Home page: trends, activity, task summary, uptime, migration summary | `migration-summary` admits MigrationOperator. |
 | `/projects` | Projects, linked data sources, members, access mode, repositories and their scans (in the request, or as a background task), documentation, imported documents, MCP context | Members: project admins, UserAdmin. Access mode: UserAdmin (opening a restricted project: Admin). Unlinking a data source: Admin. Repository token: SecurityAdmin. |
 | `/data-sources` | Data sources, connection test, metadata, metadata refresh | Create, test and delete: DataSourceAdmin. `GET /{id}/metadata` needs Execute scope. `PUT /{id}/migration-writes`: Admin. Forced refresh is rate limited per data source (`429`). |

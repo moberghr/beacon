@@ -120,7 +120,7 @@ Each functional role grants one [functional permission](/security/authorization/
 | **DataSourceAdmin** | Creates, tests and deletes data sources; links a data source it can read into a project it administers |
 | **MigrationOperator** | Runs data migration between data sources it may query and write |
 
-**Assigning them.** `GET /beacon/api/users/roles` lists every role, with the `permission` a functional role grants. Roles are assigned when a user is created or with `PUT /beacon/api/users/{id}/roles` (`{ "roleIds": [1, 4] }`, the complete set; `204`, `404` for an unknown user, `400` for an unknown role or a separation-of-duties conflict). Role names follow `Beacon:Authorization:Roles` (see [Configuration](/getting-started/configuration/#functional-permissions-role-names-identity-provider-app-roles-separation-of-duties)).
+**Assigning them.** `GET /beacon/api/users/roles` lists every role, with the `permission` a functional role grants. Roles are assigned when a user is created or with `PUT /beacon/api/users/{id}/roles` (`{ "roleIds": [1, 4] }`, the complete set; `204`, `404` for an unknown user, `400` for an unknown role or a separation-of-duties conflict). While the [approval workflow](/security/approvals/#migration-jobs-custom-sql-rules-and-recipients) reviews grants of the Admin role (`CoversAdminRoleGrants`), adding the Admin role, on a new user or an existing one, waits for another live Admin's approval while the rest of the save applies. Role names follow `Beacon:Authorization:Roles` (see [Configuration](/getting-started/configuration/#functional-permissions-role-names-identity-provider-app-roles-separation-of-duties)).
 
 **On the Users page** the dialogs list roles in two groups, **Global roles** and **Functional roles**. For a UserAdmin who is not an Admin, **Add user** offers external users only, the user name and e-mail address are read-only, the Admin and functional roles are disabled, and the dialog opens read-only for their own account and for protected users (Admins, super admins and functional role holders).
 
@@ -300,6 +300,7 @@ A `Beacon.Auth` session is checked on the server, not only by its cookie:
 - **Security stamp.** It changes when a password is changed or reset, when the user is disabled, re-enabled or archived, when their roles, user name or e-mail address change, and on **Sign out everywhere**. Changing your own password keeps the current session and ends the others.
 - **Sign out everywhere.** An Admin, or a UserAdmin for a user they may change, ends every session of a user from the user dialog (`POST /beacon/api/users/{id}/sign-out-everywhere`). A user ends all their own sessions from the account menu (`POST /beacon/api/auth/logout?everywhere=true`), offered when `/auth/me` reports `signOutEverywhereEnabled`. When the sessions cannot be signed out (user management off, or an API key or MCP caller) the answer is `409`. API keys are not affected.
 - **Absolute lifetime.** A session ends `Beacon:Authentication:Session:AbsoluteLifetimeHours` (default **12**) after sign-in, however often sliding expiration or "remember me" renews its cookie. The requested cookie lifetimes (`options.Authentication.CookieExpirationHours`, default 24, and `RememberMeExpirationDays`, default 30, for "remember me") are capped by it.
+- **Single sign-on cookie.** A single sign-on session gets a browser-session cookie: closing the browser ends it, and the next visit signs in through the identity provider again. `Beacon:Authentication:Session:PersistSsoCookie: true` keeps the cookie until it expires instead, within the absolute lifetime.
 - **Realtime.** A SignalR connection is checked when opened and closed when the session's next check is due (at least one minute); the shell reconnects through a new check.
 
 ```json
@@ -384,7 +385,7 @@ All routes are under `/beacon/api`. The OpenAPI document is at `/openapi/v1.json
 
 | Route | Description |
 |---|---|
-| `POST /auth/login` | Sign in with user name and password. `401` with `passwordChangeRequired: true` when an Admin set the password (send `newPassword`). Not mapped while local login is off and no break-glass account is listed. Throttled per address |
+| `POST /auth/login` | Sign in with user name and password. Needs the antiforgery token (`X-XSRF-TOKEN`, from `GET /csrf`), `400` without it. `401` with `passwordChangeRequired: true` when an Admin set the password (send `newPassword`). Not mapped while local login is off and no break-glass account is listed. Throttled per address |
 | `POST /auth/logout` | End the current session; needs the antiforgery token (`X-XSRF-TOKEN`), `400` without it. `?everywhere=true` ends every session of the user |
 | `GET /auth/me` | The current user, and flags such as `realtimeEnabled` and `signOutEverywhereEnabled`. Anonymous |
 | `GET /auth/permissions` | `canRead`, `canWrite`, `isAdmin` and the functional `permissions` held now |

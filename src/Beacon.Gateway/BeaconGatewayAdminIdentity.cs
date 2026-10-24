@@ -114,7 +114,7 @@ internal sealed partial class BeaconGatewayAdminDirectory(
         {
             var user = await users.GetOrCreateExternalUserAsync(externalId, IdentityProvider, userName, email, displayName, AdminRole, cancellationToken);
             var admin = new BeaconGatewayAdmin(user.Id, externalId, user.UserName, user.DisplayName ?? displayName, user.Email);
-            cache.Set(key, admin, Lifetime);
+            cache.Set(key, admin, BeaconCacheEntries.For(Lifetime));
 
             return admin;
         }

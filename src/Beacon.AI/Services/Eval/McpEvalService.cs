@@ -385,12 +385,12 @@ internal sealed class McpEvalService(
             Decide whether the two result sets are semantically EQUIVALENT (they answer the question with
             the same data, ignoring column ordering, formatting, or cosmetic differences).
             Answer with exactly one word: EQUIVALENT or DIFFERENT, optionally followed by a short reason.
-            """;
+            """ + "\n" + PromptData.Rule;
 
         var userMessage = new StringBuilder()
-            .Append("QUESTION: ").AppendLine(question).AppendLine()
-            .AppendLine("GOLD RESULT (redacted):").AppendLine(goldText).AppendLine()
-            .AppendLine("GENERATED RESULT (redacted):").AppendLine(generatedText)
+            .Append("QUESTION: ").AppendLine(PromptData.Neutralise(question)).AppendLine()
+            .AppendLine("GOLD RESULT (redacted):").AppendLine(PromptData.Fence("gold result", goldText)).AppendLine()
+            .AppendLine("GENERATED RESULT (redacted):").AppendLine(PromptData.Fence("generated result", generatedText))
             .ToString();
 
         var request = new LlmRequest

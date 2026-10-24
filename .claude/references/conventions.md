@@ -38,10 +38,10 @@ mtk-version: 7.35.0
 
 ## Response & Error Handling
 
-- [EXTRACTED] [CONVENTION] Throw, don't return: `InvalidOperationException` for business-rule violations (221 sites), `BeaconException` / `AiServiceException` for domain errors (111). `ApiExceptionMiddleware` on `/beacon/api` turns both into RFC 7807 400 responses, `UnauthorizedAccessException` into 403, everything else into a generic 500. Evidence: `src/Beacon.SampleProject/Middleware/ApiExceptionMiddleware.cs:50`, `src/Beacon.Core/Exceptions/BeaconException.cs`.
+- [EXTRACTED] [CONVENTION] Throw, don't return: `InvalidOperationException` for business-rule violations (221 sites), `BeaconException` / `AiServiceException` for domain errors (111). `ApiExceptionMiddleware` on `/beacon/api` turns both into RFC 7807 400 responses, `UnauthorizedAccessException` into 403, everything else into a generic 500. Evidence: `src/Beacon.Api/Middleware/ApiExceptionMiddleware.cs:54`, `src/Beacon.Core/Exceptions/BeaconException.cs`.
 - [EXTRACTED] Endpoints return the handler result directly, or `Results<Ok<T>, NotFound>` when a route has a not-found branch. Evidence: `src/Beacon.Api/Endpoints/ProjectsEndpoints.cs:17`.
 - [EXTRACTED] Older code returns result objects instead of throwing: `BaseResponse` (`QueryService`, `MigrationService`), `ValidationResult` in `TemplateValidator`, and `AuthenticationResult` / `AuthorizationResult` in the auth providers — leave them, do not propagate. Evidence: `src/Beacon.Core/Helpers/Helpers.cs`, `src/Beacon.Core/Adapters/Shared/TemplateValidator.cs`, `src/Beacon.Core/Authorization/Providers/DatabaseAuthorizationProvider.cs`.
-- [EXTRACTED] Anonymous callers to protected `/beacon/api` routes get an RFC 7807 JSON 401 from `ApiKeyAuthMiddleware`; MCP callers get an RFC 9728 resource-metadata challenge. Evidence: `src/Beacon.Api/Authentication/ApiKeyAuthMiddleware.cs`, `src/Beacon.SampleProject/Program.cs`.
+- [EXTRACTED] Anonymous callers to protected `/beacon/api` routes get an RFC 7807 JSON 401 from `ApiKeyAuthMiddleware`; MCP callers get an RFC 9728 resource-metadata challenge. Evidence: `src/Beacon.Api/Authentication/ApiKeyAuthMiddleware.cs`, `src/Beacon.Gateway/BeaconHostApplicationBuilderExtensions.cs` (`UseBeaconPipeline`).
 
 ## Test Conventions
 

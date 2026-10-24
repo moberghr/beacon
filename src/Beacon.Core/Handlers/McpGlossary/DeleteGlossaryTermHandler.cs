@@ -11,7 +11,7 @@ namespace Beacon.Core.Handlers.McpGlossary;
 /// the row. This matches glossary semantics: a deactivated definition drops out of retrieval/injection
 /// (the smart-context block loads active terms only) and its embedding is pruned on the next re-index,
 /// while the governed history of the definition is preserved. Throws (§9.8) when the term does not exist. Recorded in the
-/// security audit in the same save.
+/// security audit, with a keyed digest of each text field it retired (<see cref="CurationContentAudit"/>), in the same save.
 /// </summary>
 internal sealed class DeleteGlossaryTermHandler(IDbContextFactory<BeaconContext> contextFactory, ISecurityAuditRecorder securityAudit)
     : IRequestHandler<DeleteGlossaryTermCommand>
@@ -31,7 +31,9 @@ internal sealed class DeleteGlossaryTermHandler(IDbContextFactory<BeaconContext>
             context,
             new SecurityAuditEntry(SecurityAuditActions.GlossaryTermDeleted)
                 .On(SecurityAuditResources.GlossaryTerm, term.Id)
-                .InProject(term.ProjectId),
+                .InProject(term.ProjectId)
+                .With(new SecurityAuditDetails().AddCodes(CurationContentAudit.FieldsKey, CurationContentAudit.GlossaryFields))
+                .Digesting(CurationContentAudit.BeforeKey, CurationContentAudit.Of(term)),
             cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
     }

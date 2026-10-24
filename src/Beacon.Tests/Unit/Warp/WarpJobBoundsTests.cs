@@ -22,6 +22,7 @@ public class WarpJobBoundsTests
         (typeof(ReindexEmbeddingsJob), 3600, "mcp-embedding-reindex", "recurring full re-embed"),
         (typeof(ReindexDocChunksJob), 3600, "mcp-docchunk-reindex", "recurring full re-chunk and re-embed"),
         (typeof(PurgeExpiredMcpAuditLogsJob), 1800, "mcp-audit-retention", "recurring purge"),
+        (typeof(PurgeExpiredExecutionLogsJob), 1800, "execution-log-retention", "recurring purge"),
         (typeof(PurgeExpiredSecurityAuditEventsJob), 1800, "security-audit-retention", "recurring purge"),
         (typeof(VerifySecurityAuditEventsJob), 1800, "security-audit-verify", "recurring hash verification reads a watermark"),
         (typeof(RunMcpEvalJob), 3600, null, "one run per request id; runs are independent"),

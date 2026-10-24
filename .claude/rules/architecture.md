@@ -29,14 +29,14 @@ public record CreateQueryFolderResult(...);
 §2.4 **All references point toward `Beacon.Core`.** Sibling projects never reference each other horizontally.
 
 ```
-SampleProject (Host) → AI, MCP, Core, Core.PostgreSql/SqlServer, Connector.*
+SampleProject (Host) → Gateway, AI, MCP, Core, Core.PostgreSql/SqlServer, Connector.*
 AI                   → Core
 AI.Embeddings.Onnx   → AI
 AI.Bedrock           → AI
 MCP                  → Core, AI
 Connector.*          → Core
 Core.PostgreSql/Sql  → Core
-Gateway              → Api, MCP, AI, UI, Core   (composition package: AddBeaconMcpGateway; nothing references it)
+Gateway              → Api, MCP, AI, UI, Core   (composition package: AddBeaconMcpGateway, and the host chain's UseBeaconPipeline / MapBeacon; only hosts reference it)
 ```
 
 §2.5 _(revised — `Beacon.Web` was deleted in the Phase 3 cutover. `Beacon.UI` remains, but as a Razor Class Library: the React app lives at `src/Beacon.UI/web/`, builds into `src/Beacon.UI/wwwroot/`, and is served at root `/`. The host is `Beacon.SampleProject`.)_

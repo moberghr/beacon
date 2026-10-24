@@ -145,6 +145,17 @@ describe('the kinds of change each caller may read', () => {
     const kinds = await kindsShown();
     expect(await within(kinds).findByRole('radio', { name: 'LLM connection' })).toBeInTheDocument();
     expect(within(kinds).getByRole('radio', { name: 'Data sources' })).toBeInTheDocument();
+    expect(within(kinds).getByRole('radio', { name: 'Admin role' })).toBeInTheDocument();
+  });
+
+  it('never offers an Approver who is not an Admin the Admin role grants', async () => {
+    mswServer.use(noRequests, permissionsHandler({ permissions: ['Approver'] }));
+
+    renderWithProviders(<ApprovalsListPage />);
+
+    const kinds = await kindsShown();
+    expect(await within(kinds).findByRole('radio', { name: 'Data sources' })).toBeInTheDocument();
+    expect(within(kinds).queryByRole('radio', { name: 'Admin role' })).not.toBeInTheDocument();
   });
 
   it('offers someone who is not an Approver neither, and a link to them falls back to the query requests', async () => {

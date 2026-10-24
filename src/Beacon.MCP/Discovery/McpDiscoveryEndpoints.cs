@@ -26,18 +26,19 @@ namespace Beacon.MCP.Discovery;
 /// Hand-rolled rather than the SDK's <c>McpAuthenticationHandler</c>: the handler only injects
 /// the pointer when it is the active challenge scheme, and Beacon's cookie challenge default plus
 /// the scheme-agnostic Execute policy (which must honour the principal that
-/// <c>ApiKeyAuthMiddleware</c> assigns outside any scheme) are both load-bearing (§1.9) —
+/// <c>UseBeaconAuthentication</c> records for an API key) are both load-bearing (§1.9) —
 /// see the tier-3 spec, batch D1.
 /// </summary>
 public static class McpDiscoveryEndpoints
 {
     private const string PublicBaseUrlConfigKey = "Beacon:PublicBaseUrl";
     private const string CacheControlValue = "public, max-age=3600";
+    private const string NoStoreCacheControlValue = "no-store";
 
     /// <summary>
     /// The exact anonymous discovery paths mapped by <see cref="MapMcpDiscovery"/>. Forwards to
     /// <see cref="McpDiscoveryPaths.AnonymousDiscoveryPaths"/> in Beacon.Core, which is the single
-    /// source of truth: the auth middlewares in Beacon.Api allow-list the same list, and Api must
+    /// source of truth: the first-run middleware in Beacon.Api allow-lists the same list, and Api must
     /// not reference MCP (§2.4). Allow-lists must cover ONLY these exact paths, never a
     /// <c>/.well-known</c> prefix — a prefix match would let <c>/.well-known/anything</c> reach the
     /// SPA fallback anonymously (R6-2).
@@ -82,8 +83,8 @@ public static class McpDiscoveryEndpoints
     /// Decorates 401 responses on the MCP route with the RFC 9728 <c>resource_metadata</c>
     /// challenge parameter. Response-header-only: it never authenticates, never short-circuits,
     /// and leaves the §1.9 middleware order untouched. Registered before
-    /// <c>ApiKeyAuthMiddleware</c> so the <c>OnStarting</c> hook also covers the 401s that the
-    /// API-key and JWT middlewares write directly (they short-circuit before any challenge runs).
+    /// <c>UseBeaconAuthentication</c> so the <c>OnStarting</c> hook also covers the 401s Beacon's
+    /// authentication writes for a refused key or token (before any challenge of the route runs).
     /// </summary>
     public static IApplicationBuilder UseMcpResourceMetadataChallenge(this IApplicationBuilder app)
     {
@@ -121,7 +122,7 @@ public static class McpDiscoveryEndpoints
     /// segment whose first token is not <c>key=value</c> is a scheme token starting a new challenge).
     /// Rules (R6-5): no existing header → a fresh <c>Bearer resource_metadata="…"</c> challenge; a
     /// Bearer challenge already carrying a <c>resource_metadata</c> auth-param → untouched (null); a
-    /// Bearer challenge without it (JwtBearerAuthMiddleware writes a bare <c>Bearer</c> on invalid
+    /// Bearer challenge without it (Beacon's bearer authentication writes one on invalid
     /// tokens) → the parameter is appended to THAT challenge, preserving its auth-params; no Bearer
     /// challenge at all → a SEPARATE <c>Bearer resource_metadata="…"</c> challenge is appended rather
     /// than mutating a foreign scheme. Internal for unit tests (InternalsVisibleTo Beacon.Tests).
@@ -172,7 +173,7 @@ public static class McpDiscoveryEndpoints
             McpDiscoveryDocuments.ResolveScopesSupported(options),
             options.ResourceName,
             options.ResourceDocumentation);
-        context.Response.Headers.CacheControl = CacheControlValue;
+        context.Response.Headers.CacheControl = CacheControlFor(configuration);
         return Results.Text(document.ToJsonString(), "application/json");
     }
 
@@ -190,7 +191,7 @@ public static class McpDiscoveryEndpoints
             options.ResourceDocumentation,
             options.ResourceName,
             mcpOptions?.ServerDescription);
-        context.Response.Headers.CacheControl = CacheControlValue;
+        context.Response.Headers.CacheControl = CacheControlFor(configuration);
         return Results.Text(document.ToJsonString(), "application/json");
     }
 
@@ -272,6 +273,14 @@ public static class McpDiscoveryEndpoints
                 "{Section}:ResourceDocumentation is not an absolute https URL — the discovery documents publish it as set, and MCP clients show it to people as a link. Set an https URL.",
                 McpProtectedResourceOptions.SectionName);
         }
+    }
+
+    // A document built from the request's own Host header differs per Host value, so a shared cache must not keep it.
+    internal static string CacheControlFor(IConfiguration configuration)
+    {
+        return string.IsNullOrWhiteSpace(configuration[PublicBaseUrlConfigKey])
+            ? NoStoreCacheControlValue
+            : CacheControlValue;
     }
 
     private static string ResolvePublicBaseUrl(HttpRequest request, IConfiguration configuration)

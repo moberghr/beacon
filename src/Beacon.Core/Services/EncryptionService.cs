@@ -17,6 +17,12 @@ public interface IEncryptionService
 /// replaced without rewriting what is stored: a value moves to the new key when it is next saved, or when
 /// <see cref="IStoredValueReEncryptionService"/> re-encrypts it. The first value each previous key decrypts is logged
 /// (Information, the key's position in the list only).
+/// <para>
+/// A value in the legacy v1 format (AES-CBC with a fixed IV and no authentication, written before the v2 format) is still
+/// read while <c>Beacon:Encryption:AllowLegacyCbc</c> is on (the default); the first one read is logged (Warning, once per
+/// process), and <see cref="IStoredValueReEncryptionService"/> rewrites such values in the v2 format. Once it reports none
+/// left, turn the setting off and v1 values are refused.
+/// </para>
 /// </summary>
 /// <remarks>
 /// The AES key is SHA-256 of the configured key text. It is kept, not replaced by HKDF: startup accepts only a key of at
@@ -41,6 +47,8 @@ internal class EncryptionService : IEncryptionService
     private readonly byte[] _legacyIv;
     private readonly IReadOnlyList<PreviousKey> _previousKeys;
     private readonly ILogger? _logger;
+    private readonly bool _allowLegacyFormat;
+    private int _legacyFormatLogged;
 
     public EncryptionService(string encryptionKey)
         : this(encryptionKey, [])
@@ -49,8 +57,9 @@ internal class EncryptionService : IEncryptionService
 
     /// <param name="encryptionKey">The key new values are encrypted with.</param>
     /// <param name="previousKeys">Keys values written earlier may be encrypted with: read only, never used to encrypt.</param>
-    /// <param name="logger">Where the first use of each previous key is logged.</param>
-    public EncryptionService(string encryptionKey, IEnumerable<string> previousKeys, ILogger? logger = null)
+    /// <param name="logger">Where the first use of each previous key, and the first legacy v1 value read, are logged.</param>
+    /// <param name="allowLegacyFormat">Whether a value in the legacy v1 format is still read (refused when false).</param>
+    public EncryptionService(string encryptionKey, IEnumerable<string> previousKeys, ILogger? logger = null, bool allowLegacyFormat = true)
     {
         if (string.IsNullOrWhiteSpace(encryptionKey))
         {
@@ -70,9 +79,10 @@ internal class EncryptionService : IEncryptionService
             .Where(x => !string.IsNullOrWhiteSpace(x.Key))
             .Where(x => !string.Equals(x.Key, encryptionKey, StringComparison.Ordinal))
             .DistinctBy(x => x.Key, StringComparer.Ordinal)
-            .Select(x => new PreviousKey(new EncryptionService(x.Key), x.Index))
+            .Select(x => new PreviousKey(new EncryptionService(x.Key, [], null, allowLegacyFormat), x.Index))
             .ToList();
         _logger = logger;
+        _allowLegacyFormat = allowLegacyFormat;
     }
 
     /// <summary>Which configured key decrypts a stored value.</summary>
@@ -124,7 +134,10 @@ internal class EncryptionService : IEncryptionService
 
         try
         {
-            return DecryptPayload(payload);
+            var plainText = DecryptPayload(payload, out var legacyFormat);
+            LogFirstLegacyFormat(legacyFormat);
+
+            return plainText;
         }
         catch (CryptographicException) when (_previousKeys.Count > 0)
         {
@@ -132,8 +145,9 @@ internal class EncryptionService : IEncryptionService
             {
                 try
                 {
-                    var plainText = previous.Service.DecryptPayload(payload);
+                    var plainText = previous.Service.DecryptPayload(payload, out var legacyFormat);
                     LogFirstUse(previous);
+                    LogFirstLegacyFormat(legacyFormat);
 
                     return plainText;
                 }
@@ -151,6 +165,16 @@ internal class EncryptionService : IEncryptionService
     /// <summary>Which configured key decrypts <paramref name="cipherText"/>; a value that is not base64 matches none.</summary>
     internal KeyMatch Identify(string? cipherText)
     {
+        return Identify(cipherText, out _);
+    }
+
+    /// <summary>
+    /// Which configured key decrypts <paramref name="cipherText"/>, and whether it is in the legacy v1 format (to be
+    /// rewritten in the v2 format whichever key decrypts it).
+    /// </summary>
+    internal KeyMatch Identify(string? cipherText, out bool legacyFormat)
+    {
+        legacyFormat = false;
         if (string.IsNullOrEmpty(cipherText))
         {
             return KeyMatch.Current;
@@ -166,48 +190,68 @@ internal class EncryptionService : IEncryptionService
             return KeyMatch.None;
         }
 
-        if (CanDecrypt(payload))
+        if (CanDecrypt(payload, out legacyFormat))
         {
             return KeyMatch.Current;
         }
 
-        return _previousKeys.Any(x => x.Service.CanDecrypt(payload))
-            ? KeyMatch.Previous
-            : KeyMatch.None;
+        foreach (var previous in _previousKeys)
+        {
+            if (previous.Service.CanDecrypt(payload, out legacyFormat))
+            {
+                return KeyMatch.Previous;
+            }
+        }
+
+        return KeyMatch.None;
     }
 
-    private bool CanDecrypt(byte[] payload)
+    private bool CanDecrypt(byte[] payload, out bool legacyFormat)
     {
         try
         {
-            DecryptPayload(payload);
+            DecryptPayload(payload, out legacyFormat);
 
             return true;
         }
         catch (CryptographicException)
         {
+            legacyFormat = false;
+
             return false;
         }
     }
 
-    private string DecryptPayload(byte[] payload)
+    private string DecryptPayload(byte[] payload, out bool legacyFormat)
     {
         // v2: authenticated AES-GCM with a random per-value nonce. A legacy v1 value whose first ciphertext byte happens
         // to be the v2 marker fails the GCM tag check; a whole number of CBC blocks is then read as legacy v1.
+        legacyFormat = false;
         if (payload.Length > 1 + NonceSize + TagSize && payload[0] == V2Marker)
         {
             try
             {
                 return DecryptV2(payload);
             }
-            catch (CryptographicException) when (payload.Length % LegacyBlockSize == 0)
+            catch (CryptographicException) when (_allowLegacyFormat && payload.Length % LegacyBlockSize == 0)
             {
-                return DecryptLegacy(payload);
+                var plainText = DecryptLegacy(payload);
+                legacyFormat = true;
+
+                return plainText;
             }
         }
 
+        if (!_allowLegacyFormat)
+        {
+            throw new CryptographicException("The value is not in the current format, and the legacy format is not read.");
+        }
+
         // Legacy v1: AES-CBC with the fixed SHA256-derived IV.
-        return DecryptLegacy(payload);
+        var legacyPlainText = DecryptLegacy(payload);
+        legacyFormat = true;
+
+        return legacyPlainText;
     }
 
     private void LogFirstUse(PreviousKey previous)
@@ -217,6 +261,16 @@ internal class EncryptionService : IEncryptionService
             _logger.LogInformation(
                 "A stored value was decrypted with Beacon:PreviousEncryptionKeys entry {Index}, not the current key; it moves to the current key when it is next saved or re-encrypted. Logged once per key",
                 previous.Index);
+        }
+    }
+
+    private void LogFirstLegacyFormat(bool legacyFormat)
+    {
+        if (legacyFormat && _logger != null && Interlocked.Exchange(ref _legacyFormatLogged, 1) == 0)
+        {
+            _logger.LogWarning(
+                "A stored value was read in the legacy unauthenticated format; it moves to the current format when it is next saved or re-encrypted (IStoredValueReEncryptionService), after which {Setting} can be turned off. Logged once",
+                ServiceConfiguration.AllowLegacyCbcKey);
         }
     }
 
