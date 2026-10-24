@@ -1,9 +1,9 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
 
-vi.mock('monaco-editor/esm/vs/editor/editor.api', () => ({ editor: {}, languages: {} }));
-vi.mock('monaco-editor/esm/vs/editor/editor.all', () => ({}));
-vi.mock('monaco-editor/esm/vs/basic-languages/sql/sql.contribution', () => ({}));
-vi.mock('monaco-editor/esm/vs/editor/editor.worker?worker', () => ({
+vi.mock('monaco-editor/editor/editor.api', () => ({ editor: {}, languages: {} }));
+vi.mock('monaco-editor/features/register.all', () => ({}));
+vi.mock('monaco-editor/languages/definitions/sql/register', () => ({}));
+vi.mock('monaco-editor/editor/editor.worker?worker', () => ({
   default: class FakeWorker {},
 }));
 
@@ -27,7 +27,7 @@ describe('loadLocalMonaco', () => {
   });
 
   it('rejects instead of falling back when the bundled editor cannot load', async () => {
-    vi.doMock('monaco-editor/esm/vs/editor/editor.all', () => {
+    vi.doMock('monaco-editor/features/register.all', () => {
       throw new Error('bundle missing');
     });
     const { loadLocalMonaco } = await import('./monacoLocal');

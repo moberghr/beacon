@@ -8,10 +8,10 @@ type MonacoNamespace = Parameters<typeof loader.config>[0]['monaco'];
 // none of which this editor uses. A failure here rejects; there is deliberately no CDN fallback.
 export async function loadLocalMonaco(): Promise<MonacoNamespace> {
   const [monaco, , , editorWorkerMod] = await Promise.all([
-    import('monaco-editor/esm/vs/editor/editor.api'),
-    import('monaco-editor/esm/vs/editor/editor.all'),
-    import('monaco-editor/esm/vs/basic-languages/sql/sql.contribution'),
-    import('monaco-editor/esm/vs/editor/editor.worker?worker'),
+    import('monaco-editor/editor/editor.api'),
+    import('monaco-editor/features/register.all'),
+    import('monaco-editor/languages/definitions/sql/register'),
+    import('monaco-editor/editor/editor.worker?worker'),
   ]);
   const EditorWorker = (editorWorkerMod as { default: new () => Worker }).default;
   (self as unknown as { MonacoEnvironment: { getWorker: () => Worker } }).MonacoEnvironment = {
