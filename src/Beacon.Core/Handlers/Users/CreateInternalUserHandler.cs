@@ -13,6 +13,9 @@ internal sealed class CreateInternalUserHandler(
 {
     public async Task Handle(CreateInternalUserCommand request, CancellationToken cancellationToken)
     {
+        // Stored, and looked up to log the creation, trimmed.
+        request = request with { UserName = UserAccountFields.Trimmed(request.UserName), Email = UserAccountFields.TrimmedEmail(request.Email) };
+
         // The caller, then the roles, are checked before the user is created: a refusal creates nobody.
         await rules.DemandMayCreateInternalUserAsync(cancellationToken);
         var roles = await rules.RolesAsync(request.RoleIds, cancellationToken);

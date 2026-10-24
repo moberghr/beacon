@@ -26,7 +26,8 @@ public sealed partial class SecretRecordPrintTests
         ["Beacon.Core.Models.Approvals.RecipientDestinationView.Destination"] = "the masked form shown to reviewers",
         ["Beacon.Core.Models.DataQuality.DataContractRecipientData.Destination"] = "always null",
         ["Beacon.Core.Handlers.Subscriptions.SubscriptionDetailRecipient.Destination"] = "always null",
-        ["Beacon.Core.HostData.HostConnectionReference.HostConnectionStringName"] = "the name of a configuration entry, not its value"
+        ["Beacon.Core.HostData.HostConnectionReference.HostConnectionStringName"] = "the name of a configuration entry, not its value",
+        ["Beacon.Core.Models.Approvals.LlmConnectionView.Endpoint"] = "the scheme, host and port only; the path shows only as a fingerprint"
     };
 
     [Test]

@@ -42,6 +42,8 @@ public static class NotificationFailureReasons
 
     public const string DestinationUnreadable = "Notification delivery failed: the stored destination could not be read.";
 
+    public const string TooManyRecipients = "Notification delivery failed: the email destination lists more than 50 addresses.";
+
     public const string DestinationNotEncrypted = "Notification delivery failed: the stored destination is not encrypted.";
 
     /// <summary>
@@ -75,6 +77,13 @@ public static class NotificationFailureReasons
     /// is disabled (<see cref="Data.Enums.NotificationStatus.Failed"/>). It names neither the source nor a connection value.
     /// </summary>
     public const string DataSourceDisabled = "Failed: a data source this query reads is disabled.";
+
+    /// <summary>
+    /// Not a delivery failure: the comment of a run that failed before anything ran because, with the approval workflow
+    /// covering data-source connections, the connection of a data source its query reads waits for approval
+    /// (<see cref="Data.Enums.NotificationStatus.Failed"/>). It names neither the source nor a connection value.
+    /// </summary>
+    public const string DataSourceAwaitingApproval = "Failed: the connection of a data source this query reads waits for approval.";
 
     private static readonly Regex RecordedComment = BuildRecordedCommentPattern();
 
@@ -148,7 +157,8 @@ public static class NotificationFailureReasons
                 NotApproved,
                 AwaitingApproval,
                 AllRecipientsAwaitApproval,
-                DataSourceDisabled
+                DataSourceDisabled,
+                DataSourceAwaitingApproval
             }
             .Concat(Enumerable.Range(1, 5).Select(x => ForStatus((HttpStatusCode)(x * 100))))
             .Select(Regex.Escape);

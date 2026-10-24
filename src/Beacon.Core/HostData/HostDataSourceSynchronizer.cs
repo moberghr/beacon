@@ -40,7 +40,8 @@ internal sealed class HostDataSourceSynchronizer(
     IProjectMembershipSource membershipSource,
     IOptions<ProjectAuthorizationOptions> authorizationOptions,
     IHostReadOnlyLoginCheck loginCheck,
-    ILogger<HostDataSourceSynchronizer> logger)
+    ILogger<HostDataSourceSynchronizer> logger,
+    ICatalogSnapshotCache? catalogSnapshots = null)
 {
     public async Task SyncAllAsync(CancellationToken cancellationToken)
     {
@@ -156,6 +157,7 @@ internal sealed class HostDataSourceSynchronizer(
             await SyncRelationshipsAsync(dataSource.Id, cancellationToken);
             cache.Remove(DatabaseMetadataService.GetCacheKey(dataSource.Id));
             schemaGraphService.Invalidate(dataSource.Id);
+            catalogSnapshots?.Invalidate(dataSource.Id);
         }
 
         LogOutcome(registration, snapshot, merge, created);

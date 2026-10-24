@@ -1,4 +1,5 @@
 using Beacon.Core.Authorization;
+using Beacon.Core.ChangeApprovals;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.Settings;
 using Beacon.Core.Services;
@@ -13,6 +14,7 @@ internal sealed class UpdateAdminSettingsHandler(
     IBeaconActorAccessor actorAccessor,
     IBeaconPermissionAccessor permissionAccessor,
     ILlmProviderCatalog providerCatalog,
+    LlmConnectionApproval llmConnections,
     ILogger<UpdateAdminSettingsHandler> logger)
     : IRequestHandler<UpdateAdminSettingsCommand>
 {
@@ -43,11 +45,14 @@ internal sealed class UpdateAdminSettingsHandler(
             throw AccessRefusal.Of(logger, actor, "LLM limits", null, LimitsAdminOnlyMessage);
         }
 
+        // The LLM connection is judged against the stored one while the approval workflow covers it, never this process's
+        // cached copy, which can predate a change another process stored; the credentials left as they are come from it too.
+        var connection = await llmConnections.BaselineAsync(current, cancellationToken);
         LlmConnectionSettings.DemandAdminForChanges(
             permissions,
             actor,
             logger,
-            current,
+            connection,
             new LlmConnectionRequest(
                 request.LlmProvider,
                 request.LlmRegion,
@@ -59,7 +64,7 @@ internal sealed class UpdateAdminSettingsHandler(
                 request.LlmAwsSecretAccessKey),
             nullKeepsStored: false);
 
-        LlmProviderInstallation.DemandInstalled(providerCatalog, request.LlmProvider, current.LlmProvider);
+        LlmProviderInstallation.DemandInstalled(providerCatalog, request.LlmProvider, connection.LlmProvider);
 
         var next = new AppSettingsData
         {
@@ -69,11 +74,11 @@ internal sealed class UpdateAdminSettingsHandler(
             LlmFastModel = request.LlmFastModel,
             LlmRegion = request.LlmRegion,
             LlmBedrockAuthMode = request.LlmBedrockAuthMode,
-            LlmApiKey = request.LlmApiKey ?? current.LlmApiKey,
-            LlmEndpoint = request.LlmEndpoint ?? current.LlmEndpoint,
-            LlmSessionToken = request.LlmSessionToken ?? current.LlmSessionToken,
-            LlmAwsAccessKeyId = request.LlmAwsAccessKeyId ?? current.LlmAwsAccessKeyId,
-            LlmAwsSecretAccessKey = request.LlmAwsSecretAccessKey ?? current.LlmAwsSecretAccessKey,
+            LlmApiKey = request.LlmApiKey ?? connection.LlmApiKey,
+            LlmEndpoint = request.LlmEndpoint ?? connection.LlmEndpoint,
+            LlmSessionToken = request.LlmSessionToken ?? connection.LlmSessionToken,
+            LlmAwsAccessKeyId = request.LlmAwsAccessKeyId ?? connection.LlmAwsAccessKeyId,
+            LlmAwsSecretAccessKey = request.LlmAwsSecretAccessKey ?? connection.LlmAwsSecretAccessKey,
             LlmMaxConcurrentRequests = request.LlmMaxConcurrentRequests,
             LlmTokensPerMinute = request.LlmTokensPerMinute,
             LlmRequestsPerMinute = request.LlmRequestsPerMinute,
@@ -82,8 +87,9 @@ internal sealed class UpdateAdminSettingsHandler(
         };
 
         // Only an Admin's save stores and applies the limits: anyone else's leaves the stored or host-configured ones in
-        // force, also when an Admin changed them after this request read them.
-        await settingsService.SaveSettingsAsync(next, userContext.UserId, saveLimits: permissions.IsAdmin, cancellationToken);
+        // force, also when an Admin changed them after this request read them. A change of the provider, endpoint, region
+        // or authentication mode the approval workflow covers is staged for a live Admin's approval, the rest saved with it.
+        await llmConnections.SaveAsync(connection, next, userContext.UserId, saveLimits: permissions.IsAdmin, cancellationToken);
     }
 
     private static bool SameLimits(AppSettingsData current, UpdateAdminSettingsCommand request, bool rateLimitsEnabled)
@@ -108,7 +114,11 @@ internal sealed class UpdateAdminSettingsHandler(
 /// endpoint, region, Bedrock authentication mode and credentials (403 otherwise, <see cref="LlmConnectionSettings"/>), and
 /// the LLM concurrency limit, requests and tokens per minute and whether those are enforced (the monthly budget is
 /// recorded only and stays a SecurityAdmin's too). A SecurityAdmin sends the displayed limits back; the save neither
-/// stores nor applies them.
+/// stores nor applies them. While the approval workflow covers the LLM connection
+/// (<see cref="ApprovalWorkflowOptions.CoversLlmConnection"/>), a change of the provider, endpoint, region or
+/// authentication mode (or a first stored provider over the host's configuration) waits for a live Admin's approval: the
+/// stored connection and models stay in use, the other settings are saved at once with the request (409 while another
+/// person's change of the connection waits). A change of credentials or models alone applies at once.
 /// </summary>
 [ProjectScopeExempt("gated by the SecurityAdmin permission: settings, no project data; the LLM connection stays an Admin's", Policy = BeaconPermissions.SecurityAdminPolicy)]
 public record UpdateAdminSettingsCommand(

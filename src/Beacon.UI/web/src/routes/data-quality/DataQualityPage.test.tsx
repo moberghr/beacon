@@ -32,8 +32,11 @@ function contract(overrides: Record<string, unknown>) {
 describe('DataQualityPage', () => {
   it('flags the contracts whose scheduled evaluations are skipped, and counts them per data source', async () => {
     mswServer.use(
-      http.get('*/beacon/api/data-quality/overview', () =>
-        HttpResponse.json([
+      http.get('*/beacon/api/data-quality/overview/paged', () =>
+        HttpResponse.json({
+          totalCount: 1,
+          pageCount: 1,
+          items: [
           {
             dataSourceId: 9,
             dataSourceName: 'finance-db',
@@ -45,7 +48,8 @@ describe('DataQualityPage', () => {
             ownerNotAuthorizedContracts: 1,
             tableScores: [],
           },
-        ]),
+          ],
+        }),
       ),
       http.get('*/beacon/api/data-quality/contracts', () =>
         HttpResponse.json({
@@ -66,5 +70,40 @@ describe('DataQualityPage', () => {
     expect(within(flagged).getByText('Owner not authorized')).toBeInTheDocument();
     expect(within(healthy).queryByText('Owner not authorized')).not.toBeInTheDocument();
     expect(screen.getByText('Skipped (owner)').previousElementSibling).toHaveTextContent('1');
+  });
+
+  it('pages the data source cards on the server', async () => {
+    let asked = new URLSearchParams();
+    mswServer.use(
+      http.get('*/beacon/api/data-quality/overview/paged', ({ request }) => {
+        asked = new URL(request.url).searchParams;
+        return HttpResponse.json({
+          totalCount: 30,
+          pageCount: 3,
+          items: [
+            {
+              dataSourceId: 9,
+              dataSourceName: 'finance-db',
+              averageScore: 90,
+              totalTables: 2,
+              healthyTables: 2,
+              degradingTables: 0,
+              activeContracts: 2,
+              ownerNotAuthorizedContracts: 0,
+              tableScores: [],
+            },
+          ],
+        });
+      }),
+      http.get('*/beacon/api/data-quality/contracts', () =>
+        HttpResponse.json({ totalCount: 0, pageCount: 0, items: [] }),
+      ),
+    );
+
+    renderWithProviders(<DataQualityPage />);
+
+    expect(await screen.findByText('finance-db')).toBeInTheDocument();
+    expect(asked.get('page')).toBe('0');
+    expect(asked.get('pageSize')).toBe('12');
   });
 });

@@ -606,6 +606,27 @@ public class DataQualityCustomSqlReadOnlyTests
         StoredRuleResult(saved).Message.Should().Be(DataSourceDisabledException.RefusalMessage);
     }
 
+    // A source whose connection waits for approval: the resolver refuses the connection, and the rule result says so, with
+    // the refusal's generic message.
+    [Test]
+    public async Task EvaluateContractAsync_OnASourceAwaitingApproval_SaysSo()
+    {
+        var source = OrdinarySource(DatabaseEngineType.PostgreSQL);
+        var resolver = new Mock<IDataSourceConnectionResolver>();
+        resolver
+            .Setup(x => x.GetConnectionString(It.IsAny<DataSource>()))
+            .Throws(new DataSourceAwaitingApprovalException(source.Id));
+        var saved = new List<object>();
+        var service = CreateService(Contract(source, Rule(DataContractRuleType.Volume, "{}")), saved, resolver: resolver);
+
+        var result = await service.EvaluateContractAsync(42, CancellationToken.None);
+
+        var ruleResult = result.RuleResults.Should().ContainSingle().Subject;
+        ruleResult.Passed.Should().BeFalse();
+        ruleResult.Message.Should().Be(DataSourceAwaitingApprovalException.RefusalMessage);
+        StoredRuleResult(saved).Message.Should().Be(DataSourceAwaitingApprovalException.RefusalMessage);
+    }
+
     [TestCase("row_count", RowValue)]
     [TestCase("other_column", 5L)]
     public async Task EvaluateContractAsync_ResultOfTheWrongShape_ReturnsAFixedMessage(string column, object value)

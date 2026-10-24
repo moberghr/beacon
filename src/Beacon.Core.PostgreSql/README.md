@@ -43,14 +43,15 @@ Beacon.Core.ServiceConfiguration.UseBeacon(app.Services, createSchema: true);
 | Overload | Search path |
 |---|---|
 | `UsePostgreSql()` | Connection string from `ConnectionStrings:BeaconContext`. Beacon builds its own `NpgsqlDataSource` with `SearchPath = beacon,public`. |
-| `UsePostgreSql(string connectionString, string schema = "beacon")` | Same, with the connection string passed in. |
-| `UsePostgreSql(NpgsqlDataSource dataSource, string schema = "beacon")` | Your data source (for example one using Entra tokens). Beacon runs `SET search_path TO "beacon", public` on each connection it opens. |
-| `UsePostgreSql(Func<IServiceProvider, NpgsqlDataSource> factory, string schema = "beacon")` | Resolved once from the root provider, e.g. `sp => sp.GetRequiredService<NpgsqlDataSource>()` for an Aspire data source. Same per-connection search path. |
+| `UsePostgreSql(string connectionString)` | Same, with the connection string passed in. |
+| `UsePostgreSql(NpgsqlDataSource dataSource)` | Your data source (for example one using Entra tokens). Beacon runs `SET search_path TO "beacon", public` on each connection it opens. |
+| `UsePostgreSql(Func<IServiceProvider, NpgsqlDataSource> factory)` | Resolved once from the root provider, e.g. `sp => sp.GetRequiredService<NpgsqlDataSource>()` for an Aspire data source. Same per-connection search path. |
 
 `public` follows `beacon` so a pgvector already installed in `public` resolves. A host-owned data source must keep
 connection reset on (no `No Reset On Close`) and must not use `Multiplexing`. It needs no `UseVector()`.
 
-The `schema` argument and `Beacon:Schema` accept only `beacon`; any other value throws at registration.
+The schema is always `beacon`: `Beacon:Schema` and the obsolete `schema` overloads (removed in 6.0) accept only `beacon`;
+any other value throws at registration.
 
 ## Documentation
 

@@ -1,5 +1,7 @@
 using System.Text.Json;
+using Beacon.Core.Adapters.Mail;
 using Beacon.Core.Data.Enums;
+using Microsoft.Extensions.Logging;
 
 namespace Beacon.Core.Notifications;
 
@@ -295,7 +297,10 @@ internal static class RecipientSecrets
 /// resolves kept (masked or empty) secrets against the stored ones (<see cref="RecipientSecrets"/>), checks the result
 /// against the destination policy, and encrypts it. Shared by the REST handlers and <c>IRecipientService</c>.
 /// </summary>
-internal sealed class RecipientSecretEditor(NotificationDestinationPolicy destinationPolicy, RecipientSecretProtector protector)
+internal sealed class RecipientSecretEditor(
+    NotificationDestinationPolicy destinationPolicy,
+    RecipientSecretProtector protector,
+    ILogger<RecipientSecretEditor>? logger = null)
 {
     /// <summary>
     /// The encrypted destination and headers to store, or <see cref="InvalidOperationException"/> when the submission
@@ -316,6 +321,14 @@ internal sealed class RecipientSecretEditor(NotificationDestinationPolicy destin
 
         var resolvedDestination = RecipientSecrets.ResolveDestination(type, destination, keepable?.Type ?? type, storedDestination, destinationUnreadable);
         var allowedDestination = destinationPolicy.EnsureAllowed(type, resolvedDestination);
+
+        // Saved as is: a message to more addresses than the cap fails at every send, so say so now.
+        if (type == NotificationType.Email && EmailRecipientCounter.Count(allowedDestination) > EmailAdapter.MaxRecipientsPerMessage)
+        {
+            logger?.LogWarning(
+                "An email recipient destination lists more than {Max} addresses; every message to it will be refused",
+                EmailAdapter.MaxRecipientsPerMessage);
+        }
 
         var sameDestination = RecipientSecrets.SameDestination(allowedDestination, storedDestination);
         var resolvedHeaders = RecipientSecrets.ResolveHeaders(type, headersJson, storedHeadersJson, headersUnreadable, sameDestination);

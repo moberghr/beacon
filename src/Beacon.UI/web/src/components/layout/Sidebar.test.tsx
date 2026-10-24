@@ -37,6 +37,25 @@ function signedInAs(roles: string[], signOutEverywhereEnabled = true) {
 }
 
 describe('Sidebar', () => {
+  it('shows the running build the server reports to the signed-in session', async () => {
+    sessionOf(true, ['Viewer'], 'Tester');
+    mswServer.use(permissionsHandler({ build: { version: '5.0.1', commit: '0ecf936b094ad56483d71341b37b0e7878113a3e' } }));
+
+    renderWithProviders(<Sidebar />);
+
+    const badge = await screen.findByText('5.0.1 · 0ecf936');
+    expect(badge).toHaveAttribute('title', 'Build 5.0.1+0ecf936b094ad56483d71341b37b0e7878113a3e');
+  });
+
+  it('shows no build when the server reports none', async () => {
+    signedInAs(['Viewer']);
+
+    const { container } = renderWithProviders(<Sidebar />);
+
+    expect(await screen.findByText('Projects')).toBeInTheDocument();
+    expect(container.querySelector('[title^="Build "]')).toBeNull();
+  });
+
   it('shows only the pages the MCP gateway serves in gateway mode', async () => {
     sessionOf(true, ['Admin'], 'Tester');
     mswServer.use(permissionsHandler({ isAdmin: true, gatewayMode: true }));
@@ -293,5 +312,37 @@ describe('Sidebar', () => {
     expect(screen.getByRole('menuitem', { name: 'Settings' })).toBeInTheDocument();
     expect(screen.queryByRole('menuitem', { name: 'Sign out' })).not.toBeInTheDocument();
     expect(screen.queryByRole('menuitem', { name: 'Sign out everywhere' })).not.toBeInTheDocument();
+  });
+
+  it('badges AI Actors with the plans waiting for the user, and shows no badge while none waits', async () => {
+    signedInAs(['Editor']);
+    mswServer.use(http.get('*/beacon/api/ai-actors/pending-plans/count', () => HttpResponse.json({ count: 2 })));
+    const { unmount } = renderWithProviders(<Sidebar />);
+
+    expect(await screen.findByLabelText('2 AI actor plans pending in the projects you may decide for')).toHaveTextContent('2');
+    unmount();
+
+    mswServer.use(http.get('*/beacon/api/ai-actors/pending-plans/count', () => HttpResponse.json({ count: 0 })));
+    renderWithProviders(<Sidebar />);
+    expect(await screen.findByText('AI Actors')).toBeInTheDocument();
+    expect(screen.queryByLabelText(/AI actor plans? pending/)).not.toBeInTheDocument();
+  });
+
+  it('does not ask for the pending plans in gateway mode', async () => {
+    const asked = vi.fn();
+    sessionOf(true, ['Admin'], 'Tester');
+    mswServer.use(
+      permissionsHandler({ isAdmin: true, gatewayMode: true }),
+      http.get('*/beacon/api/ai-actors/pending-plans/count', () => {
+        asked();
+        return HttpResponse.json({ count: 3 });
+      }),
+    );
+
+    renderWithProviders(<Sidebar />);
+
+    expect(await screen.findByText('MCP Settings')).toBeInTheDocument();
+    await new Promise(resolve => setTimeout(resolve, 50));
+    expect(asked).not.toHaveBeenCalled();
   });
 });

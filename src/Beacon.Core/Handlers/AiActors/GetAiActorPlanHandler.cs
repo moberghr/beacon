@@ -46,4 +46,17 @@ public record GetAiActorPlanResult
     public string? Model { get; init; }
     public int Version { get; init; }
     public int? ParentPlanId { get; init; }
+
+    /// <summary>
+    /// The caller may approve the plan now: it is pending and not expired, the caller may write the actor's data source,
+    /// and the approval rules let them (the actor's creator or an Admin; with the approval workflow on, an Approver other
+    /// than the creator and anyone who asked for a revision of it, unless self-approval is allowed).
+    /// </summary>
+    public bool MayApprove { get; init; }
+
+    /// <summary>Why the caller cannot approve the pending plan; null when <see cref="MayApprove"/>, or when it is not pending.</summary>
+    public string? ApproveBlockedReason { get; init; }
+
+    /// <summary>The caller may reject the pending plan or ask for its revision: the actor's creator or an Admin who may write its data source.</summary>
+    public bool MayRejectOrRevise { get; init; }
 }

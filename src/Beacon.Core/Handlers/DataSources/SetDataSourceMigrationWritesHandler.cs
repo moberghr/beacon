@@ -24,7 +24,8 @@ internal sealed class SetDataSourceMigrationWritesHandler(
     ISchemaGraphService schemaGraphService,
     TimeProvider timeProvider,
     ISecurityAuditRecorder securityAudit,
-    ILogger<SetDataSourceMigrationWritesHandler> logger)
+    ILogger<SetDataSourceMigrationWritesHandler> logger,
+    ICatalogSnapshotCache? catalogSnapshots = null)
     : IRequestHandler<SetDataSourceMigrationWritesCommand>
 {
     public async Task Handle(SetDataSourceMigrationWritesCommand request, CancellationToken cancellationToken)
@@ -120,6 +121,7 @@ internal sealed class SetDataSourceMigrationWritesHandler(
         // relationship graph describe the source as it was.
         cache.Remove(DatabaseMetadataService.GetCacheKey(request.DataSourceId));
         schemaGraphService.Invalidate(request.DataSourceId);
+        catalogSnapshots?.Invalidate(request.DataSourceId);
 
         logger.LogWarning(
             ProjectAccessEvents.MigrationWritesChanged,

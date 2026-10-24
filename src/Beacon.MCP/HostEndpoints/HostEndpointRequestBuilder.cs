@@ -4,6 +4,7 @@ using System.Text.Json;
 using System.Text.Json.Nodes;
 using Beacon.Core;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.Routing.Patterns;
 
 namespace Beacon.MCP.HostEndpoints;
@@ -32,7 +33,9 @@ internal sealed class HostEndpointArgumentException(string message) : Exception(
 /// <summary>
 /// Validates MCP arguments against a tool's parameters and turns them into a path (from the endpoint's route
 /// pattern, URL-encoded), a query string, declared headers only, and a JSON or form body. Unknown and missing
-/// required arguments are rejected before anything is dispatched. Caller-bound arguments
+/// required arguments are rejected before anything is dispatched, and so are route values routing could not have
+/// delivered: a value that fails the route's constraints, a <c>/</c> in a single-segment value, or a <c>.</c> or
+/// <c>..</c> segment. Caller-bound arguments
 /// (<see cref="HostEndpointToolDescriptor.CallerBindings"/>) are not the agent's: they take
 /// <paramref name="callerValues"/>, the values the host principal carries for them.
 /// </summary>
@@ -124,8 +127,11 @@ internal static class HostEndpointRequestBuilder
 
         jsonBody = WithCallerBoundProperties(tool, jsonBody, callerValues);
 
+        RefuseUndeliverableRouteValues(tool.Endpoint.RoutePattern, routeArguments);
+
         var routeValues = BuildRouteValues(tool.Endpoint.RoutePattern, routeArguments);
         var path = BuildPath(tool.Endpoint.RoutePattern, routeValues);
+        CheckRouteConstraints(tool, routeValues);
 
         return new HostEndpointRequestParts(path, BuildQueryString(query), routeValues, headers, form, jsonBody);
     }
@@ -261,6 +267,87 @@ internal static class HostEndpointRequestBuilder
             JsonValueKind.False => "false",
             _ => throw new HostEndpointArgumentException($"Invalid arguments: '{argumentName}' must hold plain values, not nested objects or arrays.")
         };
+
+    // Routing reads a single-segment value from one path segment, and the server drops '.' and '..' segments from the
+    // path before routing, so neither reaches an endpoint on a real request.
+    private static void RefuseUndeliverableRouteValues(RoutePattern pattern, IReadOnlyDictionary<string, string> routeArguments)
+    {
+        foreach (var (name, value) in routeArguments)
+        {
+            var parameter = pattern.GetParameter(name);
+            if (parameter == null)
+            {
+                continue;
+            }
+
+            var segments = value.Split('/');
+            if (!parameter.IsCatchAll && segments.Length > 1)
+            {
+                throw new HostEndpointArgumentException($"Invalid arguments: '{name}' must be a single path segment, without '/'.");
+            }
+
+            if (segments.Any(x => x is "." or ".."))
+            {
+                throw new HostEndpointArgumentException($"Invalid arguments: '{name}' must not contain a '.' or '..' path segment.");
+            }
+
+            // In a complex segment ({a}-{b}, {id}.{ext}) routing splits at the literal between the parts, so a value
+            // holding that literal would reach the endpoint as a different combination than routing could deliver.
+            if (!parameter.IsCatchAll && ComplexSegmentSeparators(pattern, name).Any(x => value.Contains(x, StringComparison.Ordinal)))
+            {
+                throw new HostEndpointArgumentException($"Invalid arguments: '{name}' must not contain the separator that follows or precedes it in {pattern.RawText}.");
+            }
+        }
+    }
+
+    private static IEnumerable<string> ComplexSegmentSeparators(RoutePattern pattern, string name)
+    {
+        foreach (var segment in pattern.PathSegments)
+        {
+            if (segment.Parts.Count < 2
+                || !segment.Parts.Any(x => x is RoutePatternParameterPart parameter && string.Equals(parameter.Name, name, StringComparison.OrdinalIgnoreCase)))
+            {
+                continue;
+            }
+
+            foreach (var literal in segment.Parts.OfType<RoutePatternLiteralPart>())
+            {
+                if (literal.Content.Length > 0)
+                {
+                    yield return literal.Content;
+                }
+            }
+        }
+    }
+
+    // What the matcher does before it selects the endpoint. A constraint that throws (one that needs the HttpContext
+    // routing would pass) refuses the value: it was not shown to pass.
+    private static void CheckRouteConstraints(HostEndpointToolDescriptor tool, IReadOnlyDictionary<string, object?> routeValues)
+    {
+        if (tool.RouteConstraints.Count == 0)
+        {
+            return;
+        }
+
+        var values = new RouteValueDictionary(routeValues);
+        foreach (var constraint in tool.RouteConstraints)
+        {
+            bool matched;
+            try
+            {
+                matched = constraint.Constraint.Match(null, null, constraint.Parameter, values, RouteDirection.IncomingRequest);
+            }
+            catch (Exception)
+            {
+                matched = false;
+            }
+
+            if (!matched)
+            {
+                throw new HostEndpointArgumentException($"Invalid arguments: '{constraint.Parameter}' does not satisfy the route constraint of {tool.RouteTemplate}.");
+            }
+        }
+    }
 
     private static Dictionary<string, object?> BuildRouteValues(RoutePattern pattern, IReadOnlyDictionary<string, string> routeArguments)
     {
