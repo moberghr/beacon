@@ -262,6 +262,7 @@ public static class AuthServiceExtensions
     public static IApplicationBuilder UseBeaconAuthentication(this IApplicationBuilder app)
     {
         app.UseBeaconSecurityHeaders();
+        app.UseMiddleware<BeaconRequestLimitsMiddleware>();
         app.UseMiddleware<ApiKeyAuthMiddleware>();
         app.UseBeaconJwtBearerAuthentication();
         app.UseAuthentication();

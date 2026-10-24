@@ -51,6 +51,8 @@ builder.WebHost.ConfigureKestrel(x =>
     x.Limits.RequestHeadersTimeout = TimeSpan.FromMinutes(5);
 });
 builder.Services.AddHttpClient().ConfigureHttpClientDefaults(x => x.ConfigureHttpClient(y => y.Timeout = TimeSpan.FromMinutes(5)));
+// Beacon's own routes get body-size and request-time bounds from Beacon:RequestLimits (getting-started/configuration);
+// the 5-minute values above stay, AI calls need them. A shorter RequestHeadersTimeout (30 s) is fine: headers arrive at once.
 
 // Your job runner (here: Warp). See "Background jobs".
 builder.Services.AddBeaconWarp(builder.Configuration);

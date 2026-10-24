@@ -1,3 +1,4 @@
+using Beacon.Core.Configuration;
 using Beacon.Api.Authentication;
 using Beacon.Api.Hubs;
 using Beacon.Api.Security;
@@ -71,6 +72,28 @@ public static class ServiceConfiguration
 
             return services;
         }
+
+        // Hub bounds from Beacon:RequestLimits, registered before the host's ConfigureSignalR hook so a host's own
+        // AddHubOptions (applied later) wins.
+        services.AddOptions<HubOptions>()
+            .Configure<IOptions<RequestLimitsOptions>>((hub, limits) =>
+            {
+                var value = limits.Value;
+                if (value.HubMaxReceiveMessageBytes > 0)
+                {
+                    hub.MaximumReceiveMessageSize = value.HubMaxReceiveMessageBytes;
+                }
+
+                if (value.HubMaxParallelInvocationsPerClient > 0)
+                {
+                    hub.MaximumParallelInvocationsPerClient = value.HubMaxParallelInvocationsPerClient;
+                }
+
+                if (value.HubClientTimeoutSeconds > 0)
+                {
+                    hub.ClientTimeoutInterval = TimeSpan.FromSeconds(value.HubClientTimeoutSeconds);
+                }
+            });
 
         var signalR = services.AddSignalR();
         options.ConfigureSignalR?.Invoke(signalR);

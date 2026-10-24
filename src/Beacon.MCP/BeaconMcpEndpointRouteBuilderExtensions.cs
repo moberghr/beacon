@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Routing;
 using Beacon.Core.Authorization;
 using Beacon.Core.Mcp;
 using Beacon.MCP.Services;
+using Microsoft.Extensions.DependencyInjection;
 
 namespace Beacon.MCP;
 
@@ -22,11 +23,35 @@ public static class BeaconMcpEndpointRouteBuilderExtensions
     /// </summary>
     public static IEndpointConventionBuilder MapBeaconMcp(this IEndpointRouteBuilder endpoints)
     {
-        return endpoints
+        var builder = endpoints
             .MapMcp(McpDiscoveryPaths.McpPath)
             .RequireAuthorization(BeaconScopes.ExecuteScopePolicyName)
             .RequireAuthorization(McpCredentialPolicy)
             .AddEndpointFilter<IEndpointConventionBuilder, McpRateLimitFilter>();
+
+        // After authorization: a caller over its initialize limit (Beacon:RequestLimits) is answered 429 before the SDK
+        // opens a session. No limiter registered (a host that did not call AddBeaconMcp) means no limit.
+        builder.Add(x =>
+        {
+            var inner = x.RequestDelegate;
+            if (inner == null)
+            {
+                return;
+            }
+
+            x.RequestDelegate = async context =>
+            {
+                var limiter = context.RequestServices.GetService<McpInitializeLimiter>();
+                if (limiter != null && !await limiter.AdmitAsync(context))
+                {
+                    return;
+                }
+
+                await inner(context);
+            };
+        });
+
+        return builder;
     }
 
     /// <summary>

@@ -63,7 +63,8 @@ internal static class ProjectsEndpoints
 
         projects.MapPost("/{id:int}/generate-documentation", (int id, IMediator m, CancellationToken ct) =>
                 m.Send(new GenerateProjectDocumentationCommand(id, 0), ct))
-            .WithName("GenerateProjectDocumentation");
+            .WithName("GenerateProjectDocumentation")
+            .WithBeaconLongRunning();
 
         projects.MapGet("/documentation/{id:int}/export", async (
             int id,
@@ -79,11 +80,13 @@ internal static class ProjectsEndpoints
         projects.MapPost("/documentation-sections/{id:int}/instruct", (
                 int id, InstructDocumentationRequest body, IMediator m, CancellationToken ct) =>
                 m.Send(new InstructDocumentationCommand(id, body.Instruction), ct))
-            .WithName("InstructDocumentation");
+            .WithName("InstructDocumentation")
+            .WithBeaconLongRunning();
 
         projects.MapPost("/{id:int}/scan", (int id, IMediator m, CancellationToken ct) =>
                 m.Send(new ScanAllRepositoriesCommand(id), ct))
-            .WithName("ScanAllRepositories");
+            .WithName("ScanAllRepositories")
+            .WithBeaconLongRunning();
 
         projects.MapGet("/{id:int}/mcp-context", (int id, IMediator m, CancellationToken ct) =>
                 m.Send(new GetProjectMcpContextQuery(id), ct))

@@ -533,6 +533,24 @@ Bound from `Beacon:RateLimits`, validated at startup. Each limit is a fixed wind
 
 The lockout counts per user, not per client: anyone who knows a user name can lock that user's password sign-in by sending wrong passwords, and again each time the lock ends (the per-address `Login` limit slows this down, but several addresses get past it). That denial of service is the price of a hard cap on password guessing. Keep a break-glass account for emergencies (it is never locked), prefer single sign-on for everyday users, or set `Lockout:Enabled` to `false` when the denial of service weighs more for your deployment than the cap.
 
+## Request size and time limits
+
+Bound from `Beacon:RequestLimits`, validated at startup. They apply to Beacon's own routes only (`/beacon/api`, the hub under it and `/beacon/mcp`), through `UseBeaconAuthentication()`, and a host's own limit wins where it is stricter: a lower Kestrel `MaxRequestBodySize` is never raised. `0` turns one bound off. They do not touch the 5-minute Kestrel keep-alive and header timeouts or the 5-minute `HttpClient` timeout that AI calls need (see [Host setup](/integrate/host-setup/)).
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `ApiMaxBodyBytes` | long | `2097152` | Largest request body on `/beacon/api`; a larger one answers `413` |
+| `McpMaxBodyBytes` | long | `4194304` | Largest request body on `/beacon/mcp` |
+| `ApiTimeoutSeconds` | int | `300` | A `/beacon/api` request still running after this has its cancellation token cancelled and, if nothing was sent yet, answers `504`. The hub and the routes that run long work inline (migration run, metadata refresh, documentation generation, repository scan, eval run, playground tool run) are exempt and keep their own timeouts. A host's own long route opts out with `.WithBeaconLongRunning()` |
+| `HubMaxReceiveMessageBytes` | long | `8192` | Largest message the hub takes from a client (it has no client-callable methods) |
+| `HubMaxParallelInvocationsPerClient` | int | `1` | Hub invocations in flight per connection |
+| `HubClientTimeoutSeconds` | int | `30` | Silence after which the hub drops a connection |
+| `McpMaxIdleSessions` | int | `1000` | Idle MCP sessions kept in memory (`HttpServerTransportOptions.MaxIdleSessionCount`; the SDK default is 10,000). A session is dropped after 30 idle minutes |
+| `McpMaxInitializesPerCaller` | int | `60` | MCP `initialize` requests one caller (API key, mapped caller, user or address) may send per window; more answer `429` with `Retry-After`. Per instance, in memory |
+| `McpInitializeWindowSeconds` | int | `60` | The window of the previous key |
+
+A host that configures SignalR (`BeaconApiOptions.ConfigureSignalR`, `AddHubOptions`) or `HttpServerTransportOptions` itself overrides the hub and idle-session values.
+
 ## Subscription limits
 
 Bound from `Beacon:Subscriptions`, validated at startup.
