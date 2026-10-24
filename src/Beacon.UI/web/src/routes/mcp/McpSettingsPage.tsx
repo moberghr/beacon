@@ -1,4 +1,4 @@
-import { useEffect, useState, type ReactNode } from 'react';
+import { useEffect, useMemo, useState, type ReactNode } from 'react';
 import { useForm, type FieldErrors } from 'react-hook-form';
 import { useQuery } from '@tanstack/react-query';
 import { zodResolver } from '@hookform/resolvers/zod';
@@ -27,6 +27,7 @@ import {
   useMcpTools,
   useUpdateMcpProjectSettings,
   useUpdateMcpSettings,
+  type GetMcpSettingsResult,
   type McpDeploymentLock,
   type McpProjectSettingsData,
   type McpSettingsData,
@@ -193,7 +194,10 @@ function McpSettingsShell() {
 
 function McpSettingsForm({ scopeSelector, readOnly, gateway }: { scopeSelector: ReactNode; readOnly: boolean; gateway: boolean }) {
   const isAdmin = useAccess().isAdmin;
-  const { data, isLoading, isError } = useMcpSettings();
+  const { data: loaded, isLoading, isError } = useMcpSettings();
+  // The form edits the stored values, so a value above a deployment ceiling is kept by a save.
+  const data = useMemo(() => editableSettings(loaded), [loaded]);
+  const clamped = (loaded?.clampedFields ?? []).map(lowerFirst) as (keyof McpSettingsData)[];
   // Settings the deployment pins: their switches stay as pinned, for every role.
   const deploymentLocks = useMcpDeploymentLocks().data;
   const locked = new Set((deploymentLocks?.lockedFields ?? []).map(lowerFirst));
@@ -464,6 +468,12 @@ function McpSettingsForm({ scopeSelector, readOnly, gateway }: { scopeSelector: 
                 Deployment-level locks and ceilings (<span className="mono">Beacon:Mcp</span>) win
                 over these values; a save that contradicts a lock is refused.
               </p>
+              {clamped.length > 0 && (
+                <p className="m-0 text-text-muted text-xs">
+                  Saved above a deployment ceiling, which applies instead:{' '}
+                  {clamped.map(x => `${x} (${String(loaded?.[x] ?? 'no limit')})`).join(', ')}.
+                </p>
+              )}
               <label className="flex gap-2 items-center text-sm">
                 <input
                   type="checkbox"
@@ -1165,6 +1175,22 @@ function ToolField({ label, name, form }: ToolFieldProps) {
       <Textarea rows={3} {...form.register(name)} placeholder="(default)" />
     </Field>
   );
+}
+
+/**
+ * What the global form edits: the stored settings, with each field a deployment lock pins as the lock pins it (the page
+ * cannot change it, and a save that contradicts the lock is refused; the server keeps the stored value).
+ */
+function editableSettings(loaded: GetMcpSettingsResult | undefined): McpSettingsData | undefined {
+  if (!loaded) return undefined;
+  const { stored, lockedFields } = loaded;
+  if (!stored) return loaded;
+  const editable: Record<string, unknown> = { ...stored };
+  for (const field of lockedFields ?? []) {
+    const key = lowerFirst(field);
+    editable[key] = (loaded as unknown as Record<string, unknown>)[key];
+  }
+  return editable as unknown as McpSettingsData;
 }
 
 function settingsToForm(data: McpSettingsData | undefined): FormValues {

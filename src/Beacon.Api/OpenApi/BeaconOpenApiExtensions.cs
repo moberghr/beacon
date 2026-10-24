@@ -1,15 +1,24 @@
+using Beacon.Api.Endpoints;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.OpenApi;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Hosting;
 
 namespace Beacon.Api.OpenApi;
 
 public static class BeaconOpenApiExtensions
 {
+    /// <summary>The setting that publishes the OpenAPI document to anonymous callers (<c>Beacon:OpenApi:Anonymous</c>).</summary>
+    public const string AnonymousSettingName = "Beacon:OpenApi:Anonymous";
+
     /// <summary>
     /// Adds the OpenAPI document (<c>v1</c>) Beacon's React shell generates its typed client from; the host serves it with
-    /// <c>app.MapOpenApi()</c> at <c>/openapi/v1.json</c>. Enums stay integers on the wire: each enum becomes a component
-    /// schema named after its type, carrying its values and names (<see cref="EnumSchemaTransformer"/>), so the generated
-    /// TypeScript client has the backend's enum values. <paramref name="configure"/> runs after Beacon's settings.
+    /// <see cref="MapBeaconOpenApi"/> (or <c>app.MapOpenApi()</c>) at <c>/openapi/v1.json</c>. Enums stay integers on the
+    /// wire: each enum becomes a component schema named after its type, carrying its values and names
+    /// (<see cref="EnumSchemaTransformer"/>), so the generated TypeScript client has the backend's enum values.
+    /// <paramref name="configure"/> runs after Beacon's settings.
     /// </summary>
     public static IServiceCollection AddBeaconOpenApi(this IServiceCollection services, Action<OpenApiOptions>? configure = null)
     {
@@ -25,5 +34,24 @@ public static class BeaconOpenApiExtensions
             x.AddSchemaTransformer<EnumSchemaTransformer>();
             configure?.Invoke(x);
         });
+    }
+
+    /// <summary>
+    /// Maps the OpenAPI document (<c>/openapi/v1.json</c>) like <c>MapOpenApi()</c>, but outside Development it needs a
+    /// signed-in Beacon caller (the <c>BeaconApi</c> policy) unless the host sets <c>Beacon:OpenApi:Anonymous</c> to true.
+    /// The Beacon session cookie and API keys authenticate only <c>/beacon</c> and the prefixes in
+    /// <c>Beacon:Authentication:AdditionalPaths</c>, so a host that gates the document lists <c>/openapi</c> there. Code
+    /// generation runs in Development, where the document stays open.
+    /// </summary>
+    public static IEndpointConventionBuilder MapBeaconOpenApi(this WebApplication app)
+    {
+        var builder = app.MapOpenApi();
+        var anonymous = app.Environment.IsDevelopment() || app.Configuration.GetValue<bool>(AnonymousSettingName);
+        if (!anonymous)
+        {
+            builder.RequireAuthorization(BeaconApiEndpoints.AuthPolicyName);
+        }
+
+        return builder;
     }
 }

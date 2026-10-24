@@ -58,6 +58,8 @@ function resourceLink(detail: ChangeApprovalDetail): string | null {
       return `/data-sources/${detail.resourceId}`;
     case ChangeApprovalKind.LlmConnection:
       return '/admin-settings';
+    case ChangeApprovalKind.AdminRoleGrant:
+      return '/users';
     default:
       return null;
   }

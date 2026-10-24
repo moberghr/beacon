@@ -4,11 +4,12 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { mswServer } from '../../../vitest.setup';
 import { renderWithProviders } from '@/test/render';
 import { permissionsForRoles, permissionsHandler } from '@/test/permissions';
+import { toast } from 'sonner';
 import { UserDialog } from './UserDialog';
 import type { UserEntry } from './queries';
 
 vi.mock('sonner', () => ({
-  toast: { success: vi.fn(), error: vi.fn() },
+  toast: { success: vi.fn(), error: vi.fn(), info: vi.fn() },
 }));
 
 const ROLES = [
@@ -102,6 +103,35 @@ describe('UserDialog roles', () => {
     await waitFor(() => expect(onClose).toHaveBeenCalled());
     expect(writes.roles).toEqual([{ roleIds: [3, 10] }]);
     expect(writes.account).toBe(0);
+  });
+
+  it('says the Admin role was submitted for approval, not applied, when the workflow holds the grant', async () => {
+    mswServer.use(permissionsForRoles(['Admin']));
+    serve();
+    let reads = 0;
+    mswServer.use(
+      http.get('*/beacon/api/approvals/changes', () => {
+        reads += 1;
+        // Nothing waits before the save; the user's grant waits after it.
+        return HttpResponse.json({
+          items: reads === 1 ? [] : [{ id: 61, kind: 6, resourceId: 7, resourceName: 'User 7', status: 0, createdTime: '2026-10-23T10:00:00Z' }],
+          totalCount: reads === 1 ? 0 : 1,
+          pageCount: 1,
+        });
+      }),
+    );
+    const onClose = vi.fn();
+
+    const auditor = await renderEdit(user(), onClose);
+    await waitFor(() => expect(auditor).toBeEnabled());
+    fireEvent.click(screen.getByRole('checkbox', { name: 'Admin' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Save changes' }));
+
+    await waitFor(() => expect(onClose).toHaveBeenCalled());
+    expect(toast.info).toHaveBeenCalledWith(
+      expect.stringContaining('Admin role submitted for approval'),
+      expect.objectContaining({ action: expect.objectContaining({ label: 'View request' }) }),
+    );
   });
 
   it('offers a UserAdmin the user\'s owned resources, read only once shown', async () => {

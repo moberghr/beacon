@@ -61,6 +61,22 @@ public class StoredSettingsStartupTests
         manager.CurrentConfiguration.Limits.MaxConcurrentRequests.Should().Be(7);
     }
 
+    [TestCase("http://beacon.example", true)]
+    [TestCase("https://beacon.example", false)]
+    [TestCase(null, false)]
+    public async Task AnUnusableBaseUrl_IsWarnedAboutAtStartup_NeverRefused(string? baseUrl, bool warns)
+    {
+        var logger = new Mock<ILogger<StoredSettingsApplier>>();
+        logger.Setup(x => x.IsEnabled(It.IsAny<LogLevel>())).Returns(true);
+        var applier = new StoredSettingsApplier(Settings(new AppSettingsData()), new BeaconConfiguration { BaseUrl = baseUrl }, logger.Object);
+
+        await applier.ApplyAsync(CancellationToken.None);
+
+        logger.Verify(
+            x => x.Log(LogLevel.Warning, It.IsAny<EventId>(), It.Is<It.IsAnyType>((y, _) => y.ToString()!.Contains("base URL")), null, It.IsAny<Func<It.IsAnyType, Exception?, string>>()),
+            warns ? Times.Once() : Times.Never());
+    }
+
     [Test]
     public async Task AStoredProviderWithoutStoredLimits_KeepsTheHostLimits()
     {

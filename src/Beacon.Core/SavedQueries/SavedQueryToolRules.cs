@@ -121,9 +121,9 @@ public static partial class SavedQueryToolRules
             .FirstOrDefault(x => x != null);
     }
 
-    [GeneratedRegex("^[a-z][a-z0-9_]{2,40}$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("^[a-z][a-z0-9_]{2,40}$", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 250)]
     private static partial Regex NamePattern();
 
-    [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]{0,63}$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("^[A-Za-z_][A-Za-z0-9_]{0,63}$", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 250)]
     private static partial Regex ParameterNamePattern();
 }

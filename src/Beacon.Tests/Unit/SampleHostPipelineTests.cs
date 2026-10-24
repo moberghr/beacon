@@ -52,7 +52,8 @@ namespace Beacon.Tests.Unit;
 /// JWT middleware's position for a bearer caller is pinned elsewhere: <c>BeaconAuthenticationScopeTests</c> (a JWT
 /// through <c>UseBeaconAuthentication</c>) and <c>RestBearerUserBindingTests</c>.
 /// <see cref="Program_KeepsTheMirroredCallsInTheOrderThisPipelineUses"/> fails when <c>Program.cs</c> leaves the chain
-/// (<c>UseStaticFiles</c>, <c>UseBeaconPipeline</c>, <c>MapBeacon</c>, in that order) or adds back a call the chain makes.
+/// (<c>UseBeaconSecurityHeaders</c>, <c>UseStaticFiles</c>, <c>UseBeaconPipeline</c>, <c>MapBeaconOpenApi</c>,
+/// <c>MapBeacon</c>, in that order) or adds back a call the chain makes.
 /// </para>
 /// <para>
 /// Every test runs twice: on the individual calls the sample made before the chain and a host on the older entry points
@@ -144,7 +145,8 @@ public class SampleHostPipelineTests(SampleHostPipelineTests.HostWiring wiring)
     // Program.cs wires Beacon through the chain (the HostWiring.Chain fixture): UseBeaconPipeline in place of the five
     // pipeline calls the SampleCalls fixture makes, MapBeacon in place of its MCP and discovery mappings. None of those
     // calls may come back beside the chain: UseBeaconPipeline already adds them, and a second copy would run Beacon's
-    // middlewares twice.
+    // middlewares twice. The security headers come before UseStaticFiles (so the SPA's files carry them), and the OpenAPI
+    // document is mapped with MapBeaconOpenApi (gated outside Development), never with a bare MapOpenApi beside it.
     [Test]
     public void Program_KeepsTheMirroredCallsInTheOrderThisPipelineUses()
     {
@@ -154,8 +156,10 @@ public class SampleHostPipelineTests(SampleHostPipelineTests.HostWiring wiring)
             .ToList();
         string[] mirrored =
         [
+            "app.UseBeaconSecurityHeaders();",
             "app.UseStaticFiles();",
             "app.UseBeaconPipeline();",
+            "app.MapBeaconOpenApi();",
             "app.MapBeacon();"
         ];
         string[] replacedByTheChain =
@@ -174,7 +178,8 @@ public class SampleHostPipelineTests(SampleHostPipelineTests.HostWiring wiring)
             "app.MapSetupEndpoints(",
             "app.MapBeaconMcp(",
             "app.MapMcpDiscovery(",
-            "app.MapBeaconUi("
+            "app.MapBeaconUi(",
+            "app.MapOpenApi("
         ];
 
         var positions = mirrored
@@ -187,11 +192,11 @@ public class SampleHostPipelineTests(SampleHostPipelineTests.HostWiring wiring)
     }
 
     [Test]
-    public async Task SampleAdditionalPaths_AreTheWarpDashboardOnly()
+    public async Task SampleAdditionalPaths_AreTheWarpDashboardAndTheOpenApiDocument()
     {
         await using var host = await PipelineHost.StartAsync(_wiring);
 
-        host.AdditionalPaths.Should().Equal("/warp");
+        host.AdditionalPaths.Should().Equal("/warp", "/openapi");
     }
 
     [TestCase("/.well-known/oauth-protected-resource")]

@@ -1,7 +1,8 @@
-import { useEffect, useId, useMemo, useRef, useState } from 'react';
+import { useDeferredValue, useEffect, useId, useMemo, useRef, useState } from 'react';
 import { ChevronDown, Database, Box } from 'lucide-react';
 import { Input } from '@/components/beacon';
 import { cn } from '@/lib/utils';
+import { visibleTableCounts } from './schemaLimits';
 import {
   useDataSourceMetadataQuery,
   type TableMetadataDto,
@@ -57,17 +58,27 @@ export function DatabaseExplorer({ dataSourceId, onInsert, className }: Database
   const query = useDataSourceMetadataQuery(dataSourceId);
   const tables = query.data?.tables ?? EMPTY_TABLES;
 
+  // The filter box stays responsive on a large schema: typing updates at once, the list catches up when idle.
+  const deferredSearch = useDeferredValue(search);
+
   const filtered = useMemo(() => {
-    const term = search.trim().toLowerCase();
+    const term = deferredSearch.trim().toLowerCase();
     if (!term) return tables;
     return tables.filter(
       t =>
         t.tableName.toLowerCase().includes(term) ||
         t.schemaName.toLowerCase().includes(term),
     );
-  }, [tables, search]);
+  }, [tables, deferredSearch]);
 
   const groups = useMemo(() => groupBySchema(filtered), [filtered]);
+
+  const searchActive = deferredSearch.trim().length > 0;
+  // A large warehouse renders only the first tables of the expanded schemas; the filter narrows to the rest.
+  const shownCounts = useMemo(
+    () => visibleTableCounts(groups, schema => !searchActive && collapsedSchemas.has(schema)),
+    [groups, collapsedSchemas, searchActive],
+  );
 
   // Re-initialize per data source: collapse all schemas and clear expanded
   // tables whenever metadata for a new dataSourceId arrives.
@@ -155,7 +166,6 @@ export function DatabaseExplorer({ dataSourceId, onInsert, className }: Database
             {groups.map(group => {
               // While a filter is active, auto-expand matching schemas without
               // touching the user's persisted collapse state.
-              const searchActive = search.trim().length > 0;
               const collapsed = !searchActive && collapsedSchemas.has(group.schema);
               const schemaPanelId = `${idPrefix}-schema-${group.schema}`;
               return (
@@ -179,7 +189,7 @@ export function DatabaseExplorer({ dataSourceId, onInsert, className }: Database
                   </button>
                   {!collapsed && (
                     <div id={schemaPanelId}>
-                    {group.tables.map(table => {
+                    {group.tables.slice(0, shownCounts.get(group.schema) ?? group.tables.length).map(table => {
                       const fqn = `${table.schemaName}.${table.tableName}`;
                       const expanded = expandedTables.has(fqn);
                       const columnsPanelId = `${idPrefix}-cols-${fqn}`;
@@ -250,6 +260,11 @@ export function DatabaseExplorer({ dataSourceId, onInsert, className }: Database
                         </div>
                       );
                     })}
+                    {(shownCounts.get(group.schema) ?? group.tables.length) < group.tables.length && (
+                      <div className="pl-5 pr-2 py-1 text-text-muted">
+                        Showing {shownCounts.get(group.schema)} of {group.tables.length} tables. Filter to find the rest.
+                      </div>
+                    )}
                     </div>
                   )}
                 </div>

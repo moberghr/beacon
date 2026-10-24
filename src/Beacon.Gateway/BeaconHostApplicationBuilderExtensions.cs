@@ -28,10 +28,10 @@ public static class BeaconHostApplicationBuilderExtensions
     /// Adds Beacon's middlewares in their load-bearing order, in place of the host's <c>UseAuthentication()</c> and
     /// <c>UseAuthorization()</c>: RFC 7807 problem responses for exceptions under <c>/beacon/api</c>
     /// (<c>UseBeaconApiExceptionHandler</c>; other paths keep the host's own error handling), the RFC 9728 challenge
-    /// pointer on <c>/beacon/mcp</c> 401s (with <c>.AddMcp()</c>), <c>UseBeaconAuthentication</c> (API key, bearer JWT, <c>UseAuthentication</c>, the <c>Beacon.Auth</c> cookie),
-    /// <c>UseAuthorization</c>, the login-form redirect (with <c>Authentication.EnableLoginForm</c>), the
-    /// first-run setup redirect (with user management) and antiforgery (with <c>.AddApi()</c>). Call it once, after
-    /// <c>UseStaticFiles</c>; a second call throws, because Beacon's middlewares must run once and in this order.
+    /// pointer on <c>/beacon/mcp</c> 401s (with <c>.AddMcp()</c>), <c>UseBeaconAuthentication</c> (<c>UseAuthentication</c>,
+    /// then Beacon's step: a presented API key or bearer JWT, else the <c>Beacon.Auth</c> cookie), <c>UseAuthorization</c>,
+    /// the login-form redirect (with <c>Authentication.EnableLoginForm</c>), the first-run setup redirect (with user
+    /// management) and antiforgery (with <c>.AddApi()</c>). Call it once, after <c>UseStaticFiles</c>; a second call throws, because Beacon's middlewares must run once and in this order.
     /// </summary>
     public static IApplicationBuilder UseBeaconPipeline(this IApplicationBuilder app)
     {

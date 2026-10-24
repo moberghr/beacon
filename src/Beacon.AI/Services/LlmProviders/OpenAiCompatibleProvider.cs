@@ -533,7 +533,7 @@ internal sealed partial class OpenAiCompatibleProvider : ILlmProvider
             : $"{DisplayName} returned HTTP {(int)status} ({errorCode}).";
     }
 
-    [GeneratedRegex("^[a-z0-9_.\\-]{1,64}$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("^[a-z0-9_.\\-]{1,64}$", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 250)]
     private static partial Regex ErrorCodeToken();
 
     private readonly record struct Attempt(HttpStatusCode Status, byte[]? Body, TimeSpan? RequestedDelay, string? ErrorCode)
