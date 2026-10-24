@@ -438,6 +438,33 @@ refused. Replace each flagged connection, then set `EnforceOnExisting` to `true`
 local databases without TLS sets `AllowInsecure` in its Development configuration only.
 :::
 
+## Data-source driver options and hosts
+
+Each connector also refuses driver options that act on the Beacon host or sign in as it (the list per engine is in
+[Driver options and hosts](/features/data-sources/#driver-options-and-hosts)), on create, change and test connection;
+a stored source gets one Warning per process instead, and is refused under
+`Beacon:DataSources:Transport:EnforceOnExisting`; a host-managed source gets the host list only. `Beacon:DataSources:Transport:AllowInsecure` lifts the option rule,
+never the host list. Bound from `Beacon:DataSources`:
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `AllowedHosts` | string[] | `[]` | The hosts a data-source connection may reach: exact host names or IP addresses, or `*.example.com` for the hosts below `example.com` (ASCII; an internationalised name in its `xn--` form). Empty leaves hosts unrestricted. While set, a connection reaching an unlisted host, a host that is not a bare host name or IP address, or one whose hosts cannot be told, is refused; a BigQuery source needs `oauth2.googleapis.com`. Resolved addresses are not pinned. An entry with a scheme, port or path fails startup |
+| `AllowHostCredentials` | bool | `false` | Accepts connections that sign in as the Beacon host: integrated or Kerberos security, a managed, workload or default cloud identity, an AWS profile or IAM role, BigQuery application default credentials, a certificate store, a local socket or named pipe, a PostgreSQL pgpass file |
+
+```json
+{ "Beacon": { "DataSources": { "AllowedHosts": [ "*.db.example.com", "adb-1234567890123456.7.azuredatabricks.net" ] } } }
+```
+
+:::caution[Upgrading]
+New data sources that sign in as the Beacon host (for example SQL Server `Integrated Security=True`, CloudWatch with
+the host's IAM role, BigQuery without service account JSON) are refused unless `AllowHostCredentials` is `true`;
+stored ones keep working with a Warning. BigQuery sources whose service account JSON is not a service account key, or
+whose key names a token endpoint, universe or URL that is not Google's, stop connecting. New MySQL sources without a
+password are refused. PostgreSQL connections with a password no longer answer a server's Kerberos or SSPI request:
+set `Require Auth` yourself (and `AllowHostCredentials` for an Admin's source) if a password-carrying connection must
+sign in with Kerberos.
+:::
+
 ## Authorization
 
 Bound from `Beacon:Authorization`, validated at startup. Whether authorization is on at all is code-only (`options.Authorization.Enabled`). See [Authorization](/security/authorization/).

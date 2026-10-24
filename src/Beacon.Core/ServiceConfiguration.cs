@@ -406,6 +406,11 @@ public static class ServiceConfiguration
         // connector's inspector judges it; the options decide what happens to a stored source that does not.
         services.AddOptions<Configuration.DataSourceTransportOptions>()
             .Bind(configuration.GetSection(Configuration.DataSourceTransportOptions.SectionName));
+        // Driver options and hosts (Beacon:DataSources): each connector's option inspector, and the optional host list.
+        services.AddOptions<Configuration.DataSourceConnectionOptions>()
+            .Bind(configuration.GetSection(Configuration.DataSourceConnectionOptions.SectionName))
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.DataSourceConnectionOptions>, Configuration.DataSourceConnectionOptionsValidator>());
         services.TryAddSingleton<Services.Providers.IDataSourceTransportPolicy, Services.Providers.DataSourceTransportPolicy>();
         // The declared engine checked against the server on create, a changed connection or engine, and the connection test.
         services.TryAddSingleton<Services.Providers.IDatabaseEngineVerifier, Services.Providers.DatabaseEngineVerifier>();

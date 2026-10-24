@@ -224,7 +224,7 @@ public class MetadataRefreshTests
             {
                 DataSourceId = DataSourceId,
                 Name = "warehouse",
-                ConnectionString = "Host=fixed;SSL Mode=VerifyFull",
+                ConnectionString = "Host=fixed;Password=reader;SSL Mode=VerifyFull",
                 DatabaseEngineType = DatabaseEngineType.PostgreSQL,
                 ConfirmTargetChange = true
             },
@@ -611,7 +611,7 @@ public class MetadataRefreshTests
             {
                 DataSourceId = DataSourceId,
                 Name = "warehouse",
-                ConnectionString = "Host=elsewhere;SSL Mode=VerifyFull",
+                ConnectionString = "Host=elsewhere;Password=reader;SSL Mode=VerifyFull",
                 DatabaseEngineType = DatabaseEngineType.PostgreSQL,
                 ConfirmTargetChange = true
             },
