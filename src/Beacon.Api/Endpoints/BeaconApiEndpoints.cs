@@ -137,6 +137,9 @@ public static class BeaconApiEndpoints
         // Warns once after startup when every role can create objects in the PostgreSQL public schema Beacon's connections search.
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, PublicSchemaStartupWarning>());
 
+        // Reports at startup the security settings weaker than the regulated profile requires (Beacon:Profile).
+        services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, DeploymentProfileStartupReport>());
+
         // Applies the stored Admin settings (base URL, LLM provider configuration) once the host has started.
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, StoredSettingsStartupApplier>());
 
