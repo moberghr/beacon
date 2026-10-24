@@ -18297,6 +18297,13 @@ export enum BedrockAuthMode {
   TemporaryCredentials = 2,
 }
 
+export interface BuildInfoResponse {
+  version: string;
+  commit: string | null;
+
+  [key: string]: any;
+}
+
 export interface BulkJobRequest {
   jobIds?: string[];
 
@@ -18877,6 +18884,7 @@ export interface CurrentPermissionsResponse {
   migrationsEnabled: boolean;
   gatewayMode?: boolean;
   embedEnabled?: boolean;
+  build?: BuildInfoResponse | null;
 
   [key: string]: any;
 }

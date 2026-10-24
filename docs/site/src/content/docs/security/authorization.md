@@ -269,7 +269,7 @@ The complete route list is on [Routes & endpoints](/reference/routes/).
 - **A SecurityAdmin tightens, an Admin loosens.** A SecurityAdmin turns read-only enforcement and PII detection on, globally and per project; turning either off is an Admin's (`403`), and nobody's while the deployment locks them (`409`). Changing where a recipient delivers is refused (`403`) when the recipient is attached to work the SecurityAdmin cannot read.
 - **The authorization provider can veto.** A host may refuse a permission with `IBeaconAuthorizationProvider.AllowsFunctionalPermissionAsync` (a default member that returns `true`).
 
-`GET /beacon/api/auth/permissions` returns the caller's `canRead`, `canWrite`, `isAdmin` and `permissions` (the names held now; an Admin's lists all six). The shell uses it to show the pages each permission opens.
+`GET /beacon/api/auth/permissions` returns the caller's `canRead`, `canWrite`, `isAdmin` and `permissions` (the names held now; an Admin's lists all six). The shell uses it to show the pages each permission opens. It also carries `build` (the running release `version` and source `commit`), which the signed-in sidebar shows; the web bundle itself carries no build identity, so nothing about the deployed build is readable before sign-in.
 
 ### Holding a permission
 
