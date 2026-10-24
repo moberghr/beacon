@@ -54,6 +54,32 @@ public interface ISavedQueryToolExecutor
         CancellationToken cancellationToken);
 }
 
+/// <summary>
+/// How a saved-query run that is not an MCP tool call is tightened beyond the project's settings.
+/// </summary>
+/// <param name="ForcePiiDetection">Mask PII whatever the project's PII detection setting says (custom patterns still apply).</param>
+/// <param name="MaxRowsCeiling">The most rows the result returns, below the project's row limit; null for the project's limit.</param>
+internal sealed record SavedQueryRunOptions(bool ForcePiiDetection, int? MaxRowsCeiling)
+{
+    /// <summary>As an MCP tool call runs: the project's settings alone.</summary>
+    public static SavedQueryRunOptions Default { get; } = new(false, null);
+}
+
+/// <summary>
+/// The saved-query executor with run options, for Beacon's own callers that are not MCP tool calls (the embed render).
+/// Same read-only path, checks and audit-free result as <see cref="ISavedQueryToolExecutor"/>; the options only ever
+/// tighten what the project's settings allow.
+/// </summary>
+internal interface ISavedQueryRunner
+{
+    Task<SavedQueryToolExecution> ExecuteAsync(
+        SavedQueryToolDefinition tool,
+        int projectId,
+        IReadOnlyDictionary<string, object?> arguments,
+        SavedQueryRunOptions options,
+        CancellationToken cancellationToken);
+}
+
 internal sealed class SavedQueryToolExecutor(
     IDbContextFactory<BeaconContext> contextFactory,
     IDataSourceProviderFactory providerFactory,
@@ -65,7 +91,7 @@ internal sealed class SavedQueryToolExecutor(
     IRowSecurityResolver rowSecurityResolver,
     IQueryCostLimit costLimit,
     IOptions<QueryExecutionOptions> queryOptions,
-    ILoggerFactory loggerFactory) : ISavedQueryToolExecutor
+    ILoggerFactory loggerFactory) : ISavedQueryToolExecutor, ISavedQueryRunner
 {
     /// <summary>The most rows one intermediate step of a multi-step query may return before the call fails.</summary>
     public const int IntermediateRowCap = 50_000;
@@ -74,14 +100,32 @@ internal sealed class SavedQueryToolExecutor(
 
     private readonly ILogger _logger = loggerFactory.CreateLogger<SavedQueryToolExecutor>();
 
-    public async Task<SavedQueryToolExecution> ExecuteAsync(
+    public Task<SavedQueryToolExecution> ExecuteAsync(
         SavedQueryToolDefinition tool,
         int projectId,
         IReadOnlyDictionary<string, object?> arguments,
         CancellationToken cancellationToken)
     {
-        // The strictest guardrails of the live projects that link any of the steps' data sources apply.
+        return ExecuteAsync(tool, projectId, arguments, SavedQueryRunOptions.Default, cancellationToken);
+    }
+
+    public async Task<SavedQueryToolExecution> ExecuteAsync(
+        SavedQueryToolDefinition tool,
+        int projectId,
+        IReadOnlyDictionary<string, object?> arguments,
+        SavedQueryRunOptions options,
+        CancellationToken cancellationToken)
+    {
+        // The strictest guardrails of the live projects that link any of the steps' data sources apply, tightened by the
+        // run's options (a copy: the resolved settings may be cached).
         var settings = await sharedSourceSettings.GetEffectiveSettingsAsync(projectId, tool.DataSourceIds.ToList(), cancellationToken);
+        if (options.ForcePiiDetection || options.MaxRowsCeiling != null)
+        {
+            settings = settings.Clone();
+            settings.EnablePiiDetection = settings.EnablePiiDetection || options.ForcePiiDetection;
+            settings.MaxRowLimit = Math.Min(settings.MaxRowLimit, options.MaxRowsCeiling ?? settings.MaxRowLimit);
+        }
+
         var maxRows = Math.Max(1, settings.MaxRowLimit);
         var firstDataSourceId = tool.Steps.Count > 0 ? tool.Steps[0].DataSourceId : (int?)null;
         var tablesUsed = new List<string>();

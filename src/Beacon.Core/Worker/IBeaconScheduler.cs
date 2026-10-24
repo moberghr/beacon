@@ -15,7 +15,8 @@ public interface IBeaconScheduler
     // Fire-and-forget background work used by the AI features. Implementations enqueue the
     // job on the host's job runner and return its job id (the UI correlates JobStatusChanged
     // push events by this id). notifyUserId, when set, identifies the user who should receive
-    // those push events.
+    // those push events: the hub user id, the enqueuing actor's UserId (Users.ExternalId), which a
+    // host publishes to with Clients.User(notifyUserId).
     Task<string> EnqueueProjectDocumentation(int projectId, int userId, string? notifyUserId)
         => throw new NotImplementedException("Background enqueue not implemented in this host");
 
@@ -31,5 +32,12 @@ public interface IBeaconScheduler
     // after its connection was pointed at another target. Returns the job id, or null when this host runs no such job (the
     // caller logs that the old target's schema stays until a refresh).
     Task<string?> EnqueueMetadataRefresh(int dataSourceId)
+        => Task.FromResult<string?>(null);
+
+    // Fire-and-forget run of a recorded background task (Beacon.Core.BackgroundTasks): the host's job calls
+    // IBackgroundTaskService.ExecuteAsync(taskId). notifyUserId, when set, is the user who receives the job's JobStatusChanged
+    // push events. Returns the job id, or null when this host runs no such job: the task then runs in the request that
+    // started it.
+    Task<string?> EnqueueBackgroundTask(int taskId, string? notifyUserId)
         => Task.FromResult<string?>(null);
 }

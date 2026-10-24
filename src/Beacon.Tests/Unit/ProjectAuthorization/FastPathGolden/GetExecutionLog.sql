@@ -20,7 +20,7 @@ LEFT JOIN (
 ) AS d0 ON m0.data_source_id = d0.id
 ORDER BY m0.created_time DESC, m0.id
 ;
-SELECT u.id AS "Id", u.external_id AS "ExternalId", u.is_enabled AND u.archived_time IS NULL AS "IsActive", u.security_stamp AS "SecurityStamp", u.is_super_admin OR EXISTS (
+SELECT u.id AS "Id", u.external_id AS "ExternalId", u.created_time AS "CreatedTime", u.is_enabled AND u.archived_time IS NULL AS "IsActive", u.security_stamp AS "SecurityStamp", u.is_super_admin OR EXISTS (
     SELECT 1
     FROM beacon.user_roles AS u0
     INNER JOIN beacon.roles AS r ON u0.role_id = r.id

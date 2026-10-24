@@ -36,6 +36,7 @@ public class DocumentationEnumDiscoveryTests
     private const int ProjectId = 1;
     private const int DataSourceId = 7;
     private const string ColumnCarryingSql = "status';SELECT pg_sleep(30);--";
+    private const string NotFencedMark = "NOT A DATA BLOCK: ";
 
     [Test]
     public async Task ACatalogNameCarryingSql_NeverReachesTheDataSource_AndDiscoveryRunsReadOnly()
@@ -52,6 +53,19 @@ public class DocumentationEnumDiscoveryTests
         statements.Should().NotContain(x => x.Sql.Contains("pg_sleep", StringComparison.OrdinalIgnoreCase));
         statements.Should().NotContain(x => x.Method == nameof(IDataSourceProvider.ExecuteQueryAsync), "discovery runs on the read-only path only");
         statements.Should().ContainSingle(x => x.Sql.Contains("\"orders\"") && x.Sql.Contains("\"status\""));
+    }
+
+    // Every documentation pass sends its prompt as one project-metadata data block under the data rule.
+    [Test]
+    public async Task EveryPassSendsItsPromptAsOneDataBlock()
+    {
+        var prompts = new List<string>();
+        var service = Service(RecordingProvider().Object, [Table("public", "orders", "id", "status")], prompts: prompts);
+
+        await GenerateIgnoringLaterFailures(service);
+
+        prompts.Should().NotBeEmpty();
+        prompts.Should().NotContain(x => x.StartsWith(NotFencedMark, StringComparison.Ordinal));
     }
 
     [Test]
@@ -413,6 +427,18 @@ public class DocumentationEnumDiscoveryTests
         }
     }
 
+    // A documentation prompt as its builder wrote it: the body of the one data block the request sends it in. A message that is
+    // not such a block is recorded with a mark, so a prompt sent outside its block is seen.
+    private static string Unfenced(string content)
+    {
+        const string prefix = "<untrusted_data label=\"project metadata\">\n";
+        const string suffix = "</untrusted_data>";
+
+        return content.StartsWith(prefix, StringComparison.Ordinal) && content.EndsWith(suffix, StringComparison.Ordinal)
+            ? content[prefix.Length..^suffix.Length]
+            : NotFencedMark + content;
+    }
+
     private static Dictionary<string, object?> Row(object marker, string value, long count)
     {
         return new Dictionary<string, object?> { ["col"] = marker, ["val"] = value, ["cnt"] = count };
@@ -488,7 +514,7 @@ public class DocumentationEnumDiscoveryTests
         var llm = new Mock<ILlmProvider>();
         llm
             .Setup(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()))
-            .Callback<LlmRequest, CancellationToken>((x, _) => prompts?.Add(string.Join("\n", x.Messages.Select(y => y.Content))))
+            .Callback<LlmRequest, CancellationToken>((x, _) => prompts?.Add(string.Join("\n", x.Messages.Select(y => Unfenced(y.Content)))))
             .ThrowsAsync(new InvalidOperationException("no model in this test"));
 
         var shared = new Mock<ISharedSourceSettings>();

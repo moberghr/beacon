@@ -1,18 +1,14 @@
-using Microsoft.AspNetCore.Authentication;
-using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Http;
 
 namespace Beacon.Api.Authentication;
 
 /// <summary>
-/// Explicitly authenticates requests using the cookie scheme within the Beacon pipeline.
-/// This ensures Beacon routes use cookie auth without overriding the host app's default scheme. Only Beacon's routes
-/// (<see cref="BeaconRequestPaths"/>): the cookie never authenticates a host route.
-/// The cookie's result is recorded as the request's authentication result (<see cref="BeaconAuthenticationFeatures"/>),
-/// the way the framework's authentication middleware records the default scheme's, so what reads it (SignalR closing a hub
-/// connection when the session's expiry passes, a scheme-less authorization policy) sees the cookie session even where
-/// another scheme (OIDC) is registered and the cookie is not the default.
+/// Retired: <c>UseBeaconAuthentication</c> authenticates the <c>Beacon.Auth</c> cookie in
+/// <see cref="BeaconAuthenticationMiddleware"/>. Kept for hosts that wire it themselves; it behaves as before: on Beacon's
+/// routes only (<see cref="BeaconRequestPaths"/>), and only when nothing authenticated the request earlier, the cookie's
+/// result is recorded as the request's authentication result (<see cref="BeaconAuthenticationFeatures"/>).
 /// </summary>
+[Obsolete("Call app.UseBeaconAuthentication(), which authenticates the Beacon.Auth cookie; removed in 6.0.")]
 public sealed class BeaconCookieAuthMiddleware(RequestDelegate next)
 {
     public async Task InvokeAsync(HttpContext context)
@@ -32,11 +28,7 @@ public sealed class BeaconCookieAuthMiddleware(RequestDelegate next)
             return;
         }
 
-        var result = await context.AuthenticateAsync(CookieAuthenticationDefaults.AuthenticationScheme);
-        if (result.Succeeded)
-        {
-            BeaconAuthenticationFeatures.Set(context, result);
-        }
+        await BeaconAuthenticationMiddleware.AuthenticateCookieAsync(context);
 
         await next(context);
     }

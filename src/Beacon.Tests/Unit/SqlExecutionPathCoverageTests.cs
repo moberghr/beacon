@@ -118,7 +118,8 @@ public class SqlExecutionPathCoverageTests
         ["src/Beacon.Core/Services/MigrationService.cs"] = "the migration writer's connection to its write target",
         ["src/Beacon.Core/Services/Providers/DataSourceTransportStatus.cs"] = "the transport badge, connects to nothing",
         ["src/Beacon.Core/Services/Validation/DataSourceConfiguredDatabase.cs"] = "reads the configured database's name, connects to nothing",
-        ["src/Beacon.Core/HostData/HostReadOnlyLoginCheck.cs"] = "the startup check of a host source's read-only login: fixed catalog SQL, outside the gate"
+        ["src/Beacon.Core/HostData/HostReadOnlyLoginCheck.cs"] = "the startup check of a host source's read-only login: fixed catalog SQL, outside the gate",
+        ["src/Beacon.Api/ApprovalWorkflowStartupNote.cs"] = "the startup warning that the registered resolver is not Beacon's, connects to nothing"
     };
 
     // The production files that name DbConnectionFactory (a driver connection from a connection string), and why.
@@ -158,6 +159,38 @@ public class SqlExecutionPathCoverageTests
 
     private static readonly Regex ExecutionLogUse = new(@"\bexecutionAudit\.(?:StartAsync|RunAsync)\(", RegexOptions.CultureInvariant);
 
+    // The production files that name the saved-query executor (an approved version's steps, run through the gate), and why.
+    private static readonly Dictionary<string, string> SavedQueryExecutorUsers = new(StringComparer.Ordinal)
+    {
+        ["src/Beacon.Core/SavedQueries/SavedQueryToolExecutor.cs"] = "the executor",
+        ["src/Beacon.Core/ServiceConfiguration.cs"] = "registers it",
+        ["src/Beacon.MCP/SavedQueries/SavedQueryToolService.cs"] = "a saved-query MCP tool call",
+        ["src/Beacon.Core/Handlers/Embed/RenderEmbedQueryHandler.cs"] = "an embed render of a grant's pinned version, PII always masked and the embed row cap applied"
+    };
+
+    // The anonymous embed surface: it reaches SQL through the saved-query executor alone.
+    private static readonly string[] EmbedSurfacePrefixes =
+    [
+        "src/Beacon.Core/Handlers/Embed/",
+        "src/Beacon.Core/Services/Embed/",
+        "src/Beacon.Api/Endpoints/Embed",
+        "src/Beacon.Api/Authentication/Embed",
+        "src/Beacon.Api/Authentication/BeaconEmbedPaths.cs"
+    ];
+
+    private static readonly Regex SavedQueryExecutorUse = new(@"\b(?:ISavedQueryToolExecutor|ISavedQueryRunner)\b", RegexOptions.CultureInvariant);
+    // The production files that run Dapper CommandDefinition statements (catalog scans, locks, the migration writer), and why.
+    private static readonly Dictionary<string, string> DapperCommandUsers = new(StringComparer.Ordinal)
+    {
+        ["src/Beacon.Connector.PostgreSql/PostgreSqlMetadataExtractor.cs"] = "the metadata scan's fixed catalog SQL",
+        ["src/Beacon.Connector.MySql/MySqlMetadataExtractor.cs"] = "the metadata scan's fixed catalog SQL",
+        ["src/Beacon.Connector.Snowflake/SnowflakeMetadataExtractor.cs"] = "the metadata scan's fixed catalog SQL",
+        ["src/Beacon.Core/Services/Providers/TsqlCatalogScan.cs"] = "the SQL Server and Synapse metadata scan's fixed catalog SQL, passed in by those extractors",
+        ["src/Beacon.Core/DataMigration/MigrationRunLock.cs"] = "the destination lock statements",
+        ["src/Beacon.Core/Services/MigrationService.Sql.cs"] = "the migration writer's statements on its write target",
+        ["src/Beacon.Core/Services/Providers/DatabaseProvider.cs"] = "the database connectors' gated reads"
+    };
+
     private static readonly Regex GateUse = new(@"\b(?:ISqlExecutionGate|SqlGateRequest)\b", RegexOptions.CultureInvariant);
 
     private static readonly Regex ExecuteCall = new(@"\.(?:ExecuteReadOnlyQueryAsync|ExecuteQueryAsync|ValidateQueryAsync|EstimateReadOnlyCostAsync)\b", RegexOptions.CultureInvariant);
@@ -173,6 +206,17 @@ public class SqlExecutionPathCoverageTests
     private static readonly Regex RowSecurityContextCreation = new(@"\bRowSecurityContext\.(?:NotApplicable|Filtered|Denied)\(", RegexOptions.CultureInvariant);
 
     private static readonly Lazy<Dictionary<string, string>> Sources = new(ReadProductionSources);
+
+    [Test]
+    public void EveryFileThatRunsADapperCommand_IsListed()
+    {
+        var users = Sources.Value
+            .Where(x => x.Value.Contains("new CommandDefinition(", StringComparison.Ordinal))
+            .Select(x => x.Key)
+            .ToList();
+
+        users.Should().BeEquivalentTo(DapperCommandUsers.Keys, "a Dapper statement in an unlisted file could run SQL the gate never saw: review it and list it with its reason");
+    }
 
     [Test]
     public void EveryFileThatUsesTheGate_IsListed()
@@ -278,6 +322,40 @@ public class SqlExecutionPathCoverageTests
             .ToList();
 
         others.Should().BeEquivalentTo(RowSecurityContextReceivers.Keys, "every gate request carries a context: from the resolver, created by a listed file, or handed in by a caller");
+    }
+
+    [Test]
+    public void EveryFileThatUsesTheSavedQueryExecutor_IsListed()
+    {
+        var users = Sources.Value
+            .Where(x => SavedQueryExecutorUse.IsMatch(x.Value))
+            .Select(x => x.Key)
+            .ToList();
+
+        users.Should().BeEquivalentTo(SavedQueryExecutorUsers.Keys, "a new caller of the saved-query executor runs approved SQL: it is reviewed and listed with its reason");
+    }
+
+    [Test]
+    public void TheEmbedSurface_ReachesSqlThroughTheSavedQueryExecutorAlone()
+    {
+        var embedFiles = Sources.Value
+            .Where(x => EmbedSurfacePrefixes.Any(y => x.Key.StartsWith(y, StringComparison.Ordinal)))
+            .ToList();
+
+        embedFiles.Should().NotBeEmpty();
+        embedFiles
+            .Where(x => GateUse.IsMatch(x.Value)
+                || ExecuteCall.IsMatch(x.Value)
+                || ResolverUse.IsMatch(x.Value)
+                || ConnectionFactoryUse.IsMatch(x.Value)
+                || RowSecurityResolverUse.IsMatch(x.Value)
+                || RowSecurityContextCreation.IsMatch(x.Value))
+            .Select(x => x.Key)
+            .Should().BeEmpty("an embed render runs SQL only through the saved-query executor, which takes its row security from the resolver and passes the gate");
+        embedFiles
+            .Where(x => SavedQueryExecutorUse.IsMatch(x.Value))
+            .Select(x => x.Key)
+            .Should().Equal(["src/Beacon.Core/Handlers/Embed/RenderEmbedQueryHandler.cs"]);
     }
 
     // Production C# under src, without tests, migrations and build output, each file without its whole-line comments so a

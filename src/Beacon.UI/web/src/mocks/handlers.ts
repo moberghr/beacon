@@ -32,12 +32,14 @@
  *   PUT data-sources/:id/enabled (no state kept)
  * - notifications (filters by ?subscriptionId), notifications/:id
  * - tasks, tasks/:id (+ executions / related / result-history / comments)
- * - approvals/pending, approvals/:id, approvals/changes, approvals/changes/:id
+ * - approvals/pending, approvals/:id, approvals/changes, approvals/changes/:id (31 by kind, 41 a data source's
+ *   connection, 51 the LLM connection)
  * - subscriptions, subscriptions/:id, subscriptions/:id/anomaly-chart
  * - recipients
- * - ai-actors, ai-actors/:id
+ * - ai-actors, ai-actors/:id, ai-actors/:id/pending-plans, ai-actors/pending-plans/count, ai-actors/plans/:id
+ *   (+ approve / reject / request-revision)
  * - mcp: settings, tools, learning-stats, learned-patterns, documentation-patches
- * - eval: golden/candidates, golden, grounding/recheck (honest empties)
+ * - eval: golden/candidates, golden, runs, run results, grounding/recheck (honest empties)
  * - control-tower: statistics, health, subscriptions/:id/detail
  * - migrations: jobs, executions (honest empties)
  * - admin: api-keys, users, users/roles, PUT users/:id/roles, POST users/:id/sign-out-everywhere (no state kept),
@@ -48,7 +50,9 @@
  */
 import { http, HttpResponse } from 'msw';
 import {
+  AiActorActionType,
   AiActorExecutionPhase,
+  AiActorPlanStatus,
   AiActorStatus,
   AiProvider,
   AnomalyDetectionMethod,
@@ -112,7 +116,10 @@ const authHandlers = [
       isAdmin: true,
       permissions: ['Approver', 'Auditor', 'SecurityAdmin', 'UserAdmin', 'DataSourceAdmin', 'MigrationOperator'],
       migrationsEnabled: true,
+      embedEnabled: true,
     })),
+  // No embed grants until one is created against a real server.
+  http.get('/beacon/api/embed-grants', () => HttpResponse.json({ totalCount: 0, pageCount: 0, items: [] })),
   http.get('/beacon/api/auth/sso', () => HttpResponse.json({ enabled: false, localLoginEnabled: true })),
   http.post('/beacon/api/auth/logout', () => new HttpResponse(null, { status: 204 })),
 ];
@@ -249,6 +256,10 @@ const projectsHandlers = [
   http.post('/beacon/api/projects', () => HttpResponse.json({ projectId: 2, requiresMembership: true }, { status: 201 })),
   http.get('/beacon/api/projects/:id/documentation', () =>
     HttpResponse.json({ latest: null, history: [] })),
+  http.post('/beacon/api/projects/:id/documentation-generations', () =>
+    HttpResponse.json({ taskId: 1, jobId: null, state: 2 }, { status: 202 })),
+  http.get('/beacon/api/projects/:id/documentation-generations/:taskId', () =>
+    HttpResponse.json({ taskId: 1, jobId: null, state: 2, createdTime: iso(0), startedTime: iso(0), finishedTime: iso(0), failureCode: null, warningCount: null })),
   http.get('/beacon/api/projects/:id/members', () =>
     HttpResponse.json(paged([
       {
@@ -362,6 +373,24 @@ const queriesHandlers = [
       pageCount: 1,
     })),
   http.get('/beacon/api/query-folders', () => HttpResponse.json({ folders: [] })),
+  http.get('/beacon/api/query-folders/paged', () =>
+    HttpResponse.json(paged([
+      { id: 1, name: 'Demo Finance', description: 'Mock folder — not real', parentFolderId: null, path: 'Demo Finance', sortOrder: 0, queryCount: 1, childFolderCount: 1 },
+      { id: 2, name: 'Demo Monthly', description: null, parentFolderId: 1, path: 'Demo Finance/Demo Monthly', sortOrder: 0, queryCount: 0, childFolderCount: 0 },
+    ]))),
+  http.post('/beacon/api/query-folders', () => HttpResponse.json({ folderId: 3, path: 'Demo New' }, { status: 201 })),
+  http.put('/beacon/api/query-folders/:id', () => new HttpResponse(null, { status: 204 })),
+  http.delete('/beacon/api/query-folders/:id', () => new HttpResponse(null, { status: 204 })),
+  http.put('/beacon/api/queries/:id/folder', () => new HttpResponse(null, { status: 204 })),
+  http.get('/beacon/api/glossary/paged', ({ request }) =>
+    HttpResponse.json(new URL(request.url).searchParams.has('projectId')
+      ? paged([
+          { id: 1, projectId: 1, dataSourceId: null, term: 'Demo active customer', synonyms: 'demo client', definition: 'Mock definition — not real', targetSchema: null, targetTable: null, targetColumn: null, metricExpression: null, isActive: true, createdTime: '2026-01-01T00:00:00Z' },
+        ])
+      : paged([]))),
+  http.post('/beacon/api/glossary', () => HttpResponse.json({ id: 2 })),
+  http.put('/beacon/api/glossary/:id', () => new HttpResponse(null, { status: 204 })),
+  http.delete('/beacon/api/glossary/:id', () => new HttpResponse(null, { status: 204 })),
   // Detail for the two list fixtures above (QueryDetailsData, returned unwrapped).
   http.get('/beacon/api/queries/:id', ({ params }) => {
     const id = Number(params.id);
@@ -572,6 +601,8 @@ const dataSourceEntries = [
           // Its connection does not make the driver verify the server: badged "Transport not verified".
           transportVerified: false,
           editSettings: { hostManaged: false, metadataMaxTables: 0, metadataMaxColumnsPerTable: 0, metadataLoadTableNamesOnly: false },
+          // A change of its connection waits for approval (change request 41): badged "Awaiting approval".
+          approval: { requestId: 41, kind: ChangeApprovalKind.DataSourceConnection, requestedTime: iso(0, 2), awaitsFirstApproval: false },
         },
         {
           id: 3,
@@ -589,6 +620,125 @@ const dataSourceEntries = [
           allowMigrationWrites: true,
         },
       ];
+
+// The pending connection changes the mock approvals list and detail serve: a data source's (41, the one the data-source
+// list badges) and the LLM connection's (51).
+const mockConnectionChanges = [
+  {
+    id: 41,
+    kind: ChangeApprovalKind.DataSourceConnection,
+    resourceId: 2,
+    resourceName: 'Sample CRM (SQL Server)',
+    resourceExists: true,
+    status: ApprovalStatus.Pending,
+    requestedByUserName: 'Mock Operator',
+    reviewedByUserName: null,
+    reviewedAt: null,
+    reviewComment: null,
+    changeSummary: 'Host, Database changed',
+    createdTime: iso(0, 2),
+    previousMigrationJob: null,
+    proposedMigrationJob: null,
+    previousCustomSqlRules: null,
+    proposedCustomSqlRules: null,
+    previousRecipientDestination: null,
+    proposedRecipientDestination: null,
+    previousDataSourceConnection: {
+      name: 'Sample CRM (SQL Server)',
+      dataSourceType: DataSourceType.Database,
+      databaseEngineType: DatabaseEngineType.MSSQL,
+      host: 'crm-db.mock.internal',
+      port: 1433,
+      database: 'crm',
+      login: 'beacon_reader',
+      changedSettings: [],
+      secretOnlyDefinition: false,
+      fingerprint: '3f1a9c0b72de',
+      authenticatesServer: false,
+      databaseReadOnlyEnforced: false,
+      isTargetChange: false,
+    },
+    proposedDataSourceConnection: {
+      name: 'Sample CRM (SQL Server)',
+      dataSourceType: DataSourceType.Database,
+      databaseEngineType: DatabaseEngineType.MSSQL,
+      host: 'crm-replica.mock.internal',
+      port: 1433,
+      database: 'crm_reporting',
+      login: 'beacon_reader',
+      changedSettings: ['Data Source', 'Encrypt', 'Initial Catalog'],
+      secretOnlyDefinition: false,
+      fingerprint: '8be04d1c5a97',
+      authenticatesServer: true,
+      databaseReadOnlyEnforced: false,
+      isTargetChange: true,
+    },
+    previousLlmConnection: null,
+    proposedLlmConnection: null,
+    currentProjects: [{ id: 1, name: 'Demo Analytics' }, { id: 2, name: 'Sample Warehouse' }],
+    payloadHash: 'mock-connection-payload-hash',
+    isOwnRequest: false,
+    mayApprove: true,
+    approveBlockedReason: null,
+    isStale: false,
+    changeHiddenByMask: false,
+    commentRequiredToApprove: false,
+  },
+  {
+    id: 51,
+    kind: ChangeApprovalKind.LlmConnection,
+    resourceId: 0,
+    resourceName: 'LLM connection',
+    resourceExists: true,
+    status: ApprovalStatus.Pending,
+    requestedByUserName: 'Mock Operator',
+    reviewedByUserName: null,
+    reviewedAt: null,
+    reviewComment: null,
+    changeSummary: 'Provider, Endpoint changed',
+    createdTime: iso(0, 1),
+    previousMigrationJob: null,
+    proposedMigrationJob: null,
+    previousCustomSqlRules: null,
+    proposedCustomSqlRules: null,
+    previousRecipientDestination: null,
+    proposedRecipientDestination: null,
+    previousDataSourceConnection: null,
+    proposedDataSourceConnection: null,
+    previousLlmConnection: {
+      fromHostConfiguration: false,
+      provider: AiProvider.OpenAI,
+      endpoint: null,
+      endpointFingerprint: null,
+      region: null,
+      bedrockAuthMode: BedrockAuthMode.IamRole,
+      model: 'gpt-4o',
+      fastModel: 'gpt-4o-mini',
+      basedOn: null,
+      credentials: [{ name: 'API key', fingerprint: '5d0c2e9a41b7' }],
+    },
+    proposedLlmConnection: {
+      fromHostConfiguration: false,
+      provider: AiProvider.AzureOpenAI,
+      endpoint: 'https://mock-openai.openai.azure.com',
+      endpointFingerprint: 'c41e7f20d98a',
+      region: null,
+      bedrockAuthMode: BedrockAuthMode.IamRole,
+      model: 'gpt-4o',
+      fastModel: 'gpt-4o-mini',
+      basedOn: '9a7b3c1d0e2f',
+      credentials: [{ name: 'API key', fingerprint: '5d0c2e9a41b7' }],
+    },
+    currentProjects: [],
+    payloadHash: 'mock-llm-payload-hash',
+    isOwnRequest: false,
+    mayApprove: true,
+    approveBlockedReason: null,
+    isStale: false,
+    changeHiddenByMask: false,
+    commentRequiredToApprove: false,
+  },
+];
 
 const dataSourcesHandlers = [
   http.get('/beacon/api/data-sources/:id', ({ params }) => {
@@ -847,25 +997,38 @@ const listHandlers = [
         changeSummary: `Mock change (source: ${ChangeSource.User}) — widened revenue window`,
       },
     ]))),
-  // Changes of migration jobs, Custom SQL rules and recipients. Keep BEFORE /approvals/:id, which would match
-  // /approvals/changes too.
+  // Changes of migration jobs, Custom SQL rules, recipients, data-source connections and the LLM connection. Keep BEFORE
+  // /approvals/:id, which would match /approvals/changes too.
   http.get('/beacon/api/approvals/changes', ({ request }) => {
     const kind = Number(new URL(request.url).searchParams.get('kind') ?? ChangeApprovalKind.MigrationJob);
+    const connection = mockConnectionChanges.find(x => x.kind === kind);
     return HttpResponse.json(paged([
-      {
-        id: 31,
-        kind,
-        resourceId: 4,
-        resourceName: kind === ChangeApprovalKind.RecipientDestination ? 'Mock ops webhook' : 'Mock nightly copy',
-        status: ApprovalStatus.Pending,
-        requestedByUserName: 'Mock Operator',
-        createdTime: iso(0, 3),
-        changeSummary: kind === ChangeApprovalKind.MigrationJob ? 'Migration job created' : 'Mock change',
-      },
+      connection
+        ? {
+            id: connection.id,
+            kind,
+            resourceId: connection.resourceId,
+            resourceName: connection.resourceName,
+            status: ApprovalStatus.Pending,
+            requestedByUserName: connection.requestedByUserName,
+            createdTime: connection.createdTime,
+            changeSummary: connection.changeSummary,
+          }
+        : {
+            id: 31,
+            kind,
+            resourceId: 4,
+            resourceName: kind === ChangeApprovalKind.RecipientDestination ? 'Mock ops webhook' : 'Mock nightly copy',
+            status: ApprovalStatus.Pending,
+            requestedByUserName: 'Mock Operator',
+            createdTime: iso(0, 3),
+            changeSummary: kind === ChangeApprovalKind.MigrationJob ? 'Migration job created' : 'Mock change',
+          },
     ]));
   }),
-  http.get('/beacon/api/approvals/changes/:id', ({ params }) =>
-    HttpResponse.json({
+  http.get('/beacon/api/approvals/changes/:id', ({ params }) => {
+    const connection = mockConnectionChanges.find(x => x.id === Number(params.id));
+    return connection ? HttpResponse.json(connection) : HttpResponse.json({
       id: Number(params.id),
       kind: ChangeApprovalKind.MigrationJob,
       resourceId: 4,
@@ -898,7 +1061,8 @@ const listHandlers = [
       mayApprove: true,
       approveBlockedReason: null,
       isStale: false,
-    })),
+    });
+  }),
   // ApprovalDetailPage (ApprovalRequestDetail, unwrapped). Keep AFTER the
   // /approvals/pending handler — both match two path segments.
   http.get('/beacon/api/approvals/:id', ({ params }) => {
@@ -1160,6 +1324,66 @@ const aiActorsHandlers = [
         },
       ],
     })),
+  http.get('/beacon/api/ai-actors/pending-plans/count', () => HttpResponse.json({ count: 1 })),
+  http.get('/beacon/api/ai-actors/:id/pending-plans', ({ params }) =>
+    HttpResponse.json({
+      plans: [
+        {
+          planId: 7,
+          actorId: Number(params.id),
+          actorName: 'Demo Revenue Watcher',
+          userInstruction: null,
+          analysis: 'Mock plan — demo revenue dipped twice this week; tighten the watch.',
+          actionCount: 1,
+          proposedAt: iso(0, 2),
+          expiresAt: iso(-7),
+          version: 2,
+          tokensUsed: 3_100,
+          estimatedCost: 0.07,
+        },
+      ],
+    })),
+  http.get('/beacon/api/ai-actors/plans/:id', ({ params }) =>
+    HttpResponse.json({
+      planId: Number(params.id),
+      actorId: 1,
+      actorName: 'Demo Revenue Watcher',
+      status: Number(params.id) === 7 ? AiActorPlanStatus.PendingApproval : AiActorPlanStatus.RevisionRequested,
+      userInstruction: null,
+      analysis: 'Mock plan — demo revenue dipped twice this week; tighten the watch.',
+      findings: ['Mock finding — two dips below the weekly average.'],
+      proposedActions: [
+        {
+          actionType: AiActorActionType.RefineQuery,
+          reasoning: 'Mock reasoning — compare with the weekly average instead of a fixed floor.',
+          parameters: { queryId: 12 },
+          currentSql: 'SELECT sum(amount) FROM demo_orders WHERE amount < 100',
+          proposedSql: 'SELECT sum(amount) FROM demo_orders WHERE amount < (SELECT avg(amount) FROM demo_orders)',
+          isLocked: false,
+          targetQueryName: 'Demo revenue floor',
+          targetQueryId: 12,
+        },
+      ],
+      proposedAt: iso(0, 2),
+      expiresAt: iso(-7),
+      isExpired: false,
+      reviewedAt: Number(params.id) === 7 ? null : iso(1),
+      reviewerComment: Number(params.id) === 7 ? null : 'Mock comment — use the weekly average.',
+      executedAt: null,
+      executionId: null,
+      tokensUsed: 3_100,
+      estimatedCost: 0.07,
+      model: null,
+      version: Number(params.id) === 7 ? 2 : 1,
+      parentPlanId: Number(params.id) === 7 ? 6 : null,
+      mayApprove: Number(params.id) === 7,
+      approveBlockedReason: null,
+      mayRejectOrRevise: Number(params.id) === 7,
+    })),
+  http.post('/beacon/api/ai-actors/plans/:id/approve', () => HttpResponse.json({ success: true })),
+  http.post('/beacon/api/ai-actors/plans/:id/reject', ({ params }) => HttpResponse.json({ success: true, planId: Number(params.id) })),
+  http.post('/beacon/api/ai-actors/plans/:id/request-revision', ({ params }) =>
+    HttpResponse.json({ success: true, originalPlanId: Number(params.id) })),
 ];
 
 // ---------- mcp -----------------------------------------------------------------
@@ -1257,6 +1481,12 @@ const mcpHandlers = [
       ]))),
   http.get('/beacon/api/eval/golden/candidates', () => HttpResponse.json(paged([]))),
   http.get('/beacon/api/eval/golden', () => HttpResponse.json([])),
+  http.get('/beacon/api/eval/golden/paged', () => HttpResponse.json(paged([]))),
+  http.get('/beacon/api/eval/runs/:runId/results/paged', () => HttpResponse.json(paged([]))),
+  http.get('/beacon/api/glossary/paged', () => HttpResponse.json(paged([]))),
+
+  http.get('/beacon/api/eval/runs', () => HttpResponse.json([])),
+  http.get('/beacon/api/eval/runs/:runId/results', () => HttpResponse.json([])),
   http.get('/beacon/api/eval/grounding/recheck', ({ request }) =>
     HttpResponse.json({
       projectId: Number(new URL(request.url).searchParams.get('projectId')),
@@ -1538,6 +1768,7 @@ const adminHandlers = [
 
   // Data quality (overview + contracts are top-level arrays).
   http.get('/beacon/api/data-quality/overview', () => HttpResponse.json([])),
+  http.get('/beacon/api/data-quality/overview/paged', () => HttpResponse.json(paged([]))),
   http.get('/beacon/api/data-quality/contracts', () => HttpResponse.json(paged([]))),
 ];
 

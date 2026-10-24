@@ -46,20 +46,10 @@ public class MySqlMetadataExtractor : IDatabaseMetadataExtractor
                 CONSTRAINT_NAME AS constraint_name
             FROM INFORMATION_SCHEMA.KEY_COLUMN_USAGE
             WHERE TABLE_SCHEMA = @DatabaseName
-              AND REFERENCED_TABLE_NAME IS NOT NULL";
+              AND REFERENCED_TABLE_NAME IS NOT NULL
+            ORDER BY constraint_name";
 
         var foreignKeys = (await connection.QueryAsync(new CommandDefinition(foreignKeysQuery, new { DatabaseName = databaseName }, commandTimeout: 180, cancellationToken: cancellationToken))).AsList();
-        var fkLookup = foreignKeys
-            .GroupBy(fk => $"{fk.table_schema}.{fk.table_name}.{fk.column_name}")
-            .ToDictionary(
-                g => g.Key,
-                g => (
-                    TableName: (string)g.First().foreign_table_name,
-                    ColumnName: (string)g.First().foreign_column_name,
-                    SchemaName: (string?)g.First().foreign_schema_name,
-                    ConstraintName: (string?)g.First().constraint_name)
-            );
-
         const string indexesQuery = @"
             SELECT
                 TABLE_SCHEMA AS table_schema,
@@ -73,6 +63,29 @@ public class MySqlMetadataExtractor : IDatabaseMetadataExtractor
 
         var indexesData = (await connection.QueryAsync(new CommandDefinition(indexesQuery, new { DatabaseName = databaseName }, commandTimeout: 180, cancellationToken: cancellationToken))).AsList();
 
+        return Assemble(columnsData, foreignKeys, indexesData);
+    }
+
+    /// <summary>
+    /// Builds the table list from the rows the catalog queries returned. Pure: no connection, so a fixture can pin it.
+    /// </summary>
+    internal static IReadOnlyList<TableMetadataDto> Assemble(IEnumerable<dynamic> columnsData, IEnumerable<dynamic> foreignKeys, IEnumerable<dynamic> indexesData)
+    {
+        // Every foreign key of a column, in constraint-name order: the first fills the single-target fields.
+        var fkLookup = foreignKeys
+            .GroupBy(fk => $"{fk.table_schema}.{fk.table_name}.{fk.column_name}")
+            .ToDictionary(
+                g => g.Key,
+                g => ColumnForeignKeys.InConstraintOrder(g.Select(fk => new ColumnForeignKeyReference(
+                    ConstraintName: (string?)fk.constraint_name,
+                    TargetSchema: (string?)fk.foreign_schema_name,
+                    TargetTable: (string)fk.foreign_table_name,
+                    TargetColumn: (string)fk.foreign_column_name)))
+            );
+
+        // One pass over the index rows instead of a scan of all of them per table.
+        var indexesByTable = indexesData.ToLookup(i => ((string)i.table_schema, (string)i.table_name));
+
         var tables = columnsData
             .GroupBy(c => new { schema = (string)c.table_schema, table = (string)c.table_name })
             .Select(g =>
@@ -80,7 +93,8 @@ public class MySqlMetadataExtractor : IDatabaseMetadataExtractor
                 var columns = g.Select(c =>
                 {
                     var fkKey = $"{g.Key.schema}.{g.Key.table}.{c.column_name}";
-                    var hasFk = fkLookup.TryGetValue(fkKey, out var fkInfo);
+                    var hasFk = fkLookup.TryGetValue(fkKey, out var foreignKeyList);
+                    var fkInfo = hasFk ? foreignKeyList![0] : null;
 
                     return new ColumnMetadataDto(
                         ColumnName: (string)c.column_name,
@@ -89,20 +103,22 @@ public class MySqlMetadataExtractor : IDatabaseMetadataExtractor
                         IsPrimaryKey: ((string)c.column_key) == "PRI",
                         IsForeignKey: hasFk,
                         OrdinalPosition: (int)c.ordinal_position,
-                        ForeignKeyTable: hasFk ? fkInfo.TableName : null,
-                        ForeignKeyColumn: hasFk ? fkInfo.ColumnName : null,
+                        ForeignKeyTable: fkInfo?.TargetTable,
+                        ForeignKeyColumn: fkInfo?.TargetColumn,
                         DefaultValue: c.column_default?.ToString(),
                         // CHARACTER_MAXIMUM_LENGTH is boxed as long, so `as int?` is always null — convert explicitly.
                         MaxLength: c.character_maximum_length == null ? (int?)null : Convert.ToInt32(c.character_maximum_length),
                         Description: null,
                         SampleValues: null,
-                        ForeignKeySchema: hasFk ? fkInfo.SchemaName : null,
-                        ForeignKeyConstraintName: hasFk ? fkInfo.ConstraintName : null
-                    );
+                        ForeignKeySchema: fkInfo?.TargetSchema,
+                        ForeignKeyConstraintName: fkInfo?.ConstraintName
+                    )
+                    {
+                        ForeignKeys = foreignKeyList
+                    };
                 }).ToList();
 
-                var indexes = indexesData
-                    .Where(i => (string)i.table_schema == g.Key.schema && (string)i.table_name == g.Key.table)
+                var indexes = indexesByTable[(g.Key.schema, g.Key.table)]
                     .Select(i => new IndexMetadataDto(
                         IndexName: (string)i.index_name,
                         IsUnique: (long)i.non_unique == 0,

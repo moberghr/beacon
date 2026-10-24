@@ -7,10 +7,12 @@ namespace Beacon.Api;
 /// Warns at startup about the keys stored values may still be encrypted with (<c>Beacon:PreviousEncryptionKeys</c>): when
 /// the setting is a single value rather than a list (it is read as one key), and, after the host has started, off the
 /// startup thread and best effort, how many stored values are still under a previous key, how many no configured key
-/// decrypts and how many keyed recipient hashes cannot be rewritten under the current key
+/// decrypts and how many keyed hashes (of recipients and data sources) and pending LLM connection changes cannot be
+/// rewritten under the current key
 /// (<see cref="IStoredValueReEncryptionService.CountAsync"/>), so an operator knows whether the previous keys can be
-/// removed. Counts and configuration names only, never a key (§1.11); a database that cannot be read is noted, never a
-/// failure.
+/// removed; and, with or without a previous key, how many stored values are still in the legacy v1 format, so an operator
+/// knows when <c>Beacon:Encryption:AllowLegacyCbc</c> can be turned off. Counts and configuration names only, never a key
+/// (§1.11); a database that cannot be read is noted, never a failure.
 /// </summary>
 internal sealed class EncryptionKeyStartupWarnings(
     IConfiguration configuration,
@@ -25,11 +27,6 @@ internal sealed class EncryptionKeyStartupWarnings(
                 "{Setting} is a single value, not a list; it is read as one previous key. Write it as a list: {Setting}:0 (the environment variable Beacon__PreviousEncryptionKeys__0)",
                 Core.ServiceConfiguration.PreviousEncryptionKeysKey,
                 Core.ServiceConfiguration.PreviousEncryptionKeysKey);
-        }
-
-        if (!Core.ServiceConfiguration.HasPreviousEncryptionKeys(configuration))
-        {
-            return next;
         }
 
         return builder =>
@@ -54,6 +51,20 @@ internal sealed class EncryptionKeyStartupWarnings(
             }
 
             var count = await reEncryption.CountAsync(cancellationToken);
+            if (count.LegacyFormat > 0)
+            {
+                logger.LogWarning(
+                    ProjectAccessEvents.StoredValuesReEncrypted,
+                    "{LegacyFormat} stored values are still in the legacy unauthenticated encryption format. Re-encrypt them (IStoredValueReEncryptionService; the sample host runs it as a job at startup), then turn {Setting} off",
+                    count.LegacyFormat,
+                    Core.ServiceConfiguration.AllowLegacyCbcKey);
+            }
+
+            if (!Core.ServiceConfiguration.HasPreviousEncryptionKeys(configuration))
+            {
+                return;
+            }
+
             if (count.PreviousKeysRemovable)
             {
                 logger.LogInformation(
@@ -66,7 +77,7 @@ internal sealed class EncryptionKeyStartupWarnings(
 
             logger.LogWarning(
                 ProjectAccessEvents.StoredValuesReEncrypted,
-                "{UnderPreviousKeys} stored values are still encrypted with a key in {Setting}, and {Unreadable} with no configured key; {Unresolved} keyed recipient hashes name a definition their recipient does not hold and may still need a previous key. Re-encrypt the values with the current key (IStoredValueReEncryptionService; the sample host runs it as a job at startup) and decide the recipients' pending changes before removing a previous key",
+                "{UnderPreviousKeys} stored values are still encrypted with a key in {Setting}, and {Unreadable} with no configured key; {Unresolved} keyed hashes name a definition their recipient or data source does not hold, or belong to a pending LLM connection change, and may still need a previous key. Re-encrypt the values with the current key (IStoredValueReEncryptionService; the sample host runs it as a job at startup) and decide the pending changes before removing a previous key",
                 count.UnderPreviousKeys,
                 Core.ServiceConfiguration.PreviousEncryptionKeysKey,
                 count.Unreadable,
@@ -75,7 +86,7 @@ internal sealed class EncryptionKeyStartupWarnings(
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             logger.LogInformation(
-                "The stored values still encrypted with a previous key could not be counted ({ExceptionType})",
+                "The stored values still encrypted with a previous key or in the legacy format could not be counted ({ExceptionType})",
                 ex.GetType().Name);
         }
     }

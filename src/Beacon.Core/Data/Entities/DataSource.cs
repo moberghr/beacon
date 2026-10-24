@@ -89,5 +89,14 @@ public class DataSource : ArchivableBaseEntity
     /// </summary>
     public long RowSecurityVersion { get; set; }
 
+    /// <summary>
+    /// The connection definition a second person approved, under the change approval workflow's data-source connection
+    /// switch: null while the source is not governed (stored before, saved with the switch off, or host-managed);
+    /// <see cref="ChangeApprovals.DataSourceApprovalDefinition.Held"/> while a created source waits for its first
+    /// approval; otherwise the keyed hash of the approved definition (its connection without its secrets). While governed,
+    /// the connection resolver connects only when the stored connection is the approved one.
+    /// </summary>
+    public string? ApprovedTargetHash { get; set; }
+
     public List<QueryStep> QuerySteps { get; set; } = new();
 }

@@ -59,8 +59,9 @@ internal static class ApprovalsEndpoints
         }).WithName("RejectQueryChange")
             .RequireBeaconPermission(BeaconPermissions.ApproverPolicy);
 
-        // Changes of migration jobs, data contracts' Custom SQL rules and recipients: an Approver's to decide. As for query
-        // approvals, an Approver reads every one, and anyone else those of the migration jobs and data contracts it reads.
+        // Changes of migration jobs, data contracts' Custom SQL rules, recipients, data-source connections and the LLM
+        // connection: an Approver's to decide, the LLM connection's a live Admin's. An Approver reads every one but the LLM
+        // connection's, which only a live Admin reads; anyone else those of the migration jobs and data contracts it reads.
         approvals.MapGet("/changes", ([AsParameters] GetChangeApprovalsQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
             .WithName("GetChangeApprovals")
             .AdmitBeaconPermission(BeaconPermissions.Approver);

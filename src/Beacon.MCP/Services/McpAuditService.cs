@@ -48,6 +48,9 @@ internal sealed partial class McpAuditService(
         IReadOnlyList<string>? tables = null, CancellationToken ct = default)
     {
         var retainContent = false;
+
+        // Minted here, before anything can fail, so the audit log event of a call whose row never got built still carries it.
+        var correlationId = Guid.NewGuid().ToString("N");
         McpAuditLog? entry = null;
         var persisted = false;
 
@@ -94,7 +97,7 @@ internal sealed partial class McpAuditService(
                 loggedErrorMessage = Truncate(errorMessage);
             }
 
-            // Minted by JwtBearerAuthMiddleware from IMcpCallerMapper; token-supplied values are stripped there.
+            // Minted by Beacon's bearer authentication from IMcpCallerMapper; token-supplied values are stripped there.
             var caller = httpContextAccessor.HttpContext?.User;
             var callerKind = caller?.FindFirst(McpCallerClaimTypes.CallerKind)?.Value;
             var callerHash = caller?.FindFirst(McpCallerClaimTypes.CallerHash)?.Value;
@@ -122,6 +125,7 @@ internal sealed partial class McpAuditService(
                 ErrorMessage = loggedErrorMessage,
                 CallerKind = callerKind,
                 CallerHash = callerHash,
+                CorrelationId = correlationId,
                 TraceId = activity?.TraceId.ToHexString(),
                 SpanId = activity?.SpanId.ToHexString(),
                 McpSessionId = mcpSessionId,
@@ -148,7 +152,7 @@ internal sealed partial class McpAuditService(
             logger.LogError("Failed to log MCP audit entry for tool {Tool} ({Failure})", BoundedToolName(tool), FailureCodes.Describe(ex));
         }
 
-        EmitTelemetry(entry, persisted, retainContent, tool, userId, projectId, dataSourceId, executionTimeMs,
+        EmitTelemetry(entry, correlationId, persisted, retainContent, tool, userId, projectId, dataSourceId, executionTimeMs,
             resultRowCount, errorMessage, parameters);
     }
 
@@ -250,7 +254,7 @@ internal sealed partial class McpAuditService(
     // §1.11 — the Beacon.Audit event, span tags and metrics carry identifiers and counts only: never parameters, SQL,
     // question or the raw error (ErrorClassOf). The one exception is beacon.tool.input on the span, behind the double
     // opt-in CaptureContent AND the project's retain-content decision. Telemetry must never lose or fail the audit.
-    private void EmitTelemetry(McpAuditLog? entry, bool persisted, bool retainContent, string tool, int? userId,
+    private void EmitTelemetry(McpAuditLog? entry, string correlationId, bool persisted, bool retainContent, string tool, int? userId,
         int? projectId, int? dataSourceId, int executionTimeMs, int? resultRowCount, string? errorMessage,
         string? parameters)
     {
@@ -270,7 +274,7 @@ internal sealed partial class McpAuditService(
                 "MCP tool audited: Tool={Tool} AuditId={AuditId} Persisted={Persisted} ProjectId={ProjectId} " +
                 "DataSourceId={DataSourceId} UserId={UserId} ApiKeyId={ApiKeyId} CallerKind={CallerKind} " +
                 "CallerHash={CallerHash} DurationMs={DurationMs} Rows={Rows} ErrorClass={ErrorClass} " +
-                "TraceId={TraceId} McpSessionId={McpSessionId} UpstreamRequestId={UpstreamRequestId}",
+                "CorrelationId={CorrelationId} TraceId={TraceId} McpSessionId={McpSessionId} UpstreamRequestId={UpstreamRequestId}",
                 boundedTool,
                 persisted ? entry?.Id : null,
                 persisted,
@@ -283,6 +287,7 @@ internal sealed partial class McpAuditService(
                 executionTimeMs,
                 resultRowCount,
                 errorClass,
+                correlationId,
                 traceId,
                 entry?.McpSessionId,
                 entry?.UpstreamRequestId);
@@ -342,7 +347,7 @@ internal sealed partial class McpAuditService(
     // fields only ever see a short, whitelisted name. Logs are not a cardinality problem, so this bound (charset +
     // length) is enough there. The DB row keeps the raw name.
     internal static string BoundedToolName(string? tool) =>
-        tool != null && ToolNamePattern().IsMatch(tool) ? tool : InvalidToolName;
+        tool != null && IsMatchOrFalse(ToolNamePattern(), tool) ? tool : InvalidToolName;
 
     // §1.11 — the gen_ai.tool.name METRIC tag is a cardinality risk a charset bound does not fix: a well-formed but
     // caller-chosen name (q_1, q_2, ... each a distinct saved-query name) would still open a new series per name.
@@ -387,13 +392,26 @@ internal sealed partial class McpAuditService(
     // §1.11 — a caller-supplied id reaches the table (and later the log stream) only when it is short and in a
     // whitelisted charset; anything else is dropped rather than truncated, which blocks log injection.
     private static string? SanitizeHeaderId(string? value) =>
-        value is { Length: > 0 and <= MaxHeaderIdLength } && HeaderIdPattern().IsMatch(value)
+        value is { Length: > 0 and <= MaxHeaderIdLength } && IsMatchOrFalse(HeaderIdPattern(), value)
             ? value
             : null;
 
-    [GeneratedRegex(@"^[A-Za-z0-9._:\-]+\z")]
+    // A match timeout must never short-circuit the audit (§1.7): the value is treated as invalid.
+    private static bool IsMatchOrFalse(Regex pattern, string value)
+    {
+        try
+        {
+            return pattern.IsMatch(value);
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            return false;
+        }
+    }
+
+    [GeneratedRegex(@"^[A-Za-z0-9._:\-]+\z", RegexOptions.None, matchTimeoutMilliseconds: 250)]
     private static partial Regex HeaderIdPattern();
 
-    [GeneratedRegex(@"^[A-Za-z0-9_.:\-]{1,200}\z")]
+    [GeneratedRegex(@"^[A-Za-z0-9_.:\-]{1,200}\z", RegexOptions.None, matchTimeoutMilliseconds: 250)]
     private static partial Regex ToolNamePattern();
 }

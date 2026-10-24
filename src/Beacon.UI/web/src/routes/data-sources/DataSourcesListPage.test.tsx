@@ -160,3 +160,53 @@ describe('DataSourcesListPage state badges', () => {
     expect(within(old).queryByText('Transport not verified')).not.toBeInTheDocument();
   });
 });
+
+describe('DataSourcesListPage and connection changes waiting for approval', () => {
+  it('badges only the sources whose connection change waits for approval', async () => {
+    mswServer.use(
+      http.get('*/beacon/api/data-sources', () =>
+        HttpResponse.json({
+          items: [
+            source({
+              id: 1,
+              name: 'ledger-db',
+              approval: { requestId: 41, kind: 4, requestedTime: '2026-10-13T10:00:00Z', awaitsFirstApproval: false },
+            }),
+            source({ id: 2, name: 'crm-db', approval: null }),
+          ],
+          totalCount: 2,
+          pageCount: 1,
+        }),
+      ),
+    );
+
+    renderWithProviders(<DataSourcesListPage />);
+
+    const ledger = (await screen.findByText('ledger-db')).closest('[role="row"]') as HTMLElement;
+    expect(within(ledger).getByText('Awaiting approval')).toBeInTheDocument();
+    const crm = screen.getByText('crm-db').closest('[role="row"]') as HTMLElement;
+    expect(within(crm).queryByText('Awaiting approval')).not.toBeInTheDocument();
+  });
+
+  it('badges a source held with no pending request as Held', async () => {
+    mswServer.use(
+      http.get('*/beacon/api/data-sources', () =>
+        HttpResponse.json({
+          items: [
+            source({ id: 1, name: 'held-db', approval: null, awaitsFirstApproval: true }),
+            source({ id: 2, name: 'crm-db', approval: null, awaitsFirstApproval: false }),
+          ],
+          totalCount: 2,
+          pageCount: 1,
+        }),
+      ),
+    );
+
+    renderWithProviders(<DataSourcesListPage />);
+
+    const held = (await screen.findByText('held-db')).closest('[role="row"]') as HTMLElement;
+    expect(within(held).getByText('Held')).toBeInTheDocument();
+    const crm = screen.getByText('crm-db').closest('[role="row"]') as HTMLElement;
+    expect(within(crm).queryByText('Held')).not.toBeInTheDocument();
+  });
+});

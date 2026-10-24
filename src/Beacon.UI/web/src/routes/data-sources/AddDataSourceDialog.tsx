@@ -7,6 +7,7 @@ import { StepperDialog, type StepperDialogStep } from '@/components/ui/StepperDi
 import { SearchMultiSelect } from '@/components/data/SearchMultiSelect';
 import { describeError, httpErrorInfo } from '@/lib/api';
 import { useAccess } from '@/auth/useAuth';
+import { noteSubmittedForApproval } from '@/routes/approvals/AwaitingApproval';
 import {
   Button,
   Field as BField,
@@ -216,7 +217,8 @@ function buildPayload(v: FormValues): BuiltPayload {
               Type: 'Bearer',
               ApiKeyName: null,
               ApiKeyValue: null,
-              ApiKeyLocation: null,
+              // The server's enum is not nullable: the default, unused without an API key.
+              ApiKeyLocation: 'header',
               Token: v.bearerToken,
               Username: null,
               Password: null,
@@ -226,7 +228,8 @@ function buildPayload(v: FormValues): BuiltPayload {
                 Type: 'Basic',
                 ApiKeyName: null,
                 ApiKeyValue: null,
-                ApiKeyLocation: null,
+                // The server's enum is not nullable: the default, unused without an API key.
+                ApiKeyLocation: 'header',
                 Token: null,
                 Username: v.basicUsername,
                 Password: v.basicPassword,
@@ -413,7 +416,14 @@ export function AddDataSourceDialog({ open, onClose }: AddDataSourceDialogProps)
         toast.error(result.message ?? 'Failed to create data source.');
         return;
       }
-      toast.success(result.message ?? 'Data source created.');
+      if (result.awaitingApproval) {
+        noteSubmittedForApproval({
+          awaitingApproval: true,
+          message: result.message ?? `Submitted for approval: ${payload.name} connects to nothing until a second person approves its connection.`,
+        });
+      } else {
+        toast.success(result.message ?? 'Data source created.');
+      }
       onClose();
     } catch {
       // Error toast already raised by the create mutation hook.
@@ -584,12 +594,11 @@ export function AddDataSourceDialog({ open, onClose }: AddDataSourceDialogProps)
               </BField>
               {authType === 'apiKey' && (
                 <>
-                  <DsField label="Header / param name" required name="apiKeyName" placeholder="X-Api-Key" register={register} errors={errors} />
+                  <DsField label="Header name" required name="apiKeyName" placeholder="X-Api-Key" register={register} errors={errors} />
                   <DsField label="API key value" required name="apiKeyValue" type="password" register={register} errors={errors} />
                   <BField label="Key location">
                     <Select {...register('apiKeyLocation' as never)}>
                       <option value="header">Header</option>
-                      <option value="query">Query parameter</option>
                     </Select>
                   </BField>
                 </>

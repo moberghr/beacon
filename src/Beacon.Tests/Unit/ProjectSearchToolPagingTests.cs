@@ -177,8 +177,7 @@ public class ProjectSearchToolPagingTests
         return new ProjectSearchTool(
             _knowledgeGraph.Object,
             projectContext,
-            auditService,
-            NullLogger<ProjectSearchTool>.Instance);
+            TestToolCalls.Recorder(auditService));
     }
 
     private static List<SearchResult> MakeResults(int count)

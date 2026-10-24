@@ -17,6 +17,7 @@ public static class ServiceCollectionExtensions
         ConnectorRegistry.RegisterDatabaseEngine(DatabaseEngineType.MSSQL, "MSSQL");
         builder.Services.AddTransient<IDatabaseMetadataExtractor, SqlServerMetadataExtractor>();
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceTransportInspector, SqlServerTransportInspector>());
+        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceConnectionOptionInspector, SqlServerConnectionOptionInspector>());
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IMigrationBulkWriter, SqlServerMigrationBulkWriter>());
         return builder;
     }

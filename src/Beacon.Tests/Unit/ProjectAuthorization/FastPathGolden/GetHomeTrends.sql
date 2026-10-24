@@ -6,13 +6,21 @@ SELECT count(*)::int
 FROM beacon.subscriptions AS s
 WHERE s.archived_time IS NULL AND s.created_time <= @windowStart
 ;
-SELECT date_trunc('day', s.created_time, 'UTC')
-FROM beacon.subscriptions AS s
-WHERE s.archived_time IS NULL AND s.created_time >= @AddDays
+SELECT s0."Key" AS "Date", count(*)::int AS "Count"
+FROM (
+    SELECT date_trunc('day', timezone('UTC', s.created_time)) AS "Key"
+    FROM beacon.subscriptions AS s
+    WHERE s.archived_time IS NULL AND s.created_time >= @AddDays
+) AS s0
+GROUP BY s0."Key"
 ;
-SELECT q.created_time AS "CreatedTime", q.execution_time_ms AS "ExecutionTimeMs", q.notification_status AS "NotificationStatus", q.subscription_id AS "SubscriptionId"
-FROM beacon.query_execution_history AS q
-WHERE q.created_time >= @windowStart
+SELECT q0."Date", q0."Ms", count(*)::int AS "Count", COALESCE(sum(q0.execution_time_ms), 0.0) AS "TotalMs"
+FROM (
+    SELECT q.execution_time_ms, date_trunc('day', timezone('UTC', q.created_time)) AS "Date", round(q.execution_time_ms) AS "Ms"
+    FROM beacon.query_execution_history AS q
+    WHERE q.created_time >= @windowStart
+) AS q0
+GROUP BY q0."Date", q0."Ms"
 ;
 SELECT count(*)::int
 FROM beacon.query_execution_history AS q
@@ -20,19 +28,24 @@ WHERE q.created_time >= @priorStart AND q.created_time < @windowStart
 ;
 SELECT q0."Key" AS "Date", count(*)::int AS "Count"
 FROM (
-    SELECT date_trunc('day', q.created_time, 'UTC') AS "Key"
+    SELECT date_trunc('day', timezone('UTC', q.created_time)) AS "Key"
     FROM beacon.query_execution_history AS q
     WHERE q.created_time >= @AddDays
 ) AS q0
 GROUP BY q0."Key"
 ;
-SELECT q.execution_time_ms
+SELECT avg(q.execution_time_ms)
 FROM beacon.query_execution_history AS q
 WHERE q.created_time >= @priorStart AND q.created_time < @windowStart
 ;
+SELECT q.subscription_id AS "SubscriptionId", avg(q.execution_time_ms) AS "AvgMs"
+FROM beacon.query_execution_history AS q
+WHERE q.created_time >= @windowStart
+GROUP BY q.subscription_id
+;
 SELECT n0."Key" AS "Date", count(*)::int AS "Count"
 FROM (
-    SELECT date_trunc('day', n.sent_at, 'UTC') AS "Key"
+    SELECT date_trunc('day', timezone('UTC', n.sent_at)) AS "Key"
     FROM beacon.notifications AS n
     WHERE n.sent_at >= @windowStart
 ) AS n0
@@ -44,7 +57,7 @@ WHERE n.sent_at >= @priorStart AND n.sent_at < @windowStart
 ;
 SELECT n0."Key" AS "Date", count(*)::int AS "Count"
 FROM (
-    SELECT date_trunc('day', n.sent_at, 'UTC') AS "Key"
+    SELECT date_trunc('day', timezone('UTC', n.sent_at)) AS "Key"
     FROM beacon.notifications AS n
     WHERE n.sent_at >= @AddDays
 ) AS n0
@@ -62,13 +75,17 @@ SELECT count(*)::int
 FROM beacon.anomaly_events AS a
 WHERE a.detected_time >= @priorStart AND a.detected_time < @windowStart
 ;
-SELECT date_trunc('day', a.detected_time, 'UTC')
+SELECT count(*)::int
 FROM beacon.anomaly_events AS a
 WHERE a.detected_time >= @windowStart
 ;
-SELECT date_trunc('day', a.detected_time, 'UTC')
-FROM beacon.anomaly_events AS a
-WHERE a.detected_time >= @AddDays
+SELECT a0."Key" AS "Date", count(*)::int AS "Count"
+FROM (
+    SELECT date_trunc('day', timezone('UTC', a.detected_time)) AS "Key"
+    FROM beacon.anomaly_events AS a
+    WHERE a.detected_time >= @AddDays
+) AS a0
+GROUP BY a0."Key"
 ;
 SELECT count(*)::int
 FROM beacon.data_sources AS d

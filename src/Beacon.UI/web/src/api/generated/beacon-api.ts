@@ -25,6 +25,135 @@ export class BeaconApiClient {
   }
 
   /**
+   * @param body (optional)
+   * @return OK
+   */
+  issueEmbedToken(body: IssueEmbedTokenBody | null | undefined): Promise<void> {
+    let url_ = this.baseUrl + "/beacon/api/embed/tokens";
+    url_ = url_.replace(/[?&]$/, "");
+
+    const content_ = JSON.stringify(body);
+
+    let options_: RequestInit = {
+      body: content_,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processIssueEmbedToken(_response);
+    });
+  }
+
+  protected processIssueEmbedToken(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  renderEmbedQuery(): Promise<void> {
+    let url_ = this.baseUrl + "/beacon/api/embed/render";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "POST",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processRenderEmbedQuery(_response);
+    });
+  }
+
+  protected processRenderEmbedQuery(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  getEmbedFrame(publicId: string): Promise<void> {
+    let url_ = this.baseUrl + "/beacon/embed/{publicId}";
+    if (publicId === undefined || publicId === null)
+      throw new Error("The parameter 'publicId' must be defined.");
+    url_ = url_.replace("{publicId}", encodeURIComponent("" + publicId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {},
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetEmbedFrame(_response);
+    });
+  }
+
+  protected processGetEmbedFrame(response: Response): Promise<void> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        return;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<void>(null as any);
+  }
+
+  /**
    * @return OK
    */
   login(body: LoginRequest): Promise<LoginResponse> {
@@ -1326,6 +1455,131 @@ export class BeaconApiClient {
   }
 
   /**
+   * @return Accepted
+   */
+  startProjectDocumentationGeneration(
+    id: number,
+  ): Promise<BackgroundTaskTicket> {
+    let url_ =
+      this.baseUrl + "/beacon/api/projects/{id}/documentation-generations";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processStartProjectDocumentationGeneration(_response);
+    });
+  }
+
+  protected processStartProjectDocumentationGeneration(
+    response: Response,
+  ): Promise<BackgroundTaskTicket> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 202) {
+      return response.text().then((_responseText) => {
+        let result202: any = null;
+        result202 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as BackgroundTaskTicket);
+        return result202;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<BackgroundTaskTicket>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  getProjectDocumentationGeneration(
+    id: number,
+    taskId: number,
+  ): Promise<BackgroundTaskStatus> {
+    let url_ =
+      this.baseUrl +
+      "/beacon/api/projects/{id}/documentation-generations/{taskId}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    if (taskId === undefined || taskId === null)
+      throw new Error("The parameter 'taskId' must be defined.");
+    url_ = url_.replace("{taskId}", encodeURIComponent("" + taskId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetProjectDocumentationGeneration(_response);
+    });
+  }
+
+  protected processGetProjectDocumentationGeneration(
+    response: Response,
+  ): Promise<BackgroundTaskStatus> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as BackgroundTaskStatus);
+        return result200;
+      });
+    } else if (status === 404) {
+      return response.text().then((_responseText) => {
+        return throwException("Not Found", status, _responseText, _headers);
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<BackgroundTaskStatus>(null as any);
+  }
+
+  /**
    * @return OK
    */
   exportProjectDocumentation(id: number, asHtml: boolean): Promise<void> {
@@ -1492,6 +1746,123 @@ export class BeaconApiClient {
       });
     }
     return Promise.resolve<ScanAllRepositoriesResult>(null as any);
+  }
+
+  /**
+   * @return Accepted
+   */
+  startRepositoryScan(id: number): Promise<BackgroundTaskTicket> {
+    let url_ = this.baseUrl + "/beacon/api/projects/{id}/scans";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processStartRepositoryScan(_response);
+    });
+  }
+
+  protected processStartRepositoryScan(
+    response: Response,
+  ): Promise<BackgroundTaskTicket> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 202) {
+      return response.text().then((_responseText) => {
+        let result202: any = null;
+        result202 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as BackgroundTaskTicket);
+        return result202;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<BackgroundTaskTicket>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  getRepositoryScan(id: number, taskId: number): Promise<BackgroundTaskStatus> {
+    let url_ = this.baseUrl + "/beacon/api/projects/{id}/scans/{taskId}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    if (taskId === undefined || taskId === null)
+      throw new Error("The parameter 'taskId' must be defined.");
+    url_ = url_.replace("{taskId}", encodeURIComponent("" + taskId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetRepositoryScan(_response);
+    });
+  }
+
+  protected processGetRepositoryScan(
+    response: Response,
+  ): Promise<BackgroundTaskStatus> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as BackgroundTaskStatus);
+        return result200;
+      });
+    } else if (status === 404) {
+      return response.text().then((_responseText) => {
+        return throwException("Not Found", status, _responseText, _headers);
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<BackgroundTaskStatus>(null as any);
   }
 
   /**
@@ -4336,7 +4707,7 @@ export class BeaconApiClient {
   /**
    * @return OK
    */
-  getMcpSettings(): Promise<McpSettingsData> {
+  getMcpSettings(): Promise<GetMcpSettingsResult> {
     let url_ = this.baseUrl + "/beacon/api/mcp/settings";
     url_ = url_.replace(/[?&]$/, "");
 
@@ -4354,7 +4725,7 @@ export class BeaconApiClient {
 
   protected processGetMcpSettings(
     response: Response,
-  ): Promise<McpSettingsData> {
+  ): Promise<GetMcpSettingsResult> {
     const status = response.status;
     let _headers: any = {};
     if (response.headers && response.headers.forEach) {
@@ -4369,7 +4740,7 @@ export class BeaconApiClient {
             : (JSON.parse(
                 _responseText,
                 this.jsonParseReviver,
-              ) as McpSettingsData);
+              ) as GetMcpSettingsResult);
         return result200;
       });
     } else if (status !== 200 && status !== 204) {
@@ -4382,7 +4753,7 @@ export class BeaconApiClient {
         );
       });
     }
-    return Promise.resolve<McpSettingsData>(null as any);
+    return Promise.resolve<GetMcpSettingsResult>(null as any);
   }
 
   /**
@@ -6247,6 +6618,126 @@ export class BeaconApiClient {
   }
 
   /**
+   * @return Accepted
+   */
+  startAiActorThink(id: number): Promise<BackgroundTaskTicket> {
+    let url_ = this.baseUrl + "/beacon/api/ai-actors/{id}/think-tasks";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processStartAiActorThink(_response);
+    });
+  }
+
+  protected processStartAiActorThink(
+    response: Response,
+  ): Promise<BackgroundTaskTicket> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 202) {
+      return response.text().then((_responseText) => {
+        let result202: any = null;
+        result202 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as BackgroundTaskTicket);
+        return result202;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<BackgroundTaskTicket>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  getAiActorThinkTask(
+    id: number,
+    taskId: number,
+  ): Promise<BackgroundTaskStatus> {
+    let url_ = this.baseUrl + "/beacon/api/ai-actors/{id}/think-tasks/{taskId}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    if (taskId === undefined || taskId === null)
+      throw new Error("The parameter 'taskId' must be defined.");
+    url_ = url_.replace("{taskId}", encodeURIComponent("" + taskId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetAiActorThinkTask(_response);
+    });
+  }
+
+  protected processGetAiActorThinkTask(
+    response: Response,
+  ): Promise<BackgroundTaskStatus> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as BackgroundTaskStatus);
+        return result200;
+      });
+    } else if (status === 404) {
+      return response.text().then((_responseText) => {
+        return throwException("Not Found", status, _responseText, _headers);
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<BackgroundTaskStatus>(null as any);
+  }
+
+  /**
    * @return OK
    */
   pauseAiActor(id: number): Promise<PauseAiActorResult> {
@@ -6519,6 +7010,58 @@ export class BeaconApiClient {
       });
     }
     return Promise.resolve<GetPendingPlansResult>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  getPendingPlanCount(): Promise<GetPendingPlanCountResult> {
+    let url_ = this.baseUrl + "/beacon/api/ai-actors/pending-plans/count";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetPendingPlanCount(_response);
+    });
+  }
+
+  protected processGetPendingPlanCount(
+    response: Response,
+  ): Promise<GetPendingPlanCountResult> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as GetPendingPlanCountResult);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<GetPendingPlanCountResult>(null as any);
   }
 
   /**
@@ -7486,6 +8029,126 @@ export class BeaconApiClient {
   }
 
   /**
+   * @return Accepted
+   */
+  startMigrationJobRun(id: number): Promise<BackgroundTaskTicket> {
+    let url_ = this.baseUrl + "/beacon/api/migrations/jobs/{id}/runs";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processStartMigrationJobRun(_response);
+    });
+  }
+
+  protected processStartMigrationJobRun(
+    response: Response,
+  ): Promise<BackgroundTaskTicket> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 202) {
+      return response.text().then((_responseText) => {
+        let result202: any = null;
+        result202 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as BackgroundTaskTicket);
+        return result202;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<BackgroundTaskTicket>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  getMigrationJobRun(
+    id: number,
+    taskId: number,
+  ): Promise<BackgroundTaskStatus> {
+    let url_ = this.baseUrl + "/beacon/api/migrations/jobs/{id}/runs/{taskId}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    if (taskId === undefined || taskId === null)
+      throw new Error("The parameter 'taskId' must be defined.");
+    url_ = url_.replace("{taskId}", encodeURIComponent("" + taskId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetMigrationJobRun(_response);
+    });
+  }
+
+  protected processGetMigrationJobRun(
+    response: Response,
+  ): Promise<BackgroundTaskStatus> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as BackgroundTaskStatus);
+        return result200;
+      });
+    } else if (status === 404) {
+      return response.text().then((_responseText) => {
+        return throwException("Not Found", status, _responseText, _headers);
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<BackgroundTaskStatus>(null as any);
+  }
+
+  /**
    * @param migrationJobId (optional)
    * @param status (optional)
    * @param startDate (optional)
@@ -7582,6 +8245,194 @@ export class BeaconApiClient {
       });
     }
     return Promise.resolve<PagedListOfMigrationExecutionDto>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  createEmbedGrant(
+    body: CreateEmbedGrantBody,
+  ): Promise<CreateEmbedGrantResult> {
+    let url_ = this.baseUrl + "/beacon/api/embed-grants";
+    url_ = url_.replace(/[?&]$/, "");
+
+    const content_ = JSON.stringify(body);
+
+    let options_: RequestInit = {
+      body: content_,
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processCreateEmbedGrant(_response);
+    });
+  }
+
+  protected processCreateEmbedGrant(
+    response: Response,
+  ): Promise<CreateEmbedGrantResult> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as CreateEmbedGrantResult);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<CreateEmbedGrantResult>(null as any);
+  }
+
+  /**
+   * @param projectId (optional)
+   * @param page (optional)
+   * @param pageSize (optional)
+   * @param sort (optional)
+   * @return OK
+   */
+  listEmbedGrants(
+    projectId: number | undefined,
+    page: number | undefined,
+    pageSize: number | undefined,
+    sort: string | undefined,
+  ): Promise<PagedListOfEmbedGrantListItem> {
+    let url_ = this.baseUrl + "/beacon/api/embed-grants?";
+    if (projectId === null)
+      throw new Error("The parameter 'projectId' cannot be null.");
+    else if (projectId !== undefined)
+      url_ += "ProjectId=" + encodeURIComponent("" + projectId) + "&";
+    if (page === null) throw new Error("The parameter 'page' cannot be null.");
+    else if (page !== undefined)
+      url_ += "Page=" + encodeURIComponent("" + page) + "&";
+    if (pageSize === null)
+      throw new Error("The parameter 'pageSize' cannot be null.");
+    else if (pageSize !== undefined)
+      url_ += "PageSize=" + encodeURIComponent("" + pageSize) + "&";
+    if (sort === null) throw new Error("The parameter 'sort' cannot be null.");
+    else if (sort !== undefined)
+      url_ += "Sort=" + encodeURIComponent("" + sort) + "&";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processListEmbedGrants(_response);
+    });
+  }
+
+  protected processListEmbedGrants(
+    response: Response,
+  ): Promise<PagedListOfEmbedGrantListItem> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as PagedListOfEmbedGrantListItem);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<PagedListOfEmbedGrantListItem>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  revokeEmbedGrant(id: number): Promise<RevokeEmbedGrantResult> {
+    let url_ = this.baseUrl + "/beacon/api/embed-grants/{id}/revoke";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processRevokeEmbedGrant(_response);
+    });
+  }
+
+  protected processRevokeEmbedGrant(
+    response: Response,
+  ): Promise<RevokeEmbedGrantResult> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as RevokeEmbedGrantResult);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<RevokeEmbedGrantResult>(null as any);
   }
 
   /**
@@ -8854,6 +9705,129 @@ export class BeaconApiClient {
       });
     }
     return Promise.resolve<DatabaseMetadataSnapshot>(null as any);
+  }
+
+  /**
+   * @return Accepted
+   */
+  startDataSourceMetadataRefresh(id: number): Promise<BackgroundTaskTicket> {
+    let url_ =
+      this.baseUrl + "/beacon/api/data-sources/{id}/metadata-refreshes";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "POST",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processStartDataSourceMetadataRefresh(_response);
+    });
+  }
+
+  protected processStartDataSourceMetadataRefresh(
+    response: Response,
+  ): Promise<BackgroundTaskTicket> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 202) {
+      return response.text().then((_responseText) => {
+        let result202: any = null;
+        result202 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as BackgroundTaskTicket);
+        return result202;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<BackgroundTaskTicket>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
+  getDataSourceMetadataRefresh(
+    id: number,
+    taskId: number,
+  ): Promise<BackgroundTaskStatus> {
+    let url_ =
+      this.baseUrl +
+      "/beacon/api/data-sources/{id}/metadata-refreshes/{taskId}";
+    if (id === undefined || id === null)
+      throw new Error("The parameter 'id' must be defined.");
+    url_ = url_.replace("{id}", encodeURIComponent("" + id));
+    if (taskId === undefined || taskId === null)
+      throw new Error("The parameter 'taskId' must be defined.");
+    url_ = url_.replace("{taskId}", encodeURIComponent("" + taskId));
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetDataSourceMetadataRefresh(_response);
+    });
+  }
+
+  protected processGetDataSourceMetadataRefresh(
+    response: Response,
+  ): Promise<BackgroundTaskStatus> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as BackgroundTaskStatus);
+        return result200;
+      });
+    } else if (status === 404) {
+      return response.text().then((_responseText) => {
+        return throwException("Not Found", status, _responseText, _headers);
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<BackgroundTaskStatus>(null as any);
   }
 
   /**
@@ -17472,10 +18446,46 @@ export enum BackgroundServiceLogSource {
   User = 2,
 }
 
+export enum BackgroundTaskState {
+  Queued = 0,
+  Running = 1,
+  Succeeded = 2,
+  Failed = 3,
+  Skipped = 4,
+}
+
+export interface BackgroundTaskStatus {
+  taskId: number;
+  jobId: string | null;
+  state: BackgroundTaskState;
+  createdTime: Date;
+  startedTime: Date | null;
+  finishedTime: Date | null;
+  failureCode: string | null;
+  warningCount: number | null;
+
+  [key: string]: any;
+}
+
+export interface BackgroundTaskTicket {
+  taskId: number;
+  jobId: string | null;
+  state: BackgroundTaskState;
+
+  [key: string]: any;
+}
+
 export enum BedrockAuthMode {
   IamRole = 0,
   AccessKey = 1,
   TemporaryCredentials = 2,
+}
+
+export interface BuildInfoResponse {
+  version: string;
+  commit: string | null;
+
+  [key: string]: any;
 }
 
 export interface BulkJobRequest {
@@ -17516,6 +18526,11 @@ export interface ChangeApprovalDetail {
   proposedCustomSqlRules?: CustomSqlRulesView | null;
   previousRecipientDestination?: RecipientDestinationView | null;
   proposedRecipientDestination?: RecipientDestinationView | null;
+  previousDataSourceConnection?: DataSourceConnectionView | null;
+  proposedDataSourceConnection?: DataSourceConnectionView | null;
+  previousLlmConnection?: LlmConnectionView | null;
+  proposedLlmConnection?: LlmConnectionView | null;
+  currentProjects?: ChangeApprovalProject[];
   payloadHash?: string;
   isOwnRequest?: boolean;
   mayApprove?: boolean;
@@ -17531,6 +18546,8 @@ export enum ChangeApprovalKind {
   MigrationJob = 1,
   CustomSqlRules = 2,
   RecipientDestination = 3,
+  DataSourceConnection = 4,
+  LlmConnection = 5,
 }
 
 export interface ChangeApprovalOutcome {
@@ -17538,6 +18555,13 @@ export interface ChangeApprovalOutcome {
   status?: ApprovalStatus;
   comment?: string | null;
   decidedAt?: Date | null;
+
+  [key: string]: any;
+}
+
+export interface ChangeApprovalProject {
+  id?: number;
+  name?: string;
 
   [key: string]: any;
 }
@@ -17575,6 +18599,15 @@ export enum ChangeSource {
   Import = 3,
 }
 
+export interface ColumnForeignKeyReference {
+  constraintName: string | null;
+  targetSchema: string | null;
+  targetTable: string;
+  targetColumn: string;
+
+  [key: string]: any;
+}
+
 export interface ColumnMetadataDto {
   columnName: string;
   dataType: string;
@@ -17591,6 +18624,7 @@ export interface ColumnMetadataDto {
   foreignKeySchema?: string | null;
   foreignKeyConstraintName?: string | null;
   sampleValuesComplete?: boolean;
+  foreignKeys?: ColumnForeignKeyReference[] | null;
 
   [key: string]: any;
 }
@@ -17789,6 +18823,32 @@ export interface CreateDataSourceCommand {
 export interface CreateDataSourceResult {
   success: boolean;
   message: string;
+  awaitingApproval?: boolean;
+
+  [key: string]: any;
+}
+
+export interface CreateEmbedGrantBody {
+  projectId: number;
+  queryId: number;
+  name: string;
+  allowedOrigins: string[] | null;
+  expiresInDays: number;
+  fixedParameters: { [key: string]: string } | null;
+  lockedParameters: string[] | null;
+
+  [key: string]: any;
+}
+
+export interface CreateEmbedGrantResult {
+  id: number;
+  publicId: string;
+  secret: string;
+  queryVersionId: number;
+  versionNumber: number;
+  expiresTime: Date;
+  allowedOrigins: string[];
+  lockedParameters: string[];
 
   [key: string]: any;
 }
@@ -18007,6 +19067,8 @@ export interface CurrentPermissionsResponse {
   permissions: string[];
   migrationsEnabled: boolean;
   gatewayMode?: boolean;
+  embedEnabled?: boolean;
+  build?: BuildInfoResponse | null;
 
   [key: string]: any;
 }
@@ -18226,6 +19288,33 @@ export enum DataQualityTrendDirection {
   Degrading = 3,
 }
 
+export interface DataSourceApproval {
+  requestId?: number;
+  kind?: ChangeApprovalKind;
+  requestedTime?: Date;
+  awaitsFirstApproval?: boolean;
+
+  [key: string]: any;
+}
+
+export interface DataSourceConnectionView {
+  name?: string;
+  dataSourceType?: DataSourceType;
+  databaseEngineType?: DatabaseEngineType | null;
+  host?: string | null;
+  port?: number | null;
+  database?: string | null;
+  login?: string | null;
+  changedSettings?: string[];
+  secretOnlyDefinition?: boolean;
+  fingerprint?: string | null;
+  authenticatesServer?: boolean;
+  databaseReadOnlyEnforced?: boolean;
+  isTargetChange?: boolean;
+
+  [key: string]: any;
+}
+
 export interface DataSourceEditSettings {
   hostManaged?: boolean;
   metadataMaxTables?: number;
@@ -18254,6 +19343,8 @@ export interface DataSourceEntry {
   databaseReadOnlyEnforced?: boolean | null;
   transportVerified?: boolean | null;
   editSettings?: DataSourceEditSettings | null;
+  approval?: DataSourceApproval | null;
+  awaitsFirstApproval?: boolean;
 
   [key: string]: any;
 }
@@ -18298,6 +19389,28 @@ export interface DocumentationPatchEntry {
   appliedAt?: Date | null;
   appliedByName?: string | null;
   canCurate?: boolean;
+
+  [key: string]: any;
+}
+
+export interface EmbedGrantListItem {
+  id?: number;
+  publicId?: string;
+  name?: string;
+  projectId?: number;
+  projectName?: string | null;
+  queryId?: number;
+  queryName?: string | null;
+  queryVersionId?: number;
+  versionNumber?: number;
+  allowedOrigins?: string[];
+  lockedParameters?: string[];
+  createdByLabel?: string | null;
+  createdTime?: Date;
+  expiresTime?: Date;
+  revokedTime?: Date | null;
+  lastTokenIssuedTime?: Date | null;
+  status?: string;
 
   [key: string]: any;
 }
@@ -18489,6 +19602,9 @@ export interface GetAiActorPlanResult {
   model?: string | null;
   version?: number;
   parentPlanId?: number | null;
+  mayApprove?: boolean;
+  approveBlockedReason?: string | null;
+  mayRejectOrRevise?: boolean;
 
   [key: string]: any;
 }
@@ -18617,6 +19733,55 @@ export interface GetMcpProjectSettingsResult {
   [key: string]: any;
 }
 
+export interface GetMcpSettingsResult {
+  stored?: McpSettingsData;
+  lockedFields?: string[];
+  clampedFields?: string[];
+  askSystemPrompt?: string | null;
+  globalInstruction?: string | null;
+  getContextDescription?: string | null;
+  queryDescription?: string | null;
+  getDocumentationDescription?: string | null;
+  askDescription?: string | null;
+  searchDescription?: string | null;
+  maxRowLimit?: number;
+  enforceReadOnly?: boolean;
+  enablePiiDetection?: boolean;
+  customPiiPatterns?: string[];
+  enableSampleValueCollection?: boolean;
+  enableLearning?: boolean;
+  learningAutoApproveThreshold?: number;
+  learningInjectionBudgetChars?: number;
+  learningSignalRetentionDays?: number;
+  enableSelfConsistency?: boolean;
+  selfConsistencyCandidateCount?: number;
+  enableEvalJudge?: boolean;
+  enableSemanticRetrieval?: boolean;
+  exemplarTopK?: number;
+  enableReplayVerification?: boolean;
+  learningReplayMinFlips?: number;
+  enableContextualRetrieval?: boolean;
+  docChunkWindowSentences?: number;
+  docChunkOverlapSentences?: number;
+  glossaryTopK?: number;
+  docChunkTopK?: number;
+  enableGoldenExemplars?: boolean;
+  goldenExemplarTopK?: number;
+  goldenExemplarBudgetChars?: number;
+  enableValueGrounding?: boolean;
+  valueGroundingMaxProbes?: number;
+  enableSemanticLint?: boolean;
+  selfConsistencyMinTables?: number;
+  retainQueryContent?: boolean;
+  statementTimeoutSeconds?: number;
+  maxResultBytes?: number;
+  maxExplainCost?: number | null;
+  maxConcurrentQueriesPerKey?: number;
+  allowExplicitFeedbackContent?: boolean;
+
+  [key: string]: any;
+}
+
 export interface GetMcpToolsResult {
   toolNames: string[];
 
@@ -18625,6 +19790,12 @@ export interface GetMcpToolsResult {
 
 export interface GetNotificationDetailResult {
   entry: NotificationDetailEntry | null;
+
+  [key: string]: any;
+}
+
+export interface GetPendingPlanCountResult {
+  count?: number;
 
   [key: string]: any;
 }
@@ -18849,6 +20020,13 @@ export interface InstructDocumentationResult {
   [key: string]: any;
 }
 
+export interface IssueEmbedTokenBody {
+  parameters: { [key: string]: string } | null;
+  ttlSeconds: number | null;
+
+  [key: string]: any;
+}
+
 export interface JobGroupModel {
   id?: string;
   kind?: JobKind;
@@ -18936,6 +20114,28 @@ export interface LinkProjectDataSourcesRequest {
 export interface LinkProjectDataSourcesResult {
   projectId: number;
   linkedDataSourceIds: number[];
+
+  [key: string]: any;
+}
+
+export interface LlmConnectionView {
+  fromHostConfiguration?: boolean;
+  provider?: AiProvider | null;
+  endpoint?: string | null;
+  endpointFingerprint?: string | null;
+  region?: string | null;
+  bedrockAuthMode?: BedrockAuthMode;
+  model?: string | null;
+  fastModel?: string | null;
+  basedOn?: string | null;
+  credentials?: LlmCredentialView[];
+
+  [key: string]: any;
+}
+
+export interface LlmCredentialView {
+  name?: string;
+  fingerprint?: string;
 
   [key: string]: any;
 }
@@ -19162,6 +20362,7 @@ export interface MigrationExecutionDto {
   errorMessage: string | null;
   retryAttempt: number;
   isRetry: boolean;
+  jobArchived?: boolean;
 
   [key: string]: any;
 }
@@ -19384,6 +20585,14 @@ export interface PagedListOfDocumentationPatchEntry {
 
 export interface PagedListOfExecutionLogEntry {
   items: ExecutionLogEntry[];
+  totalCount: number;
+  pageCount: number;
+
+  [key: string]: any;
+}
+
+export interface PagedListOfEmbedGrantListItem {
+  items: EmbedGrantListItem[];
   totalCount: number;
   pageCount: number;
 
@@ -19732,6 +20941,8 @@ export interface ProjectRepositoryEntry {
   lastScanAt: Date | null;
   referenceCount: number;
   hasAccessToken: boolean;
+  partialScan?: boolean;
+  partialScanReasons?: string[];
 
   [key: string]: any;
 }
@@ -20171,6 +21382,13 @@ export interface RejectAiActorPlanResult {
   [key: string]: any;
 }
 
+export interface RepositoryPartialScan {
+  repositoryId: number;
+  reasons: string[];
+
+  [key: string]: any;
+}
+
 export interface RequestPlanRevisionResult {
   success?: boolean;
   originalPlanId?: number;
@@ -20202,6 +21420,14 @@ export interface RestoreQueryVersionResponse {
 export interface ResumeAiActorResult {
   success?: boolean;
   actorId?: number;
+
+  [key: string]: any;
+}
+
+export interface RevokeEmbedGrantResult {
+  id: number;
+  revokedTime: Date;
+  revoked: boolean;
 
   [key: string]: any;
 }
@@ -20258,6 +21484,7 @@ export interface RunMigrationJobResult {
 export interface ScanAllRepositoriesResult {
   scannedCount: number;
   errors: string[];
+  partialScans?: RepositoryPartialScan[];
 
   [key: string]: any;
 }

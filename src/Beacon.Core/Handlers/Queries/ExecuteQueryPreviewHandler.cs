@@ -1,17 +1,23 @@
+using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models.Queries;
 using Beacon.Core.Services;
 using MediatR;
-using Beacon.Core.Authorization;
+using Microsoft.Extensions.Logging;
 
 namespace Beacon.Core.Handlers.Queries;
 
-internal sealed class ExecuteQueryPreviewHandler(IQueryExecutionPreviewService previewService)
+internal sealed class ExecuteQueryPreviewHandler(
+    IQueryService queryService,
+    IStoredQueryPreview storedPreview,
+    ProjectRequestAuthorizer authorizer,
+    ILogger<ExecuteQueryPreviewHandler> logger)
     : IRequestHandler<ExecuteQueryPreviewCommand, QueryPreviewResult>
 {
     public async Task<QueryPreviewResult> Handle(ExecuteQueryPreviewCommand request, CancellationToken cancellationToken)
     {
-        var result = await previewService.ExecuteQueryPreview(request.QueryId, request.Draft, request, cancellationToken);
+        var result = await RunAsync(queryService, storedPreview, authorizer, logger, request.QueryId, request.Draft, request, cancellationToken);
 
         if (result == null)
         {
@@ -19,6 +25,49 @@ internal sealed class ExecuteQueryPreviewHandler(IQueryExecutionPreviewService p
         }
 
         return result;
+    }
+
+    /// <summary>
+    /// One page of a query's result (the saved query, or the draft when given); a failure comes back as the result,
+    /// with its cause, a cancellation as null. Shared with the obsolete service forwarder.
+    /// </summary>
+    internal static async Task<QueryPreviewResult?> RunAsync(
+        IQueryService queryService,
+        IStoredQueryPreview storedPreview,
+        ProjectRequestAuthorizer authorizer,
+        ILogger logger,
+        int queryId,
+        QueryDraft? draft,
+        ListRequest paging,
+        CancellationToken cancellationToken)
+    {
+        await PreviewRunSupport.DemandMayRunAsync(authorizer, queryId, draft, cancellationToken);
+
+        try
+        {
+            if (draft != null)
+            {
+                return await queryService.PreviewQuery(queryId, draft, paging, cancellationToken);
+            }
+
+            var snapshot = await PreviewRunSupport.LoadRunnableSnapshotAsync(storedPreview, authorizer, queryId, cancellationToken);
+
+            return await storedPreview.PreviewSnapshot(snapshot, paging, cancellationToken);
+        }
+        catch (OperationCanceledException)
+        {
+            logger.LogDebug("Query preview for query {QueryId} was cancelled", queryId);
+            return null;
+        }
+        catch (Exception ex) when (!PreviewRunSupport.IsAccessRefusal(ex))
+        {
+            // The type and error code only (§1.11): the message can quote the SQL or row values.
+            logger.LogWarning(
+                "Error executing query preview for query {QueryId}: {Failure}",
+                queryId,
+                FailureCodes.Describe(ex));
+            return PreviewRunSupport.Failed(ex);
+        }
     }
 }
 

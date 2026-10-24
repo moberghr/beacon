@@ -44,17 +44,40 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
         var subscriptionDelta = totalSubscriptions - subscriptionsDaysAgo;
 
         // Subscriptions created per day over the last 14 days (for sparkline)
-        var subDates = await subscriptions
+        var subDaily14 = await subscriptions
             .Where(x => x.CreatedTime >= now.AddDays(-14))
-            .Select(x => x.CreatedTime.Date)
+            .GroupBy(x => UtcBuckets.Day(x.CreatedTime))
+            .Select(x =>
+                new
+                {
+                    Date = x.Key,
+                    Count = x.Count()
+                })
             .ToListAsync(cancellationToken);
 
-        var subscriptionsSpark = HomeTrendsBuilders.BuildDailyCounts(subDates, 14, now);
+        var subscriptionsSpark = HomeTrendsBuilders.BuildDailyCounts(
+            subDaily14.ToDictionary(x => x.Date, x => x.Count), 14, now);
 
         // ── Query executions ───────────────────────────────────────────
-        var execsCurrent = await runs
+        // One row per (day, duration rounded to a whole millisecond) with its count and exact total: the counts,
+        // average, daily trend and percentiles below all derive from it, so the rows read stay bounded by days x
+        // distinct whole-millisecond durations instead of every run; percentiles are exact to 1 ms.
+        var execDistribution = await runs
             .Where(x => x.CreatedTime >= windowStart)
-            .Select(x => new { x.CreatedTime, x.ExecutionTimeMs, x.NotificationStatus, SubscriptionId = x.SubscriptionId })
+            .GroupBy(x =>
+                new
+                {
+                    Date = UtcBuckets.Day(x.CreatedTime),
+                    Ms = Math.Round(x.ExecutionTimeMs)
+                })
+            .Select(x =>
+                new
+                {
+                    x.Key.Date,
+                    x.Key.Ms,
+                    Count = x.Count(),
+                    TotalMs = x.Sum(y => y.ExecutionTimeMs)
+                })
             .ToListAsync(cancellationToken);
 
         var execsPrior = await runs
@@ -62,7 +85,7 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
             .Where(x => x.CreatedTime < windowStart)
             .CountAsync(cancellationToken);
 
-        var queryExecutions30d = execsCurrent.Count;
+        var queryExecutions30d = execDistribution.Sum(x => x.Count);
         var queryExecutionsDeltaPct = execsPrior > 0
             ? Math.Round((decimal)(queryExecutions30d - execsPrior) / execsPrior * 100, 1)
             : 0m;
@@ -70,7 +93,7 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
         // Sparkline: daily counts over last 14 days, aggregated server-side
         var execDaily14 = await runs
             .Where(x => x.CreatedTime >= now.AddDays(-14))
-            .GroupBy(x => x.CreatedTime.Date)
+            .GroupBy(x => UtcBuckets.Day(x.CreatedTime))
             .Select(x =>
                 new
                 {
@@ -83,33 +106,39 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
             execDaily14.ToDictionary(x => x.Date, x => x.Count), 14, now);
 
         // 30-day trend for line chart
-        var execDates30 = execsCurrent
-            .Select(x => x.CreatedTime.Date)
-            .ToList();
+        var execCountsByDay = execDistribution
+            .GroupBy(x => x.Date)
+            .ToDictionary(x => x.Key, x => x.Sum(y => y.Count));
 
-        var queryTrend30d = HomeTrendsBuilders.BuildDailyCounts(execDates30, days, now);
+        var queryTrend30d = HomeTrendsBuilders.BuildDailyCounts(execCountsByDay, days, now);
 
         // ── Performance metrics ────────────────────────────────────────
-        var avgExecutionMs = execsCurrent.Count > 0
-            ? (decimal)execsCurrent.Average(x => x.ExecutionTimeMs)
+        var avgExecutionMs = queryExecutions30d > 0
+            ? (decimal)(execDistribution.Sum(x => x.TotalMs) / queryExecutions30d)
             : 0m;
 
-        var priorExecs = await runs
+        var priorAverageMs = await runs
             .Where(x => x.CreatedTime >= priorStart)
             .Where(x => x.CreatedTime < windowStart)
-            .Select(x => x.ExecutionTimeMs)
-            .ToListAsync(cancellationToken);
+            .Select(x => (double?)x.ExecutionTimeMs)
+            .AverageAsync(cancellationToken);
 
-        var priorAvg = priorExecs.Count > 0 ? (decimal)priorExecs.Average() : 0m;
+        var priorAvg = (decimal)(priorAverageMs ?? 0d);
         var avgExecutionDeltaPct = priorAvg > 0
             ? Math.Round((avgExecutionMs - priorAvg) / priorAvg * 100, 1)
             : 0m;
 
         // Per-subscription average execution times for fastest/slowest
-        var subExecTimes = execsCurrent
+        var subExecTimes = await runs
+            .Where(x => x.CreatedTime >= windowStart)
             .GroupBy(x => x.SubscriptionId)
-            .Select(g => new { SubscriptionId = g.Key, AvgMs = g.Average(x => x.ExecutionTimeMs) })
-            .ToList();
+            .Select(x =>
+                new
+                {
+                    SubscriptionId = x.Key,
+                    AvgMs = x.Average(y => y.ExecutionTimeMs)
+                })
+            .ToListAsync(cancellationToken);
 
         int? fastestSubId = null;
         decimal fastestMs = 0m;
@@ -149,8 +178,8 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
         }
 
         // ── Perf histogram: per-day buckets ───────────────────────────
-        var execsWithTime = execsCurrent
-            .Select(x => (Date: x.CreatedTime.Date, Ms: x.ExecutionTimeMs))
+        var execsWithTime = execDistribution
+            .Select(x => (x.Date, x.Ms, x.Count))
             .ToList();
 
         var perfBuckets = HomeTrendsBuilders.BuildPerfBuckets(execsWithTime, days, now);
@@ -159,7 +188,7 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
         // Per-day counts aggregated server-side; the window total derives from them.
         var notifDaily = await notifications
             .Where(x => x.SentAt >= windowStart)
-            .GroupBy(x => x.SentAt.Date)
+            .GroupBy(x => UtcBuckets.Day(x.SentAt))
             .Select(x =>
                 new
                 {
@@ -178,7 +207,7 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
 
         var notifDaily14 = await notifications
             .Where(x => x.SentAt >= now.AddDays(-14))
-            .GroupBy(x => x.SentAt.Date)
+            .GroupBy(x => UtcBuckets.Day(x.SentAt))
             .Select(x =>
                 new
                 {
@@ -211,17 +240,23 @@ internal sealed class GetHomeTrendsHandler(IDbContextFactory<BeaconContext> cont
 
         var anomaliesCurrent = await anomalies
             .Where(x => x.DetectedTime >= windowStart)
-            .Select(x => x.DetectedTime.Date)
-            .ToListAsync(cancellationToken);
+            .CountAsync(cancellationToken);
 
-        var anomaliesDelta = anomaliesCurrent.Count - anomaliesPrior;
+        var anomaliesDelta = anomaliesCurrent - anomaliesPrior;
 
-        var anomaliesDates14 = await anomalies
+        var anomaliesDaily14 = await anomalies
             .Where(x => x.DetectedTime >= now.AddDays(-14))
-            .Select(x => x.DetectedTime.Date)
+            .GroupBy(x => UtcBuckets.Day(x.DetectedTime))
+            .Select(x =>
+                new
+                {
+                    Date = x.Key,
+                    Count = x.Count()
+                })
             .ToListAsync(cancellationToken);
 
-        var anomaliesSpark = HomeTrendsBuilders.BuildDailyCounts(anomaliesDates14, 14, now);
+        var anomaliesSpark = HomeTrendsBuilders.BuildDailyCounts(
+            anomaliesDaily14.ToDictionary(x => x.Date, x => x.Count), 14, now);
 
         // ── System overview counts ─────────────────────────────────────
         // Global query filter on ArchivableBaseEntity already excludes archived rows.

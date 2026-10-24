@@ -1,5 +1,7 @@
 ﻿using Microsoft.EntityFrameworkCore;
 using Warp.Core;
+using Warp.Core.Concurrency;
+using Warp.Core.Timeout;
 using Warp.Worker;
 using Warp.Provider.PostgreSql;
 using Warp.UI.UIMiddleware;
@@ -11,6 +13,7 @@ using Beacon.Core.Notifications;
 using Beacon.Core.Worker;
 using Beacon.Core.PostgreSql;
 using Beacon.Core.SqlServer;
+using Beacon.Core.Authentication;
 using Beacon.Core.Authentication.Providers;
 using Beacon.Connector.PostgreSql;
 using Beacon.Connector.SqlServer;
@@ -20,10 +23,12 @@ using Beacon.Connector.AzureSynapse;
 using Beacon.Connector.Snowflake;
 using Beacon.Connector.Databricks;
 using Beacon.Connector.Api;
+using Beacon.Connector.Api.Services;
 using Beacon.Connector.BigQuery;
 using Beacon.MCP;
 using Beacon.MCP.Discovery;
 using Beacon.Api;
+using Beacon.Api.Authentication;
 using Beacon.Api.Endpoints;
 using Beacon.Api.OpenApi;
 using Beacon.Api.Telemetry;
@@ -73,9 +78,13 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOIN
         .ConfigureResource(x => x.AddService(serviceName: builder.Configuration["OTEL_SERVICE_NAME"] ?? "beacon"))
         .WithTracing(x => x
             .AddAspNetCoreInstrumentation(y => y.Filter = z => !z.Request.Path.StartsWithSegments("/beacon/api/health"))
-            // Notification calls are left out: their URLs carry the recipients' secrets (e.g. a Slack webhook path).
-            .AddHttpClientInstrumentation(y => y.FilterHttpRequestMessage = z => !NotificationRequests.IsNotificationRequest(z))
+            // Notification calls are left out: their URLs carry the recipients' secrets (e.g. a Slack webhook path). So are
+            // the API connector's: their paths and queries can carry identifiers or a credential.
+            .AddHttpClientInstrumentation(y => y.FilterHttpRequestMessage = z =>
+                !NotificationRequests.IsNotificationRequest(z) && !ApiConnectorRequests.IsApiConnectorRequest(z))
             .AddBeaconInstrumentation()
+            // The MCP SDK's tools/call spans, which Beacon tags; their status descriptions are cleared.
+            .AddBeaconMcpSdkTracing()
             .AddOtlpExporter())
         .WithMetrics(x => x
             .AddAspNetCoreInstrumentation()
@@ -109,10 +118,17 @@ builder.Services.AddWarpServer<WarpDbContext>(opt =>
     // (Deliberately no opt.AddRetry().) Polling cadence matches the old Hangfire 1s interval.
     opt.PollingInterval = TimeSpan.FromSeconds(1);
     opt.WorkerCount = Math.Min(Environment.ProcessorCount * 2, 20);
+
+    // Enforce the [Timeout] / [Mutex] attributes on the jobs (Warp/Jobs/*.cs); without these the attributes are inert.
+    opt.AddConcurrency();
+    opt.AddTimeout();
+
+    // Completed jobs (and their arguments) are kept a week, then cleaned up; failed jobs are never expired.
+    opt.JobExpirationTimeout = TimeSpan.FromDays(7);
 });
 
-// Host-level identity + SignalR plumbing (claims transformer, job status → SignalR bridge,
-// SignalR user-id provider). Registered together via AuthServiceExtensions (§2.12).
+// Host-level identity plumbing (claims transformer; the job status → SignalR bridge is a Warp
+// behavior). The SignalR user-id provider comes with AddBeaconApiServices below (§2.12).
 builder.Services.AddBeaconHostInfrastructure<SampleClaimsTransformation>();
 
 // ============================================================================
@@ -154,7 +170,7 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
     .AddBigQueryConnector()
     .AddApiConnector()
     // Configure EF Core database provider for Beacon's own data store
-    // Connection string and schema come from ConnectionStrings:BeaconContext and Beacon:Schema.
+    // The connection string comes from ConnectionStrings:BeaconContext; the schema is always beacon.
     .UsePostgreSql()
     ;
 
@@ -171,19 +187,15 @@ builder.Services.AddBeaconDataProtection(builder.Configuration, builder.Environm
 builder.Services.AddBeaconOidcAuthentication(builder.Configuration);
 
 // Step 2c: MCP bearer JWT authentication if OIDC is enabled with a JWKS endpoint
-var oidcSection = builder.Configuration.GetSection("Beacon:Authentication:Oidc");
-var oidcEnabled = oidcSection.GetValue<bool>("Enabled");
-var mcpJwksEndpoint = oidcSection.GetValue<string>("McpJwksEndpoint");
-if (oidcEnabled && !string.IsNullOrWhiteSpace(mcpJwksEndpoint))
+var oidc = OidcAuthenticationOptions.FromConfiguration(builder.Configuration);
+if (oidc.Enabled && !string.IsNullOrWhiteSpace(oidc.McpJwksEndpoint))
 {
-    var oidcAuthority = oidcSection.GetValue<string>("Authority")?.TrimEnd('/');
-    var oidcClientId = oidcSection.GetValue<string>("ClientId");
     builder.Services.AddBeaconJwtAuthentication(jwt =>
     {
         jwt.EnableBearerAuthentication = true;
-        jwt.Validation.JwksEndpoint = mcpJwksEndpoint;
-        jwt.Validation.ValidIssuer = oidcAuthority;
-        jwt.Validation.ValidAudience = oidcClientId;
+        jwt.Validation.JwksEndpoint = oidc.McpJwksEndpoint;
+        jwt.Validation.ValidIssuer = oidc.GetEnabledAuthority();
+        jwt.Validation.ValidAudience = oidc.ClientId;
         jwt.Validation.ValidateIssuer = true;
         jwt.Validation.ValidateAudience = true;
     });
@@ -269,6 +281,10 @@ else
     app.UseHttpsRedirection();
 }
 
+// Security headers on Beacon's routes (Beacon:Security): before UseStaticFiles so the SPA's files carry them too.
+// UseBeaconAuthentication adds them itself when a host does not call this. HSTS is the host's: UseHsts binds the whole host name.
+app.UseBeaconSecurityHeaders();
+
 app.UseStaticFiles();
 
 // Convert exceptions thrown inside /beacon/api/* into RFC 7807 problem+json responses.
@@ -278,15 +294,16 @@ app.UseApiExceptionHandler("/beacon/api");
 
 // MCP discovery challenge decoration (tier 3): adds the RFC 9728 WWW-Authenticate
 // resource_metadata pointer to every 401 from /beacon/mcp. Response-header-only — it never
-// authenticates or short-circuits; registered before ApiKeyAuthMiddleware so the OnStarting hook
-// also covers the 401s that the API-key/JWT middlewares write directly. §1.9 order below is untouched.
+// authenticates or short-circuits; registered before UseBeaconAuthentication so the OnStarting hook
+// also covers the 401s Beacon's authentication writes for a refused key or token. §1.9 order below is untouched.
 app.UseMcpResourceMetadataChallenge();
 
 // Middleware order is load-bearing per §1.9:
-//   ApiKey → JWT bearer → Authentication → Cookie (per-request cookie scheme) → Authorization → LoginForm.
-// UseBeaconAuthentication wires the first four. The API key runs before the cookie so MCP clients are never
-// redirected; BeaconCookieAuthMiddleware populates context.User from the Beacon.Auth cookie BEFORE
-// UseAuthorization evaluates policies. The Beacon middlewares act on /beacon and on
+//   Authentication → Beacon (a presented API key or JWT bearer, else the Beacon.Auth cookie) → Authorization
+//   → LoginForm.
+// UseBeaconAuthentication wires the first two. A presented key or token wins over any session, so its scope and
+// projects apply and MCP clients are never redirected, and the result is recorded as the request's authentication result BEFORE UseAuthorization
+// evaluates policies (the first cookie request is authorized). Beacon's authentication acts on /beacon and on
 // Beacon:Authentication:AdditionalPaths only (this sample lists /warp in appsettings.json): a Beacon
 // credential never authenticates another route of the host.
 app.UseBeaconAuthentication();
@@ -308,8 +325,10 @@ if (beaconConfiguration.UserManagement.Enabled)
 // Antiforgery middleware must run after auth so it can issue tokens for the current user.
 app.UseAntiforgery();
 
-// OpenAPI document at /openapi/v1.json - consumed by NSwag for React TS codegen.
-app.MapOpenApi();
+// OpenAPI document at /openapi/v1.json - consumed by NSwag for React TS codegen. Open in Development; elsewhere it needs
+// a signed-in Beacon caller (this sample lists /openapi in Beacon:Authentication:AdditionalPaths) unless
+// Beacon:OpenApi:Anonymous is true.
+app.MapBeaconOpenApi();
 
 // REST API surface for the React shell. Adds /beacon/api/{health, auth/me, auth/permissions, csrf}.
 app.MapBeaconApi();
@@ -342,7 +361,7 @@ app.MapBeaconMcp();
 app.MapMcpDiscovery();
 
 // Warp Dashboard - available at /warp — Admin-only (§7.4).
-app.UseWarpUI(warpUiOptions =>
+app.UseGuardedWarpUI(warpUiOptions =>
 {
     warpUiOptions.RoutePrefix = "/warp";
     warpUiOptions.Authorization = new WarpDashboardAuthFilter();
@@ -357,19 +376,29 @@ app.MapBeaconUi();
 // Warp startup: apply the warp-schema migrations, then register static recurring jobs. The
 // WarpInitial migration EnsureSchema's the "warp" schema, so this bootstraps a fresh database;
 // it must run before AddOrUpdateRecurringJob (which writes to warp.recurring_job).
+// The boot work is bounded by a stop signal and a ceiling, so a stuck database cannot hold the start forever.
+// WaitAsync(bootToken) only abandons the wait: the underlying call (which takes no token) may still finish on the scope.
+// Migration is safe to cut (idempotent, one transaction per migration).
+using (var bootCancellation = new BootCancellation(TimeSpan.FromMinutes(10)))
 using (var warpStartupScope = app.Services.CreateScope())
 {
-    warpStartupScope.ServiceProvider.GetRequiredService<WarpDbContext>().Database.Migrate();
+    var bootToken = bootCancellation.Token;
+
+    await warpStartupScope.ServiceProvider.GetRequiredService<WarpDbContext>().Database.MigrateAsync(bootToken);
 
     var recurringJobPublisher = warpStartupScope.ServiceProvider.GetRequiredService<IRecurringJobPublisher>();
 
     // MCP Learning: aggregate patterns every 6 hours, cleanup old signals daily
-    await recurringJobPublisher.AddOrUpdateRecurringJob(new AggregateLearnedPatternsJob(), "mcp-learning-aggregate", "0 */6 * * *");
-    await recurringJobPublisher.AddOrUpdateRecurringJob(new CleanupOldSignalsJob(), "mcp-learning-cleanup", "0 3 * * *");
+    await recurringJobPublisher.AddOrUpdateRecurringJob(new AggregateLearnedPatternsJob(), "mcp-learning-aggregate", "0 */6 * * *").WaitAsync(bootToken);
+    await recurringJobPublisher.AddOrUpdateRecurringJob(new CleanupOldSignalsJob(), "mcp-learning-cleanup", "0 3 * * *").WaitAsync(bootToken);
 
-    // MCP Audit: purge rows older than Beacon:Mcp:Audit:RetentionDays daily (no-op when unset). Consumer
+    // MCP Audit: purge rows older than Beacon:Mcp:Audit:RetentionDays daily (no-op unless set). Consumer
     // hosts (e.g. Netgiro) schedule this themselves.
-    await recurringJobPublisher.AddOrUpdateRecurringJob(new PurgeExpiredMcpAuditLogsJob(), "mcp-audit-retention", "30 3 * * *");
+    await recurringJobPublisher.AddOrUpdateRecurringJob(new PurgeExpiredMcpAuditLogsJob(), "mcp-audit-retention", "30 3 * * *").WaitAsync(bootToken);
+
+    // Data retention: delete run history and logs older than Beacon:Retention:Days (0, the default, keeps
+    // everything) and clear content older than Beacon:Retention:ContentDays, daily. Consumer hosts schedule this themselves.
+    await recurringJobPublisher.AddOrUpdateRecurringJob(new DataRetentionJob(), DataRetentionJob.Name, "50 3 * * *").WaitAsync(bootToken);
 
     // Execution log: purge rows older than Beacon:Audit:ExecutionLog:RetentionDays daily (no-op when unset). Consumer
     // hosts schedule this themselves.
@@ -377,31 +406,29 @@ using (var warpStartupScope = app.Services.CreateScope())
 
     // Security audit: purge events older than Beacon:Audit:RetentionDays daily (no-op while unset: kept forever).
     // Consumer hosts schedule this themselves.
-    await recurringJobPublisher.AddOrUpdateRecurringJob(new PurgeExpiredSecurityAuditEventsJob(), "security-audit-retention", "45 3 * * *");
+    await recurringJobPublisher.AddOrUpdateRecurringJob(new PurgeExpiredSecurityAuditEventsJob(), "security-audit-retention", "45 3 * * *").WaitAsync(bootToken);
 
     // Security audit: verify the events written since the last run against their integrity hashes, hourly.
     // Consumer hosts schedule this themselves.
-    await recurringJobPublisher.AddOrUpdateRecurringJob(new VerifySecurityAuditEventsJob(), "security-audit-verify", "15 * * * *");
+    await recurringJobPublisher.AddOrUpdateRecurringJob(new VerifySecurityAuditEventsJob(), "security-audit-verify", "15 * * * *").WaitAsync(bootToken);
 
     // MCP Embeddings: re-index metadata + exemplars for hybrid retrieval / semantic few-shot every 12 hours
-    await recurringJobPublisher.AddOrUpdateRecurringJob(new ReindexEmbeddingsJob(), "mcp-embedding-reindex", "0 */12 * * *");
+    await recurringJobPublisher.AddOrUpdateRecurringJob(new ReindexEmbeddingsJob(), "mcp-embedding-reindex", "0 */12 * * *").WaitAsync(bootToken);
 
     // MCP Doc chunks (Tier-3 ⑨/⑩): re-chunk + (optional contextual blurb) + re-embed project docs every 12 hours
-    await recurringJobPublisher.AddOrUpdateRecurringJob(new ReindexDocChunksJob(), "mcp-docchunk-reindex", "0 */12 * * *");
+    await recurringJobPublisher.AddOrUpdateRecurringJob(new ReindexDocChunksJob(), "mcp-docchunk-reindex", "0 */12 * * *").WaitAsync(bootToken);
 
     // EncryptRecipientSecretsJob (Warp/Jobs/NotificationJobs.cs) is deliberately not enqueued here: it rewrites stored
     // recipient secrets, which an older version cannot read, so an operator runs it once every node runs this version
     // (see "Notification Destinations" in the configuration docs).
 
-    // Retired encryption keys: while Beacon:PreviousEncryptionKeys lists a key, every start enqueues one run of the
-    // re-encryption job, which moves stored values still under a previous key to Beacon:EncryptionKey and logs how many
-    // there were. Once it reports none, remove the previous keys from the configuration.
-    if (Beacon.Core.ServiceConfiguration.HasPreviousEncryptionKeys(app.Configuration))
-    {
-        var publisher = warpStartupScope.ServiceProvider.GetRequiredService<IPublisher>();
-        await publisher.Enqueue(new ReEncryptStoredValuesJob());
-        await publisher.SaveChangesAsync();
-    }
+    // Retired encryption keys and the legacy format: every start enqueues one run of the re-encryption job, which moves
+    // stored values still under a key in Beacon:PreviousEncryptionKeys, or still in the legacy v1 format, to
+    // Beacon:EncryptionKey in the current format and logs how many there were. Once it reports none, remove the previous
+    // keys from the configuration and turn Beacon:Encryption:AllowLegacyCbc off. A run with nothing to move writes nothing.
+    var publisher = warpStartupScope.ServiceProvider.GetRequiredService<IPublisher>();
+    await publisher.Enqueue(new ReEncryptStoredValuesJob());
+    await publisher.SaveChangesAsync(bootToken);
 }
 
 app.Run();

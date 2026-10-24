@@ -30,6 +30,13 @@ internal class SlackTableFormatter
     /// </summary>
     public object GenerateTableBlock(List<IDictionary<string, object?>> records)
     {
+        return GenerateTableBlock(records, out _);
+    }
+
+    /// <summary>The table block, and how many data rows it shows after the row and size limits.</summary>
+    public object GenerateTableBlock(List<IDictionary<string, object?>> records, out int shownRows)
+    {
+        shownRows = 0;
         if (!records.HasRecords())
         {
             return new { type = "section", text = new { type = "plain_text", text = "No records to display" } };
@@ -45,7 +52,7 @@ internal class SlackTableFormatter
         var columnWidths = CalculateColumnWidths(formattedData, columnNames);
 
         // Build table from cached formatted values
-        var tableText = BuildTableText(formattedData, columnNames, columnWidths);
+        var tableText = BuildTableText(formattedData, columnNames, columnWidths, out shownRows);
 
         // Wrap in code block for fixed-width display
         return new
@@ -77,7 +84,7 @@ internal class SlackTableFormatter
             foreach (var colName in columnNames)
             {
                 var formattedValue = record.TryGetValue(colName, out var val)
-                    ? CellValueFormatter.Format(val)
+                    ? CellValueFormatter.FormatAndSanitize(val)
                     : string.Empty;
 
                 formattedRow[colName] = formattedValue;
@@ -131,19 +138,22 @@ internal class SlackTableFormatter
     private string BuildTableText(
         List<Dictionary<string, string>> formattedData,
         List<string> columnNames,
-        Dictionary<string, int> columnWidths)
+        Dictionary<string, int> columnWidths,
+        out int shownRows)
     {
+        shownRows = 0;
         var tableBuilder = new StringBuilder();
 
         // Header row (centered)
-        var headerParts = columnNames.Select(col => PadCenter(col, columnWidths[col]));
-        tableBuilder.AppendLine(string.Join(" | ", headerParts));
+        var headerParts = columnNames.Select(col => PadCenter(CellValueFormatter.FormatAndSanitize(col), columnWidths[col]));
+        AppendLine(tableBuilder, string.Join(" | ", headerParts));
 
         // Separator row
         var separatorParts = columnNames.Select(col => new string('-', columnWidths[col]));
-        tableBuilder.AppendLine(string.Join("-+-", separatorParts));
+        AppendLine(tableBuilder, string.Join("-+-", separatorParts));
 
-        // Data rows (using cached formatted values)
+        // Data rows (using cached formatted values). Each line is escaped for Slack after it is padded, so the columns line
+        // up as shown; rows that would take the block past Slack's text limit are left out and the table says so.
         foreach (var row in formattedData)
         {
             var rowParts = columnNames.Select(col =>
@@ -151,10 +161,23 @@ internal class SlackTableFormatter
                 var value = row.TryGetValue(col, out var formattedValue) ? formattedValue : string.Empty;
                 return PadOrTruncate(value, columnWidths[col]);
             });
-            tableBuilder.AppendLine(string.Join(" | ", rowParts));
+            var line = ChannelText.SlackFenced(string.Join(" | ", rowParts));
+            if (tableBuilder.Length + line.Length + ChannelText.TruncationMarker.Length + 2 > AdapterConstants.Slack.MaxSectionTextLength)
+            {
+                tableBuilder.AppendLine(ChannelText.TruncationMarker);
+                break;
+            }
+
+            tableBuilder.AppendLine(line);
+            shownRows++;
         }
 
         return tableBuilder.ToString().TrimEnd();
+    }
+
+    private static void AppendLine(StringBuilder builder, string line)
+    {
+        builder.AppendLine(ChannelText.SlackFenced(line));
     }
 
     private string PadOrTruncate(string text, int width)
@@ -162,7 +185,7 @@ internal class SlackTableFormatter
         if (text.Length > width)
         {
             // Truncate and add ellipsis
-            return text.Substring(0, width - 3) + "...";
+            return ChannelText.Cut(text, width - 3) + "...";
         }
 
         // Pad to width (left-aligned)
@@ -173,7 +196,7 @@ internal class SlackTableFormatter
     {
         if (text.Length >= width)
         {
-            return text.Substring(0, width);
+            return ChannelText.Cut(text, width);
         }
 
         int totalPadding = width - text.Length;
