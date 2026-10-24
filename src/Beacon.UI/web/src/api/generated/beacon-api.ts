@@ -6524,6 +6524,58 @@ export class BeaconApiClient {
   /**
    * @return OK
    */
+  getPendingPlanCount(): Promise<GetPendingPlanCountResult> {
+    let url_ = this.baseUrl + "/beacon/api/ai-actors/pending-plans/count";
+    url_ = url_.replace(/[?&]$/, "");
+
+    let options_: RequestInit = {
+      method: "GET",
+      headers: {
+        Accept: "application/json",
+      },
+    };
+
+    return this.http.fetch(url_, options_).then((_response: Response) => {
+      return this.processGetPendingPlanCount(_response);
+    });
+  }
+
+  protected processGetPendingPlanCount(
+    response: Response,
+  ): Promise<GetPendingPlanCountResult> {
+    const status = response.status;
+    let _headers: any = {};
+    if (response.headers && response.headers.forEach) {
+      response.headers.forEach((v: any, k: any) => (_headers[k] = v));
+    }
+    if (status === 200) {
+      return response.text().then((_responseText) => {
+        let result200: any = null;
+        result200 =
+          _responseText === ""
+            ? null
+            : (JSON.parse(
+                _responseText,
+                this.jsonParseReviver,
+              ) as GetPendingPlanCountResult);
+        return result200;
+      });
+    } else if (status !== 200 && status !== 204) {
+      return response.text().then((_responseText) => {
+        return throwException(
+          "An unexpected server error occurred.",
+          status,
+          _responseText,
+          _headers,
+        );
+      });
+    }
+    return Promise.resolve<GetPendingPlanCountResult>(null as any);
+  }
+
+  /**
+   * @return OK
+   */
   getAiActorPlan(id: number): Promise<GetAiActorPlanResult> {
     let url_ = this.baseUrl + "/beacon/api/ai-actors/plans/{id}";
     if (id === undefined || id === null)
@@ -18483,6 +18535,9 @@ export interface GetAiActorPlanResult {
   model?: string | null;
   version?: number;
   parentPlanId?: number | null;
+  mayApprove?: boolean;
+  approveBlockedReason?: string | null;
+  mayRejectOrRevise?: boolean;
 
   [key: string]: any;
 }
@@ -18619,6 +18674,12 @@ export interface GetMcpToolsResult {
 
 export interface GetNotificationDetailResult {
   entry: NotificationDetailEntry | null;
+
+  [key: string]: any;
+}
+
+export interface GetPendingPlanCountResult {
+  count?: number;
 
   [key: string]: any;
 }

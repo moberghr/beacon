@@ -72,6 +72,10 @@ internal static class AiActorsEndpoints
                 m.Send(new GetPendingPlansQuery { ActorId = id }, ct))
             .WithName("GetPendingPlans");
 
+        actors.MapGet("/pending-plans/count", (IMediator m, CancellationToken ct) =>
+                m.Send(new GetPendingPlanCountQuery(), ct))
+            .WithName("GetPendingPlanCount");
+
         actors.MapGet("/plans/{id:int}", async Task<Results<Ok<GetAiActorPlanResult>, NotFound>> (int id, IMediator m, CancellationToken ct) =>
             {
                 var result = await m.Send(new GetAiActorPlanQuery { PlanId = id }, ct);

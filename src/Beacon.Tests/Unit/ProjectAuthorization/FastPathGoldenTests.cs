@@ -54,6 +54,7 @@ public class FastPathGoldenTests
         yield return Case("ListDataQualityOverview", new ListDataQualityOverviewQuery());
         yield return Case("GetDataContracts", new GetDataContractsQuery());
         yield return Case("GetAiActorList", new GetAiActorListQuery());
+        yield return Case("GetPendingPlanCount", new GetPendingPlanCountQuery());
         yield return Case("GetLearnedPatterns", new GetLearnedPatternsQuery());
         yield return Case("GetDocumentationPatches", new GetDocumentationPatchesQuery());
         yield return Case("GetLearningStats", new GetLearningStatsQuery());

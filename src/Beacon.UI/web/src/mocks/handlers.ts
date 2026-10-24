@@ -36,7 +36,8 @@
  *   connection, 51 the LLM connection)
  * - subscriptions, subscriptions/:id, subscriptions/:id/anomaly-chart
  * - recipients
- * - ai-actors, ai-actors/:id
+ * - ai-actors, ai-actors/:id, ai-actors/:id/pending-plans, ai-actors/pending-plans/count, ai-actors/plans/:id
+ *   (+ approve / reject / request-revision)
  * - mcp: settings, tools, learning-stats, learned-patterns, documentation-patches
  * - eval: golden/candidates, golden, runs, run results, grounding/recheck (honest empties)
  * - control-tower: statistics, health, subscriptions/:id/detail
@@ -49,7 +50,9 @@
  */
 import { http, HttpResponse } from 'msw';
 import {
+  AiActorActionType,
   AiActorExecutionPhase,
+  AiActorPlanStatus,
   AiActorStatus,
   AiProvider,
   AnomalyDetectionMethod,
@@ -1297,6 +1300,66 @@ const aiActorsHandlers = [
         },
       ],
     })),
+  http.get('/beacon/api/ai-actors/pending-plans/count', () => HttpResponse.json({ count: 1 })),
+  http.get('/beacon/api/ai-actors/:id/pending-plans', ({ params }) =>
+    HttpResponse.json({
+      plans: [
+        {
+          planId: 7,
+          actorId: Number(params.id),
+          actorName: 'Demo Revenue Watcher',
+          userInstruction: null,
+          analysis: 'Mock plan — demo revenue dipped twice this week; tighten the watch.',
+          actionCount: 1,
+          proposedAt: iso(0, 2),
+          expiresAt: iso(-7),
+          version: 2,
+          tokensUsed: 3_100,
+          estimatedCost: 0.07,
+        },
+      ],
+    })),
+  http.get('/beacon/api/ai-actors/plans/:id', ({ params }) =>
+    HttpResponse.json({
+      planId: Number(params.id),
+      actorId: 1,
+      actorName: 'Demo Revenue Watcher',
+      status: Number(params.id) === 7 ? AiActorPlanStatus.PendingApproval : AiActorPlanStatus.RevisionRequested,
+      userInstruction: null,
+      analysis: 'Mock plan — demo revenue dipped twice this week; tighten the watch.',
+      findings: ['Mock finding — two dips below the weekly average.'],
+      proposedActions: [
+        {
+          actionType: AiActorActionType.RefineQuery,
+          reasoning: 'Mock reasoning — compare with the weekly average instead of a fixed floor.',
+          parameters: { queryId: 12 },
+          currentSql: 'SELECT sum(amount) FROM demo_orders WHERE amount < 100',
+          proposedSql: 'SELECT sum(amount) FROM demo_orders WHERE amount < (SELECT avg(amount) FROM demo_orders)',
+          isLocked: false,
+          targetQueryName: 'Demo revenue floor',
+          targetQueryId: 12,
+        },
+      ],
+      proposedAt: iso(0, 2),
+      expiresAt: iso(-7),
+      isExpired: false,
+      reviewedAt: Number(params.id) === 7 ? null : iso(1),
+      reviewerComment: Number(params.id) === 7 ? null : 'Mock comment — use the weekly average.',
+      executedAt: null,
+      executionId: null,
+      tokensUsed: 3_100,
+      estimatedCost: 0.07,
+      model: null,
+      version: Number(params.id) === 7 ? 2 : 1,
+      parentPlanId: Number(params.id) === 7 ? 6 : null,
+      mayApprove: Number(params.id) === 7,
+      approveBlockedReason: null,
+      mayRejectOrRevise: Number(params.id) === 7,
+    })),
+  http.post('/beacon/api/ai-actors/plans/:id/approve', () => HttpResponse.json({ success: true })),
+  http.post('/beacon/api/ai-actors/plans/:id/reject', ({ params }) => HttpResponse.json({ success: true, planId: Number(params.id) })),
+  http.post('/beacon/api/ai-actors/plans/:id/request-revision', ({ params }) =>
+    HttpResponse.json({ success: true, originalPlanId: Number(params.id) })),
 ];
 
 // ---------- mcp -----------------------------------------------------------------
