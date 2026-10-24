@@ -1,4 +1,4 @@
-﻿name: Build the Beacon Release
+name: Build the Beacon Release
 
 # Two jobs. `build` has a read-only token: it checks the version and that the commit is on main, then builds, tests and
 # packs. `publish` waits for approval in the `nuget-release` environment and is the only job that can request an OIDC
@@ -27,7 +27,7 @@ jobs:
     steps:
     # Full history: the release commit must be an ancestor of origin/main.
     - name: Checkout
-      uses: actions/checkout@11d5960a326750d5838078e36cf38b85af677262 # v4.4.0
+      uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       with:
         fetch-depth: 0
         persist-credentials: false
