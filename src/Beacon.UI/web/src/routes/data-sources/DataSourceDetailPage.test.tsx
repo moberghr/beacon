@@ -10,7 +10,7 @@ import { AccessReady } from '@/test/AccessReady';
 import DataSourceDetailPage from './DataSourceDetailPage';
 
 vi.mock('sonner', () => ({
-  toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
+  toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
 }));
 
 function entry(overrides: Record<string, unknown>) {
@@ -114,6 +114,7 @@ describe('DataSourceDetailPage metadata refresh', () => {
     vi.mocked(toast.warning).mockClear();
     vi.mocked(toast.error).mockClear();
     vi.mocked(toast.success).mockClear();
+    vi.mocked(toast.info).mockClear();
   });
 
   // A refresh's toasts are not left for the next describe block to find.
@@ -121,6 +122,7 @@ describe('DataSourceDetailPage metadata refresh', () => {
     vi.mocked(toast.warning).mockClear();
     vi.mocked(toast.error).mockClear();
     vi.mocked(toast.success).mockClear();
+    vi.mocked(toast.info).mockClear();
   });
 
   function task(state: number, overrides: Record<string, unknown> = {}) {
@@ -219,6 +221,42 @@ describe('DataSourceDetailPage metadata refresh', () => {
 
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('This data source is disabled; enable it to refresh its metadata.'));
     expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  it('reads the catalog again when the refresh was skipped because another one of the source was running', async () => {
+    let metadataReads = 0;
+    renderWith(
+      entry({}),
+      started,
+      http.get('*/beacon/api/data-sources/42/metadata-refreshes/31', () =>
+        HttpResponse.json(task(4, { failureCode: 'busy' })),
+      ),
+      http.get('*/beacon/api/data-sources/42/metadata', () => {
+        metadataReads += 1;
+        return HttpResponse.json({ tables: [] });
+      }),
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: /refresh metadata/i }));
+
+    const before = metadataReads;
+    await waitFor(() => expect(toast.info).toHaveBeenCalledWith(expect.stringContaining('already running')));
+    await waitFor(() => expect(metadataReads).toBeGreaterThan(before));
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('says when the refresh was skipped because the caller may no longer manage the source', async () => {
+    renderWith(
+      entry({}),
+      started,
+      http.get('*/beacon/api/data-sources/42/metadata-refreshes/31', () =>
+        HttpResponse.json(task(4, { failureCode: 'forbidden' })),
+      ),
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: /refresh metadata/i }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('can no longer manage this data source')));
   });
 });
 

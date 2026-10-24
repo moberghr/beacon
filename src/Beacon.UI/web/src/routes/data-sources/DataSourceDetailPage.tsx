@@ -81,6 +81,10 @@ export default function DataSourceDetailPage() {
       } else {
         toast.success('Metadata refreshed from source');
       }
+    } else if (finishedStatus?.state === BackgroundTaskState.Skipped && finishedStatus.failureCode === 'busy') {
+      // Another refresh of the source was running: its result is the current metadata.
+      void queryClient.invalidateQueries({ queryKey: ['data-sources', numericId, 'metadata'] });
+      toast.info('Another metadata refresh of this data source was already running; its result is shown.');
     } else if (finishedStatus != null) {
       toast.error(describeRefreshFailure(finishedStatus));
     } else {
@@ -558,6 +562,8 @@ function describeRefreshFailure(status: BackgroundTaskStatus): string {
       return "This data source's connection does not verify the server over TLS, so its metadata was not refreshed.";
     case 'not_found':
       return 'This data source was not found.';
+    case 'forbidden':
+      return 'You can no longer manage this data source, so its metadata was not refreshed.';
     case 'abandoned':
       return 'The metadata refresh stopped without finishing; try again.';
     case 'cancelled':

@@ -14,8 +14,7 @@ internal sealed class StartDataSourceMetadataRefreshHandler(
     IBackgroundTaskService backgroundTasks,
     ForcedMetadataRefreshCooldown cooldown,
     IOptionsMonitor<MetadataRefreshOptions> refreshOptions,
-    IBeaconPermissionAccessor permissionAccessor,
-    ISecurityAuditRecorder securityAudit)
+    IBeaconPermissionAccessor permissionAccessor)
     : IRequestHandler<StartDataSourceMetadataRefreshCommand, BackgroundTaskTicket>
 {
     public async Task<BackgroundTaskTicket> Handle(StartDataSourceMetadataRefreshCommand request, CancellationToken cancellationToken)
@@ -35,18 +34,19 @@ internal sealed class StartDataSourceMetadataRefreshHandler(
             throw new BeaconRateLimitedException(refusal);
         }
 
-        var ticket = await backgroundTasks.StartAsync(BackgroundTaskKind.MetadataRefresh, request.DataSourceId, cancellationToken)
+        // A forced refresh scans the live database on a caller's request: on record when it is accepted, with the task, in
+        // the same save that records the task (before the job runner has it).
+        var ticket = await backgroundTasks.StartAsync(
+                BackgroundTaskKind.MetadataRefresh,
+                request.DataSourceId,
+                taskId => new SecurityAuditEntry(SecurityAuditActions.MetadataRefreshed)
+                    .On(SecurityAuditResources.DataSource, request.DataSourceId)
+                    .With(new SecurityAuditDetails()
+                        .Add("forced", true)
+                        .Add("cooldownExempt", ignoreCooldown)
+                        .Add("taskId", taskId)),
+                cancellationToken)
             ?? throw new BeaconRateLimitedException(ForcedMetadataRefreshCooldown.AlreadyRunningMessage);
-
-        // A forced refresh scans the live database on a caller's request: on record when it is accepted, with the task.
-        await securityAudit.RecordAsync(
-            new SecurityAuditEntry(SecurityAuditActions.MetadataRefreshed)
-                .On(SecurityAuditResources.DataSource, request.DataSourceId)
-                .With(new SecurityAuditDetails()
-                    .Add("forced", true)
-                    .Add("cooldownExempt", ignoreCooldown)
-                    .Add("taskId", ticket.TaskId)),
-            cancellationToken);
 
         return ticket;
     }
@@ -56,7 +56,8 @@ internal sealed class StartDataSourceMetadataRefreshHandler(
 /// Starts a forced re-read of a data source's metadata as a background task and answers at once with its ticket; its state
 /// is read with <see cref="GetDataSourceMetadataRefreshQuery"/>, and the user who started it gets <c>JobStatusChanged</c>
 /// for its job. The same cooldown as <see cref="RefreshDataSourceMetadataCommand"/> applies (429), and a refresh of the source
-/// that is queued or running refuses a second one (429).
+/// that is queued or running refuses a second one (429). The task runs as the caller and is skipped when, by then, the caller
+/// may no longer manage the source.
 /// </summary>
 public record StartDataSourceMetadataRefreshCommand(int DataSourceId) : IRequest<BackgroundTaskTicket>, IProjectAuthorizedRequest
 {

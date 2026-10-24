@@ -294,10 +294,14 @@ no refresh, because Beacon never reads it. There are two ways to start one:
 - **As a background task** (what the page's button does): `POST /beacon/api/data-sources/{id}/metadata-refreshes`
   answers `202` at once with `{ taskId, jobId, state }` and a `Location` header. Read its progress with
   `GET /beacon/api/data-sources/{id}/metadata-refreshes/{taskId}` (`state`: `0` queued, `1` running, `2` succeeded,
-  `3` failed; `failureCode` says why a failed one failed, `warningCount` is the number of names left out), with the
-  same access check. The user who started it also gets `JobStatusChanged` events for `jobId` on the SignalR hub. One
-  refresh of a data source is queued or running at a time; one queued or running for more than an hour is given up
-  (`abandoned`) when the next one starts. The job runs through your host's
+  `3` failed, `4` skipped; `failureCode` says why a failed or skipped one did not finish, `warningCount` is the number
+  of names left out), with the same access check. The job runs as the user who started it and checks again, right
+  before the scan, that they may still manage the data source: if not, it is skipped (`forbidden`). A refresh that
+  finds another refresh of the source running in the same Beacon process is skipped too (`busy`; that refresh's result
+  is the current catalog). A signed-in user who started it also gets `JobStatusChanged` events for `jobId` on the
+  SignalR hub (an API key does not). One refresh of a data source is queued or running at a time; one queued or
+  running for more than an hour, or still queued without a job after five minutes, is given up (`abandoned`) when the
+  next one starts or its progress is read. The job runs through your host's
   [`IBeaconScheduler.EnqueueBackgroundTask`](/integrate/background-jobs/); a host that does not implement it runs the
   refresh in the request, and the `202` then carries the state it finished in.
 - **In the request** (kept for API callers of Beacon 5.0): `POST /beacon/api/data-sources/{id}/refresh-metadata`

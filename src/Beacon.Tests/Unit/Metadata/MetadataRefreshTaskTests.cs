@@ -39,7 +39,7 @@ public class MetadataRefreshTaskTests
         var ticket = await world.StartHandler(tasks.Object).Handle(new StartDataSourceMetadataRefreshCommand(DataSourceId), CancellationToken.None);
 
         ticket.Should().Be(Ticket);
-        tasks.Verify(x => x.StartAsync(BackgroundTaskKind.MetadataRefresh, DataSourceId, It.IsAny<CancellationToken>()), Times.Once);
+        tasks.Verify(x => x.StartAsync(BackgroundTaskKind.MetadataRefresh, DataSourceId, It.IsNotNull<Func<int, SecurityAuditEntry>?>(), It.IsAny<CancellationToken>()), Times.Once);
         world.Metadata.Verify(x => x.RefreshMetadataAsync(It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never, "the task scans, not the request");
     }
 
@@ -47,9 +47,9 @@ public class MetadataRefreshTaskTests
     public async Task Start_IsOnRecord_WithItsTask_AndWhetherItSkippedTheCooldown()
     {
         var audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(4, "ext-dsa"));
-        var world = new World { Audit = audit };
+        var world = new World();
 
-        await world.StartHandler(Tasks(Ticket).Object).Handle(new StartDataSourceMetadataRefreshCommand(DataSourceId), CancellationToken.None);
+        await world.StartHandler(Tasks(Ticket, audit).Object).Handle(new StartDataSourceMetadataRefreshCommand(DataSourceId), CancellationToken.None);
 
         var started = audit.Single("ext-dsa");
         started.Should().BeEquivalentTo(
@@ -68,7 +68,7 @@ public class MetadataRefreshTaskTests
         var start = () => world.StartHandler(tasks.Object).Handle(new StartDataSourceMetadataRefreshCommand(DataSourceId), CancellationToken.None);
 
         await start.Should().ThrowAsync<BeaconRateLimitedException>().WithMessage("*less than 15 minutes ago*");
-        tasks.Verify(x => x.StartAsync(It.IsAny<BackgroundTaskKind>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+        tasks.Verify(x => x.StartAsync(It.IsAny<BackgroundTaskKind>(), It.IsAny<int>(), It.IsAny<Func<int, SecurityAuditEntry>?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Test]
@@ -92,16 +92,16 @@ public class MetadataRefreshTaskTests
         var start = () => world.StartHandler(tasks.Object).Handle(new StartDataSourceMetadataRefreshCommand(DataSourceId), CancellationToken.None);
 
         await start.Should().ThrowAsync<BeaconRateLimitedException>().WithMessage(ForcedMetadataRefreshCooldown.AlreadyRunningMessage);
-        tasks.Verify(x => x.StartAsync(It.IsAny<BackgroundTaskKind>(), It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Never);
+        tasks.Verify(x => x.StartAsync(It.IsAny<BackgroundTaskKind>(), It.IsAny<int>(), It.IsAny<Func<int, SecurityAuditEntry>?>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Test]
     public async Task Start_WhileATaskOfTheSourceIsQueuedOrRunning_IsRefused_AndNotOnRecord()
     {
         var audit = new RecordingSecurityAudit();
-        var world = new World { Audit = audit };
+        var world = new World();
 
-        var start = () => world.StartHandler(Tasks(null).Object).Handle(new StartDataSourceMetadataRefreshCommand(DataSourceId), CancellationToken.None);
+        var start = () => world.StartHandler(Tasks(null, audit).Object).Handle(new StartDataSourceMetadataRefreshCommand(DataSourceId), CancellationToken.None);
 
         await start.Should().ThrowAsync<BeaconRateLimitedException>().WithMessage(ForcedMetadataRefreshCooldown.AlreadyRunningMessage);
         audit.Ways.Should().BeEmpty();
@@ -132,16 +132,30 @@ public class MetadataRefreshTaskTests
     }
 
     [Test]
-    public async Task TheTask_WhileARefreshOfTheSourceRunsInThisProcess_IsRefusedAsBusy_WithoutScanning()
+    public async Task TheTask_WhileARefreshOfTheSourceRunsInThisProcess_IsSkippedAsBusy_WithoutScanning()
     {
         var world = new World();
         world.Cooldown.TryStart(DataSourceId, 15, ignoreCooldown: true).Should().BeNull();
 
-        var run = () => world.Executor().ExecuteAsync(new BackgroundTaskContext(1, DataSourceId, null), CancellationToken.None);
+        var outcome = await world.Executor().ExecuteAsync(new BackgroundTaskContext(1, DataSourceId, null), CancellationToken.None);
 
-        var refused = await run.Should().ThrowAsync<BeaconRateLimitedException>();
-        BackgroundTaskFailureCodes.Of(refused.Which).Should().Be(BackgroundTaskFailureCodes.Busy);
+        outcome.SkippedCode.Should().Be(BackgroundTaskFailureCodes.Busy);
         world.Metadata.Verify(x => x.RefreshMetadataAsync(It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public async Task TheTask_WhenTheUserMayNoLongerManageTheSource_IsSkipped_WithoutScanning()
+    {
+        var world = new World { MayManage = false };
+
+        var outcome = await world.Executor().ExecuteAsync(new BackgroundTaskContext(1, DataSourceId, 4), CancellationToken.None);
+
+        outcome.SkippedCode.Should().Be(BackgroundTaskFailureCodes.Forbidden);
+        world.AccessCheck.Verify(
+            x => x.AllowsAsync(ProjectAction.Manage, It.Is<IReadOnlyCollection<int>>(y => y.SequenceEqual(new[] { DataSourceId })), It.IsAny<string>(), 1, It.IsAny<CancellationToken>()),
+            Times.Once);
+        world.Metadata.Verify(x => x.RefreshMetadataAsync(It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
+        world.Cooldown.Refusal(DataSourceId, 15, ignoreCooldown: true).Should().BeNull("a skipped task holds no refresh slot");
     }
 
     [Test]
@@ -196,12 +210,22 @@ public class MetadataRefreshTaskTests
         read.Should().BeSameAs(status);
     }
 
-    private static Mock<IBackgroundTaskService> Tasks(BackgroundTaskTicket? ticket)
+    // The service saves the start's audit event, built from the new task's id, with the task: this one hands it to
+    // <paramref name="audit"/> when the start is accepted.
+    private static Mock<IBackgroundTaskService> Tasks(BackgroundTaskTicket? ticket, ISecurityAuditRecorder? audit = null)
     {
         var tasks = new Mock<IBackgroundTaskService>();
         tasks
-            .Setup(x => x.StartAsync(BackgroundTaskKind.MetadataRefresh, DataSourceId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(ticket);
+            .Setup(x => x.StartAsync(BackgroundTaskKind.MetadataRefresh, DataSourceId, It.IsAny<Func<int, SecurityAuditEntry>?>(), It.IsAny<CancellationToken>()))
+            .Returns(async (BackgroundTaskKind _, int _, Func<int, SecurityAuditEntry>? auditEvent, CancellationToken cancellationToken) =>
+            {
+                if (ticket != null && audit != null && auditEvent != null)
+                {
+                    await audit.RecordAsync(auditEvent(ticket.TaskId), cancellationToken);
+                }
+
+                return ticket;
+            });
 
         return tasks;
     }
@@ -223,7 +247,9 @@ public class MetadataRefreshTaskTests
 
         public IBeaconPermissionAccessor Permissions { get; init; } = TestPermissions.None;
 
-        public ISecurityAuditRecorder Audit { get; init; } = new RecordingSecurityAudit();
+        public Mock<IExecutionAccessCheck> AccessCheck { get; } = new();
+
+        public bool MayManage { get; init; } = true;
 
         public int SkippedNames { get; init; }
 
@@ -231,12 +257,19 @@ public class MetadataRefreshTaskTests
             Mock.Of<IOptionsMonitor<MetadataRefreshOptions>>(x => x.CurrentValue == new MetadataRefreshOptions { ForcedRefreshCooldownMinutes = 15 });
 
         public StartDataSourceMetadataRefreshHandler StartHandler(IBackgroundTaskService tasks)
-            => new(tasks, Cooldown, Options, Permissions, Audit);
+            => new(tasks, Cooldown, Options, Permissions);
 
         public MetadataRefreshTaskExecutor Executor()
-            => new(
+        {
+            AccessCheck
+                .Setup(x => x.AllowsAsync(It.IsAny<ProjectAction>(), It.IsAny<IReadOnlyCollection<int>>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+                .ReturnsAsync(MayManage);
+
+            return new MetadataRefreshTaskExecutor(
                 new ForcedMetadataRefresh(Metadata.Object, RelationshipSync.Object, NullLogger<ForcedMetadataRefresh>.Instance),
                 Cooldown,
-                Options);
+                Options,
+                AccessCheck.Object);
+        }
     }
 }

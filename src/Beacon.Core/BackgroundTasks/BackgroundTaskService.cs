@@ -1,8 +1,8 @@
-using System.Security.Claims;
 using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.SecurityAudit;
 using Beacon.Core.Worker;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
@@ -13,7 +13,10 @@ namespace Beacon.Core.BackgroundTasks;
 /// <see cref="IBackgroundTaskService"/> over the <c>BackgroundTasks</c> table. Each step of a task's life (queued, handed
 /// over, running, finished) is its own short write, outside the unit of work of whoever calls it: the job runs elsewhere
 /// and later, so its state cannot commit with the request. A step writes only from the state it expects (queued to running,
-/// running to finished), so a task given up as abandoned is never written back as running or finished.
+/// running to finished), so a task given up as abandoned is never written back as running or finished. Off a request, the
+/// run acts as the user who started the task (<see cref="IRunAsScope"/>), never as the system; a task started by a caller
+/// without a stored user (a host without Beacon user management, where such an owner runs as the system anyway) keeps the
+/// job's system scope.
 /// </summary>
 internal sealed class BackgroundTaskService(
     IDbContextFactory<BeaconContext> contextFactory,
@@ -21,31 +24,28 @@ internal sealed class BackgroundTaskService(
     IBeaconScheduler scheduler,
     IBeaconActorAccessor actorAccessor,
     IBeaconRequestPrincipal requestPrincipal,
+    IRunAsScope runAs,
+    ISecurityAuditRecorder securityAudit,
     TimeProvider timeProvider,
     ILogger<BackgroundTaskService> logger) : IBackgroundTaskService
 {
-    public async Task<BackgroundTaskTicket?> StartAsync(BackgroundTaskKind kind, int subjectId, CancellationToken cancellationToken)
+    /// <summary>
+    /// A queued task the job runner never got (the process stopped between recording it and handing it over, or the
+    /// hand-over's job id was never written) is given up this long after it was recorded, not after its kind's limit: the
+    /// hand-over takes milliseconds.
+    /// </summary>
+    internal static readonly TimeSpan LostAfter = TimeSpan.FromMinutes(5);
+
+    public async Task<BackgroundTaskTicket?> StartAsync(
+        BackgroundTaskKind kind,
+        int subjectId,
+        Func<int, SecurityAuditEntry>? auditEvent,
+        CancellationToken cancellationToken)
     {
         var executor = ExecutorOf(kind)
             ?? throw new InvalidOperationException($"No background task executor is registered for {kind}.");
         var now = timeProvider.GetUtcNow().UtcDateTime;
-        var abandonedBefore = now - executor.AbandonAfter;
-
-        await using (var context = await contextFactory.CreateDbContextAsync(cancellationToken))
-        {
-            // A task its job runner stopped running would hold the subject forever: give it up once it is past its limit.
-            await context.BackgroundTasks
-                .Where(x => x.Kind == kind)
-                .Where(x => x.SubjectId == subjectId)
-                .Where(x => x.State == BackgroundTaskState.Queued || x.State == BackgroundTaskState.Running)
-                .Where(x => (x.StartedTime ?? x.CreatedTime) < abandonedBefore)
-                .ExecuteUpdateAsync(
-                    x => x
-                        .SetProperty(y => y.State, BackgroundTaskState.Failed)
-                        .SetProperty(y => y.FinishedTime, now)
-                        .SetProperty(y => y.FailureCode, BackgroundTaskFailureCodes.Abandoned),
-                    cancellationToken);
-        }
+        await GiveUpAbandonedAsync(kind, subjectId, executor, now, cancellationToken);
 
         var task = new BackgroundTask
         {
@@ -55,7 +55,7 @@ internal sealed class BackgroundTaskService(
             State = BackgroundTaskState.Queued,
             CreatedTime = now
         };
-        if (!await TryAddAsync(task, cancellationToken))
+        if (!await TryAddAsync(task, auditEvent, cancellationToken))
         {
             return null;
         }
@@ -92,6 +92,7 @@ internal sealed class BackgroundTaskService(
     {
         BackgroundTaskContext? task;
         BackgroundTaskKind kind;
+        string? requestedByExternalId;
         await using (var context = await contextFactory.CreateDbContextAsync(cancellationToken))
         {
             var row = await context.BackgroundTasks
@@ -102,7 +103,11 @@ internal sealed class BackgroundTaskService(
                     {
                         x.Kind,
                         x.SubjectId,
-                        x.RequestedByUserId
+                        x.RequestedByUserId,
+                        RequestedByExternalId = context.Users
+                            .Where(y => y.Id == x.RequestedByUserId)
+                            .Select(y => y.ExternalId)
+                            .FirstOrDefault()
                     })
                 .FirstOrDefaultAsync(cancellationToken);
             if (row == null)
@@ -113,6 +118,7 @@ internal sealed class BackgroundTaskService(
 
             task = new BackgroundTaskContext(taskId, row.SubjectId, row.RequestedByUserId);
             kind = row.Kind;
+            requestedByExternalId = row.RequestedByExternalId;
         }
 
         if (!await ClaimAsync(taskId, cancellationToken))
@@ -129,6 +135,24 @@ internal sealed class BackgroundTaskService(
             return;
         }
 
+        // Work done for a user runs as that user as they are now (§1.13), set before anything in the scope resolves its caller;
+        // in a request (a host without a job runner) the request's caller is the user who started it.
+        if (!requestPrincipal.HasRequest && task.RequestedByUserId != null)
+        {
+            if (string.IsNullOrEmpty(requestedByExternalId))
+            {
+                logger.LogWarning(
+                    "Background task {TaskId} ({Kind}) skipped: the user who started it ({UserId}) no longer exists.",
+                    taskId,
+                    kind,
+                    task.RequestedByUserId);
+                await FinishAsync(taskId, BackgroundTaskState.Running, BackgroundTaskState.Skipped, BackgroundTaskFailureCodes.Forbidden, null);
+                return;
+            }
+
+            runAs.RunAs(requestedByExternalId);
+        }
+
         BackgroundTaskOutcome outcome;
         try
         {
@@ -142,11 +166,24 @@ internal sealed class BackgroundTaskService(
             throw;
         }
 
+        if (outcome.SkippedCode != null)
+        {
+            logger.LogInformation("Background task {TaskId} ({Kind}) skipped: {FailureCode}.", taskId, kind, outcome.SkippedCode);
+            await FinishAsync(taskId, BackgroundTaskState.Running, BackgroundTaskState.Skipped, outcome.SkippedCode, null);
+            return;
+        }
+
         await FinishAsync(taskId, BackgroundTaskState.Running, BackgroundTaskState.Succeeded, null, outcome.WarningCount);
     }
 
     public async Task<BackgroundTaskStatus?> GetStatusAsync(BackgroundTaskKind kind, int subjectId, int taskId, CancellationToken cancellationToken)
     {
+        var executor = ExecutorOf(kind);
+        if (executor != null)
+        {
+            await GiveUpAbandonedAsync(kind, subjectId, executor, timeProvider.GetUtcNow().UtcDateTime, cancellationToken);
+        }
+
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         return await context.BackgroundTasks
@@ -167,13 +204,34 @@ internal sealed class BackgroundTaskService(
             .FirstOrDefaultAsync(cancellationToken);
     }
 
-    // The id SignalR addresses the caller by (Beacon.Api's HubUserIdProvider: the NameIdentifier claim), so the job's
-    // JobStatusChanged events reach the user who started it and nobody else.
+    // The id the hub addresses the caller by (the same resolver as Beacon.Api's HubUserIdProvider), so the job's
+    // JobStatusChanged events reach the user who started it and nobody else; none for an API key or an MCP caller.
     private string? HubUserId()
     {
-        var id = requestPrincipal.User?.FindFirst(ClaimTypes.NameIdentifier)?.Value;
+        var id = BeaconHubUserId.Of(requestPrincipal.User);
 
         return string.IsNullOrWhiteSpace(id) ? null : id;
+    }
+
+    // A task its job runner stopped running would hold the subject forever: give it up once it is past its kind's limit,
+    // or, still queued without a job, past LostAfter.
+    private async Task GiveUpAbandonedAsync(BackgroundTaskKind kind, int subjectId, IBackgroundTaskExecutor executor, DateTime now, CancellationToken cancellationToken)
+    {
+        var abandonedBefore = now - executor.AbandonAfter;
+        var lostBefore = now - (LostAfter < executor.AbandonAfter ? LostAfter : executor.AbandonAfter);
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        await context.BackgroundTasks
+            .Where(x => x.Kind == kind)
+            .Where(x => x.SubjectId == subjectId)
+            .Where(x => x.State == BackgroundTaskState.Queued || x.State == BackgroundTaskState.Running)
+            .Where(x => (x.StartedTime ?? x.CreatedTime) < abandonedBefore
+                || (x.State == BackgroundTaskState.Queued && x.JobId == null && x.CreatedTime < lostBefore))
+            .ExecuteUpdateAsync(
+                x => x
+                    .SetProperty(y => y.State, BackgroundTaskState.Failed)
+                    .SetProperty(y => y.FinishedTime, now)
+                    .SetProperty(y => y.FailureCode, BackgroundTaskFailureCodes.Abandoned),
+                cancellationToken);
     }
 
     private IBackgroundTaskExecutor? ExecutorOf(BackgroundTaskKind kind)
@@ -181,14 +239,22 @@ internal sealed class BackgroundTaskService(
             .Where(x => x.Kind == kind)
             .FirstOrDefault();
 
-    // The unique index on unfinished tasks refuses a second queued or running task of the kind on the subject.
-    private async Task<bool> TryAddAsync(BackgroundTask task, CancellationToken cancellationToken)
+    // The unique index on unfinished tasks refuses a second queued or running task of the kind on the subject. The start's
+    // audit event commits with the task, before the job runner has it.
+    private async Task<bool> TryAddAsync(BackgroundTask task, Func<int, SecurityAuditEntry>? auditEvent, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         context.BackgroundTasks.Add(task);
         try
         {
-            await context.SaveChangesAsync(cancellationToken);
+            if (auditEvent == null)
+            {
+                await context.SaveChangesAsync(cancellationToken);
+            }
+            else
+            {
+                await securityAudit.SaveWithEventsAsync(context, () => [auditEvent(task.Id)], cancellationToken);
+            }
 
             return true;
         }

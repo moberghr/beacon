@@ -19,7 +19,7 @@ public static class BackgroundTaskFailureCodes
 
     public const string Cancelled = "cancelled";
 
-    /// <summary>Another run of the same work was in progress.</summary>
+    /// <summary>Another run of the same work was in progress (a skipped task: that run's result is the current one).</summary>
     public const string Busy = "busy";
 
     public const string DataSourceDisabled = "data_source_disabled";
@@ -28,6 +28,7 @@ public static class BackgroundTaskFailureCodes
 
     public const string NotFound = "not_found";
 
+    /// <summary>The caller, or for a task the user who started it, may not (or may no longer) do the work.</summary>
     public const string Forbidden = "forbidden";
 
     /// <summary>Anything else; the server log has the details.</summary>

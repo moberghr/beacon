@@ -7,7 +7,11 @@ import { useHubEvent } from '@/lib/useHubEvent';
 export const BACKGROUND_TASK_POLL_MS = 2000;
 
 export function isBackgroundTaskFinished(state: BackgroundTaskState | null | undefined): boolean {
-  return state === BackgroundTaskState.Succeeded || state === BackgroundTaskState.Failed;
+  return (
+    state === BackgroundTaskState.Succeeded ||
+    state === BackgroundTaskState.Failed ||
+    state === BackgroundTaskState.Skipped
+  );
 }
 
 /**

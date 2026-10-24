@@ -17416,6 +17416,7 @@ export enum BackgroundTaskState {
   Running = 1,
   Succeeded = 2,
   Failed = 3,
+  Skipped = 4,
 }
 
 export interface BackgroundTaskStatus {

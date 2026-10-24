@@ -82,6 +82,7 @@ describe('useBackgroundTaskStatus', () => {
     expect(isBackgroundTaskFinished(BackgroundTaskState.Running)).toBe(false);
     expect(isBackgroundTaskFinished(BackgroundTaskState.Succeeded)).toBe(true);
     expect(isBackgroundTaskFinished(BackgroundTaskState.Failed)).toBe(true);
+    expect(isBackgroundTaskFinished(BackgroundTaskState.Skipped)).toBe(true);
     expect(isBackgroundTaskFinished(null)).toBe(false);
   });
 });

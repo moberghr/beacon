@@ -44,9 +44,11 @@ public interface IBeaconScheduler
 
 `EnqueueBackgroundTask` is optional too. Beacon records long work a user starts from the UI (today: a forced metadata
 refresh) as a background task and hands its id to this method; your job calls `IBackgroundTaskService.ExecuteAsync(taskId, ct)`
-in a scope marked as system work. Return the job id (the UI follows `JobStatusChanged` for it, sent to `notifyUserId`,
-the caller's `NameIdentifier`, the id the SignalR hub addresses users by), or `null` (the default): Beacon then runs the
-task in the request that started it, as before.
+in a scope marked as system work; Beacon then runs it as the user who started it and re-checks their access first (a
+task they may no longer run is recorded as skipped, and the job succeeds). Return the job id (the UI follows
+`JobStatusChanged` for it, sent to `notifyUserId`: the id the SignalR hub addresses the caller by, a signed-in
+session's external id, or `null` for an API key or an MCP caller), or `null` (the default): Beacon then runs the task in
+the request that started it, as before.
 
 `EnqueueMetadataRefresh` is optional. Beacon calls it after a data source's connection is pointed at another target, to re-scan its metadata in the background. Return the job id, or `null` (the default) when your host runs no such job; Beacon then logs that the old schema stays until a manual refresh.
 
