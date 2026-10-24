@@ -54,18 +54,6 @@ public class AzureSynapseMetadataExtractor : IDatabaseMetadataExtractor
             JOIN sys.foreign_keys fkc ON fk.constraint_object_id = fkc.object_id";
 
         var foreignKeys = await connection.QueryAsync(new CommandDefinition(foreignKeysQuery, commandTimeout: 180, cancellationToken: cancellationToken));
-        var fkLookup = foreignKeys
-            .GroupBy(fk => $"{fk.table_schema}.{fk.table_name}.{fk.column_name}")
-            .ToDictionary(
-                g => g.Key,
-                g => (
-                    TableName: (string)g.First().foreign_table_name,
-                    ColumnName: (string)g.First().foreign_column_name,
-                    SchemaName: (string?)g.First().foreign_schema_name,
-                    ConstraintName: (string?)g.First().constraint_name)
-            );
-
-        // Synapse may not support STRING_AGG in all configurations, use simpler index query
         const string indexesQuery = @"
             SELECT
                 s.name AS table_schema,
@@ -84,6 +72,27 @@ public class AzureSynapseMetadataExtractor : IDatabaseMetadataExtractor
             ORDER BY s.name, t.name, i.name, ic.key_ordinal";
 
         var indexesData = (await connection.QueryAsync(new CommandDefinition(indexesQuery, commandTimeout: 180, cancellationToken: cancellationToken))).AsList();
+
+        return Assemble(columnsData, foreignKeys, indexesData);
+    }
+
+    /// <summary>
+    /// Builds the table list from the rows the catalog queries returned. Pure: no connection, so a fixture can pin it.
+    /// </summary>
+    internal static IReadOnlyList<TableMetadataDto> Assemble(IEnumerable<dynamic> columnsData, IEnumerable<dynamic> foreignKeys, IEnumerable<dynamic> indexesData)
+    {
+        var fkLookup = foreignKeys
+            .GroupBy(fk => $"{fk.table_schema}.{fk.table_name}.{fk.column_name}")
+            .ToDictionary(
+                g => g.Key,
+                g => (
+                    TableName: (string)g.First().foreign_table_name,
+                    ColumnName: (string)g.First().foreign_column_name,
+                    SchemaName: (string?)g.First().foreign_schema_name,
+                    ConstraintName: (string?)g.First().constraint_name)
+            );
+
+        // Synapse may not support STRING_AGG in all configurations, use simpler index query
 
         // One pass over the index rows instead of a scan of all of them per table.
         var indexesByTable = indexesData.ToLookup(i => ((string)i.table_schema, (string)i.table_name));
