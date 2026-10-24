@@ -69,7 +69,12 @@ internal static class GlossaryEndpoints
                     DataSourceId = dataSourceId,
                     IncludeInactive = includeInactive
                 }, ct))
-            .WithName("GetGlossaryTerms");
+            .WithName("GetGlossaryTerms")
+            .AsDeprecatedUnpagedList("GET /glossary/paged");
+
+        // Paged form of the list above (deprecated: all terms up to a 10,000 safety cap): page, pageSize, sort, search.
+        glossary.MapGet("/paged", ([AsParameters] ListGlossaryTermsQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))
+            .WithName("ListGlossaryTerms");
 
         return group;
     }

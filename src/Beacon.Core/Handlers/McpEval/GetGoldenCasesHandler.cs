@@ -1,4 +1,5 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.Authorization;
@@ -12,7 +13,9 @@ namespace Beacon.Core.Handlers.McpEval;
 /// (named as <see cref="UserLabel"/> names users to one another), and whether a prompt leaves each out: gold SQL that cannot
 /// be shown without its comments in the data source's dialect, or a question holding characters a reviewer cannot see.
 /// </summary>
-internal sealed class GetGoldenCasesHandler(IDbContextFactory<BeaconContext> contextFactory)
+internal sealed class GetGoldenCasesHandler(IDbContextFactory<BeaconContext> contextFactory,
+    LegacyListTruncation? truncation = null,
+    ILogger<GetGoldenCasesHandler>? logger = null)
     : IRequestHandler<GetGoldenCasesQuery, List<GoldenCaseItem>>
 {
     public async Task<List<GoldenCaseItem>> Handle(GetGoldenCasesQuery request, CancellationToken cancellationToken)
@@ -32,6 +35,7 @@ internal sealed class GetGoldenCasesHandler(IDbContextFactory<BeaconContext> con
 
         var items = await query
             .OrderByDescending(x => x.CreatedTime)
+            .Take(ListRequest.LegacyUnpagedCap + 1)
             .Select(x =>
                 new GoldenCaseItem
                 {
@@ -56,6 +60,7 @@ internal sealed class GetGoldenCasesHandler(IDbContextFactory<BeaconContext> con
                         .FirstOrDefault()
                 })
             .ToListAsync(cancellationToken);
+        items = LegacyListTruncation.Apply(items, truncation, logger, "golden cases");
 
         var dialects = await GroundingDialects.OfAsync(
             context,

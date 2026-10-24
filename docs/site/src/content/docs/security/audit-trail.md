@@ -81,7 +81,7 @@ Every action belongs to one category, the part of its name before the dot.
 |---|---|
 | `auth.password_sign_in_succeeded` | A password sign-in issued a session. |
 | `auth.password_sign_in_failed` | A password sign-in did not succeed (`failure`); names the user the sign-in name resolved to, when it did, and the attempt by a keyed hash of the name typed. |
-| `auth.password_sign_in_refused` | A password sign-in refused by rule (`refused`): local login is off and the account is no break-glass account (`local_login_off`), or the password was right but an administrator set it and the user must choose a new one first (`password_change_required`). |
+| `auth.password_sign_in_refused` | A password sign-in refused by rule (`refused`): local login is off and the account is no break-glass account (`local_login_off`), or the password was right but an administrator set it and the user must choose a new one first (`password_change_required`), or the user is locked out after too many wrong passwords, whatever password was sent (`locked_out`). |
 | `auth.break_glass_signed_in` | A break-glass account signed in with its password while local login is off. |
 | `auth.signed_out` | A session signed out. |
 | `auth.signed_out_everywhere` | Every session of a user was ended (**Sign out everywhere**, by the user or an administrator). |
@@ -89,6 +89,7 @@ Every action belongs to one category, the part of its name before the dot.
 | `auth.sso_signed_in` | A single sign-on was admitted. |
 | `auth.sso_refused` | A single sign-on was refused, with the reason; the subject only as its keyed hash. |
 | `auth.setup_token_refused` | First-run setup was attempted with a setup token that does not match. |
+| `auth.user_locked_out` | An internal user's password sign-in was locked after too many wrong passwords in a row (`Beacon:RateLimits:Lockout`); names the user, with the number of attempts, the lockout length in minutes and when it ends. |
 
 **Identity** (`identity`)
 

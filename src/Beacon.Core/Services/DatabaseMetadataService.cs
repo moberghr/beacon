@@ -236,7 +236,10 @@ public class DatabaseMetadataService(
         // Apply table limit
         if (dataSource.MetadataMaxTables > 0)
         {
-            metadataQuery = metadataQuery.Take(dataSource.MetadataMaxTables);
+            // Ordered so the separate column and index queries of the split load agree on which tables the limit kept.
+            metadataQuery = metadataQuery
+                .OrderBy(m => m.Id)
+                .Take(dataSource.MetadataMaxTables);
             logger.LogDebug("Limiting metadata to {MaxTables} tables for data source {DataSourceId}", dataSource.MetadataMaxTables, dataSourceId);
         }
 
@@ -249,9 +252,12 @@ public class DatabaseMetadataService(
         }
         else
         {
+            // Read-only and split: one joined query over two collections would repeat every column once per index.
             metadata = await metadataQuery
+                .AsNoTracking()
                 .Include(m => m.Columns)
                 .Include(m => m.Indexes)
+                .AsSplitQuery()
                 .ToListAsync(cancellationToken);
         }
 
@@ -499,6 +505,7 @@ public class DatabaseMetadataService(
         CancellationToken cancellationToken)
     {
         var metadata = await context.DatabaseMetadata
+            .AsNoTracking()
             .Where(m => m.DataSourceId == dataSourceId && m.ArchivedTime == null)
             .Include(m => m.Columns)
             .ToListAsync(cancellationToken);

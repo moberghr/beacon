@@ -75,10 +75,12 @@ internal sealed class ValueGroundingService(
 
     // A quote counts as a delimiter only when it is not glued to a letter/digit on the outside, so a
     // possessive/contraction apostrophe ("customer's orders from 'Berlin'") cannot open a bogus span.
-    private static readonly Regex QuotedSpanRegex = new(@"(?<![\p{L}\p{N}])[""']([^""']+)[""'](?![\p{L}\p{N}])", RegexOptions.Compiled);
-    private static readonly Regex SentenceSplitRegex = new(@"(?<=[.!?])\s+", RegexOptions.Compiled);
-    private static readonly Regex DateLikeRegex = new(@"^\d{1,4}[-/]\d{1,2}[-/]\d{1,4}$", RegexOptions.Compiled);
-    private static readonly Regex AllowedCharsetRegex = new(@"^[\p{L}\p{N} .\-_/&']+$", RegexOptions.Compiled);
+    private static readonly TimeSpan MatchTimeout = TimeSpan.FromMilliseconds(250);
+
+    private static readonly Regex QuotedSpanRegex = new(@"(?<![\p{L}\p{N}])[""']([^""']+)[""'](?![\p{L}\p{N}])", RegexOptions.Compiled, MatchTimeout);
+    private static readonly Regex SentenceSplitRegex = new(@"(?<=[.!?])\s+", RegexOptions.Compiled, MatchTimeout);
+    private static readonly Regex DateLikeRegex = new(@"^\d{1,4}[-/]\d{1,2}[-/]\d{1,4}$", RegexOptions.Compiled, MatchTimeout);
+    private static readonly Regex AllowedCharsetRegex = new(@"^[\p{L}\p{N} .\-_/&']+$", RegexOptions.Compiled, MatchTimeout);
 
     internal TimeSpan ProbeTimeout { get; init; } = DefaultProbeTimeout;
 
@@ -92,7 +94,17 @@ internal sealed class ValueGroundingService(
             return "";
         }
 
-        var literals = ExtractLiterals(question);
+        IReadOnlyList<string> literals;
+        try
+        {
+            literals = ExtractLiterals(question);
+        }
+        catch (RegexMatchTimeoutException)
+        {
+            logger.LogWarning("Value grounding literal extraction timed out for data source {DataSourceId}; injecting no value-matches block.", dataSourceId);
+            return "";
+        }
+
         if (literals.Count == 0)
         {
             return "";

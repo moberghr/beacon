@@ -1255,7 +1255,7 @@ internal sealed class KnowledgeGraphService(
         }
 
         var terms = System.Text.RegularExpressions.Regex
-            .Split(phrase, @"[^\p{L}\p{N}_]+")
+            .Split(phrase, @"[^\p{L}\p{N}_]+", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1))
             .Where(x => x.Length > 1)
             .Where(x => !SearchStopWords.Contains(x))
             .Distinct()
@@ -2311,7 +2311,7 @@ internal sealed class KnowledgeGraphService(
         }
 
         return System.Text.RegularExpressions.Regex
-            .Split(query, "[^A-Za-z0-9]+")
+            .Split(query, "[^A-Za-z0-9]+", System.Text.RegularExpressions.RegexOptions.None, TimeSpan.FromSeconds(1))
             .Where(x => x.Length > 2)
             .Select(x => x.ToLowerInvariant())
             .Where(x => !StopWords.Contains(x))

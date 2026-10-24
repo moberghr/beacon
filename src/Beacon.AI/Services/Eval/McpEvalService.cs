@@ -187,6 +187,10 @@ internal sealed class McpEvalService(
         }
         catch (OperationCanceledException)
         {
+            // A job timeout or shutdown cancels the run: close its row so it never stays Running.
+            run.Status = "Failed";
+            run.Notes = "The run was cancelled before it finished.";
+            await context.SaveChangesAsync(CancellationToken.None);
             throw;
         }
         catch (Exception ex)
