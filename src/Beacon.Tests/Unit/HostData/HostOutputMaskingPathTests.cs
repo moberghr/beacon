@@ -199,7 +199,7 @@ public class HostOutputMaskingPathTests
     {
         Connect(true, ServerColumns());
 
-        var result = await QueryTool().ExecuteAsync(datasource_id: HostDataSourceId, sql: PostgresSql, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(QueryTool(), x => x.ExecuteAsync(datasource_id: HostDataSourceId, sql: PostgresSql, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         var text = result.Content.OfType<TextContentBlock>().Single().Text;
@@ -227,7 +227,7 @@ public class HostOutputMaskingPathTests
                 Rows = [new Dictionary<string, object?> { ["Id"] = 1, ["kt"] = Ssn }]
             });
 
-        var result = await QueryTool(provider.Object, piiDetection).ExecuteAsync(datasource_id: HostDataSourceId, sql: PostgresSql, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(QueryTool(provider.Object, piiDetection), x => x.ExecuteAsync(datasource_id: HostDataSourceId, sql: PostgresSql, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         result.Content.OfType<TextContentBlock>().Single().Text.Should().NotContain(Ssn);
@@ -397,7 +397,7 @@ public class HostOutputMaskingPathTests
             NullLogger<McpSignalService>.Instance);
         var guardrail = new QueryGuardrailService();
 
-        return new ProjectQueryTool(
+        return TestToolCalls.Track(recorder => new ProjectQueryTool(
             factory.Object,
             TestQueryServices.Providers(provider ?? Provider(npgsql: true)),
             guardrail,
@@ -407,11 +407,10 @@ public class HostOutputMaskingPathTests
             knowledgeGraph.Object,
             SettingsProviderMock.Unshared(settingsProvider.Object),
             new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId] },
-            auditService,
-            signalService,
+            recorder,
             new McpQueryConcurrencyLimiter(),
             TestQueryCostLimit.Passing,
-            NullLogger<ProjectQueryTool>.Instance);
+            NullLogger<ProjectQueryTool>.Instance), () => TestToolCalls.Recorder(auditService, signalService));
     }
 
     private sealed record Paging : ListRequest;

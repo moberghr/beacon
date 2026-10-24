@@ -27,7 +27,7 @@ namespace Beacon.Tests.Unit;
 /// </summary>
 [TestFixture]
 [NonParallelizable]
-public class McpAuditTelemetryTests
+public partial class McpAuditTelemetryTests
 {
     // Const, never the static ActivitySource field: referencing that inside ShouldListenTo re-enters its static ctor.
     private const string SourceName = "Beacon.Tests.McpAuditTelemetry";

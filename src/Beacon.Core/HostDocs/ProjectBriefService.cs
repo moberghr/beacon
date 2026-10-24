@@ -484,13 +484,8 @@ internal sealed class ProjectBriefService(
 
         // PostgreSQL folds unquoted names to lower case, so a mixed-case EF name must be quoted.
         return hostSource.Engine == DatabaseEngineType.PostgreSQL
-            ? $"{QuotePostgres(table.SchemaName)}.{QuotePostgres(table.TableName)}"
+            ? $"{SqlIdentifierGuard.QuotePostgresIfNeeded(table.SchemaName)}.{SqlIdentifierGuard.QuotePostgresIfNeeded(table.TableName)}"
             : $"{table.SchemaName}.{table.TableName}";
-    }
-
-    private static string QuotePostgres(string name)
-    {
-        return name.All(x => char.IsAsciiLetterLower(x) || char.IsAsciiDigit(x) || x == '_') ? name : $"\"{name}\"";
     }
 
     private static void AppendTables(StringBuilder sb, ProjectBriefData data)

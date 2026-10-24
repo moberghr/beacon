@@ -4,7 +4,8 @@ using Beacon.Core.SecurityAudit;
 namespace Beacon.Core.ChangeApprovals;
 
 /// <summary>
-/// The security audit events of the change approval workflow (migration jobs, Custom SQL rules, recipient destinations):
+/// The security audit events of the change approval workflow (migration jobs, Custom SQL rules, recipient destinations,
+/// data-source connections, the LLM connection):
 /// a submission, by its requester (the caller), and a decision, by its reviewer (the caller), naming the request, its
 /// kind and the resource it changes, and the requester by <c>Users.Id</c> — never the proposed definition or a comment.
 /// </summary>

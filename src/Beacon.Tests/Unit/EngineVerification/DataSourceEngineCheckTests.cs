@@ -379,6 +379,8 @@ public class DataSourceEngineCheckTests
             new RecordingSecurityAudit(),
             TestTransport.Policy(),
             new DatabaseEngineVerifier(NullLogger<DatabaseEngineVerifier>.Instance),
+            TestChangeApprovals.Submitter(),
+            TestTransport.Hasher(),
             NullLogger<DataSourceService>.Instance);
     }
 

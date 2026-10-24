@@ -265,6 +265,11 @@ public class GovernanceEventTests
             TestChangeApprovals.Hasher,
             TestChangeApprovals.On(),
             decisions,
+            TestPermissions.Admin,
+            TestChangeApprovals.ReviewerUnchanged,
+            TestChangeApprovals.NoDefinitions,
+            TestChangeApprovals.NoProbe,
+            TestChangeApprovals.Llm(),
             NullLogger<ChangeApprovalService>.Instance);
 
         if (approve)

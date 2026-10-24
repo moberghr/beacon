@@ -5,7 +5,16 @@ import { fireEvent, screen, waitFor, within } from '@testing-library/react';
 import { mswServer } from '../../../vitest.setup';
 import { renderWithProviders } from '@/test/render';
 import { permissionsHandler } from '@/test/permissions';
-import { ApprovalStatus, ChangeApprovalKind, MigrationMode, NotificationType } from '@/lib/enums';
+import {
+  AiProvider,
+  ApprovalStatus,
+  BedrockAuthMode,
+  ChangeApprovalKind,
+  DatabaseEngineType,
+  DataSourceType,
+  MigrationMode,
+  NotificationType,
+} from '@/lib/enums';
 import ApprovalsListPage from './ApprovalsListPage';
 import ChangeApprovalDetailPage from './ChangeApprovalDetailPage';
 
@@ -136,6 +145,19 @@ describe('reviewing a change of a migration job, a Custom SQL rule or a recipien
     expect(await screen.findByText('A newer change replaced this request')).toBeInTheDocument();
     expect(screen.getByText('Superseded')).toBeInTheDocument();
     expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument();
+  });
+
+  it('shows an error view, no decision and no content when the server refuses the request as not found (an LLM change for a non-Admin)', async () => {
+    mswServer.use(
+      permissionsHandler({ permissions: ['Approver'] }),
+      http.get('*/beacon/api/approvals/changes/31', () => HttpResponse.json({ title: 'Not found', status: 404 }, { status: 404 })),
+    );
+
+    renderDetail();
+
+    expect(await screen.findByText(/not found/i)).toBeInTheDocument();
+    expect(screen.queryByRole('button', { name: 'Approve' })).not.toBeInTheDocument();
+    expect(screen.queryByText('Nightly copy')).not.toBeInTheDocument();
   });
 
   it('shows a deleted resource without a link', async () => {
@@ -388,5 +410,176 @@ describe('the approvals list by kind of change', () => {
 
     expect(await screen.findByText('Nightly copy')).toBeInTheDocument();
     expect(kindAsked).toBe(`${ChangeApprovalKind.MigrationJob}`);
+  });
+});
+
+describe('reviewing a change of a data source connection or the LLM connection', () => {
+  const CONNECTION = {
+    name: 'ledger-db',
+    dataSourceType: DataSourceType.Database,
+    databaseEngineType: DatabaseEngineType.PostgreSQL,
+    host: 'ledger.db.internal',
+    port: 5432,
+    database: 'ledger',
+    login: 'beacon_reader',
+    changedSettings: [],
+    secretOnlyDefinition: false,
+    fingerprint: '111111111111',
+    authenticatesServer: true,
+    databaseReadOnlyEnforced: true,
+    isTargetChange: false,
+  };
+  const CONNECTION_DETAIL = {
+    ...DETAIL,
+    kind: ChangeApprovalKind.DataSourceConnection,
+    resourceId: 9,
+    resourceName: 'ledger-db',
+    changeSummary: 'Host, Database changed',
+    proposedMigrationJob: null,
+    previousDataSourceConnection: CONNECTION,
+    proposedDataSourceConnection: {
+      ...CONNECTION,
+      host: 'ledger-replica.db.internal',
+      database: 'ledger_reporting',
+      changedSettings: ['Database', 'Host', 'Options'],
+      fingerprint: '222222222222',
+      isTargetChange: true,
+      // Never sent by the server; a field the page does not know is not shown.
+      password: 'not-shown-9f8e',
+    },
+    previousLlmConnection: null,
+    proposedLlmConnection: null,
+    currentProjects: [{ id: 5, name: 'Ledger' }],
+  };
+
+  it('shows the host, port, database and login, the names of the changed settings, the fingerprints and the linked projects', async () => {
+    serve(CONNECTION_DETAIL);
+
+    renderDetail();
+
+    const connection = await screen.findByRole('region', { name: 'Data source connection' });
+    expect(within(connection).getByText('ledger.db.internal')).toBeInTheDocument();
+    expect(within(connection).getByText('ledger-replica.db.internal')).toBeInTheDocument();
+    expect(within(connection).getByText('ledger_reporting')).toBeInTheDocument();
+    expect(within(connection).getByText('beacon_reader')).toBeInTheDocument();
+    expect(within(connection).getByText('5432')).toBeInTheDocument();
+    expect(within(connection).getByText('111111111111')).toBeInTheDocument();
+    expect(within(connection).getByText('222222222222')).toBeInTheDocument();
+    const settings = within(connection).getByRole('list', { name: 'Changed settings' });
+    expect(within(settings).getAllByRole('listitem').map(x => x.textContent)).toEqual(['Database', 'Host', 'Options']);
+    expect(within(within(connection).getByRole('list', { name: 'Linked projects' })).getByText('Ledger')).toBeInTheDocument();
+    expect(within(connection).getByText('Points the source at another server or database')).toBeInTheDocument();
+    expect(screen.queryByText(/not-shown-9f8e/)).not.toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'ledger-db' })).toHaveAttribute('href', '/data-sources/9');
+  });
+
+  it('says a connection its connector cannot show is compared by fingerprint, and approves it only with a comment', async () => {
+    serve({
+      ...CONNECTION_DETAIL,
+      previousDataSourceConnection: null,
+      proposedDataSourceConnection: {
+        ...CONNECTION,
+        dataSourceType: DataSourceType.BigQuery,
+        databaseEngineType: null,
+        host: null,
+        port: null,
+        database: null,
+        login: null,
+        secretOnlyDefinition: true,
+        fingerprint: '333333333333',
+      },
+      commentRequiredToApprove: true,
+    });
+
+    renderDetail();
+
+    const connection = await screen.findByRole('region', { name: 'Data source connection' });
+    expect(within(connection).getByText(/The data source is new/)).toBeInTheDocument();
+    expect(within(connection).getByText(/compared only by its fingerprint/)).toBeInTheDocument();
+    expect(within(connection).getByText('333333333333')).toBeInTheDocument();
+    expect(within(connection).queryByRole('list', { name: 'Changed settings' })).not.toBeInTheDocument();
+    const approve = await screen.findByRole('button', { name: 'Approve' });
+    expect(approve).toBeDisabled();
+    fireEvent.change(screen.getByLabelText(/Reviewer comment \(required to approve\)/), {
+      target: { value: 'Compared the fingerprint with the requester.' },
+    });
+    expect(approve).toBeEnabled();
+  });
+
+  it("shows the LLM connection's provider, endpoint host, models and fingerprints, never a credential", async () => {
+    const llm = {
+      fromHostConfiguration: false,
+      provider: AiProvider.OpenAI,
+      endpoint: null,
+      endpointFingerprint: null,
+      region: null,
+      bedrockAuthMode: BedrockAuthMode.IamRole,
+      model: 'gpt-4o',
+      fastModel: 'gpt-4o-mini',
+      basedOn: null,
+      credentials: [{ name: 'API key', fingerprint: 'aaaaaaaaaaaa' }],
+    };
+    serve(
+      {
+        ...DETAIL,
+        kind: ChangeApprovalKind.LlmConnection,
+        resourceId: 0,
+        resourceName: 'LLM connection',
+        changeSummary: 'Provider, Endpoint changed',
+        proposedMigrationJob: null,
+        previousLlmConnection: llm,
+        proposedLlmConnection: {
+          ...llm,
+          provider: AiProvider.AzureOpenAI,
+          endpoint: 'https://contoso.openai.azure.com',
+          endpointFingerprint: 'cccccccccccc',
+          basedOn: 'dddddddddddd',
+          credentials: [{ name: 'API key', fingerprint: 'bbbbbbbbbbbb' }],
+          // Never sent by the server; a field the page does not know is not shown.
+          apiKey: 'sk-not-shown-1234',
+        },
+        currentProjects: [],
+      },
+      [],
+    );
+    mswServer.use(permissionsHandler({ isAdmin: true }));
+
+    renderDetail();
+
+    const connection = await screen.findByRole('region', { name: 'LLM connection' });
+    expect(within(connection).getByText('OpenAI')).toBeInTheDocument();
+    expect(within(connection).getByText('Azure OpenAI')).toBeInTheDocument();
+    expect(within(connection).getByText('https://contoso.openai.azure.com')).toBeInTheDocument();
+    expect(within(connection).getByText('cccccccccccc')).toBeInTheDocument();
+    expect(within(connection).getByText('dddddddddddd')).toBeInTheDocument();
+    const apiKey = within(within(connection).getByRole('list', { name: 'Credentials' })).getByText('API key').closest('li') as HTMLElement;
+    expect(within(apiKey).getByText('bbbbbbbbbbbb')).toBeInTheDocument();
+    expect(within(apiKey).getByText('Value changed')).toBeInTheDocument();
+    expect(screen.queryByText(/sk-not-shown-1234/)).not.toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'LLM connection' })).toHaveAttribute('href', '/admin-settings');
+  });
+
+  it('says when the LLM connection was the host configuration, without values', async () => {
+    serve(
+      {
+        ...DETAIL,
+        kind: ChangeApprovalKind.LlmConnection,
+        resourceId: 0,
+        resourceName: 'LLM connection',
+        proposedMigrationJob: null,
+        previousLlmConnection: { fromHostConfiguration: true, provider: null, endpoint: null, endpointFingerprint: null, region: null, bedrockAuthMode: BedrockAuthMode.IamRole, model: null, fastModel: null, basedOn: null, credentials: [] },
+        proposedLlmConnection: { fromHostConfiguration: false, provider: AiProvider.Claude, endpoint: null, endpointFingerprint: null, region: null, bedrockAuthMode: BedrockAuthMode.IamRole, model: 'claude-model', fastModel: null, basedOn: 'eeeeeeeeeeee', credentials: [] },
+        currentProjects: [],
+      },
+      [],
+    );
+    mswServer.use(permissionsHandler({ isAdmin: true }));
+
+    renderDetail();
+
+    const connection = await screen.findByRole('region', { name: 'LLM connection' });
+    expect(within(connection).getByText(/the host's configuration is in use/)).toBeInTheDocument();
+    expect(within(connection).getByText('Anthropic')).toBeInTheDocument();
+    expect(within(connection).getByText('No credential is stored.')).toBeInTheDocument();
   });
 });

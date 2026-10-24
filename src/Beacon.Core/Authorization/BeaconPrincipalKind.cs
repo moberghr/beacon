@@ -28,5 +28,11 @@ internal enum BeaconPrincipalKind
     McpCaller,
 
     /// <summary>The owner of scheduled work, resolved by <see cref="IBeaconActorAccessor.ResolveOwnerAsync"/>.</summary>
-    Owner
+    Owner,
+
+    /// <summary>
+    /// An embed grant, or an embed token issued for it, acting for the grant's creator (<see cref="BeaconActor.BeaconUserId"/>)
+    /// in the grant's one project (<see cref="BeaconActor.AllowedProjectIds"/>): read and run only, never the Admin bypass.
+    /// </summary>
+    Embed
 }

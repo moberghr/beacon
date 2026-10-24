@@ -1,4 +1,4 @@
-import { beforeEach, describe, it, expect, vi } from 'vitest';
+import { afterEach, beforeEach, describe, it, expect, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { Route, Routes } from 'react-router-dom';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
@@ -10,7 +10,7 @@ import { AccessReady } from '@/test/AccessReady';
 import DataSourceDetailPage from './DataSourceDetailPage';
 
 vi.mock('sonner', () => ({
-  toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
+  toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn(), info: vi.fn() },
 }));
 
 function entry(overrides: Record<string, unknown>) {
@@ -113,13 +113,41 @@ describe('DataSourceDetailPage metadata refresh', () => {
   beforeEach(() => {
     vi.mocked(toast.warning).mockClear();
     vi.mocked(toast.error).mockClear();
+    vi.mocked(toast.success).mockClear();
+    vi.mocked(toast.info).mockClear();
   });
+
+  // A refresh's toasts are not left for the next describe block to find.
+  afterEach(() => {
+    vi.mocked(toast.warning).mockClear();
+    vi.mocked(toast.error).mockClear();
+    vi.mocked(toast.success).mockClear();
+    vi.mocked(toast.info).mockClear();
+  });
+
+  function task(state: number, overrides: Record<string, unknown> = {}) {
+    return {
+      taskId: 31,
+      jobId: 'job-1',
+      state,
+      createdTime: '2026-10-24T12:00:00Z',
+      startedTime: null,
+      finishedTime: null,
+      failureCode: null,
+      warningCount: null,
+      ...overrides,
+    };
+  }
+
+  const started = http.post('*/beacon/api/data-sources/42/metadata-refreshes', () =>
+    HttpResponse.json({ taskId: 31, jobId: 'job-1', state: 0 }, { status: 202 }),
+  );
 
   it('says when the metadata was refreshed too recently (429), as a warning rather than a failure', async () => {
     const cooldown = "This data source's metadata was refreshed less than 15 minutes ago; try again later.";
     renderWith(
       entry({}),
-      http.post('*/beacon/api/data-sources/42/refresh-metadata', () =>
+      http.post('*/beacon/api/data-sources/42/metadata-refreshes', () =>
         HttpResponse.json({ title: cooldown, status: 429 }, { status: 429 }),
       ),
     );
@@ -133,7 +161,7 @@ describe('DataSourceDetailPage metadata refresh', () => {
   it("reports any other refusal as a failure with the server's reason", async () => {
     renderWith(
       entry({}),
-      http.post('*/beacon/api/data-sources/42/refresh-metadata', () =>
+      http.post('*/beacon/api/data-sources/42/metadata-refreshes', () =>
         HttpResponse.json({ title: 'Metadata loading is disabled for this data source.', status: 400 }, { status: 400 }),
       ),
     );
@@ -143,17 +171,92 @@ describe('DataSourceDetailPage metadata refresh', () => {
     await waitFor(() => expect(toast.error).toHaveBeenCalledWith('Metadata loading is disabled for this data source.'));
   });
 
+  it('starts a background refresh, shows its progress, and reads the catalog again when it succeeds', async () => {
+    let reads = 0;
+    let metadataReads = 0;
+    renderWith(
+      entry({}),
+      started,
+      http.get('*/beacon/api/data-sources/42/metadata-refreshes/31', () => {
+        reads += 1;
+        return HttpResponse.json(reads === 1 ? task(1) : task(2, { warningCount: 0 }));
+      }),
+      http.get('*/beacon/api/data-sources/42/metadata', () => {
+        metadataReads += 1;
+        return HttpResponse.json({ tables: [] });
+      }),
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: /refresh metadata/i }));
+
+    expect(await screen.findByRole('button', { name: /refreshing metadata/i })).toBeDisabled();
+    const before = metadataReads;
+    await waitFor(() => expect(toast.success).toHaveBeenCalledWith('Metadata refreshed from source'), { timeout: 5000 });
+    await waitFor(() => expect(metadataReads).toBeGreaterThan(before));
+    expect(await screen.findByRole('button', { name: /refresh metadata/i })).toBeEnabled();
+  });
+
   it('says how many names the refresh left out', async () => {
     renderWith(
       entry({}),
-      http.post('*/beacon/api/data-sources/42/refresh-metadata', () =>
-        HttpResponse.json({ dataSourceId: 42, databaseEngineType: 1, tables: [], refreshedAt: '2026-10-12T08:00:00Z', skippedNameCount: 3 }),
-      ),
+      started,
+      http.get('*/beacon/api/data-sources/42/metadata-refreshes/31', () => HttpResponse.json(task(2, { warningCount: 3 }))),
     );
 
     fireEvent.click(await screen.findByRole('button', { name: /refresh metadata/i }));
 
     await waitFor(() => expect(toast.warning).toHaveBeenCalledWith(expect.stringContaining('3 table or column names were left out')));
+  });
+
+  it('says why a background refresh failed, by its code', async () => {
+    renderWith(
+      entry({}),
+      started,
+      http.get('*/beacon/api/data-sources/42/metadata-refreshes/31', () =>
+        HttpResponse.json(task(3, { failureCode: 'data_source_disabled' })),
+      ),
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: /refresh metadata/i }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith('This data source is disabled; enable it to refresh its metadata.'));
+    expect(toast.success).not.toHaveBeenCalled();
+  });
+
+  it('reads the catalog again when the refresh was skipped because another one of the source was running', async () => {
+    let metadataReads = 0;
+    renderWith(
+      entry({}),
+      started,
+      http.get('*/beacon/api/data-sources/42/metadata-refreshes/31', () =>
+        HttpResponse.json(task(4, { failureCode: 'busy' })),
+      ),
+      http.get('*/beacon/api/data-sources/42/metadata', () => {
+        metadataReads += 1;
+        return HttpResponse.json({ tables: [] });
+      }),
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: /refresh metadata/i }));
+
+    const before = metadataReads;
+    await waitFor(() => expect(toast.info).toHaveBeenCalledWith(expect.stringContaining('already running')));
+    await waitFor(() => expect(metadataReads).toBeGreaterThan(before));
+    expect(toast.error).not.toHaveBeenCalled();
+  });
+
+  it('says when the refresh was skipped because the caller may no longer manage the source', async () => {
+    renderWith(
+      entry({}),
+      started,
+      http.get('*/beacon/api/data-sources/42/metadata-refreshes/31', () =>
+        HttpResponse.json(task(4, { failureCode: 'forbidden' })),
+      ),
+    );
+
+    fireEvent.click(await screen.findByRole('button', { name: /refresh metadata/i }));
+
+    await waitFor(() => expect(toast.error).toHaveBeenCalledWith(expect.stringContaining('can no longer manage this data source')));
   });
 });
 
@@ -307,5 +410,41 @@ describe('DataSourceDetailPage migration write target', () => {
 
     await waitFor(() => expect(screen.queryByText(/change its login to one that can only read first/i)).not.toBeInTheDocument());
     expect(sent).toBeNull();
+  });
+});
+
+describe('DataSourceDetailPage held connection', () => {
+  const approval = { requestId: 41, kind: 4, requestedTime: '2026-10-23T08:00:00Z', awaitsFirstApproval: true };
+
+  it('says a held source connects to nothing until approved and how to withdraw it, badging it', async () => {
+    renderWith(
+      entry({ approval }),
+      http.get('*/beacon/api/auth/me', () =>
+        HttpResponse.json({ userId: 'u1', userName: 'tester', displayName: 'Tester', email: null, isAuthenticated: true, roles: [] })),
+      permissionsHandler({ permissions: ['Approver'] }),
+    );
+
+    expect(await screen.findByText('Held for approval')).toBeInTheDocument();
+    expect(screen.getByText(/connects to nothing until a second person approves its connection/)).toBeInTheDocument();
+    expect(screen.getByText(/delete the data source, or save the connection that was approved before back/)).toBeInTheDocument();
+    expect(screen.getByText('Awaiting approval')).toBeInTheDocument();
+    expect(await screen.findByRole('link', { name: 'Review the pending change' })).toHaveAttribute('href', '/approvals/changes/41');
+  });
+
+  it('shows neither banner nor badge when nothing waits', async () => {
+    renderWith(entry({}));
+
+    expect(await screen.findByText('Identifier')).toBeInTheDocument();
+    expect(screen.queryByText('Held for approval')).not.toBeInTheDocument();
+    expect(screen.queryByText('Awaiting approval')).not.toBeInTheDocument();
+  });
+
+  it('tells every reader a held source with no pending request must be saved again', async () => {
+    renderWith(entry({ approval: null, awaitsFirstApproval: true }));
+
+    expect(await screen.findByText('Held: no change request waits')).toBeInTheDocument();
+    expect(screen.getByText(/Save the connection to submit it for approval again/)).toBeInTheDocument();
+    expect(screen.getByText('Held')).toBeInTheDocument();
+    expect(screen.queryByText('Held for approval')).not.toBeInTheDocument();
   });
 });

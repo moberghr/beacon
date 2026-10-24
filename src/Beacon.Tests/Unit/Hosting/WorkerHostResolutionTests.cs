@@ -52,6 +52,39 @@ public class WorkerHostResolutionTests
     }
 
     [Test]
+    public void AWorkerHostWithoutUserManagement_PassesContainerValidation()
+    {
+        var act = () => WorkerHost(validate: true).Dispose();
+
+        act.Should().NotThrow();
+    }
+
+    [Test]
+    public async Task WithoutUserManagement_TheUserAndRoleServicesRefuseEveryCall()
+    {
+        using var provider = WorkerHost();
+        using var scope = provider.CreateScope();
+
+        var users = scope.ServiceProvider.GetRequiredService<IUserManagementService>();
+        var roles = scope.ServiceProvider.GetRequiredService<IRoleService>();
+
+        var usersAct = () => users.GetUserByIdAsync(1);
+        var rolesAct = () => roles.GetRolesAsync();
+
+        await usersAct.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(DisabledUserManagement.Message);
+        await rolesAct.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(DisabledUserManagement.Message);
+        users.OrNull().Should().BeNull("code that falls back without a user store sees none");
+    }
+
+    [Test]
+    public void OrNull_KeepsARealUserStore()
+    {
+        var users = new Mock<IUserManagementService>().Object;
+
+        users.OrNull().Should().BeSameAs(users);
+    }
+
+    [Test]
     public async Task WithoutAnAccessor_ApiKeyManagementIsRefused()
     {
         var users = new Mock<IUserManagementService>(MockBehavior.Strict);
@@ -173,8 +206,6 @@ public class WorkerHostResolutionTests
             services.AddSingleton(users);
         }
 
-        // ValidateOnBuild only where asked: without user management Core registers handlers whose user and role services
-        // only the user-management registration adds, on every host.
         return services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true, ValidateOnBuild = validate });
     }
 
