@@ -6,7 +6,7 @@
 
 §6.2 **`IMemoryCache` is the standard for hot, rarely-changing reads.** Used for MCP settings, metadata, and app settings. Cache invalidation happens on the corresponding write handler — keep that pairing intact.
 
-§6.3 **Kestrel timeouts are tuned for AI workloads.** Keep-alive and request-header timeouts are 5 minutes. `HttpClient` default timeout is also 5 minutes. Do not lower these without checking what depends on a long-running request.
+§6.3 **Kestrel timeouts are tuned for AI workloads.** Keep-alive and request-header timeouts are 5 minutes. `HttpClient` default timeout is also 5 minutes. Hosts set all three with `builder.ConfigureBeaconTimeouts()` (`BeaconHostTimeouts` in `Beacon.Api`; host-wide settings, so Beacon never applies them on its own). Do not lower these without checking what depends on a long-running request.
 
 §6.4 **Warp polling is 1 second (`opt.PollingInterval`); automatic retry is disabled** — the host does NOT call `opt.AddRetry()`, so failed jobs stay failed. Failures are investigated, not retried blindly. If you add a job that legitimately needs retries, configure it on that job (`[Retry(MaxRetries = n)]`), not globally. Worker count is capped (`opt.WorkerCount = min(2×ProcessorCount, 20)`) to protect the Npgsql pool.
 

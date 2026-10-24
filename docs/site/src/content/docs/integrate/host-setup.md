@@ -44,13 +44,9 @@ using Beacon.UI;                              // MapBeaconUi, BeaconUiEndpointRo
 var builder = WebApplication.CreateBuilder(args);
 const string beaconBasePath = BeaconUiEndpointRouteBuilderExtensions.BasePath; // "/beacon"
 
-// AI work (documentation, ask) can run for minutes; keep server and HttpClient timeouts long.
-builder.WebHost.ConfigureKestrel(x =>
-{
-    x.Limits.KeepAliveTimeout = TimeSpan.FromMinutes(5);
-    x.Limits.RequestHeadersTimeout = TimeSpan.FromMinutes(5);
-});
-builder.Services.AddHttpClient().ConfigureHttpClientDefaults(x => x.ConfigureHttpClient(y => y.Timeout = TimeSpan.FromMinutes(5)));
+// AI work (documentation, ask) can run for minutes: Kestrel's keep-alive and request-header timeouts and the default
+// HttpClient timeout become 5 minutes (host-wide settings, so Beacon applies them only when you call this).
+builder.ConfigureBeaconTimeouts();
 
 // Your job runner (here: Warp). See "Background jobs".
 builder.Services.AddBeaconWarp(builder.Configuration);
@@ -79,6 +75,7 @@ builder.Services.AddBeaconCookieAuthentication(beaconBasePath);
 builder.Services.AddBeaconDataProtection(builder.Configuration, builder.Environment);
     // Outside Development chain .ProtectKeysWithCertificate(...) or .ProtectKeysWithAzureKeyVault(...) here.
 builder.Services.AddBeaconOidcAuthentication(builder.Configuration);   // no-op unless Beacon:Authentication:Oidc:Enabled
+builder.Services.AddBeaconOidcMcpJwtAuthentication(builder.Configuration);  // bearer JWTs, only with Oidc:McpJwksEndpoint
 
 // 3. AI and MCP (optional).
 builder.Services.AddBeaconAI(builder.Configuration);
@@ -92,7 +89,7 @@ builder.Services.AddAntiforgery(x =>
 });
 builder.Services.AddBeaconApiAuthorization();   // BeaconApi, Admin, Execute-scope and permission policies
 builder.Services.AddBeaconApiServices();        // SignalR hub + notifiers; x => x.Realtime = false to turn off
-builder.Services.AddOpenApi();
+builder.Services.AddBeaconOpenApi();           // the v1 document, with named enum schemas for the generated client
 
 var app = builder.Build();
 var beaconConfiguration = app.Services.GetRequiredService<BeaconConfiguration>();
@@ -103,6 +100,7 @@ Beacon.Core.ServiceConfiguration.UseBeacon(app.Services, createSchema: true);
 // ── Middleware: the order below is load-bearing ──────────────────────────
 app.UseHttpsRedirection();                             // see "HTTPS redirection" below for local MCP over HTTP
 app.UseStaticFiles();                                  // serves the UI bundle
+app.UseBeaconApiExceptionHandler();                    // problem+json for exceptions under /beacon/api
 app.UseMcpResourceMetadataChallenge();                 // adds resource_metadata to 401s from /beacon/mcp
 app.UseBeaconAuthentication();                         // API key, bearer JWT, UseAuthentication, Beacon.Auth cookie
 app.UseAuthorization();
@@ -125,7 +123,7 @@ app.Run();
 
 `AddBeaconWarp` and `StartBeaconWarpAsync` are two small extension methods you write once; [Background jobs](/integrate/background-jobs/) shows them. With another job runner, replace both lines.
 
-`AddOpenApi()` and `MapOpenApi()` need a direct reference to `Microsoft.AspNetCore.OpenApi` in your project (`dotnet add package Microsoft.AspNetCore.OpenApi`); getting it only through `Moberg.Beacon.Api` fails the build with `CS9137`. Drop both lines if you do not want an OpenAPI document.
+`AddBeaconOpenApi()` (in `Beacon.Api.OpenApi`) is `AddOpenApi()` with the settings Beacon's generated TypeScript client needs: enums stay integers on the wire and each one becomes a component schema named after its type, with its values and names. Its optional argument configures the document further. `MapOpenApi()` needs a direct reference to `Microsoft.AspNetCore.OpenApi` in your project (`dotnet add package Microsoft.AspNetCore.OpenApi`); getting it only through `Moberg.Beacon.Api` fails the build with `CS9137`. Drop both lines if you do not want an OpenAPI document.
 
 ## What each part does
 
@@ -217,7 +215,7 @@ The order is load-bearing. Each step depends on the ones before it:
 | 1 | `UseForwardedHeaders` (behind a proxy) | Everything after it must see the client's address and scheme: the login throttle is per IP, the cookie's Secure flag follows the scheme. |
 | 2 | `UseHttpsRedirection` | API keys travel in headers; never accept them over plain HTTP outside development. |
 | 3 | `UseStaticFiles` | Serves the UI bundle before authentication runs. |
-| 4 | Your exception handler (optional) | Turns Beacon's exceptions into problem+json. See [below](#error-responses). |
+| 4 | `UseBeaconApiExceptionHandler` (optional) | Turns Beacon's exceptions under `/beacon/api` into problem+json. See [below](#error-responses). |
 | 5 | `UseMcpResourceMetadataChallenge` | Decorates every 401 from `/beacon/mcp` with the RFC 9728 `resource_metadata` pointer; must precede the middleware that writes those 401s. |
 | 6 | `ApiKeyAuthMiddleware` (`UseBeaconAuthentication` wires steps 6 to 9) | Authenticates `Authorization: Bearer sk-sem_…` before cookie auth could redirect an MCP client to a login page. |
 | 7 | `UseBeaconJwtBearerAuthentication` | Bearer JWTs (Entra and other OIDC access tokens). |
@@ -322,34 +320,17 @@ public sealed class BeaconClaimsTransformation(IUserManagementService users) : I
 
 ## Error responses
 
-Beacon's handlers throw `InvalidOperationException` for business-rule violations, `BeaconException` for domain errors and `SettingLockedException` when a deployment lock refuses a change; access refusals are already mapped to 403/404 by `MapBeaconApi`. Map the rest to problem+json for `/beacon/api` so the UI shows the message instead of a generic 500:
+Beacon's handlers throw `InvalidOperationException` for business-rule violations, `BeaconException` for domain errors and `SettingLockedException` when a deployment lock refuses a change; access refusals are already mapped to 403/404 by `MapBeaconApi`. `app.UseBeaconApiExceptionHandler()` (in `Beacon.Api.Middleware`) maps the rest to RFC 7807 `application/problem+json` for requests under `/beacon/api`, so the UI shows the message instead of a generic 500:
 
-```csharp
-using Beacon.Core.Models;
+| Exception | Status | `type` | `title` |
+|---|---|---|---|
+| `BeaconForbiddenException`, `UnauthorizedAccessException` | 403 | `/errors/forbidden` | `Forbidden` |
+| `InvalidOperationException` | 400 | `/errors/invalid-operation` | its message |
+| `SettingLockedException` | 409 | `/errors/setting-locked` | its message |
+| other `BeaconException` | 400 | `/errors/beacon` | its message |
+| anything else | 500 | `/errors/internal` | `Internal server error` (the exception is logged, never returned) |
 
-app.UseWhen(x => x.Request.Path.StartsWithSegments("/beacon/api"), branch => branch.Use(async (context, next) =>
-{
-    try
-    {
-        await next(context);
-    }
-    catch (Exception ex) when (!context.Response.HasStarted && !context.RequestAborted.IsCancellationRequested)
-    {
-        var (status, title, type) = ex switch
-        {
-            UnauthorizedAccessException or BeaconForbiddenException => (403, "Forbidden", "/errors/forbidden"),
-            SettingLockedException x => (409, x.Message, "/errors/setting-locked"),
-            InvalidOperationException x => (400, x.Message, "/errors/invalid-operation"),
-            BeaconException x => (400, x.Message, "/errors/beacon"),
-            _ => (500, "Internal server error", "/errors/internal"),
-        };
-        context.Response.StatusCode = status;
-        await context.Response.WriteAsJsonAsync(new { type, title, status }, (System.Text.Json.JsonSerializerOptions?)null, "application/problem+json");
-    }
-}));
-```
-
-Place it after `UseStaticFiles` and before the authentication middleware, so their exceptions are mapped too.
+Other paths of your application are not touched, and neither is a response that has already started or a request the client cancelled. Place it after `UseStaticFiles` and before the authentication middleware, so their exceptions are mapped too. `UseBeaconPipeline()` adds it as its first step.
 
 ## Data Protection
 
@@ -404,12 +385,12 @@ builder.Services.AddBeacon(builder.Configuration, options =>
     .AddMcp()                                  // after AddAI
     .AddApi()                                  // REST API, its policies, antiforgery (X-XSRF-TOKEN, .Beacon.Antiforgery)
     .AddCookieAuth<AppClaimsTransformation>()  // Beacon.Auth cookie at /beacon + AddBeaconHostInfrastructure
+    .AddOidc()                                 // optional: SSO, and bearer JWTs for MCP with Oidc:McpJwksEndpoint
     .UsePostgreSql();                          // ends the chain: it returns IServiceCollection
 
 var app = builder.Build();
 app.UseStaticFiles();
-// Your exception handler, if any, goes here: before UseBeaconPipeline (see Error responses).
-app.UseBeaconPipeline();   // steps 5 to 13 of the pipeline table above, in that order
+app.UseBeaconPipeline();   // steps 4 to 13 of the pipeline table above, in that order
 app.MapBeacon();           // API, sign-in, setup, MCP with the Execute policy, discovery documents, UI
 ```
 
@@ -420,10 +401,11 @@ app.MapBeacon();           // API, sign-in, setup, MCP with the Execute policy, 
 | `.AddMcp(configure?)` | `AddBeaconMcp`. Throws when `.AddAI()` has not run or `AddBeaconMcp` already did. |
 | `.AddApi(configure?)` | `AddBeaconApiServices`, `AddBeaconApiAuthorization` and antiforgery with the header the shell sends (`X-XSRF-TOKEN`) and the cookie name `.Beacon.Antiforgery`. These are the application's antiforgery options, shared with your own antiforgery. |
 | `.AddCookieAuth<TClaims>()` | `AddBeaconHostInfrastructure<TClaims>()` and `AddBeaconCookieAuthentication("/beacon")`. |
-| `app.UseBeaconPipeline()` | `UseMcpResourceMetadataChallenge` (with MCP), `UseBeaconAuthentication`, `UseAuthorization`, `LoginFormAuthMiddleware` (with `EnableLoginForm`), `FirstRunSetupMiddleware` (with user management), `UseAntiforgery` (with antiforgery registered). Call it once, in place of `UseAuthentication`/`UseAuthorization`; a second call throws. |
+| `.AddOidc()` | `AddBeaconOidcAuthentication` and `AddBeaconOidcMcpJwtAuthentication`: SSO from `Beacon:Authentication:Oidc` and, when it names a `McpJwksEndpoint`, bearer JWTs validated against those keys with the `Authority` as issuer and the `ClientId` as audience. With SSO off it registers only the options. |
+| `app.UseBeaconPipeline()` | `UseBeaconApiExceptionHandler`, `UseMcpResourceMetadataChallenge` (with MCP), `UseBeaconAuthentication`, `UseAuthorization`, `LoginFormAuthMiddleware` (with `EnableLoginForm`), `FirstRunSetupMiddleware` (with user management), `UseAntiforgery` (with antiforgery registered). Call it once, in place of `UseAuthentication`/`UseAuthorization`; a second call throws. |
 | `app.MapBeacon()` | With `.AddApi()`: `MapBeaconApi`, `MapLoginEndpoints` (with `.AddCookieAuth()`, since sign-in issues the `Beacon.Auth` cookie), `MapSetupEndpoints` (with user management) and `MapBeaconUi`. With `.AddMcp()`: `MapBeaconMcp` and `MapMcpDiscovery`. `MapOpenApi` stays yours. |
 
-`UseForwardedHeaders`, `UseHttpsRedirection`, `UseStaticFiles`, your exception handler, OIDC, the bearer JWT setup and Data Protection stay host calls. Put the exception handler before `UseBeaconPipeline` (step 4 of the pipeline table): placed after it, exceptions from authentication, antiforgery and the redirects reach the client as raw 500s. Use either the chain or the older calls for AI and MCP, not both: once the chain is in use, `AddBeaconAI` and `AddBeaconMcp` throw, and `.AddAI()` or `.AddMcp()` beside them throw too. A host that embeds Beacon as an MCP gateway keeps `AddBeaconMcpGateway`, `UseBeaconMcpGateway` and `MapBeaconMcpGateway` (the gateway is a profile of the same chain with AI left off, so the evaluation harness keeps refusing); `UseBeaconPipeline` and `MapBeacon` throw on it.
+`UseForwardedHeaders`, `UseHttpsRedirection`, `UseStaticFiles`, `MapOpenApi`, a bearer JWT setup of your own and Data Protection stay host calls, and so do the optional helpers `builder.ConfigureBeaconTimeouts()` and `AddBeaconOpenApi()`. A host adopting `UseBeaconPipeline` gets problem+json errors on `/beacon/api` (see [Error responses](#error-responses)); remove an exception handler of your own for those paths, and keep yours for the rest of your application. Use either the chain or the older calls for AI and MCP, not both: once the chain is in use, `AddBeaconAI` and `AddBeaconMcp` throw, and `.AddAI()` or `.AddMcp()` beside them throw too. A host that embeds Beacon as an MCP gateway keeps `AddBeaconMcpGateway`, `UseBeaconMcpGateway` and `MapBeaconMcpGateway` (the gateway is a profile of the same chain with AI left off, so the evaluation harness keeps refusing); `UseBeaconPipeline` and `MapBeacon` throw on it.
 
 ## Minimal variants
 

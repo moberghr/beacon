@@ -44,19 +44,20 @@ namespace Beacon.Tests.Unit;
 /// observable behaviour of that pipeline, so a change of how a host wires it must leave them green.
 /// <para>
 /// Not mirrored from <c>Program.cs</c>: <c>UseForwardedHeaders</c>, <c>UseHttpsRedirection</c>, <c>UseStaticFiles</c>,
-/// <c>UseApiExceptionHandler</c> (which the sample runs before the authentication chain), <c>UseAntiforgery</c>,
+/// <c>UseBeaconApiExceptionHandler</c> (the chain adds it first; pinned by <c>BeaconApiHostHelpersTests</c>), <c>UseAntiforgery</c>,
 /// <c>MapOpenApi</c>, <c>MapBeaconApi</c>, <c>MapLoginEndpoints</c>, <c>MapSetupEndpoints</c>, <c>UseWarpUI</c> and
 /// <c>MapBeaconUi</c>; the Warp dashboard, the SPA and the whoami and sign-in routes are <c>MapGet</c> stand-ins, so the
 /// "spa" and "warp" assertions prove the Beacon middlewares' decisions, not the real dashboard or SPA. Bearer
 /// authentication is disabled here (the sample enables it only when OIDC is configured with a JWKS endpoint), so the
 /// JWT middleware's position for a bearer caller is pinned elsewhere: <c>BeaconAuthenticationScopeTests</c> (a JWT
 /// through <c>UseBeaconAuthentication</c>) and <c>RestBearerUserBindingTests</c>.
-/// <see cref="Program_KeepsTheMirroredCallsInTheOrderThisPipelineUses"/> fails when <c>Program.cs</c> reorders the seven
-/// calls that are mirrored.
+/// <see cref="Program_KeepsTheMirroredCallsInTheOrderThisPipelineUses"/> fails when <c>Program.cs</c> leaves the chain
+/// (<c>UseStaticFiles</c>, <c>UseBeaconPipeline</c>, <c>MapBeacon</c>, in that order) or adds back a call the chain makes.
 /// </para>
 /// <para>
-/// Every test runs twice: on the sample's own calls (<see cref="HostWiring.SampleCalls"/>) and on a host built with the
-/// fluent chain (<see cref="HostWiring.Chain"/>: <c>AddBeacon(...).AddAI().AddMcp().AddApi().AddCookieAuth&lt;T&gt;()</c>,
+/// Every test runs twice: on the individual calls the sample made before the chain and a host on the older entry points
+/// still makes (<see cref="HostWiring.SampleCalls"/>), and on a host built with the fluent chain the sample uses now
+/// (<see cref="HostWiring.Chain"/>: <c>AddBeacon(...).AddAI().AddMcp().AddApi().AddCookieAuth&lt;T&gt;()</c>,
 /// <c>UseBeaconPipeline()</c> and <c>MapBeacon()</c>), which must behave the same.
 /// </para>
 /// </summary>
@@ -140,6 +141,10 @@ public class SampleHostPipelineTests(SampleHostPipelineTests.HostWiring wiring)
         response.Headers.Location!.OriginalString.Should().Be("/beacon/login");
     }
 
+    // Program.cs wires Beacon through the chain (the HostWiring.Chain fixture): UseBeaconPipeline in place of the five
+    // pipeline calls the SampleCalls fixture makes, MapBeacon in place of its MCP and discovery mappings. None of those
+    // calls may come back beside the chain: UseBeaconPipeline already adds them, and a second copy would run Beacon's
+    // middlewares twice.
     [Test]
     public void Program_KeepsTheMirroredCallsInTheOrderThisPipelineUses()
     {
@@ -149,13 +154,27 @@ public class SampleHostPipelineTests(SampleHostPipelineTests.HostWiring wiring)
             .ToList();
         string[] mirrored =
         [
-            "app.UseMcpResourceMetadataChallenge();",
-            "app.UseBeaconAuthentication();",
-            "app.UseAuthorization();",
+            "app.UseStaticFiles();",
+            "app.UseBeaconPipeline();",
+            "app.MapBeacon();"
+        ];
+        string[] replacedByTheChain =
+        [
+            "app.UseApiExceptionHandler(",
+            "app.UseBeaconApiExceptionHandler(",
+            "app.UseMcpResourceMetadataChallenge(",
+            "app.UseBeaconAuthentication(",
+            "app.UseAuthentication(",
+            "app.UseAuthorization(",
             "app.UseMiddleware<LoginFormAuthMiddleware>(",
             "app.UseMiddleware<FirstRunSetupMiddleware>(",
-            "app.MapBeaconMcp();",
-            "app.MapMcpDiscovery();"
+            "app.UseAntiforgery(",
+            "app.MapBeaconApi(",
+            "app.MapLoginEndpoints(",
+            "app.MapSetupEndpoints(",
+            "app.MapBeaconMcp(",
+            "app.MapMcpDiscovery(",
+            "app.MapBeaconUi("
         ];
 
         var positions = mirrored
@@ -164,6 +183,7 @@ public class SampleHostPipelineTests(SampleHostPipelineTests.HostWiring wiring)
 
         positions.Should().OnlyContain(x => x >= 0, "every mirrored call is still in Program.cs");
         positions.Should().BeInAscendingOrder().And.OnlyHaveUniqueItems();
+        code.Should().NotContain(x => replacedByTheChain.Any(y => x.StartsWith(y, StringComparison.Ordinal)));
     }
 
     [Test]

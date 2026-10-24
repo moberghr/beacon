@@ -4,6 +4,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Beacon.Api;
 using Beacon.Api.Authentication;
 using Beacon.Api.Endpoints;
+using Beacon.Api.Middleware;
 using Beacon.Core;
 using Beacon.Core.Configuration;
 using Beacon.MCP;
@@ -25,8 +26,9 @@ public static class BeaconHostApplicationBuilderExtensions
 
     /// <summary>
     /// Adds Beacon's middlewares in their load-bearing order, in place of the host's <c>UseAuthentication()</c> and
-    /// <c>UseAuthorization()</c>: the RFC 9728 challenge pointer on <c>/beacon/mcp</c> 401s (with <c>.AddMcp()</c>),
-    /// <c>UseBeaconAuthentication</c> (API key, bearer JWT, <c>UseAuthentication</c>, the <c>Beacon.Auth</c> cookie),
+    /// <c>UseAuthorization()</c>: RFC 7807 problem responses for exceptions under <c>/beacon/api</c>
+    /// (<c>UseBeaconApiExceptionHandler</c>; other paths keep the host's own error handling), the RFC 9728 challenge
+    /// pointer on <c>/beacon/mcp</c> 401s (with <c>.AddMcp()</c>), <c>UseBeaconAuthentication</c> (API key, bearer JWT, <c>UseAuthentication</c>, the <c>Beacon.Auth</c> cookie),
     /// <c>UseAuthorization</c>, the login-form redirect (with <c>Authentication.EnableLoginForm</c>), the
     /// first-run setup redirect (with user management) and antiforgery (with <c>.AddApi()</c>). Call it once, after
     /// <c>UseStaticFiles</c>; a second call throws, because Beacon's middlewares must run once and in this order.
@@ -47,6 +49,10 @@ public static class BeaconHostApplicationBuilderExtensions
         var stages = new List<string>();
         app.Properties[PipelineStagesKey] = stages;
         var configuration = services.GetRequiredService<BeaconConfiguration>();
+
+        // First, so the exceptions of every middleware below are mapped too; it acts on /beacon/api only.
+        app.UseBeaconApiExceptionHandler();
+        stages.Add(nameof(ApiExceptionMiddlewareExtensions.UseBeaconApiExceptionHandler));
 
         if (services.GetService<BeaconMcpOptions>() != null)
         {

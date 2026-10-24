@@ -13,19 +13,19 @@ The sample host is never shipped. It hard-codes choices a real deployment makes 
 
 | Area | What the sample wires | Where |
 |---|---|---|
-| Beacon services | `AddBeaconServices` with AI on (`UseAI = true`), authorization on, the login form, Beacon's user store (`DatabaseAuthenticationProvider`) and user management with first-run setup. The approval workflow is not enabled. | `Program.cs` |
+| Beacon services | The host chain (`AddBeacon(...)`, `.AddAI()`, `.AddMcp()`, `.AddApi()`, `.AddCookieAuth<T>()`, `.AddOidc()`, then `UseBeaconPipeline()` and `MapBeacon()`) with AI on, authorization on, the login form, Beacon's user store (`DatabaseAuthenticationProvider`) and user management with first-run setup. The approval workflow is not enabled. | `Program.cs` |
 | Metadata database | PostgreSQL (`.UsePostgreSql()`), connection string `ConnectionStrings:BeaconContext`. | `Program.cs` |
 | Connectors | All nine: PostgreSQL, SQL Server, MySQL, CloudWatch, Azure Synapse, Snowflake, Databricks, BigQuery and REST API. | `Program.cs` |
 | Background jobs | [Moberg Warp](https://moberghr.github.io/warp/) on PostgreSQL, with `BeaconScheduler` as the `IBeaconScheduler` implementation and one Warp job per Beacon operation. Dashboard at `/warp`. | `Warp/`, `Services/BeaconScheduler.cs` |
 | Sign-in | Cookie sign-in under `/beacon`, Data Protection keys in Beacon's database, optional OIDC/SSO, and bearer JWT for MCP clients when OIDC has a `McpJwksEndpoint`. | `Program.cs` |
 | API, UI and MCP | REST API and SignalR hub under `/beacon/api`, the React UI at `/beacon`, the MCP server at `/beacon/mcp`, the MCP discovery documents, and the OpenAPI document at `/openapi/v1.json`. | `Program.cs` |
 | Email | `BeaconMailSender`, an SMTP adapter configured with `Beacon:Smtp:*`. | `Services/BeaconMailSender.cs` |
-| Error responses | Exceptions under `/beacon/api` become RFC 7807 `application/problem+json` responses. | `Middleware/ApiExceptionMiddleware.cs` |
+| Error responses | Exceptions under `/beacon/api` become RFC 7807 `application/problem+json` responses (`UseBeaconApiExceptionHandler`, added by `UseBeaconPipeline`). | `Program.cs` |
 | Telemetry | OpenTelemetry traces and metrics, only when `OTEL_EXPORTER_OTLP_ENDPOINT` is set. | `Program.cs` |
 | Reverse proxy | Forwarded headers from trusted proxies, only when `Beacon:ForwardedHeaders:Enabled` is `true`. | `Program.cs` |
-| Timeouts | Kestrel keep-alive and request-header timeouts and the default `HttpClient` timeout set to 5 minutes, for long AI calls. | `Program.cs` |
+| Timeouts | Kestrel keep-alive and request-header timeouts and the default `HttpClient` timeout set to 5 minutes, for long AI calls (`builder.ConfigureBeaconTimeouts()`). | `Program.cs` |
 
-The Warp jobs, `BeaconMailSender`, the exception middleware, the telemetry and forwarded-headers blocks and the timeouts are sample code, not part of any package. A host that embeds Beacon provides its own.
+The Warp jobs, `BeaconMailSender`, the telemetry and forwarded-headers blocks are sample code, not part of any package. A host that embeds Beacon provides its own. The error responses, the timeouts and the OIDC bearer JWTs come from helpers in `Moberg.Beacon.Api`, and the chain's `UseBeaconPipeline` and `MapBeacon` from `Moberg.Beacon.Gateway`.
 
 ## Configuration
 
@@ -146,7 +146,7 @@ The sample always offers Beacon's login form and user store. To add single sign-
 
 - Put `ClientSecret` in user secrets or an environment variable (`Beacon__Authentication__Oidc__ClientSecret`), never in the file.
 - Startup fails with SSO on and no `AllowedTenants`, unless `AllowAnyTenant` is `true` for a provider that issues no tenant claim.
-- `McpJwksEndpoint` is a sample convention: when it is set, the sample also accepts bearer JWTs on the API and on `/beacon/mcp`, validated against those signing keys with the `Authority` as issuer and the `ClientId` as audience. Which tokens become MCP callers is decided by `Beacon:Mcp:Callers`.
+- `McpJwksEndpoint`: when it is set, a host that calls `.AddOidc()` (or `AddBeaconOidcMcpJwtAuthentication`), as the sample does, also accepts bearer JWTs on the API and on `/beacon/mcp`, validated against those signing keys with the `Authority` as issuer and the `ClientId` as audience. Which tokens become MCP callers is decided by `Beacon:Mcp:Callers`.
 
 Every OIDC option is in [Configuration](/getting-started/configuration/). How sign-in works is in [Sign-in & identity](/integrate/authentication/).
 
