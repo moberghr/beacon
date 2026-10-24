@@ -76,6 +76,50 @@ public class EmbedOptionsValidatorTests
         result.FailureMessage.Should().Contain("must not be Beacon:EncryptionKey").And.NotContain(TestEncryptionKey.Value);
     }
 
+    [Test]
+    public void On_RefusesAPreviousEncryptionKey_AndTheLegacyEmbedTokenKey()
+    {
+        var previous = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+        var legacy = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+        var validator = new EmbedOptionsValidator(TestEncryptionKey.Value, [previous], legacy);
+
+        var reusedPrevious = validator.Validate(null, Enabled($" {previous} "));
+        var reusedLegacy = validator.Validate(null, Enabled(legacy));
+        var separate = validator.Validate(null, Enabled(Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32))));
+
+        reusedPrevious.Failed.Should().BeTrue();
+        reusedPrevious.FailureMessage.Should().Contain("must not be one of Beacon:PreviousEncryptionKeys").And.NotContain(previous);
+        reusedLegacy.Failed.Should().BeTrue();
+        reusedLegacy.FailureMessage.Should().Contain("must not be the Beacon:EmbedToken:SigningKey").And.NotContain(legacy);
+        separate.Succeeded.Should().BeTrue();
+    }
+
+    [Test]
+    public void TheHost_ReadsThePreviousKeysAndTheLegacyKeyFromConfiguration()
+    {
+        var shared = Convert.ToBase64String(System.Security.Cryptography.RandomNumberGenerator.GetBytes(32));
+        foreach (var reuse in new[] { "Beacon:PreviousEncryptionKeys:0", "Beacon:EmbedToken:SigningKey" })
+        {
+            var configuration = new ConfigurationBuilder()
+                .AddInMemoryCollection(new Dictionary<string, string?>
+                {
+                    ["Beacon:EncryptionKey"] = TestEncryptionKey.Value,
+                    ["Beacon:Embed:Enabled"] = "true",
+                    ["Beacon:Embed:SigningKey"] = shared,
+                    [reuse] = shared
+                })
+                .Build();
+            var services = new ServiceCollection();
+            services.AddBeaconServices(configuration, x => x.AddBeaconScheduler<NoOpScheduler>())
+                .UsePostgreSql("Host=localhost;Database=unused;Username=unused;Password=unused");
+            using var provider = services.BuildServiceProvider();
+
+            var act = () => provider.GetRequiredService<IOptions<EmbedOptions>>().Value;
+
+            act.Should().Throw<OptionsValidationException>().WithMessage("*Beacon:Embed:SigningKey must not be*").Which.Message.Should().NotContain(shared);
+        }
+    }
+
     [TestCase(nameof(EmbedOptions.MaxTokenTtlSeconds), 901)]
     [TestCase(nameof(EmbedOptions.TokenTtlSeconds), 0)]
     [TestCase(nameof(EmbedOptions.MaxGrantDays), 0)]

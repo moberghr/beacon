@@ -62,10 +62,13 @@ public sealed class EmbedRateLimitOptions
 
 /// <summary>
 /// Checks <see cref="EmbedOptions"/> at startup. While embedding is off nothing is required. On, the signing key must meet
-/// the encryption key's requirements (<see cref="EncryptionKeyRequirements"/>) and differ from it; the messages never
-/// contain either key.
+/// the encryption key's requirements (<see cref="EncryptionKeyRequirements"/>) and differ from the encryption key, every
+/// previous encryption key and the legacy <c>Beacon:EmbedToken</c> signing key; the messages never contain any key.
 /// </summary>
-internal sealed class EmbedOptionsValidator(string? encryptionKey) : IValidateOptions<EmbedOptions>
+internal sealed class EmbedOptionsValidator(
+    string? encryptionKey,
+    IEnumerable<string>? previousEncryptionKeys = null,
+    string? legacyEmbedTokenKey = null) : IValidateOptions<EmbedOptions>
 {
     internal const string SigningKeySetting = EmbedOptions.SectionName + ":" + nameof(EmbedOptions.SigningKey);
 
@@ -94,11 +97,25 @@ internal sealed class EmbedOptionsValidator(string? encryptionKey) : IValidateOp
             {
                 failures.Add($"{SigningKeySetting} must not be Beacon:EncryptionKey: generate a separate key with `openssl rand -base64 32`.");
             }
+            else if ((previousEncryptionKeys ?? []).Any(x => IsSame(options.SigningKey, x)))
+            {
+                failures.Add($"{SigningKeySetting} must not be one of Beacon:PreviousEncryptionKeys: generate a separate key with `openssl rand -base64 32`.");
+            }
+            else if (IsSame(options.SigningKey, legacyEmbedTokenKey))
+            {
+                failures.Add($"{SigningKeySetting} must not be the Beacon:EmbedToken:SigningKey: generate a separate key with `openssl rand -base64 32`.");
+            }
         }
 
         return failures.Count == 0
             ? ValidateOptionsResult.Success
             : ValidateOptionsResult.Fail(failures);
+    }
+
+    private static bool IsSame(string? signingKey, string? other)
+    {
+        return !string.IsNullOrWhiteSpace(other)
+            && string.Equals(signingKey!.Trim(), other.Trim(), StringComparison.Ordinal);
     }
 
     private static void AddWhenOutside(List<string> failures, string key, int value, int minimum, int maximum)

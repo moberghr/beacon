@@ -484,7 +484,10 @@ public static class ServiceConfiguration
         services.AddOptions<EmbedOptions>()
             .Bind(configuration.GetSection(EmbedOptions.SectionName))
             .ValidateOnStart();
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<EmbedOptions>>(new EmbedOptionsValidator(encryptionKey)));
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<EmbedOptions>>(new EmbedOptionsValidator(
+            encryptionKey,
+            PreviousEncryptionKeys(configuration),
+            configuration.GetSection("Beacon:EmbedToken")["SigningKey"])));
         services.TryAddSingleton<EmbedTokenCodec>();
 
         // Deployment-level MCP locks and ceilings (Beacon:Mcp). An absent section = no locks, no ceilings.

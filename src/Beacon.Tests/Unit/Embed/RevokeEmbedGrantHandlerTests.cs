@@ -1,5 +1,7 @@
 using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.Handlers.Embed;
+using Beacon.Core.Models;
 using Beacon.Core.SecurityAudit;
 using Beacon.Tests.Common;
 using FluentAssertions;
@@ -69,6 +71,19 @@ public class RevokeEmbedGrantHandlerTests
     }
 
     [Test]
+    public async Task AGrantOfAProjectTheCallerCannotRead_IsRefusedLikeAMissingProject_AndNothingIsWritten()
+    {
+        var capture = new SqlCapture().ThenRow(4, DBNull.Value);
+        var audit = new RecordingSecurityAudit();
+
+        var act = () => Handler(capture, audit, TestProjectAccess.ReadableIn(7)).Handle(new RevokeEmbedGrantCommand(9), CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconNotFoundException>();
+        capture.Commands.Should().ContainSingle("only the read of the grant ran");
+        audit.Events.Should().BeEmpty();
+    }
+
+    [Test]
     public async Task AnUnknownGrant_IsRefused()
     {
         var act = () => Handler(new SqlCapture().ThenNoRows(), new RecordingSecurityAudit()).Handle(new RevokeEmbedGrantCommand(9), CancellationToken.None);
@@ -85,10 +100,11 @@ public class RevokeEmbedGrantHandlerTests
         exemption!.Policy.Should().Be(BeaconPermissions.SecurityAdminPolicy);
     }
 
-    private static RevokeEmbedGrantHandler Handler(SqlCapture capture, RecordingSecurityAudit audit) =>
+    private static RevokeEmbedGrantHandler Handler(SqlCapture capture, RecordingSecurityAudit audit, ProjectAccessScope? scope = null) =>
         new(
             capture.Factory(),
             TestProjectAccess.Actors(3, "ext-ada"),
+            TestProjectAccess.Evaluator(scope ?? TestProjectAccess.ReadableIn(4)),
             audit,
             new FakeTimeProvider(Now),
             NullLogger<RevokeEmbedGrantHandler>.Instance);

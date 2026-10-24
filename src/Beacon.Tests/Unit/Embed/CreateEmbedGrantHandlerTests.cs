@@ -1,6 +1,7 @@
 using System.Text.Json;
 using Beacon.Core;
 using Beacon.Core.Authorization;
+using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
@@ -16,6 +17,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
+using Moq;
 using NUnit.Framework;
 using static Beacon.Tests.Unit.SavedQueryTools.SavedQueryTestData;
 
@@ -68,6 +70,31 @@ public class CreateEmbedGrantHandlerTests
             x => x.ExcludingMissingMembers());
         created.DetailsJson.Should().Be($"{{\"queryId\":5,\"versionId\":{grant.QueryVersionId},\"originCount\":1,\"lockedParamCount\":1,\"expiresDays\":30}}");
         audit.Ways.Should().Equal("saved");
+    }
+
+    [Test]
+    public async Task AVersionSupersededBetweenTheLookupAndTheSave_IsRefused_AndNoGrantIsSaved()
+    {
+        var data = Seed();
+        var query = data.Query(5, null, [Step(1, 10, "SELECT 1")]);
+        var inner = new RecordingSecurityAudit(new BeaconActor("ext-ada", false) { Kind = BeaconPrincipalKind.User, BeaconUserId = 3, IsActiveUser = true });
+        var racing = new Mock<ISecurityAuditRecorder>();
+        racing
+            .Setup(x => x.SaveWithEventsAsync(It.IsAny<BeaconContext>(), It.IsAny<Func<Task<int>>>(), It.IsAny<Func<int, IEnumerable<SecurityAuditEntry>>>(), It.IsAny<CancellationToken>()))
+            .Returns((BeaconContext context, Func<Task<int>> change, Func<int, IEnumerable<SecurityAuditEntry>> events, CancellationToken cancellationToken) =>
+            {
+                var next = data.AddVersion(query, 2, QueryVersionStatus.Active, [Step(1, 10, "SELECT 2")], approval: ApprovalStatus.Approved);
+                query.ActiveVersionId = next.Id;
+                query.ActiveVersion = next;
+
+                return inner.SaveWithEventsAsync(context, change, events, cancellationToken);
+            });
+
+        var act = () => Handler(data, audit: racing.Object).Handle(Command(), CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*changed while the grant was created*");
+        data.Store.ListFor<EmbedGrant>().Should().BeEmpty();
+        inner.Events.Should().BeEmpty();
     }
 
     [TestCase(ApprovalStatus.Pending)]

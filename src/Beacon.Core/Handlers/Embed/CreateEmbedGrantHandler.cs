@@ -142,10 +142,25 @@ internal sealed class CreateEmbedGrantHandler(
             CreatedByUserId = caller.UserId
         };
 
-        context.EmbedGrants.Add(grant);
+        // The save re-reads the query's runnable version in the same transaction: a version superseded since the lookup
+        // above (or one that stopped being approved) is refused, never embedded.
         await securityAudit.SaveWithEventsAsync(
             context,
-            () =>
+            async () =>
+            {
+                var stillRunnable = await SavedQueryRunnableVersion.ForQuery(context, request.QueryId, SavedQueryRunnableVersion.RequiresApprovedHash(configuration))
+                    .Where(x => x.VersionId == runnable.VersionId)
+                    .AnyAsync(cancellationToken);
+                if (!stillRunnable)
+                {
+                    throw new InvalidOperationException("The query changed while the grant was created: its active approved version is no longer the one chosen. Try again.");
+                }
+
+                context.EmbedGrants.Add(grant);
+
+                return await context.SaveChangesAsync(cancellationToken);
+            },
+            _ =>
             [
                 new SecurityAuditEntry(SecurityAuditActions.EmbedGrantCreated)
                     .On(SecurityAuditResources.EmbedGrant, grant.Id)
