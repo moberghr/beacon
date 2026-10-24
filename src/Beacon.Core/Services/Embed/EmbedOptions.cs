@@ -23,6 +23,9 @@ public sealed class EmbedOptions
     /// <summary>The largest <see cref="MaxRows"/> accepted.</summary>
     public const int MaxAllowedRows = 100_000;
 
+    /// <summary>The largest <see cref="MaxConcurrentRenders"/> accepted.</summary>
+    public const int MaxAllowedConcurrentRenders = 256;
+
     /// <summary>Maps the embed routes and allows grants to be created. Default false.</summary>
     public bool Enabled { get; set; }
 
@@ -47,6 +50,22 @@ public sealed class EmbedOptions
     /// <summary>The most frame origins one grant may list. Default 10.</summary>
     public int MaxOrigins { get; set; } = 10;
 
+    /// <summary>
+    /// The most embed renders that run at once in this process, over every grant; one more is answered 503 at once. Default
+    /// 8, at most <see cref="MaxAllowedConcurrentRenders"/>.
+    /// </summary>
+    public int MaxConcurrentRenders { get; set; } = 8;
+
+    /// <summary>
+    /// The most of those renders one grant may run at once, so one grant (one viewer's token) never holds every slot; one
+    /// more is answered 503 at once. Unset, a quarter of <see cref="MaxConcurrentRenders"/> (at least 1); set, between 1 and
+    /// <see cref="MaxConcurrentRenders"/>.
+    /// </summary>
+    public int? MaxConcurrentRendersPerGrant { get; set; }
+
+    /// <summary>The per-grant concurrency cap in force: <see cref="MaxConcurrentRendersPerGrant"/>, else a quarter of the total.</summary>
+    internal int EffectiveMaxConcurrentRendersPerGrant => MaxConcurrentRendersPerGrant ?? Math.Max(1, MaxConcurrentRenders / 4);
+
     public EmbedRateLimitOptions RateLimits { get; set; } = new();
 }
 
@@ -57,7 +76,18 @@ public sealed class EmbedRateLimitOptions
 
     public int RenderPerGrantPerMinute { get; set; } = 120;
 
+    /// <summary>
+    /// Refusals (a bad, expired or missing credential, an unknown grant, another origin) per client address a minute; past
+    /// it a refusal is answered 429 and no longer audited. A request whose credential verifies never counts and is never
+    /// refused by it.
+    /// </summary>
     public int RefusalsPerIpPerMinute { get; set; } = 30;
+
+    /// <summary>
+    /// Embed page loads per client address and grant a minute. The page is anonymous, so it is never limited per grant alone
+    /// (anyone who can see the grant's public id could spend that). Default 60.
+    /// </summary>
+    public int PagePerClientPerMinute { get; set; } = 60;
 }
 
 /// <summary>
@@ -81,9 +111,15 @@ internal sealed class EmbedOptionsValidator(
         AddWhenOutside(failures, nameof(EmbedOptions.MaxGrantDays), options.MaxGrantDays, 1, EmbedOptions.MaxAllowedGrantDays);
         AddWhenOutside(failures, nameof(EmbedOptions.MaxRows), options.MaxRows, 1, EmbedOptions.MaxAllowedRows);
         AddWhenOutside(failures, nameof(EmbedOptions.MaxOrigins), options.MaxOrigins, 1, EmbedOptions.MaxAllowedOrigins);
+        AddWhenOutside(failures, nameof(EmbedOptions.MaxConcurrentRenders), options.MaxConcurrentRenders, 1, EmbedOptions.MaxAllowedConcurrentRenders);
         AddWhenOutside(failures, "RateLimits:" + nameof(EmbedRateLimitOptions.ExchangePerGrantPerMinute), options.RateLimits.ExchangePerGrantPerMinute, 1, 10_000);
         AddWhenOutside(failures, "RateLimits:" + nameof(EmbedRateLimitOptions.RenderPerGrantPerMinute), options.RateLimits.RenderPerGrantPerMinute, 1, 10_000);
         AddWhenOutside(failures, "RateLimits:" + nameof(EmbedRateLimitOptions.RefusalsPerIpPerMinute), options.RateLimits.RefusalsPerIpPerMinute, 1, 10_000);
+        AddWhenOutside(failures, "RateLimits:" + nameof(EmbedRateLimitOptions.PagePerClientPerMinute), options.RateLimits.PagePerClientPerMinute, 1, 10_000);
+        if (options.MaxConcurrentRendersPerGrant is { } perGrant)
+        {
+            AddWhenOutside(failures, nameof(EmbedOptions.MaxConcurrentRendersPerGrant), perGrant, 1, Math.Max(1, options.MaxConcurrentRenders));
+        }
 
         if (options.Enabled)
         {

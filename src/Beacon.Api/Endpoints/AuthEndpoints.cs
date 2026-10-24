@@ -101,7 +101,7 @@ internal static class AuthEndpoints
         CancellationToken cancellationToken)
     {
         var migrationsEnabled = httpContext.RequestServices.GetService<IOptions<MigrationOptions>>()?.Value.Enabled == true;
-        var embedEnabled = httpContext.RequestServices.GetService<IOptions<EmbedOptions>>()?.Value.Enabled == true;
+        var embedEnabled = BeaconEmbedPaths.IsEnabled(httpContext.RequestServices);
         var canRead = await authorization.HasReadPermissionAsync(cancellationToken);
         var canWrite = await authorization.HasWritePermissionAsync(cancellationToken);
         var accessor = httpContext.RequestServices.GetService<IBeaconPermissionAccessor>();

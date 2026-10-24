@@ -65,6 +65,9 @@ public static class ServiceConfiguration
 
         // The per-caller limits of /beacon/api and of the anonymous requests Beacon refuses (Beacon:RateLimits).
         services.TryAddSingleton<BeaconApiRateLimiter>();
+        // The embed routes' own per-minute limits (used only while embedding is on).
+        services.TryAddSingleton<Beacon.Core.Services.Embed.EmbedAuditLimiter>();
+        services.TryAddSingleton<EmbedRateLimiter>();
 
         if (!options.Realtime)
         {

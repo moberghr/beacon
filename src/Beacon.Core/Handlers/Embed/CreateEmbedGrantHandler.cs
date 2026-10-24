@@ -1,4 +1,3 @@
-using System.Globalization;
 using System.Text.Json;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
@@ -43,7 +42,7 @@ internal sealed class CreateEmbedGrantHandler(
     public const int MaxNameLength = 100;
 
     /// <summary>The longest fixed parameter value, as for a saved-query tool's string argument.</summary>
-    public const int MaxValueLength = 4000;
+    public const int MaxValueLength = SavedQueryArgumentConverter.MaxStringArgumentLength;
 
     public async Task<CreateEmbedGrantResult> Handle(CreateEmbedGrantCommand request, CancellationToken cancellationToken)
     {
@@ -209,7 +208,8 @@ internal sealed class CreateEmbedGrantHandler(
                 throw new InvalidOperationException($"The query has no parameter '{parameterName}'.");
             }
 
-            if (!IsValueOf(parameter.Type, value))
+            // Converted as the render converts it, so a grant never fixes a value its query cannot bind.
+            if (value == null || SavedQueryArgumentConverter.ConvertText(parameter, value, out _) != null)
             {
                 throw new InvalidOperationException($"The fixed value of parameter '{parameterName}' is not a {TypeName(parameter.Type)}.");
             }
@@ -246,21 +246,6 @@ internal sealed class CreateEmbedGrantHandler(
         locked.Sort(StringComparer.Ordinal);
 
         return (fixedValues, locked);
-    }
-
-    private static bool IsValueOf(ParameterType type, string? value)
-    {
-        if (value == null || value.Length > MaxValueLength)
-        {
-            return false;
-        }
-
-        return type switch
-        {
-            ParameterType.Number => decimal.TryParse(value, NumberStyles.Number, CultureInfo.InvariantCulture, out _),
-            ParameterType.DateTime => DateTimeOffset.TryParse(value, CultureInfo.InvariantCulture, DateTimeStyles.AssumeUniversal, out _),
-            _ => true
-        };
     }
 
     private static string TypeName(ParameterType type) =>

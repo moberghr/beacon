@@ -244,6 +244,7 @@ public static class ServiceConfiguration
         // Saved queries exposed as MCP tools: callable-tool lookup (project-scoped) and the read-only executor.
         services.TryAddTransient<ISavedQueryToolSource, SavedQueryToolSource>();
         services.TryAddTransient<ISavedQueryToolExecutor, SavedQueryToolExecutor>();
+        services.TryAddTransient<ISavedQueryRunner, SavedQueryToolExecutor>();
         services.TryAddTransient<IQueryApprovalService, QueryApprovalService>();
 
         // Change approvals of migration jobs, Custom SQL rules, recipient destinations and the LLM connection: submission
@@ -518,6 +519,9 @@ public static class ServiceConfiguration
             PreviousEncryptionKeys(configuration),
             configuration.GetSection("Beacon:EmbedToken")["SigningKey"])));
         services.TryAddSingleton<EmbedTokenCodec>();
+        services.TryAddScoped<EmbedGrantResolver>();
+        services.TryAddSingleton<EmbedRenderLimiter>();
+        services.TryAddSingleton<EmbedAuditLimiter>();
 
         // Deployment-level MCP locks and ceilings (Beacon:Mcp). An absent section = no locks, no ceilings.
         // ValidateOnStart so a non-positive ceiling fails the host at boot, not on the first query.

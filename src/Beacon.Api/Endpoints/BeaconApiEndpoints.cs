@@ -204,11 +204,13 @@ public static class BeaconApiEndpoints
             group.MapMigrationsEndpoints();
         }
 
-        // Embedding saved queries is off unless the host turned it on (Beacon:Embed:Enabled): unmapped, every embed route
-        // answers 404.
-        if (endpoints.ServiceProvider.GetService<IOptions<EmbedOptions>>()?.Value.Enabled == true)
+        // Embedding saved queries is off unless the host turned it on (Beacon:Embed:Enabled), and never on an MCP gateway:
+        // unmapped, every embed route answers 404. The anonymous token exchange, render and embed page sit outside the group
+        // (no cookie, antiforgery or BeaconApi policy): the embed middleware alone decides their caller.
+        if (BeaconEmbedPaths.IsEnabled(endpoints.ServiceProvider))
         {
             group.MapEmbedGrantsEndpoints();
+            endpoints.MapEmbedEndpoints();
         }
 
         group.MapRecipientsEndpoints();

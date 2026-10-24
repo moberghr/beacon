@@ -259,12 +259,28 @@ public static class AuthServiceExtensions
     }
 
     /// <summary>
+    /// The embed middleware, only while embedding is on (<c>Beacon:Embed:Enabled</c>, never in gateway mode): a host without
+    /// it registers nothing, and every embed path is then an ordinary Beacon path that answers 404.
+    /// </summary>
+    public static IApplicationBuilder UseBeaconEmbedAuthentication(this IApplicationBuilder app)
+    {
+        if (BeaconEmbedPaths.IsEnabled(app.ApplicationServices))
+        {
+            app.UseMiddleware<EmbedTokenAuthMiddleware>();
+        }
+
+        return app;
+    }
+
+    /// <summary>
     /// Beacon's authentication in the order it needs (§1.9): API keys, bearer JWTs (when enabled), the host's
-    /// <c>UseAuthentication</c>, then the <c>Beacon.Auth</c> cookie, followed by the Host and Origin check
+    /// <c>UseAuthentication</c>, the <c>Beacon.Auth</c> cookie, then the embed routes' own credentials (when embedding is
+    /// on), so nothing before it leaves a caller on an embed path, followed by the Host and Origin check
     /// (<c>Beacon:Security</c>). Before them come the security response headers, unless the host added them earlier with
     /// <c>UseBeaconSecurityHeaders</c>. Call it in place of <c>UseAuthentication</c>, before <c>UseAuthorization</c>. The
     /// Beacon middlewares act on <c>/beacon</c> and <c>Beacon:Authentication:AdditionalPaths</c> only
-    /// (<see cref="BeaconRequestPaths"/>); every other route keeps the host's own authentication.
+    /// (<see cref="BeaconRequestPaths"/>), the embed middleware on the embed routes only (<see cref="BeaconEmbedPaths"/>);
+    /// every other route keeps the host's own authentication.
     /// </summary>
     public static IApplicationBuilder UseBeaconAuthentication(this IApplicationBuilder app)
     {
@@ -274,6 +290,7 @@ public static class AuthServiceExtensions
         app.UseBeaconJwtBearerAuthentication();
         app.UseAuthentication();
         app.UseMiddleware<BeaconCookieAuthMiddleware>();
+        app.UseBeaconEmbedAuthentication();
 
         // After authentication: a remote sign-in callback (an OIDC form post from the identity provider) is answered by
         // UseAuthentication and never reaches the check.

@@ -95,6 +95,7 @@ public class ProjectCheckManifestTests
         ["RejectDocumentationPatchCommand"] = ["DocumentationPatch(PatchId):Write:linking(Curate)"],
         ["RemoveProjectMemberCommand"] = ["Project(ProjectId):ManageMembers"],
         ["RemoveSubscriptionRecipientCommand"] = ["Subscription(SubscriptionId):Write"],
+        ["RenderEmbedQueryCommand"] = ["Project(ProjectId):Run"],
         ["RequestPlanRevisionCommand"] = ["AiActorPlan(PlanId):Write"],
         ["ResolveTaskCommand"] = ["Task(Id):Write"],
         ["RestoreQueryVersionCommand"] = ["QueryVersion(VersionId):Write"],

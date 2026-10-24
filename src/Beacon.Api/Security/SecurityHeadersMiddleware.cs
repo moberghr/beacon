@@ -52,7 +52,11 @@ internal sealed class SecurityHeadersMiddleware(RequestDelegate next, IOptions<B
     internal static void Apply(IHeaderDictionary headers, BeaconCspMode cspMode)
     {
         headers.TryAdd("X-Content-Type-Options", "nosniff");
-        headers.TryAdd("X-Frame-Options", "DENY");
+        // A page that names its own frame-ancestors (the embed page) decides who may frame it.
+        if (!headers.ContentSecurityPolicy.ToString().Contains("frame-ancestors", StringComparison.Ordinal))
+        {
+            headers.TryAdd("X-Frame-Options", "DENY");
+        }
         headers.TryAdd("Referrer-Policy", ReferrerPolicy);
         headers.TryAdd("Permissions-Policy", PermissionsPolicy);
 
