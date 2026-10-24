@@ -48,12 +48,12 @@ internal static class AiActorOwnership
 
         if (actor == null)
         {
-            throw caller.IsAdmin
+            throw IsAdminOrRunAsAdmin(caller)
                 ? new InvalidOperationException($"AI actor {actorId} not found.")
                 : Refuse(logger, caller, actorId);
         }
 
-        if (!caller.IsOwnerOrAdmin(actor.CreatedByUserId))
+        if (!IsAdminOrRunAsAdmin(caller) && !caller.Is(actor.CreatedByUserId))
         {
             throw Refuse(logger, caller, actorId);
         }
@@ -190,6 +190,16 @@ internal static class AiActorOwnership
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// An Admin, or the user a background task runs as (<see cref="BeaconPrincipalKind.Owner"/>) while that user is still a
+    /// live Admin: a run-as caller is never built with <c>IsAdmin</c>, only with its live standing. Only a run-as caller
+    /// gets this widening; every interactive caller is judged by <c>IsAdmin</c> alone.
+    /// </summary>
+    private static bool IsAdminOrRunAsAdmin(BeaconActor caller)
+    {
+        return caller.IsAdmin || (caller.Kind == BeaconPrincipalKind.Owner && caller.IsLiveAdmin);
     }
 
     private static BeaconForbiddenException Refuse(ILogger logger, BeaconActor caller, int? actorId)

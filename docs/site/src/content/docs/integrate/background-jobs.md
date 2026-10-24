@@ -43,7 +43,7 @@ public interface IBeaconScheduler
 ```
 
 `EnqueueBackgroundTask` is optional too. Beacon records long work a user starts from the UI (today: a forced metadata
-refresh) as a background task and hands its id to this method; your job calls `IBackgroundTaskService.ExecuteAsync(taskId, ct)`
+refresh and an AI actor's think-now) as a background task and hands its id to this method; your job calls `IBackgroundTaskService.ExecuteAsync(taskId, ct)`
 in a scope marked as system work; Beacon then runs it as the user who started it and re-checks their access first (a
 task they may no longer run is recorded as skipped, and the job succeeds). Return the job id (the UI follows
 `JobStatusChanged` for it, sent to `notifyUserId`: the id the SignalR hub addresses the caller by, a signed-in
@@ -69,7 +69,7 @@ Each job opens a **new DI scope**, marks it as system work, and calls one Beacon
 | Project documentation | `IProjectDocumentationService.GenerateDocumentationAsync(projectId, userId, ct)` (Beacon.AI) | `EnqueueProjectDocumentation` |
 | AI actor think cycle | `IAiActorServiceExtended.ExecuteThinkCycleBackgroundAsync(actorId, subscriptionId)` (Beacon.AI) | `EnqueueAiActorThinkCycle` |
 | MCP evaluation run | `IJobService.RunMcpEval(runId, ct)` | `EnqueueMcpEval` |
-| Background task (metadata refresh) | `IBackgroundTaskService.ExecuteAsync(taskId, ct)` | `EnqueueBackgroundTask` |
+| Background task (metadata refresh, AI actor think-now) | `IBackgroundTaskService.ExecuteAsync(taskId, ct)` | `EnqueueBackgroundTask` |
 
 ### Recurring maintenance jobs
 

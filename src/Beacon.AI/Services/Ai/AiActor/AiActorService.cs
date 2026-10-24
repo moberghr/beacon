@@ -597,8 +597,18 @@ public class AiActorService : IAiActorServiceExtended
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new BeaconException($"AI Actor with ID {actorId} not found");
 
+        if (actor.Status == AiActorStatus.Archived)
+        {
+            return;
+        }
+
         actor.Status = AiActorStatus.Archived;
         actor.ArchivedTime = DateTime.UtcNow;
+        await _securityAudit.StageAsync(
+            context,
+            new SecurityAuditEntry(SecurityAuditActions.AiActorArchived)
+                .On(SecurityAuditResources.AiActor, actor.Id),
+            cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
 
         _logger.LogInformation("Archived AI Actor {ActorId}", actorId);

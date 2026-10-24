@@ -31,6 +31,15 @@ public static class BackgroundTaskFailureCodes
     /// <summary>The caller, or for a task the user who started it, may not (or may no longer) do the work.</summary>
     public const string Forbidden = "forbidden";
 
+    /// <summary>The actor thought recently; think cycles run at most once per cooldown (a skipped task).</summary>
+    public const string Cooldown = "cooldown";
+
+    /// <summary>One of the actor's plans waits for a decision, so it proposes nothing new (a skipped task).</summary>
+    public const string PlanPending = "plan_pending";
+
+    /// <summary>The actor was paused or archived before the task ran (a skipped task).</summary>
+    public const string Inactive = "inactive";
+
     /// <summary>Anything else; the server log has the details.</summary>
     public const string Failed = "failed";
 

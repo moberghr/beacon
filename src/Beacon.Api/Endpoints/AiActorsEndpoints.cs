@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Beacon.Api.Authentication;
 using Beacon.Core.Authorization;
+using Beacon.Core.BackgroundTasks;
 using Beacon.Core.Handlers.AiActors;
 using MediatR;
 using Microsoft.AspNetCore.Http.HttpResults;
@@ -39,9 +40,25 @@ internal static class AiActorsEndpoints
                 m.Send(new ArchiveAiActorCommand { ActorId = id }, ct))
             .WithName("ArchiveAiActor");
 
+        // Runs the cycle in the request and answers with its result (kept for 5.0 callers; a cycle holds the request open).
         actors.MapPost("/{id:int}/think", (int id, IMediator m, CancellationToken ct) =>
                 m.Send(new ExecuteAiActorThinkCycleCommand { ActorId = id }, ct))
             .WithName("ExecuteAiActorThinkCycle");
+
+        // Starts the cycle as a background task: 202 with the task (its job id correlates JobStatusChanged), read below.
+        actors.MapPost("/{id:int}/think-tasks", async (int id, IMediator m, CancellationToken ct) =>
+            {
+                var ticket = await m.Send(new StartAiActorThinkCommand { ActorId = id }, ct);
+                return TypedResults.Accepted($"/beacon/api/ai-actors/{id}/think-tasks/{ticket.TaskId}", ticket);
+            })
+            .WithName("StartAiActorThink");
+
+        actors.MapGet("/{id:int}/think-tasks/{taskId:int}", async Task<Results<Ok<BackgroundTaskStatus>, NotFound>> (int id, int taskId, IMediator m, CancellationToken ct) =>
+            {
+                var status = await m.Send(new GetAiActorThinkTaskQuery(id, taskId), ct);
+                return status is null ? TypedResults.NotFound() : TypedResults.Ok(status);
+            })
+            .WithName("GetAiActorThinkTask");
 
         actors.MapPost("/{id:int}/pause", (int id, IMediator m, CancellationToken ct) =>
                 m.Send(new PauseAiActorCommand { ActorId = id }, ct))

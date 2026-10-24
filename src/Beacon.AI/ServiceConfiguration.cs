@@ -95,6 +95,7 @@ public static class ServiceConfiguration
         services.TryAddScoped<AiActorService>();
         services.TryAddScoped<IAiActorServiceExtended>(sp => sp.GetRequiredService<AiActorService>());
         services.TryAddScoped<Core.Services.IAiActorService>(sp => sp.GetRequiredService<AiActorService>());
+        services.TryAddEnumerable(ServiceDescriptor.Transient<Core.BackgroundTasks.IBackgroundTaskExecutor, AiActorThinkTaskExecutor>());
 
         // GitHub Scanner
         services.AddOptions<GitHubScanOptions>().Bind(configuration.GetSection(GitHubScanOptions.SectionName));
