@@ -1,6 +1,8 @@
+import { useEffect, useMemo } from 'react';
 import { useQueryClient, type QueryClient, type QueryKey } from '@tanstack/react-query';
 import { toast } from 'sonner';
 import type { ApprovalUpdatedEvent } from './hub';
+import { createInvalidationCoalescer, type InvalidationCoalescer } from './coalesceInvalidations';
 import { useHubEvent, useHubReconnected } from './useHubEvent';
 
 type HubEventName = 'ApprovalUpdated' | 'JobStatusChanged';
@@ -17,6 +19,8 @@ const INVALIDATIONS: Record<HubEventName, ReadonlyArray<QueryKey>> = {
   JobStatusChanged: [['control-tower'], ['migration-jobs'], ['migration-executions']],
 };
 
+const HUB_INVALIDATION_WINDOW_MS = 1000;
+
 /** Keys no hub event invalidates but a reconnect still refreshes, so data that changed while offline shows up. */
 const RECONNECT_ONLY: ReadonlyArray<QueryKey> = [['notifications']];
 
@@ -24,11 +28,19 @@ const RECONNECT_ONLY: ReadonlyArray<QueryKey> = [['notifications']];
 export const SUPERSEDED_MESSAGE = 'Your pending change was replaced by a newer submission';
 
 /** The connection came back: refetch every mapped key, since events fired while it was down are lost. */
-export function handleHubReconnected(qc: QueryClient): void {
-  for (const keys of [...Object.values(INVALIDATIONS), RECONNECT_ONLY]) {
-    for (const key of keys) {
-      qc.invalidateQueries({ queryKey: key });
-    }
+export function handleHubReconnected(qc: QueryClient, coalescer?: InvalidationCoalescer): void {
+  const keys = [...Object.values(INVALIDATIONS), RECONNECT_ONLY].flat();
+  invalidateKeys(qc, coalescer, keys);
+}
+
+function invalidateKeys(qc: QueryClient, coalescer: InvalidationCoalescer | undefined, keys: ReadonlyArray<QueryKey>): void {
+  if (coalescer) {
+    coalescer.invalidate(keys);
+    return;
+  }
+
+  for (const key of keys) {
+    qc.invalidateQueries({ queryKey: key });
   }
 }
 
@@ -36,10 +48,12 @@ export function handleHubReconnected(qc: QueryClient): void {
  * An approval request changed: refetch what shows it, and tell the requester when a newer submission superseded their
  * pending change (the server sends "superseded" to that requester only).
  */
-export function handleApprovalUpdated(qc: QueryClient, event: ApprovalUpdatedEvent | undefined): void {
-  for (const key of INVALIDATIONS.ApprovalUpdated) {
-    qc.invalidateQueries({ queryKey: key });
-  }
+export function handleApprovalUpdated(
+  qc: QueryClient,
+  event: ApprovalUpdatedEvent | undefined,
+  coalescer?: InvalidationCoalescer,
+): void {
+  invalidateKeys(qc, coalescer, INVALIDATIONS.ApprovalUpdated);
 
   if (event?.status === 'superseded') {
     toast.info(SUPERSEDED_MESSAGE);
@@ -55,20 +69,21 @@ export function handleApprovalUpdated(qc: QueryClient, event: ApprovalUpdatedEve
  */
 export function useHubInvalidations(): void {
   const qc = useQueryClient();
+  // A burst of events refetches each list about once a second instead of once per event.
+  const coalescer = useMemo(() => createInvalidationCoalescer(qc, HUB_INVALIDATION_WINDOW_MS), [qc]);
+  useEffect(() => () => coalescer.dispose(), [coalescer]);
 
   useHubEvent('ApprovalUpdated', event => {
-    handleApprovalUpdated(qc, event);
+    handleApprovalUpdated(qc, event, coalescer);
   });
 
   useHubEvent('JobStatusChanged', () => {
-    for (const key of INVALIDATIONS.JobStatusChanged) {
-      qc.invalidateQueries({ queryKey: key });
-    }
+    invalidateKeys(qc, coalescer, INVALIDATIONS.JobStatusChanged);
   });
 
   // Events fired during a transient disconnect are lost — reconcile every
   // mapped query key once the connection comes back.
   useHubReconnected(() => {
-    handleHubReconnected(qc);
+    handleHubReconnected(qc, coalescer);
   });
 }

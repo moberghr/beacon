@@ -113,6 +113,7 @@ public class HostDocsTranslationTests : QueryTranslationTestBase
 
         sql.Should().Contain("column_metadata");
         sql.Should().Contain("LIKE");
+        sql.Should().Contain("host_managed_key IS NOT NULL");
     }
 
     [Test]

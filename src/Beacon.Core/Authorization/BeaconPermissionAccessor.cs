@@ -83,7 +83,7 @@ internal sealed class BeaconPermissionAccessor(
                     return BeaconPermissionSet.Admin;
                 }
 
-                var roleNames = await StoredFunctionalRolesAsync(actor.BeaconUserId.Value, cancellationToken);
+                var roleNames = await StoredFunctionalRolesAsync(contextFactory, actor.BeaconUserId.Value, cancellationToken);
 
                 return OfStoredUser(false, roleNames, principal, actor.BeaconUserId.Value, actor.LogId, mapping, timeProvider, log);
 
@@ -155,7 +155,11 @@ internal sealed class BeaconPermissionAccessor(
         return mapped;
     }
 
-    private async Task<List<string>> StoredFunctionalRolesAsync(int userId, CancellationToken cancellationToken)
+    /// <summary>The names of the functional roles (system roles at level 0) the stored user holds now.</summary>
+    internal static async Task<List<string>> StoredFunctionalRolesAsync(
+        IDbContextFactory<BeaconContext> contextFactory,
+        int userId,
+        CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 

@@ -36,7 +36,7 @@ namespace Beacon.Api.Authentication;
 /// authenticates nothing, whoever asks it (the host's <c>UseAuthentication</c> with the cookie as its default scheme, or a
 /// policy naming the scheme). The session is refused there before anything else: no check against the user store, no
 /// renewal, and the cookie is left as it is.
-/// Runs inside the cookie handler, so <see cref="BeaconCookieAuthMiddleware"/> and every other cookie authentication
+/// Runs inside the cookie handler, so <c>UseBeaconAuthentication</c> and every other cookie authentication
 /// of the request see its outcome (§1.9 order unchanged). Ids only in logs (§1.11).
 /// </summary>
 internal static class BeaconSessionEvents

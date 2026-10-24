@@ -5,6 +5,7 @@ using Microsoft.Extensions.Options;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Services.Retention;
 using Beacon.Core.Telemetry;
 
 namespace Beacon.Core.SecurityAudit;
@@ -71,7 +72,8 @@ internal sealed class SecurityAuditVerificationService(
     IOptions<SecurityAuditOptions> options,
     TimeProvider timeProvider,
     ILoggerFactory loggerFactory,
-    IMcpAuditVerificationService mcpAuditVerification) : ISecurityAuditVerificationService
+    IMcpAuditVerificationService mcpAuditVerification,
+    IMaintenanceHeartbeat? heartbeat = null) : ISecurityAuditVerificationService
 {
     internal const int BatchSize = 1000;
 
@@ -101,6 +103,11 @@ internal sealed class SecurityAuditVerificationService(
             var checkpoint = await VerifyAsync(cancellationToken);
             await ReportAsync(checkpoint, cancellationToken);
             await mcpAuditVerification.VerifyNewRowsAsync(cancellationToken);
+
+            if (heartbeat != null)
+            {
+                await heartbeat.RecordAsync(MaintenanceJobNames.SecurityAuditVerify, cancellationToken);
+            }
 
             return checkpoint;
         }

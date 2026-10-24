@@ -17,10 +17,11 @@ using Beacon.Core.Services.Validation;
 using System.Globalization;
 using System.Text;
 using System.Text.Json;
+using System.Text.RegularExpressions;
 
 namespace Beacon.AI.Services.Knowledge;
 
-internal sealed class KnowledgeGraphService(
+internal sealed partial class KnowledgeGraphService(
     IDbContextFactory<BeaconContext> contextFactory,
     IMcpSettingsProvider settingsProvider,
     ISharedSourceSettings sharedSourceSettings,
@@ -31,7 +32,8 @@ internal sealed class KnowledgeGraphService(
     IQueryGuardrailService guardrail,
     ILogger<KnowledgeGraphService> logger,
     WithheldGroundingLog? withheldLog = null,
-    IOptions<McpDeploymentOptions>? deploymentOptions = null) : IKnowledgeGraphService
+    IOptions<McpDeploymentOptions>? deploymentOptions = null,
+    CatalogSnapshotCache? catalogSnapshots = null) : IKnowledgeGraphService
 {
     // Grounding a prompt leaves out is logged once per row and interval (the singleton in the host; per instance in tests).
     private readonly WithheldGroundingLog _withheld = withheldLog ?? new WithheldGroundingLog();
@@ -61,9 +63,12 @@ internal sealed class KnowledgeGraphService(
     private static readonly int[] DocChunkOwnerTypes = [(int)McpEmbeddingOwnerType.DocChunk];
     private static readonly int[] GlossaryOwnerTypes = [(int)McpEmbeddingOwnerType.GlossaryTerm];
 
-    // Golden eval cases are data-source-scoped (like Exemplar/metadata), so retrieval passes a dataSourceId
-    // (not a projectId) to the shared nearest-neighbour helpers.
+    // Golden eval cases belong to a project on one data source (like exemplars): each vector carries its case's project,
+    // so retrieval passes both the dataSourceId and the projectId to the shared nearest-neighbour helpers.
     private static readonly int[] GoldenCaseOwnerTypes = [(int)McpEmbeddingOwnerType.GoldenCase];
+
+    // The number a built-in data-quality rule's actual value starts with ("3", "9.25%", "90 minutes").
+    private static readonly Regex LeadingNumber = new("^[0-9]{1,20}(?:[.,][0-9]{1,6})?", RegexOptions.CultureInvariant, TimeSpan.FromMilliseconds(100));
 
     public Task<TableKnowledge> GetTableKnowledgeAsync(int dataSourceId, int projectId, string schemaName, string tableName, CancellationToken ct = default)
     {
@@ -110,36 +115,35 @@ internal sealed class KnowledgeGraphService(
             .Where(q => q.DataSourceId == dataSourceId && q.SchemaName == schemaName && q.TableName == tableName)
             .FirstOrDefaultAsync(ct);
 
-        var qualityRules = new List<QualityRuleInfo>();
-        var contract = await context.DataContracts
-            .Include(c => c.Rules)
-            .Where(c => c.DataSourceId == dataSourceId && c.SchemaName == schemaName && c.TableName == tableName)
-            .FirstOrDefaultAsync(ct);
-
-        if (contract != null)
-        {
-            // Get latest evaluation results - EvaluatedAt does not exist; use CreatedTime from BaseEntity
-            var latestEval = await context.DataQualityEvaluations
-                .Include(e => e.RuleResults)
-                .Where(e => e.DataContractId == contract.Id)
-                .OrderByDescending(e => e.CreatedTime)
-                .FirstOrDefaultAsync(ct);
-
-            if (latestEval != null)
-            {
-                foreach (var rule in contract.Rules)
+        // The table's enabled contracts, each rule as its contract's latest evaluation found it. A rule that evaluation did
+        // not run (disabled, waiting for approval, added since) is left out, never reported as failing. A result's stored
+        // text never reaches grounding (a Custom SQL rule's message and value are whatever its query returned): each rule
+        // gets a status written here from its type, its outcome and the digits of its actual value.
+        var ruleResults = await context.DataContracts
+            .Where(x => x.DataSourceId == dataSourceId)
+            .Where(x => x.SchemaName == schemaName)
+            .Where(x => x.TableName == tableName)
+            .Where(x => x.IsEnabled)
+            .SelectMany(x => x.Evaluations
+                .OrderByDescending(y => y.CreatedTime)
+                .ThenByDescending(y => y.Id)
+                .Take(1)
+                .SelectMany(y => y.RuleResults))
+            .Where(x => x.DataContractRule.IsEnabled)
+            .OrderBy(x => x.DataContractRule.DataContractId)
+            .ThenBy(x => x.DataContractRuleId)
+            .Select(x =>
+                new
                 {
-                    var result = latestEval.RuleResults.FirstOrDefault(r => r.DataContractRuleId == rule.Id);
-                    // RuleResult error detail is in Message property, not ErrorMessage
-                    qualityRules.Add(new QualityRuleInfo(
-                        rule.RuleType.ToString(),
-                        rule.ColumnName,
-                        result?.Passed ?? false,
-                        result?.Message
-                    ));
-                }
-            }
-        }
+                    x.DataContractRule.RuleType,
+                    x.DataContractRule.ColumnName,
+                    x.Passed,
+                    x.ActualValue
+                })
+            .ToListAsync(ct);
+        var qualityRules = ruleResults
+            .Select(x => new QualityRuleInfo(x.RuleType.ToString(), x.ColumnName, x.Passed, RuleStatus(x.RuleType, x.Passed, x.ActualValue)))
+            .ToList();
 
         // Count query executions that touched this data source via query steps
         var queryCount = await context.QueryExecutionHistory
@@ -187,404 +191,6 @@ internal sealed class KnowledgeGraphService(
     {
         return DataSourceKnowledgeAsync(dataSourceId, projectId, ct);
     }
-
-    public async Task<List<SearchResult>> SearchAsync(string query, int projectId, int? dataSourceId = null, int maxResults = 20, CancellationToken ct = default)
-    {
-        await using var context = await contextFactory.CreateDbContextAsync(ct);
-
-        // Only the data sources the caller's project links are searched (§1.12), on both arms: a named data source the
-        // project does not link yields nothing.
-        var projectSourceIds = ProjectSourceIds(context, projectId);
-        if (dataSourceId.HasValue && !await projectSourceIds.ContainsAsync(dataSourceId.Value, ct))
-        {
-            return [];
-        }
-
-        var results = new List<SearchResult>();
-        var queryLower = query.ToLower();
-
-        // Tokenize the question so each meaningful term can match independently. Searching
-        // for the whole question as a single substring never matches on real schemas.
-        var terms = TokenizeQuery(query);
-
-        // Fall back to the whole (lowercased) query when tokenization yields nothing useful.
-        if (terms.Count == 0)
-            terms = [queryLower];
-
-        // Search tables by name or description — match ANY term.
-        var tablesQuery = context.DatabaseMetadata
-            .Where(m => projectSourceIds.Contains(m.DataSourceId));
-        if (dataSourceId.HasValue)
-            tablesQuery = tablesQuery.Where(m => m.DataSourceId == dataSourceId.Value);
-
-        var matchingTables = await tablesQuery
-            .Where(m => terms.Any(t => m.TableName.ToLower().Contains(t)) ||
-                        (m.TableDescription != null && terms.Any(t => m.TableDescription.ToLower().Contains(t))))
-            .Select(m => new { m.DataSourceId, DataSourceName = m.DataSource.Name, m.SchemaName, m.TableName, m.TableDescription })
-            .Take(maxResults * 2)
-            .ToListAsync(ct);
-
-        foreach (var table in matchingTables)
-        {
-            var overlap = CountOverlap(terms, table.TableName, table.TableDescription);
-            var relevance = table.TableName.Equals(query, StringComparison.OrdinalIgnoreCase)
-                ? 1.0
-                : 0.8 + (overlap * 0.05);
-            results.Add(new SearchResult
-            {
-                Type = "table",
-                DataSourceId = table.DataSourceId,
-                DataSourceName = table.DataSourceName,
-                SchemaName = table.SchemaName,
-                TableName = table.TableName,
-                Description = table.TableDescription,
-                Relevance = relevance
-            });
-        }
-
-        // Search columns by name or description — match ANY term.
-        var columnsQuery = context.ColumnMetadata
-            .Where(c => projectSourceIds.Contains(c.DatabaseMetadata.DataSourceId));
-        if (dataSourceId.HasValue)
-            columnsQuery = columnsQuery.Where(c => c.DatabaseMetadata.DataSourceId == dataSourceId.Value);
-
-        var matchingColumns = await columnsQuery
-            .Where(c => terms.Any(t => c.ColumnName.ToLower().Contains(t)) ||
-                        (c.Description != null && terms.Any(t => c.Description.ToLower().Contains(t))))
-            .Select(c => new
-            {
-                c.DatabaseMetadata.DataSourceId,
-                DataSourceName = c.DatabaseMetadata.DataSource.Name,
-                c.DatabaseMetadata.SchemaName,
-                c.DatabaseMetadata.TableName,
-                c.ColumnName,
-                c.Description
-            })
-            .Take(maxResults * 2)
-            .ToListAsync(ct);
-
-        foreach (var col in matchingColumns)
-        {
-            var overlap = CountOverlap(terms, col.ColumnName, col.Description);
-            results.Add(new SearchResult
-            {
-                Type = "column",
-                DataSourceId = col.DataSourceId,
-                DataSourceName = col.DataSourceName,
-                SchemaName = col.SchemaName,
-                TableName = col.TableName,
-                ColumnName = col.ColumnName,
-                Description = col.Description,
-                Relevance = col.ColumnName.Equals(query, StringComparison.OrdinalIgnoreCase)
-                    ? 0.9
-                    : 0.6 + (overlap * 0.05)
-            });
-        }
-
-        // Lexical (sparse) arm — the historical token-overlap ranking. This is exactly the result
-        // returned before hybrid retrieval existed, and stays the behaviour-preserving fallback.
-        var lexicalRanked = results
-            .OrderByDescending(r => r.Relevance)
-            .ToList();
-
-        // Dense arm only kicks in with a local embedder, semantic retrieval enabled, and a concrete
-        // data source to scope the vector store to. Anything short of that returns today's lexical list.
-        var useDense = embeddingService.IsAvailable && dataSourceId.HasValue;
-        if (useDense)
-        {
-            var settings = await settingsProvider.GetSettingsAsync(ct);
-            useDense = settings.EnableSemanticRetrieval;
-        }
-
-        if (!useDense)
-        {
-            return lexicalRanked.Take(maxResults).ToList();
-        }
-
-        try
-        {
-            var denseRanked = await BuildDenseResultsAsync(context, query, dataSourceId!.Value, maxResults * 2, ct);
-            if (denseRanked.Count == 0)
-            {
-                // No vectors indexed yet (or nothing matched) — nothing to fuse; keep lexical behaviour.
-                return lexicalRanked.Take(maxResults).ToList();
-            }
-
-            // Fuse the two independently-ranked arms via RRF and re-weight Relevance with the fused score.
-            var fused = ReciprocalRankFusion.FuseWithScores(
-                new IReadOnlyList<SearchResult>[] { lexicalRanked, denseRanked },
-                FusionKey);
-
-            return fused
-                .Take(maxResults)
-                .Select(x => x.Item with { Relevance = x.Score })
-                .ToList();
-        }
-        catch (OperationCanceledException)
-        {
-            // A cancelled/timed-out request must unwind, not be misreported as a dense-arm failure and
-            // then keep doing more cancellable lexical work.
-            throw;
-        }
-        catch (Exception ex)
-        {
-            // Fail closed onto the lexical arm — a vector-store/query hiccup must never fail a search.
-            logger.LogWarning("Dense retrieval arm failed for data source {DataSourceId}; falling back to lexical search ({Failure}).", dataSourceId, FailureCodes.Describe(ex));
-            return lexicalRanked.Take(maxResults).ToList();
-        }
-    }
-
-    // Stable identity for fusing/de-duplicating a SearchResult across the lexical and dense arms.
-    // Documentation results dedupe on their per-row DocIdentity when present — the truncated preview
-    // text alone collapses two distinct docs sharing a 200-char prefix into one result.
-    private static string FusionKey(SearchResult result) => result.Type switch
-    {
-        "column" => $"c|{result.DataSourceId}|{result.SchemaName}|{result.TableName}|{result.ColumnName}",
-        "table" => $"t|{result.DataSourceId}|{result.SchemaName}|{result.TableName}",
-        _ when result.DocIdentity != null => $"{result.Type}|{result.DocIdentity}",
-        _ => $"{result.Type}|{result.DataSourceName}|{result.Description}"
-    };
-
-    // Dense (semantic) arm: embed the query once, pull the nearest table/column embeddings for the data
-    // source, and map them back to SearchResults preserving the vector-similarity ranking. PostgreSQL
-    // uses the pgvector HNSW index via a raw <=> query; other providers do in-memory cosine over the
-    // stored bytes (metadata-scale catalogs). Exemplar embeddings are excluded — those feed few-shot (B6).
-    private async Task<List<SearchResult>> BuildDenseResultsAsync(
-        BeaconContext context, string query, int dataSourceId, int limit, CancellationToken ct)
-    {
-        var queryVector = await embeddingService.EmbedAsync(query, ct);
-
-        var hits = context.Database.ProviderName == NpgsqlProviderName
-            ? await GetNearestPostgresAsync(context, queryVector, [dataSourceId], MetadataOwnerTypes, limit, ct, projectId: null)
-            : await GetNearestInMemoryAsync(context, queryVector, [dataSourceId], MetadataOwnerTypes, limit, ct, projectId: null);
-
-        return await MapMetadataHitsToResultsAsync(context, hits, ct);
-    }
-
-    // MetadataTable OwnerId == DatabaseMetadata.Id; MetadataColumn OwnerId == ColumnMetadata.Id. Maps
-    // hits back to table/column SearchResults preserving the vector-similarity order. Shared by the
-    // data-source dense arm (SearchAsync) and the project semantic arm (SearchProjectAsync).
-    private static async Task<List<SearchResult>> MapMetadataHitsToResultsAsync(
-        BeaconContext context, List<EmbeddingHit> hits, CancellationToken ct)
-    {
-        if (hits.Count == 0)
-        {
-            return [];
-        }
-
-        var tableOwnerIds = hits
-            .Where(x => x.OwnerType == McpEmbeddingOwnerType.MetadataTable)
-            .Select(x => x.OwnerId)
-            .ToList();
-        var columnOwnerIds = hits
-            .Where(x => x.OwnerType == McpEmbeddingOwnerType.MetadataColumn)
-            .Select(x => x.OwnerId)
-            .ToList();
-
-        var tablesById = new Dictionary<int, SearchResult>();
-        if (tableOwnerIds.Count > 0)
-        {
-            var tableRows = await context.DatabaseMetadata
-                .Where(x => tableOwnerIds.Contains(x.Id))
-                .Select(x =>
-                    new
-                    {
-                        x.Id,
-                        x.DataSourceId,
-                        DataSourceName = x.DataSource.Name,
-                        x.SchemaName,
-                        x.TableName,
-                        x.TableDescription
-                    })
-                .ToListAsync(ct);
-
-            foreach (var row in tableRows)
-            {
-                tablesById[row.Id] = new SearchResult
-                {
-                    Type = "table",
-                    DataSourceId = row.DataSourceId,
-                    DataSourceName = row.DataSourceName,
-                    SchemaName = row.SchemaName,
-                    TableName = row.TableName,
-                    Description = row.TableDescription,
-                    Relevance = 0
-                };
-            }
-        }
-
-        var columnsById = new Dictionary<int, SearchResult>();
-        if (columnOwnerIds.Count > 0)
-        {
-            var columnRows = await context.ColumnMetadata
-                .Where(x => columnOwnerIds.Contains(x.Id))
-                .Select(x =>
-                    new
-                    {
-                        x.Id,
-                        x.DatabaseMetadata.DataSourceId,
-                        DataSourceName = x.DatabaseMetadata.DataSource.Name,
-                        x.DatabaseMetadata.SchemaName,
-                        x.DatabaseMetadata.TableName,
-                        x.ColumnName,
-                        x.Description
-                    })
-                .ToListAsync(ct);
-
-            foreach (var row in columnRows)
-            {
-                columnsById[row.Id] = new SearchResult
-                {
-                    Type = "column",
-                    DataSourceId = row.DataSourceId,
-                    DataSourceName = row.DataSourceName,
-                    SchemaName = row.SchemaName,
-                    TableName = row.TableName,
-                    ColumnName = row.ColumnName,
-                    Description = row.Description,
-                    Relevance = 0
-                };
-            }
-        }
-
-        // Re-project hits into SearchResults in the vector-similarity order returned above; Relevance is a
-        // placeholder here (0) — RRF assigns the final fused score once this arm is fused with the lexical one.
-        var dense = new List<SearchResult>();
-        foreach (var hit in hits)
-        {
-            if (hit.OwnerType == McpEmbeddingOwnerType.MetadataTable
-                && tablesById.TryGetValue(hit.OwnerId, out var tableResult))
-            {
-                dense.Add(tableResult);
-            }
-            else if (hit.OwnerType == McpEmbeddingOwnerType.MetadataColumn
-                && columnsById.TryGetValue(hit.OwnerId, out var columnResult))
-            {
-                dense.Add(columnResult);
-            }
-        }
-
-        return dense;
-    }
-
-    private static async Task<List<EmbeddingHit>> GetNearestPostgresAsync(
-        BeaconContext context, float[] queryVector, int[] dataSourceIds, int[] ownerTypes, int limit, CancellationToken ct, int? projectId = null)
-    {
-        // The query vector is our own floats, formatted invariantly, but still passed as a parameter
-        // (never string-concatenated) and cast to vector(384) so pgvector can use the <=> HNSW index (§1.10).
-        var vectorLiteral = "[" + string.Join(",", queryVector.Select(x => x.ToString("R", CultureInfo.InvariantCulture))) + "]";
-
-        // Only the EF-mapped columns are selected — the DB-managed `embedding` vector column is left out so
-        // Npgsql never has to read the vector type (no Pgvector handler is registered on this data source).
-        // ownerTypes and dataSourceIds are our own arrays, each passed as a single parameterized integer[]
-        // via `= ANY(...)` — never string-interpolated (§1.10). Scope selection:
-        // - projectId alone (empty dataSourceIds): project-scoped rows like doc-chunks/glossary — the
-        //   filter is project_id INSTEAD OF data_source_id.
-        // - dataSourceIds alone: data-source-scoped metadata rows; the project semantic arm can scan all
-        //   of a project's data sources in one globally-ranked kNN (single-source callers pass a
-        //   one-element array).
-        // - BOTH: exemplar retrieval (R5/C1) — data_source_id AND project_id, so a shared data source
-        //   never surfaces another project's exemplar vectors in the top-k.
-        // All branches stay fully parameterized and select every mapped McpEmbedding column
-        // (project_id added in B1) so FromSqlInterpolated can materialize the entity.
-        FormattableString sql;
-        if (projectId.HasValue && dataSourceIds.Length > 0)
-        {
-            sql = $@"
-                SELECT id, data_source_id, project_id, owner_type, owner_id, embedding_bytes, model, dimensions, embedding_version, created_time
-                FROM mcp_embeddings
-                WHERE data_source_id = ANY({dataSourceIds})
-                  AND project_id = {projectId.Value}
-                  AND owner_type = ANY({ownerTypes})
-                ORDER BY embedding <=> {vectorLiteral}::vector(384)
-                LIMIT {limit}";
-        }
-        else if (projectId.HasValue)
-        {
-            sql = $@"
-                SELECT id, data_source_id, project_id, owner_type, owner_id, embedding_bytes, model, dimensions, embedding_version, created_time
-                FROM mcp_embeddings
-                WHERE project_id = {projectId.Value}
-                  AND owner_type = ANY({ownerTypes})
-                ORDER BY embedding <=> {vectorLiteral}::vector(384)
-                LIMIT {limit}";
-        }
-        else
-        {
-            sql = $@"
-                SELECT id, data_source_id, project_id, owner_type, owner_id, embedding_bytes, model, dimensions, embedding_version, created_time
-                FROM mcp_embeddings
-                WHERE data_source_id = ANY({dataSourceIds})
-                  AND owner_type = ANY({ownerTypes})
-                ORDER BY embedding <=> {vectorLiteral}::vector(384)
-                LIMIT {limit}";
-        }
-
-        // No LINQ composition on top of FromSqlInterpolated so the raw ORDER BY / LIMIT run verbatim.
-        var rows = await context.McpEmbeddings
-            .FromSqlInterpolated(sql)
-            .AsNoTracking()
-            .ToListAsync(ct);
-
-        return rows
-            .Select(x => new EmbeddingHit(x.OwnerType, x.OwnerId))
-            .ToList();
-    }
-
-    private static async Task<List<EmbeddingHit>> GetNearestInMemoryAsync(
-        BeaconContext context, float[] queryVector, int[] dataSourceIds, int[] ownerTypes, int limit, CancellationToken ct, int? projectId = null)
-    {
-        var ownerTypeFilter = ownerTypes
-            .Select(x => (McpEmbeddingOwnerType)x)
-            .ToList();
-
-        // Scope selection mirrors the Postgres branch: project_id alone for project-scoped
-        // doc-chunk/glossary rows; data_source_id alone for metadata rows (an id set, so the project
-        // semantic arm can scan all of a project's data sources; single-source callers pass one
-        // element); BOTH for exemplar retrieval (R5/C1) so a shared data source never surfaces
-        // another project's exemplar vectors in the top-k.
-        IQueryable<McpEmbedding> scoped = context.McpEmbeddings;
-        if (projectId.HasValue)
-        {
-            scoped = scoped.Where(x => x.ProjectId == projectId);
-        }
-
-        if (!projectId.HasValue || dataSourceIds.Length > 0)
-        {
-            scoped = scoped
-                .Where(x => x.DataSourceId != null)
-                .Where(x => dataSourceIds.Contains(x.DataSourceId!.Value));
-        }
-
-        var candidates = await scoped
-            .Where(x => ownerTypeFilter.Contains(x.OwnerType))
-            .Select(x =>
-                new
-                {
-                    x.OwnerType,
-                    x.OwnerId,
-                    x.EmbeddingBytes
-                })
-            .ToListAsync(ct);
-
-        var expectedBytes = queryVector.Length * sizeof(float);
-
-        return candidates
-            .Where(x => x.EmbeddingBytes.Length == expectedBytes)
-            .Select(x =>
-                new
-                {
-                    x.OwnerType,
-                    x.OwnerId,
-                    Score = EmbeddingCodec.Cosine(queryVector, EmbeddingCodec.FromBytes(x.EmbeddingBytes))
-                })
-            .OrderByDescending(x => x.Score)
-            .Take(limit)
-            .Select(x => new EmbeddingHit(x.OwnerType, x.OwnerId))
-            .ToList();
-    }
-
-    private readonly record struct EmbeddingHit(McpEmbeddingOwnerType OwnerType, int OwnerId);
 
     public async Task<LineageInfo> GetLineageAsync(int dataSourceId, int projectId, string schemaName, string tableName, CancellationToken ct = default)
     {
@@ -788,502 +394,6 @@ internal sealed class KnowledgeGraphService(
         return sb.ToString();
     }
 
-    public async Task<List<SearchResult>> SearchProjectAsync(string query, int projectId, int maxResults = 20, CancellationToken ct = default)
-    {
-        var terms = SearchTermsOf(query);
-        if (terms.Count == 0)
-        {
-            return [];
-        }
-
-        await using var context = await contextFactory.CreateDbContextAsync(ct);
-
-        // Get all data source IDs for this project
-        var dsIds = await context.ProjectDataSources
-            .WhereReadable()
-            .Where(pds => pds.ProjectId == projectId)
-            .Select(pds => pds.DataSourceId)
-            .ToListAsync(ct);
-
-        var results = new List<SearchResult>();
-        var phrase = query.Trim();
-        var phraseLower = phrase.ToLowerInvariant();
-
-        // Search tables (a project with only imported documents has no data sources — skip the catalog queries)
-        var matchingTables = dsIds.Count == 0
-            ? []
-            : await BuildMatchingTablesQuery(context, dsIds, terms, maxResults)
-                .ToListAsync(ct);
-
-        foreach (var table in matchingTables)
-        {
-            results.Add(new SearchResult
-            {
-                Type = "table",
-                DataSourceId = table.DataSourceId,
-                DataSourceName = table.DataSourceName,
-                SchemaName = table.SchemaName,
-                TableName = table.TableName,
-                Description = table.TableDescription,
-                Relevance = (table.TableName.Equals(phrase, StringComparison.OrdinalIgnoreCase) ? 1.0 : 0.8) * TermShare(table.Hits, terms)
-            });
-        }
-
-        // Search columns
-        var matchingColumns = dsIds.Count == 0
-            ? []
-            : await BuildMatchingColumnsQuery(context, dsIds, terms, maxResults)
-                .ToListAsync(ct);
-
-        foreach (var col in matchingColumns)
-        {
-            results.Add(new SearchResult
-            {
-                Type = "column",
-                DataSourceId = col.DataSourceId,
-                DataSourceName = col.DataSourceName,
-                SchemaName = col.SchemaName,
-                TableName = col.TableName,
-                ColumnName = col.ColumnName,
-                Description = col.Description,
-                Relevance = (col.ColumnName.Equals(phrase, StringComparison.OrdinalIgnoreCase) ? 0.9 : 0.6) * TermShare(col.Hits, terms)
-            });
-        }
-
-        // Search project documentation
-        var docSections = await BuildDocSectionsQuery(context, projectId, terms, maxResults / 2)
-            .ToListAsync(ct);
-
-        foreach (var doc in docSections)
-        {
-            results.Add(new SearchResult
-            {
-                Type = "documentation",
-                DataSourceName = doc.ProjectName,
-                SchemaName = string.Empty,
-                TableName = string.Empty,
-                Description = TruncateContent(doc.Content, 200),
-                Relevance = 0.5 * TermShare(doc.Hits, terms),
-                DocIdentity = $"docsection:{doc.Id}",
-                SectionType = doc.SectionType
-            });
-        }
-
-        // Search host-imported documents (ExposeDocs) — title/path, or any of their chunks. Works with no embedder.
-        var importedDocs = await BuildImportedDocsQuery(context, projectId, terms, maxResults / 2)
-            .ToListAsync(ct);
-
-        foreach (var doc in importedDocs)
-        {
-            results.Add(new SearchResult
-            {
-                Type = "imported_doc",
-                DataSourceName = doc.ProjectName,
-                SchemaName = string.Empty,
-                TableName = string.Empty,
-                Description = doc.MatchingChunk != null ? TruncateContent(doc.MatchingChunk, 200) : null,
-                Relevance = (doc.Title.ToLowerInvariant().Contains(phraseLower) ? 0.55 : 0.5) * TermShare(doc.Hits, terms),
-                DocIdentity = $"importeddoc:{doc.Id}",
-                DocumentPath = doc.Path,
-                DocumentTitle = doc.Title
-            });
-        }
-
-        // Keyword arm — exactly the result returned before the semantic arm existed, and the
-        // behaviour-preserving fallback whenever embeddings are unavailable or the semantic arm fails.
-        var keywordRanked = OrderForDeterministicPaging(results, maxResults);
-
-        return await ApplyProjectSemanticFusionAsync(context, keywordRanked, query, projectId, dsIds, maxResults, ct);
-    }
-
-    /// <summary>
-    /// Semantic arm + fusion for project search (the MCP <c>search</c> tool). Fully fail-open: any gate
-    /// not satisfied (no local embedder, semantic retrieval disabled, no vectors indexed) or ANY error in
-    /// the semantic arm returns <paramref name="keywordRanked"/> unchanged, so the tool behaves exactly as
-    /// keyword-only search did. Mirrors the fail-open discipline of the grounding blocks
-    /// (<see cref="BuildGlossaryBlockAsync"/> / <see cref="BuildGoldenExemplarBlockAsync"/>): rethrow OCE
-    /// so a shutdown/timeout unwinds; otherwise log identifiers only (§1.11 — never the query text) and
-    /// fall back. Internal so SearchFusionTests exercise the REAL fail-open path.
-    /// </summary>
-    internal async Task<List<SearchResult>> ApplyProjectSemanticFusionAsync(
-        BeaconContext context,
-        List<SearchResult> keywordRanked,
-        string query,
-        int projectId,
-        List<int> dsIds,
-        int maxResults,
-        CancellationToken ct)
-    {
-        if (!embeddingService.IsAvailable)
-        {
-            return keywordRanked;
-        }
-
-        try
-        {
-            var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId, ct);
-            if (!settings.EnableSemanticRetrieval)
-            {
-                return keywordRanked;
-            }
-
-            var semanticRanked = await BuildProjectSemanticArmAsync(context, query, projectId, dsIds, maxResults * 2, ct);
-            if (semanticRanked.Count == 0)
-            {
-                // No vectors indexed yet (or nothing matched) — nothing to fuse; keep keyword behaviour.
-                return keywordRanked;
-            }
-
-            return FuseProjectSearchArms(keywordRanked, semanticRanked, maxResults);
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning("Semantic search arm failed for project {ProjectId}; returning keyword-only results ({Failure}).", projectId, FailureCodes.Describe(ex));
-            return keywordRanked;
-        }
-    }
-
-    // Fuses the keyword-ranked and semantic-ranked arms via RRF, re-weights Relevance with the fused
-    // score, and re-applies the deterministic paging order: fused score (as Relevance) descending, then
-    // the existing name tie-breaks — equal fused scores must not reshuffle between calls.
-    internal static List<SearchResult> FuseProjectSearchArms(
-        IReadOnlyList<SearchResult> keywordRanked,
-        IReadOnlyList<SearchResult> semanticRanked,
-        int maxResults)
-    {
-        var fused = ReciprocalRankFusion.FuseWithScores(
-            new[] { keywordRanked, semanticRanked },
-            FusionKey);
-
-        return OrderForDeterministicPaging(
-            fused.Select(x => x.Item with { Relevance = x.Score }),
-            maxResults);
-    }
-
-    // Dense (semantic) arm for project search: embed the RAW keyword once — metadata and doc chunks are
-    // embedded RAW at index time (BuildTableText/BuildColumnText, blurb + chunk); masking is a question-
-    // specific exemplar/golden-case convention and would move an arbitrary keyword into a different
-    // representation region. Then kNN over the project's data-source-scoped table/column embeddings and
-    // its project-scoped doc-chunk embeddings, mapping hits back to the same SearchResult shapes the
-    // keyword arm produces. Doc-chunk hits follow the metadata hits: the two kNN calls return rank-only
-    // hits with no scores comparable across scopes, and the keyword arm ranks documentation below
-    // tables/columns the same way. Exemplar, GoldenCase and GlossaryTerm embeddings are deliberately
-    // excluded — they ground SQL generation and have no table/column/doc identity in the result shape.
-    private async Task<List<SearchResult>> BuildProjectSemanticArmAsync(
-        BeaconContext context, string query, int projectId, List<int> dsIds, int limit, CancellationToken ct)
-    {
-        var queryVector = await embeddingService.EmbedAsync(query, ct);
-        var dataSourceIds = dsIds.ToArray();
-
-        var metadataHits = context.Database.ProviderName == NpgsqlProviderName
-            ? await GetNearestPostgresAsync(context, queryVector, dataSourceIds, MetadataOwnerTypes, limit, ct, projectId: null)
-            : await GetNearestInMemoryAsync(context, queryVector, dataSourceIds, MetadataOwnerTypes, limit, ct, projectId: null);
-
-        var semantic = await MapMetadataHitsToResultsAsync(context, metadataHits, ct);
-
-        var docLimit = Math.Max(1, limit / 2);
-        var docHits = context.Database.ProviderName == NpgsqlProviderName
-            ? await GetNearestPostgresAsync(context, queryVector, [], DocChunkOwnerTypes, docLimit, ct, projectId: projectId)
-            : await GetNearestInMemoryAsync(context, queryVector, [], DocChunkOwnerTypes, docLimit, ct, projectId: projectId);
-
-        semantic.AddRange(await MapDocChunkHitsToResultsAsync(context, docHits, projectId, ct));
-
-        return semantic;
-    }
-
-    // DocChunk OwnerId == McpDocChunk.Id. Maps hits back to "documentation" results in the shape the
-    // keyword arm produces (project name as the source, truncated chunk text as the description),
-    // preserving the vector-similarity order. Relevance is a placeholder (0) — RRF assigns the fused score.
-    // DocIdentity uses the chunk's SOURCE SECTION id ("docsection:{SourceSectionId}") — the same
-    // namespace the keyword arm emits for ProjectDocumentationSection rows — so a section retrieved by
-    // BOTH arms fuses into one result instead of appearing twice under disjoint identities. Two chunks
-    // of the SAME section consequently collapse too: fusion granularity for documentation is the
-    // section, matching what the keyword arm returns.
-    private static async Task<List<SearchResult>> MapDocChunkHitsToResultsAsync(
-        BeaconContext context, List<EmbeddingHit> hits, int projectId, CancellationToken ct)
-    {
-        if (hits.Count == 0)
-        {
-            return [];
-        }
-
-        var projectName = await context.Projects
-            .Where(x => x.Id == projectId)
-            .Select(x => x.Name)
-            .FirstOrDefaultAsync(ct);
-
-        if (projectName == null)
-        {
-            return [];
-        }
-
-        var ownerIds = hits
-            .Select(x => x.OwnerId)
-            .ToList();
-
-        var chunks = await context.McpDocChunks
-            .Where(x => x.ProjectId == projectId)
-            .Where(x => ownerIds.Contains(x.Id))
-            .Select(x =>
-                new
-                {
-                    x.Id,
-                    x.SourceSectionId,
-                    x.ChunkText,
-                    x.ImportedDocumentId,
-                    ImportedPath = x.ImportedDocument != null ? x.ImportedDocument.Path : null,
-                    ImportedTitle = x.ImportedDocument != null ? x.ImportedDocument.Title : null
-                })
-            .ToListAsync(ct);
-
-        var chunksById = chunks.ToDictionary(x => x.Id);
-
-        // A chunk of generated documentation carries its section's type, which says whether its text can list values
-        // discovered in the data; an imported document's chunk has no section.
-        var sectionIds = chunks
-            .Select(x => x.SourceSectionId)
-            .Where(x => x != 0)
-            .Distinct()
-            .ToList();
-        var sectionTypes = sectionIds.Count == 0
-            ? new Dictionary<int, ProjectDocSectionType>()
-            : await context.ProjectDocumentationSections
-                .Where(x => sectionIds.Contains(x.Id))
-                .Select(x =>
-                    new
-                    {
-                        x.Id,
-                        x.SectionType
-                    })
-                .ToDictionaryAsync(x => x.Id, x => x.SectionType, ct);
-
-        var results = new List<SearchResult>();
-        foreach (var hit in hits)
-        {
-            if (!chunksById.TryGetValue(hit.OwnerId, out var chunk))
-            {
-                continue;
-            }
-
-            // A host-imported document chunk: identity is the document, so both arms fuse per document.
-            if (chunk.ImportedDocumentId != null)
-            {
-                if (chunk.ImportedPath != null)
-                {
-                    results.Add(new SearchResult
-                    {
-                        Type = "imported_doc",
-                        DataSourceName = projectName,
-                        SchemaName = string.Empty,
-                        TableName = string.Empty,
-                        Description = TruncateContent(chunk.ChunkText, 200),
-                        Relevance = 0,
-                        DocIdentity = $"importeddoc:{chunk.ImportedDocumentId}",
-                        DocumentPath = chunk.ImportedPath,
-                        DocumentTitle = chunk.ImportedTitle
-                    });
-                }
-
-                continue;
-            }
-
-            results.Add(new SearchResult
-            {
-                Type = "documentation",
-                DataSourceName = projectName,
-                SchemaName = string.Empty,
-                TableName = string.Empty,
-                Description = TruncateContent(chunk.ChunkText, 200),
-                Relevance = 0,
-                DocIdentity = $"docsection:{chunk.SourceSectionId}",
-                SectionType = sectionTypes.TryGetValue(chunk.SourceSectionId, out var sectionType) ? sectionType : null
-            });
-        }
-
-        return results;
-    }
-
-    // SearchProjectAsync sub-queries, exposed as IQueryable builders so translation tests can run
-    // ToQueryString() on the REAL query shapes (InternalsVisibleTo Beacon.Tests). A row matches when it contains any of
-    // the search terms (SearchTermsOf); Hits counts the terms it contains and is the first sort key, so the rows that hit
-    // the most terms survive the Take. Projections target named row records instead of anonymous types — EF projects
-    // into the ctor identically. Ordering sits BEFORE the final projection because EF cannot compose OrderBy over
-    // ctor-projected members.
-    internal static IQueryable<TableSearchRow> BuildMatchingTablesQuery(BeaconContext context, List<int> dsIds, List<string> terms, int maxResults)
-    {
-        return context.DatabaseMetadata
-            .Where(x => dsIds.Contains(x.DataSourceId))
-            .Select(x =>
-                new
-                {
-                    Table = x,
-                    Hits = terms.Count(y => x.TableName.ToLower().Contains(y) ||
-                                            (x.TableDescription != null && x.TableDescription.ToLower().Contains(y)))
-                })
-            .Where(x => x.Hits > 0)
-            .OrderByDescending(x => x.Hits)
-            .ThenBy(x => x.Table.SchemaName)
-            .ThenBy(x => x.Table.TableName)
-            .ThenBy(x => x.Table.DataSourceId)
-            .ThenBy(x => x.Table.Id)
-            .Select(x =>
-                new TableSearchRow(
-                    x.Table.DataSourceId,
-                    x.Table.DataSource.Name,
-                    x.Table.SchemaName,
-                    x.Table.TableName,
-                    x.Table.TableDescription,
-                    x.Hits))
-            .Take(maxResults);
-    }
-
-    internal static IQueryable<ColumnSearchRow> BuildMatchingColumnsQuery(BeaconContext context, List<int> dsIds, List<string> terms, int maxResults)
-    {
-        return context.ColumnMetadata
-            .Where(x => dsIds.Contains(x.DatabaseMetadata.DataSourceId))
-            .Select(x =>
-                new
-                {
-                    Column = x,
-                    Hits = terms.Count(y => x.ColumnName.ToLower().Contains(y) ||
-                                            (x.Description != null && x.Description.ToLower().Contains(y)))
-                })
-            .Where(x => x.Hits > 0)
-            .OrderByDescending(x => x.Hits)
-            .ThenBy(x => x.Column.DatabaseMetadata.SchemaName)
-            .ThenBy(x => x.Column.DatabaseMetadata.TableName)
-            .ThenBy(x => x.Column.ColumnName)
-            .ThenBy(x => x.Column.DatabaseMetadata.DataSourceId)
-            .ThenBy(x => x.Column.Id)
-            .Select(x =>
-                new ColumnSearchRow(
-                    x.Column.DatabaseMetadata.DataSourceId,
-                    x.Column.DatabaseMetadata.DataSource.Name,
-                    x.Column.DatabaseMetadata.SchemaName,
-                    x.Column.DatabaseMetadata.TableName,
-                    x.Column.ColumnName,
-                    x.Column.Description,
-                    x.Hits))
-            .Take(maxResults);
-    }
-
-    internal static IQueryable<DocSectionSearchRow> BuildDocSectionsQuery(BeaconContext context, int projectId, List<string> terms, int maxResults)
-    {
-        return context.ProjectDocumentationSections
-            .Where(x => x.Documentation.ProjectId == projectId)
-            .Select(x =>
-                new
-                {
-                    Section = x,
-                    Hits = terms.Count(y => x.Content.ToLower().Contains(y))
-                })
-            .Where(x => x.Hits > 0)
-            .OrderByDescending(x => x.Hits)
-            .ThenBy(x => x.Section.Title)
-            .ThenBy(x => x.Section.Id)
-            .Select(x =>
-                new DocSectionSearchRow(
-                    x.Section.Id,
-                    x.Section.Documentation.Project.Name,
-                    x.Section.Title,
-                    x.Section.Content,
-                    x.Section.SectionType,
-                    x.Hits))
-            .Take(maxResults);
-    }
-
-    // Host-imported documents whose title, path or chunks contain a search term; a term counts once whichever of them
-    // holds it. The chunk holding the most terms (the first in document order on a tie) is the result's snippet.
-    // Project-scoped (§1.12); archived documents are excluded by the soft-delete filter.
-    internal static IQueryable<ImportedDocSearchRow> BuildImportedDocsQuery(BeaconContext context, int projectId, List<string> terms, int maxResults)
-    {
-        return context.ProjectImportedDocuments
-            .Where(x => x.ProjectId == projectId)
-            .Select(x =>
-                new
-                {
-                    Document = x,
-                    Hits = terms.Count(y => x.Title.ToLower().Contains(y) ||
-                                            x.Path.ToLower().Contains(y) ||
-                                            context.McpDocChunks
-                                                .Where(z => z.ImportedDocumentId == x.Id)
-                                                .Any(z => z.ChunkText.ToLower().Contains(y)))
-                })
-            .Where(x => x.Hits > 0)
-            .OrderByDescending(x => x.Hits)
-            .ThenBy(x => x.Document.Path)
-            .ThenBy(x => x.Document.Id)
-            .Select(x =>
-                new ImportedDocSearchRow(
-                    x.Document.Id,
-                    x.Document.Project.Name,
-                    x.Document.Path,
-                    x.Document.Title,
-                    context.McpDocChunks
-                        .Where(y => y.ImportedDocumentId == x.Document.Id)
-                        .Select(y =>
-                            new
-                            {
-                                y.ChunkText,
-                                y.SortOrder,
-                                Hits = terms.Count(z => y.ChunkText.ToLower().Contains(z))
-                            })
-                        .Where(y => y.Hits > 0)
-                        .OrderByDescending(y => y.Hits)
-                        .ThenBy(y => y.SortOrder)
-                        .Select(y => y.ChunkText)
-                        .FirstOrDefault(),
-                    x.Hits))
-            .Take(maxResults);
-    }
-
-    // The search terms of a free-text query: its lower-cased words (letters, digits and underscores, so an identifier
-    // like order_items stays one term) without single characters and function words, at most MaxSearchTerms of them.
-    // "how do I request annual leave" searches for request, annual and leave. A query with no such word searches for
-    // the whole query, as one term; a blank query has none.
-    internal static List<string> SearchTermsOf(string query)
-    {
-        var phrase = query.Trim().ToLowerInvariant();
-        if (phrase.Length == 0)
-        {
-            return [];
-        }
-
-        var terms = System.Text.RegularExpressions.Regex
-            .Split(phrase, @"[^\p{L}\p{N}_]+")
-            .Where(x => x.Length > 1)
-            .Where(x => !SearchStopWords.Contains(x))
-            .Distinct()
-            .Take(MaxSearchTerms)
-            .ToList();
-
-        return terms.Count == 0 ? [phrase] : terms;
-    }
-
-    // Deterministic paging: ties inside a coarse relevance band must not reshuffle between calls.
-    // DataSourceId disambiguates two data sources sharing a display name, so the chain is unique for
-    // table/column results. SearchResult carries no per-row id for documentation results (DataSourceId
-    // is 0 and schema/table are empty there), so Description is their last-resort key — two doc
-    // sections with identical truncated content remain a residual (harmless) tie.
-    internal static List<SearchResult> OrderForDeterministicPaging(IEnumerable<SearchResult> results, int maxResults)
-    {
-        return results
-            .OrderByDescending(x => x.Relevance)
-            .ThenBy(x => x.DataSourceName)
-            .ThenBy(x => x.DataSourceId)
-            .ThenBy(x => x.SchemaName)
-            .ThenBy(x => x.TableName)
-            .ThenBy(x => x.ColumnName)
-            .ThenBy(x => x.DocumentPath)
-            .ThenBy(x => x.Description)
-            .Take(maxResults)
-            .ToList();
-    }
-
     public async Task<string> GetProjectContextForLlmAsync(int projectId, CancellationToken ct = default)
     {
         var dataSources = await GetProjectDataSourcesAsync(projectId, ct);
@@ -1328,1359 +438,79 @@ internal sealed class KnowledgeGraphService(
             .Where(pds => pds.ProjectId == projectId)
             .Select(pds => pds.DataSourceId)
             .ToListAsync(ct);
-
-        var results = new List<DataSourceKnowledge>();
-        foreach (var dsId in dsIds)
-            results.Add(await DataSourceKnowledgeAsync(dsId, projectId, ct));
-
-        return results;
-    }
-
-    public async Task<SmartSchemaContext> GetSmartContextForAskAsync(int dataSourceId, int projectId, string question, bool liveValueProbes, CancellationToken ct = default)
-    {
-        await using var context = await contextFactory.CreateDbContextAsync(ct);
-        var dataSource = await LinkedDataSourceAsync(context, dataSourceId, projectId, ct);
-
-        var isApi = dataSource.DataSourceType == DataSourceType.Api;
-
-        // Grounding reads the data source under the strictest guardrails of the live projects that link it: value
-        // grounding and its probe budget, stored sample values, and the custom patterns of the grounding PII screen.
-        var mcpSettings = await sharedSourceSettings.GetEffectiveSettingsAsync(projectId, [dataSourceId], ct);
-        var valueGroundingSettings = ValueGroundingSettings(mcpSettings, liveValueProbes);
-
-        // Load all tables + columns in one query
-        var allTables = await context.DatabaseMetadata
-            .Where(m => m.DataSourceId == dataSourceId)
-            .OrderBy(m => m.SchemaName).ThenBy(m => m.TableName)
-            .Select(m => new
-            {
-                m.SchemaName,
-                m.TableName,
-                m.TableDescription,
-                Columns = m.Columns.Select(c => new SchemaColumn(
-                    c.ColumnName, c.DataType, c.IsPrimaryKey, c.IsNullable,
-                    c.ForeignKeyTable, c.ForeignKeyColumn, c.Description,
-                    c.MaxLength, c.SampleValues, c.ForeignKeySchema, c.SampleValuesComplete
-                )).ToList()
-            })
-            .ToListAsync(ct);
-
-        allTables = allTables
-            .Select(x => x with { Columns = WithStoredSamples(x.Columns, mcpSettings) })
-            .ToList();
-
-        // Whether a prompt built from this context, or from a table context of the same source, can carry sample values.
-        var samplesShown = allTables.Any(x => x.Columns.Any(y => y.SampleValuesJson != null));
-
-        var totalColumns = allTables.Sum(t => t.Columns.Count);
-        var catalog = BuildSchemaCatalog(allTables.Select(x => (x.SchemaName, x.TableName, x.Columns.Select(y => y.ColumnName))));
-        var primaryKeyCatalog = BuildPrimaryKeyCatalog(allTables.Select(t => (t.SchemaName, t.TableName, (IEnumerable<SchemaColumn>)t.Columns)));
-        var dialect = DataSourceSqlDialect.Of(dataSource);
-
-        // Small schema fast path: send everything
-        if (allTables.Count <= 40 && totalColumns <= 300)
+        if (dsIds.Count == 0)
         {
-            var head = new StringBuilder();
-            head.AppendLine(isApi
-                ? $"# REST API: {dataSource.Name}"
-                : $"# Data Source: {dataSource.Name} ({dataSource.DatabaseEngineType})");
-            head.AppendLine($"Tables: {allTables.Count}\n");
-
-            var tableBlocks = allTables
-                .Select(x => TableBlock(x.SchemaName, x.TableName, x.TableDescription, x.Columns, isApi, fullColumns: true))
-                .ToList();
-
-            // Small schemas send every table, but they still need the relationship graph: on a warehouse
-            // that declares no foreign keys the column listing carries no join information at all, so
-            // inferred relationships are the only thing telling the model how these tables connect.
-            var allPaths = await GetJoinPathsForAllTablesAsync(dataSourceId, ct);
-            var joinPaths = new StringBuilder();
-            SchemaContextFormatter.AppendJoinPaths(joinPaths, allPaths);
-
-            // Item 5: ask-time value grounding — real values found for literal-looking words in the
-            // question, injected right before the golden exemplars so the model sees them alongside the
-            // schema. Skipped for API sources (no SQL to probe) and gated by EnableValueGrounding.
-            var valueMatches = "";
-            if (mcpSettings.EnableValueGrounding && !isApi)
-            {
-                var valueGroundingTables = allTables
-                    .Select(t => new ValueGroundingTable(t.SchemaName, t.TableName, ToValueGroundingColumns(t.Columns)))
-                    .ToList();
-                valueMatches = await BuildValueMatchesBlockAsync(dataSourceId, projectId, question, valueGroundingTables, valueGroundingSettings, ct);
-            }
-
-            // Part A: inject human-verified golden query examples ABOVE the mined learned patterns — they are
-            // human-verified, so they outrank machine-mined patterns. Empty (behaviour-preserving) when
-            // disabled, the embedder is off, or no golden case is near.
-            var goldenExemplars = await BuildGoldenExemplarBlockAsync(dataSourceId, projectId, question, mcpSettings, dialect, ct);
-
-            // Inject learned patterns
-            var learnedPatternsBlock = "";
-            if (mcpSettings.EnableLearning)
-            {
-                var allTableNames = allTables.Select(t => $"{t.SchemaName}.{t.TableName}").ToList();
-                var learnedPatterns = await GetRelevantPatternsAsync(dataSourceId, projectId, allTableNames, question,
-                    maxPatterns: 10, budgetChars: mcpSettings.LearningInjectionBudgetChars, dialect, ct);
-                learnedPatternsBlock = FormatLearnedPatternsForLlm(learnedPatterns);
-            }
-
-            // Tier-3 ⑪: append the business-glossary block after the learned patterns. Empty (nothing
-            // injected) when the embedder is off, semantic retrieval is disabled, or no term is near —
-            // behaviour-preserving relative to pre-glossary output.
-            var glossary = await BuildGlossaryBlockAsync(projectId, question, mcpSettings, dialect, ct);
-
-            // Over the budget the tables the question names come first, then the catalogue order.
-            var budgeted = BudgetedContext(
-                dataSourceId,
-                head.ToString(),
-                [new SchemaContextSection("", tableBlocks, HeadingWhenEmpty: false)],
-                [
-                    new SchemaContextPart(SchemaContextPartKind.JoinPaths, joinPaths.ToString()),
-                    new SchemaContextPart(SchemaContextPartKind.ValueMatches, valueMatches),
-                    new SchemaContextPart(SchemaContextPartKind.GoldenExemplars, goldenExemplars),
-                    new SchemaContextPart(SchemaContextPartKind.LearnedPatterns, learnedPatternsBlock),
-                    new SchemaContextPart(SchemaContextPartKind.Glossary, glossary)
-                ],
-                AskSchemaContextBudget.TablesNamedIn(question, tableBlocks));
-
-            return new SmartSchemaContext
-            {
-                FullContext = budgeted.Text,
-                TablesShown = budgeted.TablesShown,
-                TablesNotShown = budgeted.TablesNotShown,
-                UsedSmartRetrieval = false,
-                TotalTableCount = allTables.Count,
-                DatabaseDialect = dialect,
-                HostManagedKey = dataSource.HostManagedKey,
-                ConfiguredDatabase = configuredDatabases.Resolve(dataSource),
-                SchemaCatalog = catalog,
-                PrimaryKeyCatalog = primaryKeyCatalog,
-                JoinPaths = allPaths,
-                RowDataCategories = RowDataCategoriesOf(samplesShown, valueMatches)
-            };
+            return [];
         }
 
-        // Smart path: search for relevant tables
-        var searchResults = await SearchAsync(question, projectId, dataSourceId, maxResults: 15, ct);
-
-        var matchedTableNames = searchResults
-            .Where(r => r.Type is "table" or "column")
-            .Select(r => $"{r.SchemaName}.{r.TableName}")
-            .ToHashSet(StringComparer.OrdinalIgnoreCase);
-
-        // In retrieval rank order, named as the context names them: the budget keeps these first.
-        var rankedTableNames = searchResults
-            .Where(x => x.Type is "table" or "column")
-            .Select(x => AskSchemaContextBudget.BlockName(x.SchemaName, x.TableName, isApi))
-            .Distinct(StringComparer.OrdinalIgnoreCase)
-            .ToList();
-
-        // Expand through the registered relationship graph: join paths between matched tables, the
-        // intermediate tables those paths need (including link tables), then direct neighbours. Falls
-        // back to the pre-graph one-hop expansion if the graph cannot be built.
-        var tableShapes = allTables
-            .Select(x => (x.SchemaName, x.TableName, Columns: (IReadOnlyList<SchemaColumn>)x.Columns))
-            .ToList();
-
-        var expansion = await ExpandRelatedTablesAsync(dataSourceId, matchedTableNames, tableShapes, ct);
-        var detailedTables = new HashSet<string>(expansion.DetailedTables, StringComparer.OrdinalIgnoreCase);
-        detailedTables.UnionWith(matchedTableNames);
-
-        // Build two-section context
-        var smartHead = new StringBuilder();
-        smartHead.AppendLine(isApi
-            ? $"# REST API: {dataSource.Name}"
-            : $"# Data Source: {dataSource.Name} ({dataSource.DatabaseEngineType})");
-        smartHead.AppendLine($"Total tables: {allTables.Count}\n");
-
-        // Section 1: Relevant tables with full schema
-        var relevantHeading = new StringBuilder();
-        relevantHeading.AppendLine("## Relevant Tables (full schema)\n");
-        var relevantBlocks = allTables
-            .Where(x => detailedTables.Contains($"{x.SchemaName}.{x.TableName}"))
-            .Select(x => TableBlock(x.SchemaName, x.TableName, x.TableDescription, x.Columns, isApi, fullColumns: true))
-            .ToList();
-
-        // Section 2: Other tables compact
-        var otherHeading = new StringBuilder();
-        otherHeading.AppendLine("\n## Other Tables (name and primary keys only)\n");
-        var otherBlocks = allTables
-            .Where(x => !detailedTables.Contains($"{x.SchemaName}.{x.TableName}"))
-            .Select(x => TableBlock(x.SchemaName, x.TableName, x.TableDescription, x.Columns, isApi, fullColumns: false))
-            .ToList();
-
-        // Explicit join chains for the retrieved tables, verified and inferred kept apart so an inferred
-        // join is never presented as fact.
-        var smartJoinPaths = new StringBuilder();
-        SchemaContextFormatter.AppendJoinPaths(smartJoinPaths, expansion.JoinPaths);
-        var coverage = new StringBuilder();
-        SchemaContextFormatter.AppendCoverage(coverage, expansion.Capped, expansion.OmittedTableCount, detailedTables.Count);
-
-        // Item 5: ask-time value grounding, scoped to the detailed tables only (same set rendered with
-        // full columns above) — same gating as the fast path.
-        var smartValueMatches = "";
-        if (mcpSettings.EnableValueGrounding && !isApi)
-        {
-            var valueGroundingTables = allTables
-                .Where(t => detailedTables.Contains($"{t.SchemaName}.{t.TableName}"))
-                .Select(t => new ValueGroundingTable(t.SchemaName, t.TableName, ToValueGroundingColumns(t.Columns)))
-                .ToList();
-            smartValueMatches = await BuildValueMatchesBlockAsync(dataSourceId, projectId, question, valueGroundingTables, valueGroundingSettings, ct);
-        }
-
-        // Part A: inject human-verified golden query examples ABOVE the mined learned patterns (same
-        // behaviour-preserving fallback as the fast path — empty string when nothing to inject).
-        var smartGoldenExemplars = await BuildGoldenExemplarBlockAsync(dataSourceId, projectId, question, mcpSettings, dialect, ct);
-
-        // Inject learned patterns for relevant tables
-        var smartPatternsBlock = "";
-        if (mcpSettings.EnableLearning)
-        {
-            var relevantTableNames = detailedTables.ToList();
-            var smartPatterns = await GetRelevantPatternsAsync(dataSourceId, projectId, relevantTableNames, question,
-                maxPatterns: 10, budgetChars: mcpSettings.LearningInjectionBudgetChars, dialect, ct);
-            smartPatternsBlock = FormatLearnedPatternsForLlm(smartPatterns);
-        }
-
-        // Tier-3 ⑪: append the business-glossary block after the learned patterns (same behaviour-preserving
-        // fallback as the fast path — empty string when nothing to inject).
-        var smartGlossary = await BuildGlossaryBlockAsync(projectId, question, mcpSettings, dialect, ct);
-
-        // Over the budget the tables the question names come first, then the tables retrieval ranked for the question, then
-        // the relevant tables and the other tables in catalogue order.
-        IReadOnlyList<SchemaContextTableBlock> allBlocks = [.. relevantBlocks, .. otherBlocks];
-        var smartBudgeted = BudgetedContext(
-            dataSourceId,
-            smartHead.ToString(),
-            [
-                new SchemaContextSection(relevantHeading.ToString(), relevantBlocks, HeadingWhenEmpty: true),
-                new SchemaContextSection(otherHeading.ToString(), otherBlocks, HeadingWhenEmpty: false)
-            ],
-            [
-                new SchemaContextPart(SchemaContextPartKind.JoinPaths, smartJoinPaths.ToString()),
-                new SchemaContextPart(SchemaContextPartKind.Coverage, coverage.ToString()),
-                new SchemaContextPart(SchemaContextPartKind.ValueMatches, smartValueMatches),
-                new SchemaContextPart(SchemaContextPartKind.GoldenExemplars, smartGoldenExemplars),
-                new SchemaContextPart(SchemaContextPartKind.LearnedPatterns, smartPatternsBlock),
-                new SchemaContextPart(SchemaContextPartKind.Glossary, smartGlossary)
-            ],
-            [.. AskSchemaContextBudget.TablesNamedIn(question, allBlocks), .. rankedTableNames]);
-
-        return new SmartSchemaContext
-        {
-            FullContext = smartBudgeted.Text,
-            TablesShown = smartBudgeted.TablesShown,
-            TablesNotShown = smartBudgeted.TablesNotShown,
-            UsedSmartRetrieval = true,
-            RelevantTables = [.. detailedTables],
-            TotalTableCount = allTables.Count,
-            DatabaseDialect = dialect,
-            HostManagedKey = dataSource.HostManagedKey,
-            ConfiguredDatabase = configuredDatabases.Resolve(dataSource),
-            SchemaCatalog = catalog,
-            PrimaryKeyCatalog = primaryKeyCatalog,
-            Capped = expansion.Capped,
-            OmittedTableCount = expansion.OmittedTableCount,
-            JoinPaths = expansion.JoinPaths,
-            RowDataCategories = RowDataCategoriesOf(samplesShown, smartValueMatches)
-        };
-    }
-
-    // The ask context within Beacon:Mcp:Ceilings:AskSchemaContextChars. A context that had to leave out grounding sections, or
-    // that is over the budget with one table, is logged as a warning (counts only); one that left out only tables as
-    // information.
-    private BudgetedSchemaContext BudgetedContext(
-        int dataSourceId,
-        string head,
-        IReadOnlyList<SchemaContextSection> sections,
-        IReadOnlyList<SchemaContextPart> parts,
-        IReadOnlyList<string> rankedNames)
-    {
-        var budgetChars = (deploymentOptions?.Value.Ceilings ?? new McpCeilingOptions()).EffectiveAskSchemaContextChars;
-        var budgeted = AskSchemaContextBudget.Assemble(head, sections, parts, rankedNames, budgetChars);
-        if (budgeted.PartsLeftOut.Count > 0 || budgeted.TopTableCut)
-        {
-            logger.LogWarning(
-                "Ask schema context for data source {DataSourceId} does not fit its budget of {BudgetChars} characters: "
-                    + "{GroundingSectionsLeftOut} grounding section(s) left out, {TopTableCut} top table cut, {TablesShown} table(s) shown, {TablesNotShown} left out, {ContextChars} characters sent.",
-                dataSourceId,
-                budgetChars,
-                budgeted.PartsLeftOut.Count,
-                budgeted.TopTableCut,
-                budgeted.TablesShown,
-                budgeted.TablesNotShown.Count,
-                budgeted.Text.Length);
-        }
-        else if (budgeted.TablesNotShown.Count > 0)
-        {
-            logger.LogInformation(
-                "Ask schema context for data source {DataSourceId} is over its budget of {BudgetChars} characters: {TablesShown} table(s) shown, {TablesNotShown} left out.",
-                dataSourceId,
-                budgetChars,
-                budgeted.TablesShown,
-                budgeted.TablesNotShown.Count);
-        }
-
-        return budgeted;
-    }
-
-    // One table rendered as the ask context shows it: in full, or compact (name, primary key and column names).
-    private static SchemaContextTableBlock TableBlock(
-        string schemaName, string tableName, string? description, IReadOnlyList<SchemaColumn> columns, bool isApi, bool fullColumns)
-    {
-        var sb = new StringBuilder();
-        if (fullColumns)
-        {
-            SchemaContextFormatter.AppendTableWithFullColumns(sb, schemaName, tableName, description, columns, isApi);
-        }
-        else
-        {
-            SchemaContextFormatter.AppendTableCompact(sb, schemaName, tableName, description, columns, isApi);
-        }
-
-        return new SchemaContextTableBlock(AskSchemaContextBudget.BlockName(schemaName, tableName, isApi), schemaName, tableName, sb.ToString());
-    }
-
-    public async Task<Dictionary<string, HashSet<string>>> GetSchemaCatalogAsync(int dataSourceId, int projectId, CancellationToken ct = default)
-    {
-        // Same catalog GetSmartContextForAskAsync computes (shared BuildSchemaCatalog), but loading
-        // only table/column names — none of the LLM-context assembly (search, join paths, exemplars).
-        // Empty when the caller's project does not link the data source (§1.12).
-        await using var context = await contextFactory.CreateDbContextAsync(ct);
-        var projectSourceIds = ProjectSourceIds(context, projectId);
-        var tables = await context.DatabaseMetadata
-            .Where(x => x.DataSourceId == dataSourceId)
-            .Where(x => projectSourceIds.Contains(x.DataSourceId))
+        // One query of each kind for all the sources the project links, not one round of them per source. A linked source
+        // that is not found (archived) fails the call, as it did when each source was read on its own.
+        var dataSources = await context.DataSources
+            .Where(x => dsIds.Contains(x.Id))
             .Select(x =>
                 new
                 {
-                    x.SchemaName,
-                    x.TableName,
-                    ColumnNames = x.Columns.Select(y => y.ColumnName).ToList()
-                })
-            .ToListAsync(ct);
-
-        return BuildSchemaCatalog(tables.Select(x => (x.SchemaName, x.TableName, (IEnumerable<string>)x.ColumnNames)));
-    }
-
-    public async Task<IReadOnlyList<DocChunkHit>> GetRelevantDocChunksAsync(int projectId, string question, int topK, CancellationToken ct = default)
-    {
-        // No embedder / semantic retrieval disabled → no dense retrieval; the caller falls back to
-        // char-truncated documentation. (Gated on the setting too, matching the glossary path, so an
-        // operator disabling semantic retrieval stops chunk serving consistently.)
-        if (!embeddingService.IsAvailable)
-        {
-            return [];
-        }
-
-        var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId, ct);
-        if (!settings.EnableSemanticRetrieval)
-        {
-            return [];
-        }
-
-        // Fail CLOSED like the metadata dense arm (SearchAsync) and the semantic exemplar path
-        // (GetRelevantPatternsAsync): a transient embedding/vector-store error must NOT fail the whole
-        // knowledge answer (this runs inside KnowledgeAnswerService's Task.WhenAll). Rethrow OCE so a
-        // shutdown/timeout unwinds; otherwise log and return [] so the caller falls back to char-truncated
-        // documentation, exactly as the documented no-hits path does.
-        try
-        {
-            await using var context = await contextFactory.CreateDbContextAsync(ct);
-
-            var limit = Math.Max(1, topK);
-
-            // Embed the RAW question — doc chunks are prose embedded RAW at index time (blurb + chunk, no
-            // masking). Masking strips literals/numbers, which is right for SQL-exemplar matching but would
-            // put the query vector in a different representation region than the raw chunk vectors and hurt
-            // recall. Symmetry with index-time embedding is what matters here (Stage-1 finding, 2026-07-13).
-            var queryVector = await embeddingService.EmbedAsync(question, ct);
-
-            // Same provider branch as the metadata dense arm, but scoped by project_id (not data_source_id)
-            // and filtered to the DocChunk owner type.
-            var hits = context.Database.ProviderName == NpgsqlProviderName
-                ? await GetNearestPostgresAsync(context, queryVector, dataSourceIds: [], DocChunkOwnerTypes, limit, ct, projectId: projectId)
-                : await GetNearestInMemoryAsync(context, queryVector, dataSourceIds: [], DocChunkOwnerTypes, limit, ct, projectId: projectId);
-
-            if (hits.Count == 0)
-            {
-                return [];
-            }
-
-            // DocChunk OwnerId == McpDocChunk.Id. Load the hit chunks' text/blurb, then re-project in the
-            // vector-similarity order the NN helper returned.
-            var ownerIds = hits
-                .Select(x => x.OwnerId)
-                .ToList();
-
-            var chunks = await context.McpDocChunks
-                .Where(x => x.ProjectId == projectId)
-                .Where(x => ownerIds.Contains(x.Id))
-                .Select(x =>
-                    new
-                    {
-                        x.Id,
-                        x.ChunkText,
-                        x.ContextualBlurb,
-                        x.SourceSectionId
-                    })
-                .ToListAsync(ct);
-
-            // Each chunk of generated documentation carries its section's type, which says whether its text can list
-            // values discovered in the data; an imported document's chunk has no section.
-            var sectionIds = chunks
-                .Select(x => x.SourceSectionId)
-                .Where(x => x != 0)
-                .Distinct()
-                .ToList();
-            var sectionTypes = sectionIds.Count == 0
-                ? new Dictionary<int, ProjectDocSectionType>()
-                : await context.ProjectDocumentationSections
-                    .Where(x => sectionIds.Contains(x.Id))
-                    .Select(x =>
-                        new
-                        {
-                            x.Id,
-                            x.SectionType
-                        })
-                    .ToDictionaryAsync(x => x.Id, x => x.SectionType, ct);
-
-            var chunksById = chunks.ToDictionary(x => x.Id);
-
-            var results = new List<DocChunkHit>();
-            foreach (var hit in hits)
-            {
-                if (chunksById.TryGetValue(hit.OwnerId, out var chunk))
-                {
-                    results.Add(new DocChunkHit(chunk.ChunkText, chunk.ContextualBlurb)
-                    {
-                        SectionType = sectionTypes.TryGetValue(chunk.SourceSectionId, out var sectionType) ? sectionType : null
-                    });
-                }
-            }
-
-            return results;
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning("Dense doc-chunk retrieval failed for project {ProjectId}; falling back to char-truncated documentation ({Failure}).", projectId, FailureCodes.Describe(ex));
-            return [];
-        }
-    }
-
-    /// <summary>
-    /// Fail-closed wrapper around <see cref="IValueGroundingService.BuildValueMatchesBlockAsync"/>, mirroring
-    /// <see cref="BuildGlossaryBlockAsync"/>: a transient probe/embedding/provider error must NOT fail the
-    /// whole `ask` (this is called from <see cref="GetSmartContextForAskAsync"/>). Rethrows
-    /// <see cref="OperationCanceledException"/> so a shutdown/timeout unwinds; any other exception is logged
-    /// (count only — never the literal or probe SQL, §1.11) and yields "" (2026-07-13 lesson). Internal so it
-    /// can be unit-tested directly.
-    /// </summary>
-    internal async Task<string> BuildValueMatchesBlockAsync(
-        int dataSourceId, int projectId, string question, IReadOnlyList<ValueGroundingTable> tables, McpSettingsData settings, CancellationToken ct)
-    {
-        try
-        {
-            return await valueGroundingService.BuildValueMatchesBlockAsync(dataSourceId, projectId, question, tables, settings, ct);
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning("Value grounding failed for data source {DataSourceId}; injecting no value-matches block ({Failure}).", dataSourceId, FailureCodes.Describe(ex));
-            return "";
-        }
-    }
-
-    /// <summary>
-    /// Projects the internal <see cref="SchemaColumn"/> shape into the public <see cref="ValueGroundingColumn"/>
-    /// shape <see cref="IValueGroundingService"/> takes — kept internal-type-free so the interface can stay
-    /// public (Moq's proxy generation for a mocked seam needs a public or Castle-visible internal interface).
-    /// </summary>
-    private static IReadOnlyList<ValueGroundingColumn> ToValueGroundingColumns(IEnumerable<SchemaColumn> columns)
-    {
-        return columns
-            .Select(x => new ValueGroundingColumn(x.ColumnName, x.DataType, x.IsPrimaryKey, x.MaxLength, x.SampleValuesJson))
-            .ToList();
-    }
-
-    /// <summary>
-    /// Builds the "## Business Glossary" block injected into the smart context (Tier-3 ⑪): the top-K glossary
-    /// terms nearest to the masked question, each rendered as term → definition → target column/metric.
-    /// This is now the mechanism that supersedes the dead <c>McpPatternType.BusinessTermMapping</c> learned-
-    /// pattern path (that enum value is left in place but no longer produced). Glossary terms are
-    /// project-scoped, and the project is the caller's AUTHORIZED <paramref name="projectId"/> — passed
-    /// explicitly, never derived from the data source, because a data source shared by several projects
-    /// must never leak one project's terms into another's ask (codex PR-11 R4 fix). Returns "" — injecting
-    /// nothing, behaviour-preserving — when the embedder is unavailable, semantic retrieval is disabled,
-    /// or no active term is near. Internal so it can be unit-tested directly without standing up the full
-    /// <see cref="GetSmartContextForAskAsync"/> schema path.
-    /// </summary>
-    internal Task<string> BuildGlossaryBlockAsync(int projectId, string question, McpSettingsData settings, CancellationToken ct)
-    {
-        return BuildGlossaryBlockAsync(projectId, question, settings, dialect: null, ct);
-    }
-
-    // A term's metric expression is SQL the model copies into its answer: it is rendered without its comments, read in the
-    // dialect of the data source being asked (<paramref name="dialect"/>; without one, an expression holding a comment marker
-    // is left out). An expression that cannot be shown that way is left out — the term keeps its definition — and logged by
-    // term id, once per interval.
-    internal async Task<string> BuildGlossaryBlockAsync(int projectId, string question, McpSettingsData settings, string? dialect, CancellationToken ct)
-    {
-        if (!embeddingService.IsAvailable || !settings.EnableSemanticRetrieval)
-        {
-            return "";
-        }
-
-        // Fail CLOSED like the sibling retrieval paths: a transient embedding/vector-store error must NOT
-        // fail the whole `ask` (this is called from GetSmartContextForAskAsync). Rethrow OCE so a
-        // shutdown/timeout unwinds; otherwise log and return "" so no glossary block is injected — the same
-        // behaviour-preserving fallback as the unavailable-embedder / no-hits paths.
-        try
-        {
-            await using var context = await contextFactory.CreateDbContextAsync(ct);
-
-            var limit = Math.Max(1, settings.GlossaryTopK);
-
-            // Mask the question exactly as the terms were embedded at index time (Mask(term + synonyms)) so
-            // similarity keys on structure, not literals.
-            var maskedVector = await embeddingService.EmbedAsync(EmbeddingMaskingHelper.Mask(question), ct);
-
-            // Same provider branch as the doc-chunk path, scoped by project_id and filtered to GlossaryTerm.
-            var hits = context.Database.ProviderName == NpgsqlProviderName
-                ? await GetNearestPostgresAsync(context, maskedVector, dataSourceIds: [], GlossaryOwnerTypes, limit, ct, projectId: projectId)
-                : await GetNearestInMemoryAsync(context, maskedVector, dataSourceIds: [], GlossaryOwnerTypes, limit, ct, projectId: projectId);
-
-            if (hits.Count == 0)
-            {
-                return "";
-            }
-
-            // GlossaryTerm OwnerId == McpGlossaryTerm.Id. Load the hit terms (ACTIVE only — a stale vector for a
-            // deactivated term maps to no active row and is skipped), then re-project in similarity order.
-            var ownerIds = hits
-                .Select(x => x.OwnerId)
-                .ToList();
-
-            var terms = await context.McpGlossaryTerms
-                .Where(x => x.ProjectId == projectId)
-                .Where(x => x.IsActive)
-                .Where(x => ownerIds.Contains(x.Id))
-                .Select(x =>
-                    new GlossaryHit
-                    {
-                        Id = x.Id,
-                        Term = x.Term,
-                        Definition = x.Definition,
-                        TargetSchema = x.TargetSchema,
-                        TargetTable = x.TargetTable,
-                        TargetColumn = x.TargetColumn,
-                        MetricExpression = x.MetricExpression
-                    })
-                .ToListAsync(ct);
-
-            var termsById = terms.ToDictionary(x => x.Id);
-
-            var sb = new StringBuilder();
-            var leftOut = new List<int>();
-            foreach (var hit in hits)
-            {
-                if (!termsById.TryGetValue(hit.OwnerId, out var term))
-                {
-                    continue;
-                }
-
-                if (sb.Length == 0)
-                {
-                    sb.AppendLine("\n## Business Glossary\n");
-                }
-
-                var metricExpression = string.IsNullOrWhiteSpace(term.MetricExpression)
-                    ? null
-                    : GroundingSqlText.WithoutComments(term.MetricExpression, dialect);
-                if (!string.IsNullOrWhiteSpace(term.MetricExpression) && string.IsNullOrEmpty(metricExpression))
-                {
-                    leftOut.Add(term.Id);
-                }
-
-                sb.Append($"- **{term.Term}**: {term.Definition}");
-                var target = FormatGlossaryTarget(term, metricExpression);
-                if (target != null)
-                {
-                    sb.Append($" (→ {target})");
-                }
-
-                sb.AppendLine();
-            }
-
-            var withheldTerms = DueToLog("glossary-metric", leftOut);
-            if (withheldTerms.Count > 0)
-            {
-                logger.LogWarning(
-                    "{Count} glossary metric expression(s) of project {ProjectId} were left out of the prompt: they hold a comment that cannot be removed or characters that do not show (terms {TermIds})",
-                    withheldTerms.Count,
-                    projectId,
-                    string.Join(",", withheldTerms));
-            }
-
-            return sb.ToString();
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning("Glossary retrieval failed for project {ProjectId}; injecting no glossary block ({Failure}).", projectId, FailureCodes.Describe(ex));
-            return "";
-        }
-    }
-
-    /// <summary>
-    /// Builds the "## Verified query examples (authoritative)" block injected into the ask context ABOVE the
-    /// mined learned-pattern block (§ Part A): the top-K human-verified golden eval cases nearest to the masked
-    /// question, each rendered as its question + gold SQL. Because they are human-verified they outrank the
-    /// machine-mined patterns. Returns "" — injecting nothing, behaviour-preserving — when golden exemplars are
-    /// disabled, the embedder is unavailable, semantic retrieval is off, or no active golden case is near. Fails
-    /// CLOSED (log + "") on transient retrieval errors, mirroring <see cref="BuildGlossaryBlockAsync"/>. Golden
-    /// cases key their EMBEDDINGS on dataSourceId, but <see cref="McpEvalCase"/> carries a ProjectId and the
-    /// caller's AUTHORIZED <paramref name="projectId"/> is a hard filter on the loaded cases — a data source
-    /// shared by several projects must never leak one project's gold SQL into another's ask (codex PR-11 R4
-    /// fix). Gold SQL is rendered without its comments, read in the data source's <paramref name="dialect"/>
-    /// (<see cref="GroundingSqlText"/>), so cases stored before Beacon checked grounding SQL show none either; the question
-    /// is rendered on one line (<see cref="GroundingText.Question"/>), so it cannot leave its <c>-- Q:</c> comment line. A
-    /// case whose SQL or question cannot be shown that way is left out, and logged by id once per interval. Internal for
-    /// unit tests.
-    /// </summary>
-    internal async Task<string> BuildGoldenExemplarBlockAsync(int dataSourceId, int projectId, string question, McpSettingsData settings, string? dialect, CancellationToken ct)
-    {
-        if (!settings.EnableGoldenExemplars || !embeddingService.IsAvailable || !settings.EnableSemanticRetrieval)
-        {
-            return "";
-        }
-
-        try
-        {
-            await using var context = await contextFactory.CreateDbContextAsync(ct);
-
-            var limit = Math.Max(1, settings.GoldenExemplarTopK);
-
-            // Mask the question exactly as golden cases were embedded at index time so similarity keys on
-            // structure, not literals.
-            var maskedVector = await embeddingService.EmbedAsync(EmbeddingMaskingHelper.Mask(question), ct);
-
-            // Data-source-scoped (projectId omitted) — same NN helpers, GoldenCase owner type.
-            var hits = context.Database.ProviderName == NpgsqlProviderName
-                ? await GetNearestPostgresAsync(context, maskedVector, [dataSourceId], GoldenCaseOwnerTypes, limit, ct)
-                : await GetNearestInMemoryAsync(context, maskedVector, [dataSourceId], GoldenCaseOwnerTypes, limit, ct);
-
-            if (hits.Count == 0)
-            {
-                return "";
-            }
-
-            // GoldenCase OwnerId == McpEvalCase.Id. Load the hit cases (ACTIVE only — a stale vector for a
-            // deactivated case maps to no active row and is skipped; and ONLY the caller's project — a hit
-            // from another project sharing this data source maps to no row and is skipped), then re-project
-            // in similarity order.
-            var ownerIds = hits
-                .Select(x => x.OwnerId)
-                .ToList();
-
-            var cases = await context.McpEvalCases
-                .Where(x => x.DataSourceId == dataSourceId)
-                .Where(x => x.ProjectId == projectId)
-                .Where(x => x.IsActive)
-                .Where(x => ownerIds.Contains(x.Id))
-                .Select(x =>
-                    new GoldenCaseHit
-                    {
-                        Id = x.Id,
-                        Question = x.Question,
-                        GoldSql = x.GoldSql
-                    })
-                .ToListAsync(ct);
-
-            var casesById = cases.ToDictionary(x => x.Id);
-            var budget = Math.Max(0, settings.GoldenExemplarBudgetChars);
-
-            var sb = new StringBuilder();
-            var leftOut = new List<int>();
-            foreach (var hit in hits)
-            {
-                if (!casesById.TryGetValue(hit.OwnerId, out var golden))
-                {
-                    continue;
-                }
-
-                var goldSql = GroundingSqlText.WithoutComments(golden.GoldSql, dialect);
-                var goldQuestion = GroundingText.Question(golden.Question);
-                if (string.IsNullOrEmpty(goldSql) || goldQuestion == null)
-                {
-                    leftOut.Add(golden.Id);
-                    continue;
-                }
-
-                var entry = $"-- Q: {goldQuestion}\n{goldSql}\n\n";
-
-                // Budget guard: stop before exceeding the char budget so a large gold SQL can't blow the
-                // context. The first fitting entry is always emitted (better one verified example than none),
-                // so the guard only trims later entries.
-                if (budget > 0 && sb.Length > 0 && sb.Length + entry.Length > budget)
-                {
-                    break;
-                }
-
-                if (sb.Length == 0)
-                {
-                    sb.AppendLine("\n## Verified query examples (authoritative)\n");
-                }
-
-                sb.Append(entry);
-            }
-
-            var withheldCases = DueToLog("golden-case", leftOut);
-            if (withheldCases.Count > 0)
-            {
-                logger.LogWarning(
-                    "{Count} golden case(s) of data source {DataSourceId} were left out of the prompt: their gold SQL holds a comment that cannot be removed, or their SQL or question holds characters that do not show (cases {CaseIds})",
-                    withheldCases.Count,
-                    dataSourceId,
-                    string.Join(",", withheldCases));
-            }
-
-            return sb.ToString();
-        }
-        catch (OperationCanceledException)
-        {
-            throw;
-        }
-        catch (Exception ex)
-        {
-            logger.LogWarning("Golden-exemplar retrieval failed for data source {DataSourceId}; injecting no verified-examples block ({Failure}).", dataSourceId, FailureCodes.Describe(ex));
-            return "";
-        }
-    }
-
-    public async Task<string> GetTablesContextAsync(int dataSourceId, int projectId, IEnumerable<string> tableNames, CancellationToken ct = default)
-    {
-        await using var context = await contextFactory.CreateDbContextAsync(ct);
-        var dataSource = await LinkedDataSourceAsync(context, dataSourceId, projectId, ct);
-        var mcpSettings = await sharedSourceSettings.GetEffectiveSettingsAsync(projectId, [dataSourceId], ct);
-
-        var isApi = dataSource.DataSourceType == DataSourceType.Api;
-        var nameList = tableNames
-            .Select(x => x.ToLower())
-            .Distinct()
-            .ToList();
-
-        // Match by table name or schema.table, case-insensitive, filtered in SQL so only the
-        // requested tables (not the whole catalog) are materialized.
-        var matched = await context.DatabaseMetadata
-            .Where(m => m.DataSourceId == dataSourceId)
-            .Where(m => nameList.Contains(m.TableName.ToLower())
-                || nameList.Contains((m.SchemaName + "." + m.TableName).ToLower()))
-            .Select(m => new
-            {
-                m.SchemaName,
-                m.TableName,
-                m.TableDescription,
-                Columns = m.Columns.Select(c => new SchemaColumn(
-                    c.ColumnName, c.DataType, c.IsPrimaryKey, c.IsNullable,
-                    c.ForeignKeyTable, c.ForeignKeyColumn, c.Description,
-                    c.MaxLength, c.SampleValues, c.ForeignKeySchema, c.SampleValuesComplete
-                )).ToList()
-            })
-            .ToListAsync(ct);
-
-        var sb = new StringBuilder();
-        sb.AppendLine("# Table Schemas\n");
-        foreach (var t in matched)
-            SchemaContextFormatter.AppendTableWithFullColumns(sb, t.SchemaName, t.TableName, t.TableDescription, WithStoredSamples(t.Columns, mcpSettings), isApi);
-
-        return sb.ToString();
-    }
-
-    // A caller without Query in the project gets the stored sample values only: live probes would let it read column
-    // contents it may not query (no probe budget means none run).
-    private static McpSettingsData ValueGroundingSettings(McpSettingsData settings, bool liveValueProbes)
-    {
-        if (liveValueProbes)
-        {
-            return settings;
-        }
-
-        var sampleOnly = settings.Clone();
-        sampleOnly.ValueGroundingMaxProbes = 0;
-
-        return sampleOnly;
-    }
-
-    // The row-derived data an ask context carries, for the egress log (LlmRowDataEgress).
-    private static List<string> RowDataCategoriesOf(bool samplesShown, string valueMatches)
-    {
-        var categories = new List<string>();
-        if (samplesShown)
-        {
-            categories.Add(LlmRowDataCategories.SampleValues);
-        }
-
-        if (!string.IsNullOrEmpty(valueMatches))
-        {
-            categories.Add(LlmRowDataCategories.ValueMatches);
-        }
-
-        return categories;
-    }
-
-    // Stored sample values are served only while sample-value collection is on for every live project that links the
-    // data source, and only those that pass the PII screen of those projects as it is now (StoredSampleScreen): samples
-    // stored before a stricter project linked the source, or before its patterns changed, are screened again here.
-    private List<SchemaColumn> WithStoredSamples(List<SchemaColumn> columns, McpSettingsData settings)
-    {
-        return columns
-            .Select(x => WithStoredSamples(x, settings))
-            .ToList();
-    }
-
-    private SchemaColumn WithStoredSamples(SchemaColumn column, McpSettingsData settings)
-    {
-        var stored = SchemaContextFormatter.DeserializeSampleValues(column.SampleValuesJson);
-        var shown = StoredSampleScreen.Screen(guardrail, column.ColumnName, stored, settings);
-        if (shown?.Count == stored?.Count)
-        {
-            return column;
-        }
-
-        return column with
-        {
-            SampleValuesJson = shown == null ? null : JsonSerializer.Serialize(shown),
-            SampleValuesComplete = false
-        };
-    }
-
-    private static string? TruncateContent(string? content, int maxLength)
-    {
-        if (content == null) return null;
-        return content.Length <= maxLength ? content : content[..maxLength] + "...";
-    }
-
-    private static Dictionary<string, HashSet<string>> BuildSchemaCatalog(
-        IEnumerable<(string SchemaName, string TableName, IEnumerable<string> ColumnNames)> tables)
-    {
-        var catalog = new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (schema, table, columnNames) in tables)
-        {
-            var cols = columnNames.Select(x => x.ToLowerInvariant()).ToHashSet();
-            catalog[table.ToLowerInvariant()] = cols;
-            catalog[$"{schema}.{table}".ToLowerInvariant()] = cols;
-        }
-        return catalog;
-    }
-
-    // Feeds SqlSemanticLinter's FANOUT_AGGREGATE check: whether a join column is the FULL primary key
-    // of the table it targets (a composite PK joined on one column is never "full", so it still fans out).
-    private static Dictionary<string, IReadOnlySet<string>> BuildPrimaryKeyCatalog(
-        IEnumerable<(string SchemaName, string TableName, IEnumerable<SchemaColumn> Columns)> tables)
-    {
-        var catalog = new Dictionary<string, IReadOnlySet<string>>(StringComparer.OrdinalIgnoreCase);
-        foreach (var (schema, table, columns) in tables)
-        {
-            var primaryKeyColumns = (IReadOnlySet<string>)columns
-                .Where(c => c.IsPrimaryKey)
-                .Select(c => c.ColumnName.ToLowerInvariant())
-                .ToHashSet();
-            catalog[table.ToLowerInvariant()] = primaryKeyColumns;
-            catalog[$"{schema}.{table}".ToLowerInvariant()] = primaryKeyColumns;
-        }
-        return catalog;
-    }
-
-    private static string? ExtractTableDoc(string dataModelContent, string tableName)
-    {
-        // Try to find the section about this specific table in the DataModel content
-        var marker = tableName;
-        var idx = dataModelContent.IndexOf(marker, StringComparison.OrdinalIgnoreCase);
-        if (idx < 0) return null;
-
-        // Extract a chunk of text around the table name (up to 500 chars after)
-        var start = idx;
-        var end = Math.Min(dataModelContent.Length, idx + 500);
-        // Try to end at a paragraph boundary
-        var nextBlank = dataModelContent.IndexOf("\n\n", start + marker.Length, StringComparison.Ordinal);
-        if (nextBlank > 0 && nextBlank < end) end = nextBlank;
-
-        return TruncateContent(dataModelContent[start..end], 400);
-    }
-
-    private static readonly HashSet<string> StopWords = new(StringComparer.OrdinalIgnoreCase)
-    {
-        "the", "and", "for", "are", "was", "were", "how", "many", "much", "what", "which",
-        "who", "whom", "with", "from", "into", "that", "this", "these", "those", "have",
-        "has", "had", "did", "does", "all", "any", "each", "per", "show", "list", "give",
-        "get", "find", "count", "last", "week", "month", "year", "day", "between", "over"
-    };
-
-    private static List<string> TokenizeQuery(string query)
-    {
-        if (string.IsNullOrWhiteSpace(query))
-        {
-            return [];
-        }
-
-        return System.Text.RegularExpressions.Regex
-            .Split(query, "[^A-Za-z0-9]+")
-            .Where(x => x.Length > 2)
-            .Select(x => x.ToLowerInvariant())
-            .Where(x => !StopWords.Contains(x))
-            .Distinct()
-            .ToList();
-    }
-
-    private static int CountOverlap(List<string> terms, string name, string? description)
-    {
-        var nameLower = name.ToLowerInvariant();
-        var descLower = description?.ToLowerInvariant();
-        var count = 0;
-        foreach (var term in terms)
-        {
-            if (nameLower.Contains(term) || (descLower != null && descLower.Contains(term)))
-            {
-                count++;
-            }
-        }
-
-        return count;
-    }
-
-    // Example SQL is rendered in the data source's own dialect, read from dataSourceId when an example holds a comment marker.
-    public Task<List<LearnedPatternInfo>> GetRelevantPatternsAsync(
-        int dataSourceId, int projectId, List<string> tableNames, string? question = null,
-        int maxPatterns = 10, int budgetChars = 1500, CancellationToken ct = default)
-    {
-        return GetRelevantPatternsAsync(dataSourceId, projectId, tableNames, question, maxPatterns, budgetChars, DialectOfAsync, ct);
-    }
-
-    internal Task<List<LearnedPatternInfo>> GetRelevantPatternsAsync(
-        int dataSourceId, int projectId, List<string> tableNames, string? question,
-        int maxPatterns, int budgetChars, string? dialect, CancellationToken ct)
-    {
-        return GetRelevantPatternsAsync(dataSourceId, projectId, tableNames, question, maxPatterns, budgetChars, (_, _, _) => Task.FromResult(dialect), ct);
-    }
-
-    // Example SQL comes back as a prompt shows it: without its comments, read in the data source's dialect
-    // (GroundingSqlText), so patterns stored before Beacon checked grounding SQL show none either; example questions come
-    // back on one line. An example SQL or question that cannot be shown that way is left out (the pattern stays), and
-    // logged by pattern id once per interval.
-    private async Task<List<LearnedPatternInfo>> GetRelevantPatternsAsync(
-        int dataSourceId, int projectId, List<string> tableNames, string? question,
-        int maxPatterns, int budgetChars, Func<BeaconContext, int, CancellationToken, Task<string?>> dialectOf, CancellationToken ct)
-    {
-        await using var context = await contextFactory.CreateDbContextAsync(ct);
-
-        var lowerTables = tableNames
-            .Select(x => x.ToLowerInvariant())
-            .ToHashSet();
-
-        // The approved/auto-approved pattern bank feeds BOTH paths: semantic selection picks the top-k
-        // nearest lessons of ANY type out of it by embedding similarity, and the table-overlap ranking
-        // orders the rest. Stale (superseded) lessons are filtered out here so they are NEVER injected
-        // into a prompt on either path (§ Architecture ⑧ temporal decay) — history stays in the table.
-        // The ProjectId filter is load-bearing (R5/C1): a data source shared by several projects mines
-        // patterns for each of them, and another project's lessons (quoting its real questions/SQL)
-        // must never reach this caller's prompt — same isolation as the golden-exemplar block.
-        var patterns = await context.McpLearnedPatterns
-            .Where(x => x.DataSourceId == dataSourceId)
-            .Where(x => x.ProjectId == projectId)
-            .Where(x => x.Status == McpPatternStatus.Approved || x.Status == McpPatternStatus.AutoApproved)
-            .Where(x => x.SupersededAt == null)
-            .OrderByDescending(x => x.Confidence)
-            .ThenByDescending(x => x.SignalCount)
-            .Take(100)
-            .Select(x =>
-                new PatternCandidate
-                {
-                    Id = x.Id,
-                    PatternType = x.PatternType,
-                    TableName = x.TableName,
-                    SchemaName = x.SchemaName,
-                    ColumnName = x.ColumnName,
-                    PatternContent = x.PatternContent,
-                    ExampleQuestion = x.ExampleQuestion,
-                    ExampleSql = x.ExampleSql,
-                    Confidence = x.Confidence
-                })
-            .ToListAsync(ct);
-        patterns = await AsPromptShowsAsync(context, patterns, dataSourceId, dialectOf, ct);
-
-        var settings = await settingsProvider.GetEffectiveSettingsAsync(projectId, ct);
-
-        // DAIL-SQL semantic selection (§ Architecture ⑧): choose the top-k nearest lessons of ANY type by
-        // masked-question embedding similarity instead of blanket-injecting the whole bank. Lessons that have
-        // no embedding yet (e.g. not re-indexed) fall back to the table-overlap ranking and are merged in
-        // after the semantic picks. Any failure falls back to the full overlap ranking over all types.
-        var useSemantic = embeddingService.IsAvailable
-            && settings.EnableSemanticRetrieval
-            && !string.IsNullOrWhiteSpace(question);
-
-        if (useSemantic)
-        {
-            try
-            {
-                var semanticRanked = await BuildSemanticRankingAsync(
-                    context, patterns, lowerTables, question!, dataSourceId, projectId, settings.ExemplarTopK, ct);
-                if (semanticRanked != null)
-                {
-                    return ApplyBudget(semanticRanked, maxPatterns, budgetChars);
-                }
-                // No exemplar vectors indexed / none mapped back — fall through to overlap behaviour.
-            }
-            catch (OperationCanceledException)
-            {
-                throw;
-            }
-            catch (Exception ex)
-            {
-                logger.LogWarning("Semantic exemplar selection failed for data source {DataSourceId}; falling back to table-overlap pattern ranking ({Failure}).", dataSourceId, FailureCodes.Describe(ex));
-            }
-        }
-
-        // Behaviour-preserving fallback: the historical table-overlap ranking over ALL pattern types.
-        return ApplyBudget(RankByTableOverlap(patterns, lowerTables), maxPatterns, budgetChars);
-    }
-
-    // Semantic path (§ Architecture ⑧): embed the masked question once, pull the nearest Exemplar embeddings
-    // for this data source, and map their OwnerIds back to the loaded valid bank of ANY pattern type in
-    // vector-similarity order — these top-k picks lead. Lessons that have NO exemplar embedding (e.g. added
-    // since the last re-index, so they could not be ranked semantically) keep the table-overlap ranking and
-    // follow, so they stay visible rather than silently disappearing. Lessons that DO have an embedding but
-    // were not in the top-k are intentionally dropped — that is the point of top-k over blanket injection.
-    // Returns null when no exemplar vector maps back to a loaded pattern, so the caller falls back to full
-    // overlap ranking.
-    // The kNN is scoped by data source AND the caller's authorized project (R5/C1) so another project's
-    // exemplars on a shared data source can neither be selected nor occupy top-k slots. Exemplar rows
-    // indexed before ProjectId stamping (project_id NULL) simply don't match — fail-closed, healed by the
-    // next re-index; the project-filtered bank mapping below is the isolation backstop either way.
-    private async Task<List<PatternCandidate>?> BuildSemanticRankingAsync(
-        BeaconContext context, List<PatternCandidate> patterns, HashSet<string> lowerTables,
-        string question, int dataSourceId, int projectId, int exemplarTopK, CancellationToken ct)
-    {
-        var topK = Math.Max(1, exemplarTopK);
-        var maskedVector = await embeddingService.EmbedAsync(EmbeddingMaskingHelper.Mask(question), ct);
-
-        var hits = context.Database.ProviderName == NpgsqlProviderName
-            ? await GetNearestPostgresAsync(context, maskedVector, [dataSourceId], ExemplarOwnerTypes, topK, ct, projectId: projectId)
-            : await GetNearestInMemoryAsync(context, maskedVector, [dataSourceId], ExemplarOwnerTypes, topK, ct, projectId: projectId);
-
-        if (hits.Count == 0)
-        {
-            return null;
-        }
-
-        // Exemplar OwnerId == McpLearnedPattern.Id. Map hits (already in similarity order) back to the loaded
-        // bank of ALL types, preserving that order; ignore ids not in the bank (e.g. a hit whose pattern was
-        // superseded and filtered out of the bank above, or one belonging to another project).
-        var patternsById = patterns.ToDictionary(x => x.Id);
-
-        var selected = new List<PatternCandidate>();
-        var selectedIds = new HashSet<int>();
-        foreach (var hit in hits)
-        {
-            if (patternsById.TryGetValue(hit.OwnerId, out var pattern) && selectedIds.Add(hit.OwnerId))
-            {
-                selected.Add(pattern);
-            }
-        }
-
-        if (selected.Count == 0)
-        {
-            return null;
-        }
-
-        // A lesson with an exemplar embedding was a candidate for the top-k; if it was not selected it is
-        // deliberately dropped. A lesson WITHOUT an embedding could not be ranked semantically, so it falls
-        // back to the table-overlap ranking and is merged in after the semantic picks (one cheap id lookup —
-        // no vectors loaded). This keeps freshly-added, not-yet-indexed lessons visible.
-        var embeddedIds = await context.McpEmbeddings
-            .Where(x => x.DataSourceId == dataSourceId)
-            .Where(x => x.ProjectId == projectId)
-            .Where(x => x.OwnerType == McpEmbeddingOwnerType.Exemplar)
-            .Select(x => x.OwnerId)
-            .ToListAsync(ct);
-        var embeddedIdSet = embeddedIds.ToHashSet();
-
-        var backfill = RankByTableOverlap(
-            patterns.Where(x => !selectedIds.Contains(x.Id) && !embeddedIdSet.Contains(x.Id)),
-            lowerTables);
-
-        return selected
-            .Concat(backfill)
-            .ToList();
-    }
-
-    // Historical relevance ranking: table overlap (biggest lever) + pattern-type priority + confidence.
-    private static List<PatternCandidate> RankByTableOverlap(
-        IEnumerable<PatternCandidate> patterns, HashSet<string> lowerTables)
-    {
-        return patterns
-            .Select(x =>
-            {
-                var tableFull = $"{x.SchemaName}.{x.TableName}".ToLowerInvariant();
-                var tableOnly = x.TableName.ToLowerInvariant();
-                var tableMatch = lowerTables.Contains(tableFull) || lowerTables.Contains(tableOnly);
-                var typePriority = x.PatternType switch
-                {
-                    McpPatternType.SchemaCorrection => 4,
-                    McpPatternType.ColumnClarification => 3,
-                    McpPatternType.JoinPattern => 2,
-                    McpPatternType.CommonQuery => 1,
-                    _ => 0
-                };
-                var score = (tableMatch ? 10 : 0) + typePriority + x.Confidence;
-                return (Pattern: x, Score: score);
-            })
-            .OrderByDescending(x => x.Score)
-            .Select(x => x.Pattern)
-            .ToList();
-    }
-
-    // Shared budget cap: take patterns in the supplied order until maxPatterns or budgetChars is hit.
-    private static List<LearnedPatternInfo> ApplyBudget(
-        List<PatternCandidate> ranked, int maxPatterns, int budgetChars)
-    {
-        var result = new List<LearnedPatternInfo>();
-        var totalChars = 0;
-
-        foreach (var x in ranked)
-        {
-            if (result.Count >= maxPatterns)
-            {
-                break;
-            }
-
-            var contentLen = x.PatternContent.Length + (x.ExampleSql?.Length ?? 0) + 20;
-            if (totalChars + contentLen > budgetChars && result.Count > 0)
-            {
-                break;
-            }
-
-            totalChars += contentLen;
-            result.Add(new LearnedPatternInfo(
-                x.PatternType.ToString(),
-                x.TableName,
-                x.ColumnName,
-                x.PatternContent,
-                x.ExampleQuestion,
-                x.ExampleSql,
-                x.Confidence));
-        }
-
-        return result;
-    }
-
-    // The bank with each example as the prompt shows it: SQL without comments (the dialect read only when an example holds a
-    // comment marker), the question on one line. An example that cannot be shown that way is left out (the lesson keeps its
-    // content) and logged by pattern id only (§1.11), once per interval.
-    private async Task<List<PatternCandidate>> AsPromptShowsAsync(
-        BeaconContext context,
-        List<PatternCandidate> patterns,
-        int dataSourceId,
-        Func<BeaconContext, int, CancellationToken, Task<string?>> dialectOf,
-        CancellationToken ct)
-    {
-        var needsDialect = patterns.Any(x => GroundingDialects.NeedsDialect(x.ExampleSql));
-        var dialect = needsDialect ? await dialectOf(context, dataSourceId, ct) : null;
-
-        var leftOut = new List<int>();
-        var rendered = new List<PatternCandidate>(patterns.Count);
-        foreach (var pattern in patterns)
-        {
-            var exampleSql = string.IsNullOrWhiteSpace(pattern.ExampleSql) ? null : GroundingSqlText.WithoutComments(pattern.ExampleSql, dialect);
-            var exampleQuestion = GroundingText.Question(pattern.ExampleQuestion);
-            if ((!string.IsNullOrWhiteSpace(pattern.ExampleSql) && string.IsNullOrEmpty(exampleSql))
-                || (!string.IsNullOrWhiteSpace(pattern.ExampleQuestion) && exampleQuestion == null))
-            {
-                leftOut.Add(pattern.Id);
-            }
-
-            rendered.Add(pattern with
-            {
-                ExampleSql = string.IsNullOrEmpty(exampleSql) ? null : exampleSql,
-                ExampleQuestion = exampleQuestion
-            });
-        }
-
-        var withheldPatterns = DueToLog("pattern-example", leftOut);
-        if (withheldPatterns.Count > 0)
-        {
-            logger.LogWarning(
-                "{Count} learned-pattern example(s) of data source {DataSourceId} were left out of the prompt: the SQL holds a comment that cannot be removed, or the SQL or question holds characters that do not show (patterns {PatternIds})",
-                withheldPatterns.Count,
-                dataSourceId,
-                string.Join(",", withheldPatterns));
-        }
-
-        return rendered;
-    }
-
-    private static async Task<string?> DialectOfAsync(BeaconContext context, int dataSourceId, CancellationToken ct)
-    {
-        var source = await context.DataSources
-            .Where(x => x.Id == dataSourceId)
-            .Select(x =>
-                new
-                {
+                    x.Id,
+                    x.Name,
                     x.DataSourceType,
                     x.DatabaseEngineType
                 })
-            .FirstOrDefaultAsync(ct);
+            .ToListAsync(ct);
 
-        return source == null ? null : DataSourceSqlDialect.Of(source.DataSourceType, source.DatabaseEngineType);
-    }
+        var schemaTableCounts = await context.DatabaseMetadata
+            .Where(x => dsIds.Contains(x.DataSourceId))
+            .GroupBy(x => new { x.DataSourceId, x.SchemaName })
+            .Select(x =>
+                new
+                {
+                    x.Key.DataSourceId,
+                    x.Key.SchemaName,
+                    TableCount = x.Count()
+                })
+            .ToListAsync(ct);
 
-    // The rows a prompt left out that are due to be logged — identifiers only (§1.11), each once per
-    // WithheldGroundingLog.Interval.
-    private IReadOnlyList<int> DueToLog(string kind, List<int> leftOut)
-    {
-        return leftOut.Count == 0 ? [] : _withheld.NotLoggedRecently(kind, leftOut);
-    }
+        var schemaQuality = await context.DataQualityScores
+            .Where(x => dsIds.Contains(x.DataSourceId))
+            .GroupBy(x => new { x.DataSourceId, x.SchemaName })
+            .Select(x =>
+                new
+                {
+                    x.Key.DataSourceId,
+                    x.Key.SchemaName,
+                    AverageScore = x.Average(y => (double?)y.Score),
+                    ScoreCount = x.Count()
+                })
+            .ToListAsync(ct);
 
-    // Materialized pattern-bank row shared by the semantic and overlap ranking paths.
-    private sealed record PatternCandidate
-    {
-        public int Id { get; init; }
-        public McpPatternType PatternType { get; init; }
-        public string TableName { get; init; } = null!;
-        public string SchemaName { get; init; } = null!;
-        public string? ColumnName { get; init; }
-        public string PatternContent { get; init; } = null!;
-        public string? ExampleQuestion { get; init; }
-        public string? ExampleSql { get; init; }
-        public double Confidence { get; init; }
-    }
+        // Code references and documentation belong to the project: the same for each of its sources.
+        var codeRefCount = await context.CodeReferences
+            .Where(x => x.GitHubRepository.ProjectId == projectId)
+            .CountAsync(ct);
 
-    internal static string FormatLearnedPatternsForLlm(List<LearnedPatternInfo> patterns)
-    {
-        if (patterns.Count == 0) return "";
+        var hasDoc = await context.ProjectDocumentations
+            .Where(x => x.ProjectId == projectId)
+            .AnyAsync(ct);
 
-        var sb = new StringBuilder();
-        sb.AppendLine("\n## Learned Patterns (from usage)\n");
-
-        var corrections = patterns.Where(p => p.PatternType == "SchemaCorrection").ToList();
-        if (corrections.Count > 0)
+        var results = new List<DataSourceKnowledge>();
+        foreach (var dsId in dsIds)
         {
-            sb.AppendLine("### Known Corrections");
-            foreach (var p in corrections)
-                sb.AppendLine($"- {p.PatternContent}");
-            sb.AppendLine();
+            var dataSource = dataSources
+                .Where(x => x.Id == dsId)
+                .FirstOrDefault()
+                ?? throw new InvalidOperationException($"Data source {dsId} not found");
+            var tableCounts = schemaTableCounts
+                .Where(x => x.DataSourceId == dsId)
+                .Select(x => (x.SchemaName, x.TableCount))
+                .ToList();
+            var quality = schemaQuality
+                .Where(x => x.DataSourceId == dsId)
+                .Select(x => (x.SchemaName, x.AverageScore, x.ScoreCount))
+                .ToList();
+
+            results.Add(DataSourceKnowledgeOf(dsId, dataSource.Name, dataSource.DataSourceType, dataSource.DatabaseEngineType, tableCounts, quality, codeRefCount, hasDoc));
         }
 
-        var clarifications = patterns.Where(p => p.PatternType == "ColumnClarification").ToList();
-        if (clarifications.Count > 0)
-        {
-            sb.AppendLine("### Column Clarifications");
-            foreach (var p in clarifications)
-            {
-                var colPart = p.ColumnName != null ? $".{p.ColumnName}" : "";
-                sb.AppendLine($"- {p.TableName}{colPart}: {p.PatternContent}");
-            }
-            sb.AppendLine();
-        }
-
-        var joins = patterns.Where(p => p.PatternType == "JoinPattern").ToList();
-        if (joins.Count > 0)
-        {
-            sb.AppendLine("### Join Patterns");
-            foreach (var p in joins)
-                sb.AppendLine($"- {p.PatternContent}");
-            sb.AppendLine();
-        }
-
-        var commonQueries = patterns.Where(p => p.PatternType == "CommonQuery").ToList();
-        if (commonQueries.Count > 0)
-        {
-            sb.AppendLine("### Common Queries");
-            foreach (var p in commonQueries)
-            {
-                if (!string.IsNullOrEmpty(p.ExampleQuestion))
-                    sb.AppendLine($"- \"{p.ExampleQuestion}\"");
-                else
-                    sb.AppendLine($"- {p.PatternContent}");
-                if (!string.IsNullOrEmpty(p.ExampleSql))
-                    sb.AppendLine($"  → `{p.ExampleSql}`");
-            }
-            sb.AppendLine();
-        }
-
-        // NOTE (Tier-3 ⑪): BusinessTermMapping is the DEAD learned-pattern path — the admin-managed business
-        // glossary (BuildGlossaryBlockAsync + the "## Business Glossary" block) is now the mechanism for
-        // term→definition→target injection. The enum value and this rendering are left in place for any
-        // historical rows, but no new BusinessTermMapping patterns are produced.
-        var mappings = patterns.Where(p => p.PatternType == "BusinessTermMapping").ToList();
-        if (mappings.Count > 0)
-        {
-            sb.AppendLine("### Business Term Mappings");
-            foreach (var p in mappings)
-                sb.AppendLine($"- {p.PatternContent}");
-            sb.AppendLine();
-        }
-
-        var gaps = patterns.Where(p => p.PatternType == "DocumentationGap").ToList();
-        if (gaps.Count > 0)
-        {
-            sb.AppendLine("### Documentation Gaps (caution)");
-            foreach (var p in gaps)
-                sb.AppendLine($"- {p.PatternContent}");
-            sb.AppendLine();
-        }
-
-        return sb.ToString();
-    }
-
-    // Renders a glossary term's target: the qualified column path (schema.table.column, only the parts that
-    // are set) and/or the metric expression as rendered (without comments). Null when the term carries neither.
-    private static string? FormatGlossaryTarget(GlossaryHit term, string? metricExpression)
-    {
-        var parts = new List<string>();
-
-        var column = new[] { term.TargetSchema, term.TargetTable, term.TargetColumn }
-            .Where(x => !string.IsNullOrWhiteSpace(x))
-            .ToList();
-        if (column.Count > 0)
-        {
-            parts.Add(string.Join(".", column));
-        }
-
-        if (!string.IsNullOrWhiteSpace(metricExpression))
-        {
-            parts.Add($"`{metricExpression}`");
-        }
-
-        return parts.Count == 0 ? null : string.Join("; ", parts);
-    }
-
-    private sealed class GlossaryHit
-    {
-        public int Id { get; init; }
-        public string Term { get; init; } = "";
-        public string Definition { get; init; } = "";
-        public string? TargetSchema { get; init; }
-        public string? TargetTable { get; init; }
-        public string? TargetColumn { get; init; }
-        public string? MetricExpression { get; init; }
-    }
-
-    private sealed class GoldenCaseHit
-    {
-        public int Id { get; init; }
-        public string Question { get; init; } = "";
-        public string GoldSql { get; init; } = "";
+        return results;
     }
 
     /// <summary>
@@ -2850,6 +680,42 @@ internal sealed class KnowledgeGraphService(
             .Select(x => x.DataSourceId);
     }
 
+    // A data-quality rule result's status as grounding shows it, written here and never taken from the stored result: the
+    // rule's outcome in words, and for a failed built-in rule the number its actual value starts with (digits and one
+    // decimal separator only). A Custom SQL rule's value is whatever its query returned, so it is never shown.
+    private static string? RuleStatus(DataContractRuleType ruleType, bool passed, string? actualValue)
+    {
+        // The value the evaluator stores when the rule's query did not run or its result could not be read.
+        if (!passed && actualValue == "Error")
+        {
+            return "The rule did not complete";
+        }
+
+        var number = ruleType == DataContractRuleType.CustomSql || actualValue == null
+            ? null
+            : LeadingNumber.Match(actualValue) is { Success: true } match ? match.Value : null;
+
+        return ruleType switch
+        {
+            DataContractRuleType.Freshness when passed => "Data is fresh",
+            DataContractRuleType.Freshness => number == null ? "Data is stale" : $"Data is stale ({number} minutes old)",
+            DataContractRuleType.Volume when passed => "Row count within expected range",
+            DataContractRuleType.Volume => number == null ? "Row count outside expected range" : $"Row count {number} outside expected range",
+            DataContractRuleType.NullRate when passed => "Null rate within threshold",
+            DataContractRuleType.NullRate => number == null ? "Null rate exceeds threshold" : $"Null rate {number}% exceeds threshold",
+            DataContractRuleType.Uniqueness when passed => "All values are unique",
+            DataContractRuleType.Uniqueness => number == null ? "Duplicate values found" : $"{number} duplicate values found",
+            DataContractRuleType.Referential when passed => "All references are valid",
+            DataContractRuleType.Referential => number == null ? "Orphaned records found" : $"{number} orphaned records found",
+            DataContractRuleType.Range when passed => "All values within range",
+            DataContractRuleType.Range => number == null ? "Values out of range" : $"{number} values out of range",
+            DataContractRuleType.Pattern when passed => "All values match pattern",
+            DataContractRuleType.Pattern => number == null ? "Values don't match pattern" : $"{number} values don't match pattern",
+            DataContractRuleType.CustomSql => passed ? "Custom check passed" : "Custom check failed",
+            _ => null
+        };
+    }
+
     private static async Task<DataSource> LinkedDataSourceAsync(
         BeaconContext context, int dataSourceId, int projectId, CancellationToken ct)
     {
@@ -2903,6 +769,28 @@ internal sealed class KnowledgeGraphService(
                 .Where(x => x.ProjectId == projectId)
                 .AnyAsync(ct);
 
+        return DataSourceKnowledgeOf(
+            dataSourceId,
+            dataSource.Name,
+            dataSource.DataSourceType,
+            dataSource.DatabaseEngineType,
+            schemaTableCounts.Select(x => (x.SchemaName, x.TableCount)).ToList(),
+            schemaQuality.Select(x => (x.SchemaName, x.AverageScore, x.ScoreCount)).ToList(),
+            codeRefCount,
+            hasDoc);
+    }
+
+    // A data source's overview from its per-schema table counts and quality scores.
+    private static DataSourceKnowledge DataSourceKnowledgeOf(
+        int dataSourceId,
+        string name,
+        DataSourceType dataSourceType,
+        DatabaseEngineType? databaseEngineType,
+        List<(string SchemaName, int TableCount)> schemaTableCounts,
+        List<(string SchemaName, double? AverageScore, int ScoreCount)> schemaQuality,
+        int codeRefCount,
+        bool hasDoc)
+    {
         // DataQualityScore property is Score, not OverallScore
         var schemas = schemaTableCounts
             .Select(x => new SchemaOverview(
@@ -2920,11 +808,11 @@ internal sealed class KnowledgeGraphService(
         return new DataSourceKnowledge
         {
             DataSourceId = dataSourceId,
-            Name = dataSource.Name,
-            DataSourceType = dataSource.DataSourceType,
-            DatabaseEngine = dataSource.DataSourceType == DataSourceType.Api
+            Name = name,
+            DataSourceType = dataSourceType,
+            DatabaseEngine = dataSourceType == DataSourceType.Api
                 ? ConnectorRegistry.GetDisplayName(DataSourceType.Api)
-                : dataSource.DatabaseEngineType?.ToString(),
+                : databaseEngineType?.ToString(),
             TableCount = schemaTableCounts.Sum(x => x.TableCount),
             OverallQualityScore = totalScoreCount != 0
                 ? schemaQuality.Sum(x => (x.AverageScore ?? 0) * x.ScoreCount) / totalScoreCount
@@ -2935,25 +823,75 @@ internal sealed class KnowledgeGraphService(
         };
     }
 
-    private const int MaxSearchTerms = 8;
-
-    private static readonly HashSet<string> SearchStopWords = new(StringComparer.Ordinal)
+    // The stored catalog of dataSourceId, from the snapshot cache when the host has one. The caller has checked that projectId
+    // links the source and may read it; the snapshot is keyed by both (CatalogSnapshotCache).
+    private Task<StoredCatalog> StoredCatalogAsync(BeaconContext context, int dataSourceId, int projectId, CancellationToken ct)
     {
-        "an", "the", "and", "or", "of", "to", "in", "on", "at", "for", "from", "by", "with", "about", "into", "is",
-        "are", "was", "were", "be", "do", "does", "did", "how", "what", "which", "who", "where", "when", "why", "can",
-        "could", "should", "would", "will", "me", "my", "we", "our", "you", "your", "it", "its", "this", "that", "there",
-        "as", "if"
-    };
+        return catalogSnapshots == null
+            ? LoadStoredCatalogAsync(context, dataSourceId, ct)
+            : catalogSnapshots.GetOrLoadAsync(
+                projectId,
+                dataSourceId,
+                x => LoadStoredCatalogAsync(context, dataSourceId, x),
+                ApproximateBytes,
+                ct);
+    }
 
-    // The share of the search terms a row contains, which scales its relevance band: a one-term query keeps the band.
-    private static double TermShare(int hits, List<string> terms) => (double)hits / terms.Count;
+    // What a stored catalog takes in memory, roughly: its strings (two bytes a character) and a fixed overhead per table
+    // and column. Stored sample values dominate on a sampled source.
+    internal static long ApproximateBytes(StoredCatalog catalog)
+    {
+        const int TableOverhead = 96;
+        const int ColumnOverhead = 160;
+        long bytes = 0;
+        foreach (var table in catalog.Tables)
+        {
+            bytes += TableOverhead + Chars(table.SchemaName) + Chars(table.TableName) + Chars(table.TableDescription);
+            foreach (var column in table.Columns)
+            {
+                bytes += ColumnOverhead
+                    + Chars(column.ColumnName)
+                    + Chars(column.DataType)
+                    + Chars(column.Description)
+                    + Chars(column.SampleValuesJson)
+                    + Chars(column.ForeignKeySchema)
+                    + Chars(column.ForeignKeyTable)
+                    + Chars(column.ForeignKeyColumn);
+            }
+        }
+
+        return bytes;
+
+        static long Chars(string? value) => 2L * (value?.Length ?? 0);
+    }
+
+    // All tables and columns of the data source in one query, as stored (samples not screened).
+    private static async Task<StoredCatalog> LoadStoredCatalogAsync(BeaconContext context, int dataSourceId, CancellationToken ct)
+    {
+        var tables = await context.DatabaseMetadata
+            .Where(x => x.DataSourceId == dataSourceId)
+            .OrderBy(x => x.SchemaName)
+            .ThenBy(x => x.TableName)
+            .Select(x =>
+                new CatalogTable(
+                    x.SchemaName,
+                    x.TableName,
+                    x.TableDescription,
+                    x.Columns
+                        .Select(y =>
+                            new SchemaColumn(
+                                y.ColumnName, y.DataType, y.IsPrimaryKey, y.IsNullable,
+                                y.ForeignKeyTable, y.ForeignKeyColumn, y.Description,
+                                y.MaxLength, y.SampleValues, y.ForeignKeySchema, y.SampleValuesComplete))
+                        .ToList()))
+            .ToListAsync(ct);
+
+        return new StoredCatalog(tables);
+    }
 }
 
-// Row shapes of the SearchProjectAsync sub-queries (see the Build*Query methods above).
-internal sealed record TableSearchRow(int DataSourceId, string DataSourceName, string SchemaName, string TableName, string? TableDescription, int Hits);
+// A data source's stored catalog as the ask path reads it: tables in schema and name order, stored sample values not yet
+// screened. Cached as it is (CatalogSnapshotCache), so never changed in place.
+internal sealed record StoredCatalog(IReadOnlyList<CatalogTable> Tables);
 
-internal sealed record ColumnSearchRow(int DataSourceId, string DataSourceName, string SchemaName, string TableName, string ColumnName, string? Description, int Hits);
-
-internal sealed record DocSectionSearchRow(int Id, string ProjectName, string Title, string Content, ProjectDocSectionType SectionType, int Hits);
-
-internal sealed record ImportedDocSearchRow(int Id, string ProjectName, string Path, string Title, string? MatchingChunk, int Hits);
+internal sealed record CatalogTable(string SchemaName, string TableName, string? TableDescription, IReadOnlyList<SchemaColumn> Columns);

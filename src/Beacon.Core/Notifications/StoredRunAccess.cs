@@ -67,6 +67,7 @@ internal static class StoredRunAccess
             ? x => x.DataSourceIds == null
                 && context.Subscriptions
                     .Where(y => y.Id == x.SubscriptionId)
+                    .Where(y => y.ArchivedTime == null)
                     .Where(y => y.Query.ArchivedTime == null)
                     .Where(y => y.Query.Steps.Any())
                     .Any(y => allowed
@@ -78,6 +79,7 @@ internal static class StoredRunAccess
             : x => x.DataSourceIds == null
                 && context.Subscriptions
                     .Where(y => y.Id == x.SubscriptionId)
+                    .Where(y => y.ArchivedTime == null)
                     .Where(y => y.Query.ArchivedTime == null)
                     .Where(y => y.Query.Steps.Any())
                     .Any(y => allowed

@@ -15,6 +15,9 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Models;
+using Beacon.Core.Services;
+using Beacon.Core.Services.Retention;
 using Beacon.MCP.Services;
 using Beacon.MCP.Tools;
 using Beacon.Tests.Common;
@@ -44,6 +47,7 @@ public class GetQueryContextToolTests
 
     private Mock<IKnowledgeGraphService> _knowledgeGraph = null!;
     private List<McpAuditLog> _auditLogs = null!;
+    private McpToolCallRecorder _recorder = null!;
 
     [SetUp]
     public void SetUp()
@@ -56,8 +60,8 @@ public class GetQueryContextToolTests
     [Test]
     public async Task SingleSource_AutoResolves_ReturnsHeaderContextAndStructuredPayload()
     {
-        var result = await CreateTool(multiSource: false).ExecuteAsync(
-            question: Question, cancellationToken: CancellationToken.None);
+        var result = await CallAsync(CreateTool(multiSource: false), x => x.ExecuteAsync(
+            question: Question, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         var text = GetText(result);
@@ -86,8 +90,8 @@ public class GetQueryContextToolTests
     [Test]
     public async Task MultiSource_WithoutSelector_ErrorsListingIdNamePairs()
     {
-        var result = await CreateTool(multiSource: true).ExecuteAsync(
-            question: Question, cancellationToken: CancellationToken.None);
+        var result = await CallAsync(CreateTool(multiSource: true), x => x.ExecuteAsync(
+            question: Question, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeTrue();
         var text = GetText(result);
@@ -104,8 +108,8 @@ public class GetQueryContextToolTests
     [Test]
     public async Task ExplicitDataSourceName_Resolves()
     {
-        var result = await CreateTool(multiSource: true).ExecuteAsync(
-            question: Question, datasource_name: "crm", cancellationToken: CancellationToken.None);
+        var result = await CallAsync(CreateTool(multiSource: true), x => x.ExecuteAsync(
+            question: Question, datasource_name: "crm", cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         GetText(result).Should().StartWith("# Query Context: crm (PostgreSQL)");
@@ -127,8 +131,8 @@ public class GetQueryContextToolTests
             "## Section B\n" + new string('b', 300) + "\n";
         SetupSmartContext(oversized);
 
-        var result = await CreateTool(multiSource: false).ExecuteAsync(
-            question: Question, max_chars: 1000, cancellationToken: CancellationToken.None);
+        var result = await CallAsync(CreateTool(multiSource: false), x => x.ExecuteAsync(
+            question: Question, max_chars: 1000, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         var text = GetText(result);
@@ -143,8 +147,8 @@ public class GetQueryContextToolTests
     [Test]
     public async Task SmallContext_NoTruncationNote_TruncatedFalse()
     {
-        var result = await CreateTool(multiSource: false).ExecuteAsync(
-            question: Question, max_chars: 30000, cancellationToken: CancellationToken.None);
+        var result = await CallAsync(CreateTool(multiSource: false), x => x.ExecuteAsync(
+            question: Question, max_chars: 30000, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         var text = GetText(result);
@@ -158,8 +162,8 @@ public class GetQueryContextToolTests
     [Test]
     public async Task EmptyQuestion_ReturnsError()
     {
-        var result = await CreateTool(multiSource: false).ExecuteAsync(
-            question: "", cancellationToken: CancellationToken.None);
+        var result = await CallAsync(CreateTool(multiSource: false), x => x.ExecuteAsync(
+            question: "", cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeTrue();
         GetText(result).Should().Be("Missing required parameter: question");
@@ -182,17 +186,40 @@ public class GetQueryContextToolTests
             .Setup(x => x.GetSmartContextForAskAsync(It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()))
             .ThrowsAsync(new InvalidOperationException("knowledge graph offline"));
 
-        var result = await CreateTool(multiSource: false).ExecuteAsync(
-            question: Question, cancellationToken: CancellationToken.None);
+        var result = await CallAsync(CreateTool(multiSource: false), x => x.ExecuteAsync(
+            question: Question, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeTrue();
         _auditLogs.Should().ContainSingle("§1.7 — the catch path must record an audit row");
         _auditLogs[0].Tool.Should().Be("get_query_context");
         _auditLogs[0].ErrorMessage.Should().Be("knowledge graph offline");
         _auditLogs[0].ProjectId.Should().Be(ProjectId,
-            "the catch path passes the resolved projectId raw, matching FailAsync");
+            "the failure path records the resolved projectId raw, as an early-exit failure does");
         _auditLogs[0].DataSourceId.Should().Be(WarehouseId,
             "the data source was already resolved when the context assembly threw");
+    }
+
+    // A data-source resolution that throws is recorded under the resolved project, so that project's retention decides
+    // the row's content, never the deployment default.
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task DataSourceResolutionThrows_TheRowFollowsTheProjectsRetention(bool projectRetainsContent)
+    {
+        const string failure = "lookup of data source 'billing' timed out";
+        var settings = SettingsProviderMock.Create(
+            settings: new McpSettingsData { RetainQueryContent = true },
+            projectSettings: new Dictionary<int, McpSettingsData> { [ProjectId] = new() { RetainQueryContent = projectRetainsContent } });
+
+        var result = await CallAsync(
+            CreateTool(multiSource: false, toolReadFails: new TimeoutException(failure), settings: settings.Object),
+            x => x.ExecuteAsync(question: Question, datasource_name: "billing", cancellationToken: CancellationToken.None));
+
+        (result.IsError ?? false).Should().BeTrue();
+        var row = _auditLogs.Should().ContainSingle("§1.7 — the failure path records one audit row").Subject;
+        row.Tool.Should().Be("get_query_context");
+        row.ProjectId.Should().Be(ProjectId, "the project was resolved before the data source");
+        row.DataSourceId.Should().BeNull("the data source was never resolved");
+        row.ErrorMessage.Should().Be(projectRetainsContent ? failure : McpContentRedactor.ErrorClassOf(failure));
     }
 
     [Test]
@@ -204,8 +231,8 @@ public class GetQueryContextToolTests
         var oversized = new string('a', 999) + "\U0001F600" + new string('b', 200);
         SetupSmartContext(oversized);
 
-        var result = await CreateTool(multiSource: false).ExecuteAsync(
-            question: Question, max_chars: 1000, cancellationToken: CancellationToken.None);
+        var result = await CallAsync(CreateTool(multiSource: false), x => x.ExecuteAsync(
+            question: Question, max_chars: 1000, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         var text = GetText(result);
@@ -234,8 +261,8 @@ public class GetQueryContextToolTests
     [TestCase(false)]
     public async Task LiveValueProbes_OnlyForACallerWhoMayQueryTheProject(bool mayQuery)
     {
-        var result = await CreateTool(multiSource: false, queryProjectIds: mayQuery ? [ProjectId] : []).ExecuteAsync(
-            question: Question, cancellationToken: CancellationToken.None);
+        var result = await CallAsync(CreateTool(multiSource: false, queryProjectIds: mayQuery ? [ProjectId] : []), x => x.ExecuteAsync(
+            question: Question, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         _knowledgeGraph.Verify(
@@ -259,8 +286,8 @@ public class GetQueryContextToolTests
             });
         var log = new LogRecorder();
 
-        var result = await CreateTool(multiSource: false, egress: TestRowDataEgress.Logging(log.For<LlmRowDataEgress>())).ExecuteAsync(
-            question: Question, cancellationToken: CancellationToken.None);
+        var result = await CallAsync(CreateTool(multiSource: false, egress: TestRowDataEgress.Logging(log.For<LlmRowDataEgress>())), x => x.ExecuteAsync(
+            question: Question, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         log.Entries.Should().ContainSingle()
@@ -275,13 +302,18 @@ public class GetQueryContextToolTests
     {
         var log = new LogRecorder();
 
-        await CreateTool(multiSource: false, egress: TestRowDataEgress.Logging(log.For<LlmRowDataEgress>())).ExecuteAsync(
-            question: Question, cancellationToken: CancellationToken.None);
+        await CallAsync(CreateTool(multiSource: false, egress: TestRowDataEgress.Logging(log.For<LlmRowDataEgress>())), x => x.ExecuteAsync(
+            question: Question, cancellationToken: CancellationToken.None));
 
         log.Entries.Should().BeEmpty();
     }
 
-    private GetQueryContextTool CreateTool(bool multiSource, List<int>? queryProjectIds = null, ILlmRowDataEgress? egress = null)
+    private GetQueryContextTool CreateTool(
+        bool multiSource,
+        List<int>? queryProjectIds = null,
+        ILlmRowDataEgress? egress = null,
+        Exception? toolReadFails = null,
+        IMcpSettingsProvider? settings = null)
     {
         // One factory serves both the tool (data-source resolution) and the audit service; each
         // CreateDbContextAsync call gets a fresh context over the same captured audit-log list
@@ -290,18 +322,31 @@ public class GetQueryContextToolTests
         factory.Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(() => new QueryContextTestContext(multiSource, _auditLogs));
 
+        // The tool's own reads fail when asked to; the audit writes still go through the working factory.
+        var toolFactory = factory;
+        if (toolReadFails != null)
+        {
+            toolFactory = new Mock<IDbContextFactory<BeaconContext>>();
+            toolFactory.Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+                .ThrowsAsync(toolReadFails);
+        }
+
         var projectContext = new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId], QueryProjectIds = queryProjectIds };
 
-        var auditService = new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog());
+        var auditService = new McpAuditService(factory.Object, settings ?? SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog());
+        _recorder = TestToolCalls.Recorder(auditService);
 
         return new GetQueryContextTool(
             _knowledgeGraph.Object,
-            factory.Object,
+            toolFactory.Object,
             projectContext,
-            auditService,
-            egress ?? TestRowDataEgress.Discarding(),
-            NullLogger<GetQueryContextTool>.Instance);
+            _recorder,
+            egress ?? TestRowDataEgress.Discarding());
     }
+
+    // Through the audit filter, as the transport calls the tool: the recorded call is written after it returns or throws.
+    private Task<CallToolResult> CallAsync(GetQueryContextTool tool, Func<GetQueryContextTool, Task<CallToolResult>> call) =>
+        TestToolCalls.InvokeAsync(_recorder, () => call(tool));
 
     private static string GetText(CallToolResult result)
     {

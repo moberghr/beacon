@@ -91,7 +91,7 @@ app.UseMiddleware<LoginFormAuthMiddleware>(beaconConfiguration, BeaconUiEndpoint
 app.UseMiddleware<FirstRunSetupMiddleware>(beaconConfiguration, BeaconUiEndpointRouteBuilderExtensions.BasePath); // with user management
 app.UseAntiforgery();
 
-app.MapOpenApi();                                            // /openapi/v1.json
+app.MapBeaconOpenApi();                                      // /openapi/v1.json
 app.MapBeaconApi();                                          // /beacon/api/* and the hub /beacon/api/hub
 app.MapLoginEndpoints("/beacon", beaconConfiguration);       // /beacon/api/auth/login, logout, sso
 app.MapSetupEndpoints("/beacon");                            // /beacon/api/setup/* (with user management)
@@ -109,7 +109,7 @@ The middleware order is load-bearing; keep it. `UseBeaconAuthentication()` takes
 | `/beacon/api/hub` | SignalR hub |
 | `/beacon/mcp` | MCP server |
 | `/.well-known/oauth-protected-resource`, `/.well-known/mcp/server-card.json` | MCP discovery (anonymous) |
-| `/openapi/v1.json` | OpenAPI document |
+| `/openapi/v1.json` | OpenAPI document (open in Development; signed-in callers only elsewhere unless `Beacon:OpenApi:Anonymous` is `true`) |
 | `/warp` | Warp dashboard (sample host, Admin only; listed in `Beacon:Authentication:AdditionalPaths`) |
 
 ## Code-only options
@@ -151,6 +151,7 @@ Bearer-token and external-login settings are code-only too, through `builder.Ser
 | `Beacon:Schema` | string | `beacon` | **Not configurable.** Any value other than `beacon` stops the host (see below). Leave it out |
 | `Beacon:BaseUrl` | string | none (the sample host falls back to `https://localhost:7187`) | Read by the sample host into `options.BaseUrl` |
 | `Beacon:PublicBaseUrl` | string (origin) | derived from the request | The origin advertised in the MCP discovery documents and the `WWW-Authenticate` challenge. Unset, it follows the request's `Host` header, which the client controls, and startup logs a Warning. Set it behind any proxy |
+| `Beacon:OpenApi:Anonymous` | bool | `false` | Publishes the OpenAPI document (`MapBeaconOpenApi()`) to anonymous callers outside Development. Off, it needs a signed-in Beacon caller; list `/openapi` in `Beacon:Authentication:AdditionalPaths` so the Beacon session reaches it. |
 | `Beacon:ForwardedHeaders:Enabled` | bool | `false` | Sample host: apply `X-Forwarded-For` and `X-Forwarded-Proto` from known proxies |
 | `Beacon:ForwardedHeaders:KnownProxies` | string[] | empty | Sample host: proxy IP addresses to trust; entries that are not IP addresses are skipped, and an empty list trusts none |
 | `AllowedHosts` | string | None | Standard ASP.NET Core host filtering |
@@ -165,11 +166,11 @@ Beacon only supports the 'beacon' schema, but 'tenant_a' was configured.
 Remove Beacon:Schema (or set it to 'beacon') and move any existing Beacon tables into 'beacon'.
 ```
 
-`.UsePostgreSql(connectionString, schema)` and `.UseSqlServer(connectionString, schema)` accept a schema argument for the same reason only as `beacon`. On PostgreSQL the search path is `beacon,public`, so a pgvector extension installed in `public` resolves.
+The obsolete overloads `.UsePostgreSql(connectionString, schema)` and `.UseSqlServer(connectionString, schema)` (removed in 6.0) accept a schema argument for the same reason only as `beacon`, and otherwise ignore it. On PostgreSQL the search path is `beacon,public`, so a pgvector extension installed in `public` resolves.
 
 ### Forwarded headers
 
-The forwarded-headers keys are read by the **sample host** only. A host embedding the packages calls `UseForwardedHeaders` itself. Behind a proxy this matters: the login and setup throttles key on the client address, and `SameAsRequest` cookie security keys on the scheme.
+The forwarded-headers keys are read by the **sample host** only. A host embedding the packages calls `UseForwardedHeaders` itself. Behind a proxy this matters: the login and setup throttles key on the client address, and `SameAsRequest` cookie security keys on the scheme. Without forwarded headers the cookie is issued without the `Secure` flag behind a TLS-terminating proxy: honour the forwarded scheme, or set `Beacon:Authentication:Cookie:SecureAlways` to `true` (default `false`; the cookie is then never sent over plain HTTP, so sign-in needs HTTPS end to end or a proxy that terminates it). Outside Development, Beacon logs a Warning at startup when the server listens on a plain HTTP address and the option is off. Add HTTPS redirection and HSTS in the host.
 
 ```json
 {
@@ -260,7 +261,7 @@ UPDATE beacon.Users SET SecurityStamp = LOWER(REPLACE(CONVERT(nvarchar(36), NEWI
 
 ## Authentication
 
-Beacon's sessions use the `Beacon.Auth` cookie (`HttpOnly`, `SameSite=Lax`, `SecurePolicy=SameAsRequest`, sliding). There is no default account: [first-run setup](/security/user-management/#first-run-setup) creates the super admin. Register cookie authentication with the UI's base path:
+Beacon's sessions use the `Beacon.Auth` cookie (`HttpOnly`, `SameSite=Lax`, `SecurePolicy=SameAsRequest`, sliding; `Beacon:Authentication:Cookie:SecureAlways` set to `true` always issues it with the `Secure` flag; this covers the `Beacon.Auth` cookie only, not the antiforgery or OIDC cookies). There is no default account: [first-run setup](/security/user-management/#first-run-setup) creates the super admin. Register cookie authentication with the UI's base path:
 
 ```csharp
 builder.Services.AddBeaconCookieAuthentication("/beacon");   // login page /beacon/login
@@ -268,7 +269,7 @@ builder.Services.AddBeaconCookieAuthentication("/beacon");   // login page /beac
 
 ### Where Beacon credentials apply
 
-Beacon's API keys, bearer tokens and `Beacon.Auth` cookie authenticate Beacon's own routes, everything under `/beacon`, and the path prefixes listed in `Beacon:Authentication:AdditionalPaths`. On every other route of the host, `ApiKeyAuthMiddleware`, the bearer JWT middleware and `BeaconCookieAuthMiddleware` do nothing, and the login and first-run redirects never send a request to Beacon's pages: the host's own authentication decides.
+Beacon's API keys, bearer tokens and `Beacon.Auth` cookie authenticate Beacon's own routes, everything under `/beacon`, and the path prefixes listed in `Beacon:Authentication:AdditionalPaths`. On every other route of the host, Beacon's API-key, bearer and cookie authentication do nothing, and the login and first-run redirects never send a request to Beacon's pages: the host's own authentication decides.
 
 | Key | Type | Default | What it does |
 |---|---|---|---|
@@ -278,13 +279,23 @@ Beacon's API keys, bearer tokens and `Beacon.Auth` cookie authenticate Beacon's 
 { "Beacon": { "Authentication": { "AdditionalPaths": [ "/warp" ] } } }
 ```
 
-`app.UseBeaconAuthentication()` wires Beacon's authentication in the order it needs: `ApiKeyAuthMiddleware`, the bearer JWT middleware, the host's `UseAuthentication()`, then `BeaconCookieAuthMiddleware`. Call it in place of `UseAuthentication()`, before `UseAuthorization()`.
+`app.UseBeaconAuthentication()` wires Beacon's authentication in the order it needs: the host's `UseAuthentication()`, then one Beacon step: a presented API key or bearer JWT, which wins over any session, else the `Beacon.Auth` cookie, followed by the origin check, with the security headers before them all unless the host added them earlier (`Beacon:Security`, below). Call it in place of `UseAuthentication()`, before `UseAuthorization()`.
 
 The cookie scheme (`Cookies`) applies the same scope itself. When it is the host's default authentication scheme (set as the default, or the only scheme registered), or a host policy names it, it authenticates nothing outside `/beacon` and `AdditionalPaths`: the session is refused there without a check against the user store, without renewal, and its cookie is left as it is. A host route that requires an authenticated user therefore needs the host's own scheme.
 
 :::caution[Upgrading]
 Beacon credentials no longer authenticate the host's own routes. A host route that relied on a Beacon session, API key or bearer token now sees an anonymous request: add its prefix to `Beacon:Authentication:AdditionalPaths`. A host that serves the Warp dashboard with Beacon's admin check (as the sample does) must list `/warp`, or the dashboard refuses every request. `/openapi/v1.json` and the `/.well-known` discovery documents are host routes and are no longer redirected to Beacon's login or setup page. Hosts that wired the four middlewares one by one keep working unchanged; `UseBeaconAuthentication()` is the shorter form.
 :::
+
+### Security headers and the origin check (`Beacon:Security`)
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `Csp` | `Enforce` \| `ReportOnly` \| `Off` | `Enforce` | The Content-Security-Policy on responses under `/beacon`. The other security headers are sent on all of Beacon's routes in every mode |
+| `OriginGuard` | `LogOnly` \| `Enforce` | `LogOnly` | Whether a state-changing, realtime-hub or anonymous Beacon request from a foreign origin is only logged or answered 403 |
+| `AllowedOrigins` | string[] | empty | The origins browsers reach Beacon from (`https://beacon.example.com`, with an optional port, no path). With `Beacon:PublicBaseUrl` they replace the default, the request's own origin. An invalid entry fails startup |
+
+`AddBeaconApiServices()` binds the section and `UseBeaconAuthentication()` applies it. See [Security headers and the origin check](/integrate/host-setup/#security-headers-and-the-origin-check).
 
 ### Session lifetime
 
@@ -294,6 +305,7 @@ Bound from `Beacon:Authentication:Session`, validated at startup.
 |---|---|---|---|---|
 | `RevalidateMinutes` | int | `5` | 0–1440 (`0` = every request) | How often, at most, a session is checked against the user store (user exists, enabled, not archived, same security stamp; roles replaced by the stored ones). Also how long a realtime connection lives before it is checked again (at least 1 minute) |
 | `AbsoluteLifetimeHours` | int | `12` | 1–8760 | A session ends this long after sign-in, however often it is renewed; caps the cookie's expiry and "remember me" |
+| `PersistSsoCookie` | bool | `false` | | A single sign-on session's cookie outlives the browser session. `false`: a session cookie, dropped when the browser closes; `true`: kept until it expires (within `AbsoluteLifetimeHours`) |
 
 ### Local password sign-in
 
@@ -503,6 +515,44 @@ Data migration reads use `Beacon:Migrations:MaxRows` instead. The MCP tools that
 | `Beacon:AiActors:ThinkCooldownMinutes` | int | `15` | 0–1440 (`0` = off) | An AI actor's think cycle starts at most once per this many minutes, from its last think time. Background cycles within it are skipped; an on-demand cycle is refused with the time left. Validated at startup |
 | `Beacon:AiActors:PlanExpiryDays` | int | `7` | 1–365 | An AI actor's plan awaiting approval expires this many days after it was proposed: it is no longer listed as pending, and approving, rejecting or revising it answers `409`. Computed when read. Validated at startup |
 
+## Request limits
+
+Bound from `Beacon:RateLimits`, validated at startup. Each limit is a fixed window: `PermitLimit` requests per `WindowSeconds` (1–3600, default `60`) in each partition; `PermitLimit` is 0–100,000 and `0` turns that limit off. An authenticated caller is one partition per credential (an API key by its id, a mapped MCP caller by its subject hash, a signed-in user), an anonymous one per client address: an IPv4 address (also one mapped into IPv6) whole, an IPv6 address by its `/64` block, so one client cannot spread its requests over the addresses of its block. Each limit keeps at most `Beacon:RateLimits:MaxPartitions` partitions (default `10000`, 100–1,000,000); a new one beyond that replaces the one used least recently, which starts over with a full budget. The address is `HttpContext.Connection.RemoteIpAddress`, which `UseForwardedHeaders` rewrites only as your host configures it: behind a reverse proxy without forwarded headers every caller shares the proxy's partition (see [Production checklist](/integrate/production/#reverse-proxy)). Beacon's endpoints apply the limits themselves, on Beacon's routes only; `AddRateLimiter`/`UseRateLimiter` are not needed and a host's own limiter does not change them. The counts are kept in memory, so with N instances behind a load balancer a caller can reach N times a limit. Over a limit the answer is `429` as `application/problem+json` with `Retry-After` (whole seconds).
+
+| Key | Default | Partition | What it limits |
+|---|---|---|---|
+| `Login` | `10` a minute | client address | Password sign-in (`POST /beacon/api/auth/login`), and first-run setup in its own partition |
+| `Api` | `600` a minute | caller (anonymous: address) | Every `/beacon/api` request |
+| `Anonymous` | `30` a minute | client address | Anonymous requests to Beacon's routes answered `401` (no credential, an unknown or expired API key or bearer token); over it they get `429` instead |
+| `Mcp` | `60` a minute | API key or MCP caller | Every request to `/beacon/mcp` |
+| `Ask` | `10` a minute | caller | The `ask` tool, through MCP and the playground; over it the tool answers an error (audited like every refusal) |
+
+| Key | Type | Default | Range | What it does |
+|---|---|---|---|---|
+| `Beacon:RateLimits:Lockout:Enabled` | bool | `true` | | Apply the lockout. `false` (or `MaxFailedAttempts` `0`) turns it off: password sign-in is then limited only per client address by `Login` |
+| `Beacon:RateLimits:Lockout:MaxFailedAttempts` | int | `5` | 0–100 (`0` = off) | After this many wrong passwords an internal user's password sign-in, and the password change of a signed-in user, is locked. Counted per user (stored on the user, so it holds across instances), a wrong current password on a password change included; a name no user has is counted against nobody. The break-glass accounts (`Beacon:UserManagement:LocalLogin:BreakGlassUserNames`) are never counted or locked: they stay limited per client address by `Login` |
+| `Beacon:RateLimits:Lockout:DurationMinutes` | int | `15` | 1–1440 | How long the lock lasts. While locked every password, the right one included, gets the same generic answer as a wrong one, after the same password check; wrong passwords while locked do not extend it. The lock is decided after the password check, together with the write that clears the count, so attempts already in flight when another attempt locks the user are refused too. A successful sign-in, the lock itself, an administrator's password reset and a wrong password sent this long or longer after the previous one start the count again. A lock records `auth.user_locked_out` and logs `UserLockedOut` (7124); a refused attempt records `auth.password_sign_in_refused` with reason `locked_out` |
+
+The lockout counts per user, not per client: anyone who knows a user name can lock that user's password sign-in by sending wrong passwords, and again each time the lock ends (the per-address `Login` limit slows this down, but several addresses get past it). That denial of service is the price of a hard cap on password guessing. Keep a break-glass account for emergencies (it is never locked), prefer single sign-on for everyday users, or set `Lockout:Enabled` to `false` when the denial of service weighs more for your deployment than the cap.
+
+## Request size and time limits
+
+Bound from `Beacon:RequestLimits`, validated at startup. They apply to Beacon's own routes only (`/beacon/api`, the hub under it and `/beacon/mcp`), through `UseBeaconAuthentication()`, and a host's own limit wins where it is stricter: a lower Kestrel `MaxRequestBodySize` is never raised. `0` turns one bound off. They do not touch the 5-minute Kestrel keep-alive and header timeouts or the 5-minute `HttpClient` timeout that AI calls need (see [Host setup](/integrate/host-setup/)).
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `ApiMaxBodyBytes` | long | `2097152` | Largest request body on `/beacon/api`; a larger one answers `413` |
+| `McpMaxBodyBytes` | long | `4194304` | Largest request body on `/beacon/mcp` |
+| `ApiTimeoutSeconds` | int | `300` | A `/beacon/api` request still running after this has its cancellation token cancelled and, if nothing was sent yet, answers `504`. The hub and the routes that run long work inline (migration run, metadata refresh, documentation generation, repository scan, eval run, playground tool run) are exempt and keep their own timeouts. A host's own long route opts out with `.WithBeaconLongRunning()` |
+| `HubMaxReceiveMessageBytes` | long | `8192` | Largest message the hub takes from a client (it has no client-callable methods) |
+| `HubMaxParallelInvocationsPerClient` | int | `1` | Hub invocations in flight per connection |
+| `HubClientTimeoutSeconds` | int | `30` | Silence after which the hub drops a connection |
+| `McpMaxIdleSessions` | int | `1000` | Idle MCP sessions kept in memory (`HttpServerTransportOptions.MaxIdleSessionCount`; the SDK default is 10,000). A session is dropped after 30 idle minutes |
+| `McpMaxInitializesPerCaller` | int | `60` | MCP `initialize` requests one caller (API key, mapped caller, user or address) may send per window; more answer `429` with `Retry-After`. Per instance, in memory |
+| `McpInitializeWindowSeconds` | int | `60` | The window of the previous key |
+
+A host that configures SignalR (`BeaconApiOptions.ConfigureSignalR`, `AddHubOptions`) or `HttpServerTransportOptions` itself overrides the hub and idle-session values.
+
 ## Subscription limits
 
 Bound from `Beacon:Subscriptions`, validated at startup.
@@ -641,8 +691,19 @@ A project's repository scan reads source files from `https://github.com` with th
 | `ScanTimeout` | timespan | `00:05:00` | The longest one repository scan runs. A scan that reaches it keeps what it found |
 | `MaxFileBytes` | int | `1000000` | A larger source file is skipped |
 | `MaxTreeResponseBytes` | int | `33554432` | The most bytes read from the repository's file list |
+| `TaskDeadline` | timespan | `03:00:00` | The longest a background scan of a project's repositories runs: no repository's scan starts after it, and the ones left count as not scanned. More than zero and at most 24 hours, checked at startup |
 
-A scan that hits a bound still ends as completed, and its error text starts with "Partial scan:" and names what was left out (files over the cap, files over the size limit, the time limit, files that could not be read, or a file list GitHub itself truncated), so a partial result is never mistaken for a full one. The project's repository list marks such a repository **Partial** with the reasons (`partialScan` and `partialScanReasons` on each repository of `GET /beacon/api/projects/{id}`), and `POST /beacon/api/projects/{id}/scan` returns them in `partialScans`. The time limit also covers reading the repository's metadata and file list: a scan that reaches it before the file list is read fails. A scan replaces the repository's code references only when it finishes; one that fails or is cancelled by the caller keeps the previous references.
+A scan that hits a bound still ends as completed, and its error text starts with "Partial scan:" and names what was left out (files over the cap, files over the size limit, the time limit, files that could not be read, or a file list GitHub itself truncated), so a partial result is never mistaken for a full one. The project's repository list marks such a repository **Partial** with the reasons (`partialScan` and `partialScanReasons` on each repository of `GET /beacon/api/projects/{id}`), and `POST /beacon/api/projects/{id}/scan` returns them in `partialScans`. **Scan repositories** on a project's
+Repositories tab (an Editor's) starts the scan as a background task, `POST /beacon/api/projects/{id}/scans` (`202` with
+`{ taskId, jobId, state }`; progress at `GET /beacon/api/projects/{id}/scans/{taskId}`, whose `warningCount` is the
+repositories that failed, were only partly scanned or were not scanned before `TaskDeadline`): it runs as the user who
+started it, checks again that they may still change the project (`forbidden` otherwise), and each repository keeps these
+bounds. One scan of a project is queued or running at a time (`409` for a second). Before each repository the task
+records that it is still going; one silent for `TaskDeadline` plus `ScanTimeout` plus 15 minutes is given up
+(`abandoned`), and a task given up stops before its next repository. The scan is on record when it ends
+(`access.repository_scan_ran`, with the ids of the repositories it scanned then, which can include one added after the
+start, and its counts; `refused` with the reason when it was skipped). The
+in-request `POST /beacon/api/projects/{id}/scan` stays for Beacon 5.0 callers. The time limit also covers reading the repository's metadata and file list: a scan that reaches it before the file list is read fails. A scan replaces the repository's code references only when it finishes; one that fails or is cancelled by the caller keeps the previous references.
 
 ## Notification destinations (optional)
 
@@ -683,6 +744,83 @@ Beacon's libraries ship no email implementation. Register your own `IEmailAdapte
 
 A missing required key fails the send, not the startup. These keys belong to the sample's adapter; a host with its own adapter reads whatever it needs.
 
+## Data retention (`Beacon:Retention`)
+
+One job, `IDataRetentionService.RunAsync`, keeps Beacon's run history and logs bounded. The sample host runs it daily as
+the Warp job `data-retention` (one run at a time, at most an hour); a host embedding Beacon schedules it itself, with a
+timeout longer than the run's 50-minute budget. It first clears the **content** of the content stores' rows older than
+`ContentDays`, keeping the rows and their structure (counts, timings, statuses, ids), then deletes the rows of every
+retention target older than the target's window.
+
+```json
+{
+  "Beacon": {
+    "Retention": {
+      "Days": 90,                       // recommended; 0 (the default) keeps everything
+      "Targets": { "subscription-runs": 365, "ai-actor-executions": 30 },
+      "ContentDays": 30,
+      "Locked": false
+    }
+  }
+}
+```
+
+| Key | Type | Default | Description |
+|---|---|---|---|
+| `Days` | int | `0` (keep forever) | Days the rows of every target are kept; `0` keeps them forever. `90` is recommended |
+| `Targets:{name}` | int | `Days` | One target's own window; `0` keeps its rows forever. An unknown name stops the host at startup |
+| `ContentDays` | int | `0` (off) | Days the content of the content stores is kept: SQL text, result snapshots, model output and error text become empty. `30` is recommended for regulated deployments |
+| `Locked` | bool | `false` | Deployment lock: `Days` (also when every target sets its own window), every target, `ContentDays` and `Beacon:Mcp:Audit:RetentionDays` must be greater than 0, or the host fails to start; the learning-signal retention Admins edit at runtime never resolves above `Days`. What it leaves out by design is listed below |
+
+| Target | Store | Kept anyway |
+|---|---|---|
+| `subscription-runs` | Subscription run history, with each run's notifications | Each subscription's newest run that was not skipped: the baseline its trigger compares the next result count with |
+| `notifications` | Delivered notifications | |
+| `anomaly-baselines` | Anomaly detection baselines | The longest configured look-back beyond the window |
+| `anomaly-events` | Detected anomaly events | The longest configured look-back beyond the window |
+| `ai-actor-executions` | AI actor executions and conversation turns | An execution a query change or a newer turn still names |
+| `ai-actor-plans` | AI actor plans | Plans awaiting approval or executing; a plan an execution, a query change or a revision still names |
+| `migration-runs` | Data migration runs | Queued or running runs, and a run a retry names as its parent |
+| `mcp-eval-runs` | MCP eval runs and their per-case results | Running evals; the golden cases are never purged |
+| `execution-log` | The execution log of previews and ad-hoc runs | |
+
+What goes with a purged row: a task keeps its row, but its notifications (the runs that raised it) go with their window;
+a plan that named a deleted AI actor execution has that id cleared; an anomaly event that named a deleted notification
+keeps no link to it.
+
+The content stores are the subscription run history, notifications, the execution log of previews and ad-hoc runs, AI
+actor executions and conversations, and migration runs. Clearing a row's content empties its SQL text, result snapshot
+and model output, and reduces its error text to an error class (`schema`, `timeout`, ...), as the write-time lock does.
+While the content lock is on (`RetainQueryContent` off in the **global** MCP settings, or
+`Beacon:Mcp:ForceNoContentRetention`), Beacon writes no content to them, and each run also clears the result snapshots
+they stored before, whatever their age. The content lock reaches these stores only globally: a project's own
+`RetainQueryContent` override does not, because their rows belong to no single project (a multi-step preview logs no
+data source, notifications and AI actor turns carry none, and a data source can be linked to several projects, or to
+others after the row was written). Turn content retention off globally, or set `ForceNoContentRetention`, where any
+project needs it off for them.
+
+The windows are read once at startup. Each step (the content, then each target) gets an equal share of the time left in
+the run's 50-minute budget; a step whose share runs out stops there (event 9124, the step's name), the run still
+succeeds, and the next run continues it, so a large first backlog takes several runs and never starves the steps after
+it. A target that fails is logged (event 9121, the target's name and a failure code) and the others still run, then the
+job fails. Each purge logs its count (9120, 9122) to the `Beacon.Audit` category. The MCP audit (`Beacon:Mcp:Audit:RetentionDays`), the security audit trail
+(`Beacon:Audit:RetentionDays`) and learning signals keep their own purges; the security audit is never a retention target.
+
+Outside the lock by design, because they are configuration or governance records rather than run history: the security
+audit trail (its own `Beacon:Audit:RetentionDays`), learning signals (their own window, which the lock caps at `Days`),
+the query step change history (the record of how a saved query's SQL changed and who, or which AI actor run, changed it;
+it goes with its query, and the AI actor executions and plans it names are kept for it), the settings change history, and
+configuration itself: projects, data sources, metadata, queries, subscriptions, tasks, the glossary, golden eval cases
+and learned patterns.
+
+:::note[Upgrading]
+Nothing is deleted unless you configure it: every window defaults to keep forever, so an upgrade keeps all existing data.
+While no window is set (`Days`, a target, `ContentDays`, `Beacon:Mcp:Audit:RetentionDays`), the host logs one Information
+at startup (`RetentionUnconfigured`, 9123) naming these settings. Recommended: `Days: 90`, `Beacon:Mcp:Audit:RetentionDays:
+365`, and `ContentDays: 30` for regulated deployments. The sample host expires completed Warp jobs (their records in the
+`warp` schema, not Beacon data) after 7 days (`JobExpirationTimeout`).
+:::
+
 ## Deployment locks
 
 Settings that bind Admins too and that nothing at runtime can change; only host configuration sets them:
@@ -691,12 +829,13 @@ Settings that bind Admins too and that nothing at runtime can change; only host 
 |---|---|---|
 | `Beacon:Mcp:ForceReadOnly` | **`true`** | MCP read-only enforcement on, globally and per project; the SQL gate judges every statement read-only whatever it is asked. `false` logs a startup Warning |
 | `Beacon:Mcp:ForcePiiDetection` | **`true`** | PII detection on. `false` logs a startup Warning |
-| `Beacon:Mcp:ForceNoContentRetention` | `false` | Content retention off: questions, SQL and free-text errors are never persisted |
+| `Beacon:Mcp:ForceNoContentRetention` | `false` | Content retention off: questions, SQL, result snapshots, model output and free-text errors are never persisted, in MCP and in the content stores outside it (subscription runs, notifications, the execution log, AI actor runs, migration runs; see [Data retention](#data-retention-beaconretention)) |
 | `Beacon:Mcp:Audit:RequireContent` | `false` | Content retention on, globally and per project, so the MCP audit keeps the question and the SQL of every statement a call ran. Cannot be combined with `ForceNoContentRetention`: with both on the host fails to start. See [Keeping audit content](/mcp/observability-and-audit/#keeping-audit-content-the-requirecontent-lock) |
 | `Beacon:Mcp:ForbidRowDataToLlm` | `false` | Sample-value collection, value grounding and the eval judge off: no value read from a data source goes to the LLM provider |
 | `Beacon:Mcp:Ceilings:*` | none | Cap the MCP row limit and the SQL and question lengths; the other ceilings clamp recorded settings (see [MCP](#mcp-beaconmcp)) |
 | `Beacon:Mcp:Audit:Required` | `false` | Withhold an MCP tool result whose audit row could not be written |
 | `Beacon:Migrations:Enabled` | `false` | Data migration, the only write path |
+| `Beacon:Retention:Locked` | `false` | No retention window may keep data forever (the host fails to start otherwise), and the learning-signal retention never resolves above `Beacon:Retention:Days`. See [Data retention](#data-retention-beaconretention) |
 
 A write that contradicts an MCP lock answers `409` (`/errors/setting-locked`), an Admin's included; the MCP settings page shows the locked settings disabled, and `GET /beacon/api/mcp/settings/locks` lists them (`lockedFields`) and each active lock with the setting it pins (`locks`: `fieldName`, `lockName`). Stored values a lock overrides are kept and listed in one startup warning; they apply again when the lock is lifted. Settings resolve as **lock → project override → global value → built-in default**, ceilings last.
 
@@ -726,6 +865,7 @@ Validated at startup. Without the section, `ForceReadOnly` and `ForcePiiDetectio
 | `ForceReadOnly`, `ForcePiiDetection`, `ForceNoContentRetention`, `ForbidRowDataToLlm` | bool | `true`, `true`, `false`, `false` | See [Deployment locks](#deployment-locks) |
 | `Ceilings:MaxRowLimit` | int | none | Caps the row limit the MCP tools apply; must be greater than 0 when set |
 | `Ceilings:StatementTimeoutSeconds`, `MaxResultBytes`, `MaxConcurrentQueriesPerKey` | int | none | Clamp the MCP settings of the same names, shown on the MCP settings page; must be greater than 0 when set. The MCP tools apply the statement timeout to every statement, bound each tool result to the byte budget, and refuse a call when the caller already runs that many queries |
+| `Ceilings:LearningSignalRetentionDays` | int | none | Clamps the learning-signal retention (`LearningSignalRetentionDays`, global and per project) on the MCP settings page; greater than 0 when set. Under `Beacon:Retention:Locked` it is at most `Beacon:Retention:Days` |
 | `Ceilings:MaxExplainCost` | decimal | none | Clamps the MCP `MaxExplainCost` setting, shown on the MCP settings page; greater than 0 when set. The setting is enforced on PostgreSQL data sources: a statement whose planner-estimated total cost (`EXPLAIN`, never run) exceeds it is refused before it runs. Other engines ignore it |
 | `Ceilings:MaxSqlChars` | int | `100000` (always applies) | Longest SQL text the gate evaluates |
 | `Ceilings:MaxQuestionChars` | int | `4000` (always applies) | Longest question `ask` accepts |
@@ -733,7 +873,7 @@ Validated at startup. Without the section, `ForceReadOnly` and `ForcePiiDetectio
 | `Ceilings:AskMaxLlmCalls` | int | `12` (always applies) | Logical LLM calls one `ask` call may make (a provider's transport retries are not counted); fewer self-consistency candidates and skipped repairs keep it within them, and a call with none left before it generated SQL returns an error; at least 2 when set (the intent classification and the first SQL generation) |
 | `Ceilings:AskSchemaContextChars` | int | `120000` (always applies) | Longest schema context one `ask` sends to the LLM, in characters (about 30,000 tokens at the default); over it whole table descriptions are left out, least relevant to the question first, and one line inside the cap names them. When the grounding sections leave no room for the most relevant table they are left out first (learned patterns, glossary, verified examples, value matches, join paths), and that table is sent even if it alone is longer than the cap. At least 10000 when set |
 | `Audit:Required` | bool | `false` | Fail closed: withhold a tool result whose audit row could not be written |
-| `Audit:RetentionDays` | int | none (keep forever) | Days audit rows are kept; greater than 0 when set. The sample host purges daily (`PurgeExpiredMcpAuditLogsJob`); other hosts schedule it themselves |
+| `Audit:RetentionDays` | int | none (keep forever) | Days audit rows are kept; unset or `0` keeps them forever (`365` recommended). The sample host purges daily (`PurgeExpiredMcpAuditLogsJob`); other hosts schedule it themselves |
 | `Audit:RequestIdHeader` | string | `X-Request-Id` | Upstream correlation header stored with each audit row; empty reads none |
 | `Audit:RequireContent` | bool | `false` | See [Deployment locks](#deployment-locks) |
 | `CallerHashKey` | string | derived from `Beacon:EncryptionKey` | See [Encryption key](#encryption-key-configuration-required) |
@@ -764,9 +904,54 @@ Without the section, the authority published is `Beacon:Authentication:Oidc:Auth
 
 Other standard `OTEL_*` variables are read by the OpenTelemetry SDK itself. The Beacon libraries choose no exporter.
 
-## Embed tokens (`Beacon:EmbedToken`)
+## Embedding (`Beacon:Embed`)
 
-Read by `IEmbedTokenService`, a host-facing service that mints and validates HS256 tokens for embeddable integrations; no Beacon route uses it. Validated at first use.
+Off by default, and a deployment lock: while `Enabled` is false no embed route is mapped (each answers 404) and no key is
+needed. On, a SecurityAdmin creates embed grants at `POST /beacon/api/embed-grants` (listed at `GET`, revoked at
+`POST /beacon/api/embed-grants/{id}/revoke`): one project, one saved query and its approved version, the frame origins,
+an expiry, and every query parameter fixed or locked. A grant's secret is shown once; only its SHA-256 is stored.
+The host's backend exchanges it for a short-lived token at `POST /beacon/api/embed/tokens`
+(`Authorization: BeaconEmbedGrant <secret>`, body `{ "parameters": { … }, "ttlSeconds": … }`), and Beacon's embed page at
+`GET /beacon/embed/{publicId}` renders the query with it (`POST /beacon/api/embed/render`,
+`Authorization: BeaconEmbed <token>`). These three routes are anonymous to Beacon's cookie, API keys and bearer tokens:
+only the embed credential authenticates them, and every refusal gets the same `{"error":"embed_unavailable"}`. A render
+acts for the grant's creator (their live access and row entitlement), always masks PII and returns at most the smaller
+of the project's row limit and `MaxRows`. The embed page is served with a strict Content-Security-Policy whose
+`frame-ancestors` lists the grant's origins. An MCP gateway host serves no embed route. Validated at startup.
+
+The limits count per client address (an IPv6 address by its /64 network): the embed page per address and grant, refusals
+per address, and the exchange and render per verified grant. Only refusals spend the refusal budget. A render whose
+token verifies is never refused for it; the exchange and the page, which each cost a lookup, are answered 429 without one
+once the address has spent it (a valid secret from that address waits for the next minute). **Behind a reverse
+proxy or load balancer, run `UseForwardedHeaders` with the proxy's address in `KnownProxies` or `KnownNetworks` before
+`UseBeaconAuthentication`** (the sample host: `Beacon:ForwardedHeaders:Enabled` and `KnownProxies`), and set
+`Beacon:PublicBaseUrl` when TLS ends at the proxy. Without forwarded headers every viewer shares the proxy's address (one
+page and refusal budget for all of them), and the render's same-origin check compares the viewer's `https` origin with
+Beacon's `http` one and refuses every render.
+
+The embed routes are `AllowAnonymous`, but ASP.NET Core still authenticates a host's `FallbackPolicy` on them: a fallback
+policy that names `AuthenticationSchemes` replaces the embed caller and every exchange and render is refused (401). Leave
+the fallback policy without schemes, or exempt the embed paths from it.
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `Enabled` | bool | `false` | Maps the embed routes and allows grants to be created |
+| `SigningKey` | string | Required when `Enabled` | Base64 of at least 32 random bytes (`openssl rand -base64 32`), checked like `Beacon:EncryptionKey`, and never the encryption key itself. Supply as a secret (`Beacon__Embed__SigningKey`) |
+| `TokenTtlSeconds` | int | `300` | 1 to `MaxTokenTtlSeconds` |
+| `MaxTokenTtlSeconds` | int | `900` | 1–900 |
+| `MaxGrantDays` | int | `90` | The longest a grant lives; 1–366 |
+| `MaxRows` | int | `1000` | 1–100,000 |
+| `MaxOrigins` | int | `10` | Frame origins per grant; 1–50. Origins are exact `https://host[:port]` (`http://localhost` only in Development) |
+| `MaxConcurrentRenders` | int | `8` | Embed renders running at once in the process, over every grant; one more is answered 503 at once. 1–256 |
+| `MaxConcurrentRendersPerGrant` | int | a quarter of `MaxConcurrentRenders`, at least 1 | Renders one grant may run at once, so one grant never holds every slot; one more is answered 503 at once. 1 to `MaxConcurrentRenders` |
+| `RateLimits:ExchangePerGrantPerMinute` | int | `60` | Exchanges per verified grant; 1–10,000 |
+| `RateLimits:RenderPerGrantPerMinute` | int | `120` | Renders per verified grant (a valid token); 1–10,000 |
+| `RateLimits:PagePerClientPerMinute` | int | `60` | Embed page loads per client address and grant; 1–10,000 |
+| `RateLimits:RefusalsPerIpPerMinute` | int | `30` | Refusals per client address; past it a refusal is answered 429 and not audited, and the exchange and page are 429 before any lookup. 1–10,000 |
+
+## Embed tokens (`Beacon:EmbedToken`, obsolete)
+
+Read by `IEmbedTokenService` (obsolete, removed in 6.0), a host-facing service that mints and validates HS256 tokens for embeddable integrations; no Beacon route uses it, and the embed routes never accept its tokens. Validated at first use.
 
 | Key | Type | Default | What it does |
 |---|---|---|---|

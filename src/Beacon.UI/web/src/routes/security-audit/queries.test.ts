@@ -75,6 +75,7 @@ describe('the catalogue', () => {
       'curation.glossary_term_updated',
       'curation.glossary_term_deleted',
       'curation.documentation_section_edited',
+      'curation.documentation_generation_started',
       'migrations.job_started',
       'migrations.job_run_ended',
       'audit.mcp_audit_read',

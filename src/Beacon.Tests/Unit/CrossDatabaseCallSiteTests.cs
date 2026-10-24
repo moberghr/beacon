@@ -186,7 +186,7 @@ public class CrossDatabaseCallSiteTests
             .ReturnsAsync(new Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase));
         var store = Store();
         var settings = SettingsProviderMock.Create();
-        var tool = new DryRunTool(
+        var tool = TestToolCalls.Track(recorder => new DryRunTool(
             store.Factory(),
             TestSqlGate.Create(),
             TestConfiguredDatabases.Of(Configured),
@@ -195,14 +195,12 @@ public class CrossDatabaseCallSiteTests
             queryExecution.Object,
             SettingsProviderMock.Unshared(settings.Object),
             new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId] },
-            new McpAuditService(store.Factory(), settings.Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog()),
-            new McpSignalService(store.Factory(), settings.Object, NullLogger<McpSignalService>.Instance),
-            new McpQueryConcurrencyLimiter(),
-            NullLogger<DryRunTool>.Instance);
+            recorder,
+            new McpQueryConcurrencyLimiter()), () => TestToolCalls.Recorder(new McpAuditService(store.Factory(), settings.Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog()), new McpSignalService(store.Factory(), settings.Object, NullLogger<McpSignalService>.Instance)));
 
-        var foreign = await tool.ExecuteAsync(datasource_id: DataSourceId, sql: Foreign, cancellationToken: CancellationToken.None);
+        var foreign = await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(datasource_id: DataSourceId, sql: Foreign, cancellationToken: CancellationToken.None));
         queryExecution.Verify(x => x.ValidateAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
-        var matching = await tool.ExecuteAsync(datasource_id: DataSourceId, sql: Matching, cancellationToken: CancellationToken.None);
+        var matching = await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync(datasource_id: DataSourceId, sql: Matching, cancellationToken: CancellationToken.None));
 
         foreign.StructuredContent!.Value.GetProperty("valid").GetBoolean().Should().BeFalse();
         foreign.StructuredContent!.Value.GetProperty("issues").ToString().Should().Contain("another database");

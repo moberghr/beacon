@@ -1,6 +1,7 @@
 using System.Security.Claims;
 using Microsoft.AspNetCore.Authentication;
 using Beacon.Core.Authorization;
+using Beacon.Core.Mcp;
 using Beacon.Core.Services;
 
 namespace Beacon.SampleProject.Services;
@@ -14,9 +15,18 @@ namespace Beacon.SampleProject.Services;
 /// </summary>
 public class SampleClaimsTransformation(IUserManagementService userService) : IClaimsTransformation
 {
+    // The transformation is scoped and runs once per authenticate call, which can be several times in one request:
+    // the user store is read once per request and external id, not once per call.
+    private readonly Dictionary<string, string?> rolesByExternalId = [];
+
     public async Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
     {
-        if (principal.Identity is not ClaimsIdentity identity || !identity.IsAuthenticated)
+        // A scoped caller (an API key, an MCP bearer caller) is capped by its scope and projects, never by a role: it is
+        // left as Beacon built it. So is a bearer caller on a REST route, which carries its Beacon user's roles already.
+        if (principal.Identity is not ClaimsIdentity identity
+            || !identity.IsAuthenticated
+            || BeaconScopes.IsScopedCaller(principal)
+            || principal.HasClaim(McpCallerClaimTypes.AuthMethod, McpCallerClaimTypes.JwtAuthMethod))
         {
             return principal;
         }
@@ -39,13 +49,13 @@ public class SampleClaimsTransformation(IUserManagementService userService) : IC
             return principal;
         }
 
-        var user = await userService.GetUserByExternalIdAsync(externalId);
-        if (user == null || !user.IsEnabled)
+        if (!rolesByExternalId.TryGetValue(externalId, out var role))
         {
-            return principal;
+            var user = await userService.GetUserByExternalIdAsync(externalId);
+            role = user is { IsEnabled: true } ? ResolveRole(user) : null;
+            rolesByExternalId[externalId] = role;
         }
 
-        var role = ResolveRole(user);
         if (role != null)
         {
             identity.AddClaim(new Claim(BeaconClaims.Role, role));
