@@ -11,7 +11,7 @@ using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.DataSources;
 using Beacon.Core.Services;
-using Beacon.SampleProject.Middleware;
+using Beacon.Api.Middleware;
 using Beacon.Tests.Common;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;

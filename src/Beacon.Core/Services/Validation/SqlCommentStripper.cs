@@ -181,6 +181,181 @@ internal static class SqlCommentStripper
         return previous == sql.Length ? builder.ToString() : null;
     }
 
+    /// <summary>
+    /// The SQL with every value written into it — string literals of every kind and numbers — replaced by <c>?</c>, and every
+    /// comment by a space, as the dialect's tokenizer reads it; keywords, names, operators and bind markers are kept. For SQL
+    /// that is shown or exported for audit, which must not carry the values a statement was written with. When the text
+    /// cannot be read so (an unknown dialect, SQL that does not tokenize, a disallowed character or a surrogate pair, a
+    /// lexical rule the engine reads differently from the parser, tokens that do not cover the text one after another), it
+    /// is masked conservatively instead: every single- or double-quoted span (a backslash escaping the next character, an
+    /// unclosed quote running to the end), every dollar-quoted span, every number and every <c>--</c> or <c>/* */</c>
+    /// comment.
+    /// </summary>
+    public static string MaskLiterals(string sql, string? dialect)
+    {
+        if (string.IsNullOrEmpty(sql))
+        {
+            return sql;
+        }
+
+        return MaskedByTokens(sql, dialect) ?? MaskedConservatively(sql);
+    }
+
+    private static string? MaskedByTokens(string sql, string? dialect)
+    {
+        if (SqlAst.IndexOfDisallowedCharacter(sql) >= 0 || sql.Any(char.IsSurrogate))
+        {
+            return null;
+        }
+
+        var parserDialect = SqlDialects.Resolve(dialect);
+        if (parserDialect is GenericDialect || SqlReadOnlyAstValidator.RejectLexicalDifferences(sql, dialect, parserDialect) != null)
+        {
+            return null;
+        }
+
+        IList<Token> tokens;
+        try
+        {
+            tokens = new Tokenizer().Tokenize(sql, parserDialect);
+        }
+        catch (Exception)
+        {
+            return null;
+        }
+
+        var lineStarts = LineStarts(sql);
+        var builder = new System.Text.StringBuilder(sql.Length);
+        var previous = 0;
+        for (var i = 0; i < tokens.Count; i++)
+        {
+            var start = OffsetOf(tokens[i].Location, lineStarts, sql.Length);
+            var end = i + 1 < tokens.Count ? OffsetOf(tokens[i + 1].Location, lineStarts, sql.Length) : sql.Length;
+            if (start != previous || end <= start)
+            {
+                return null;
+            }
+
+            previous = end;
+            if (IsStringLiteral(tokens[i]) || tokens[i] is Number)
+            {
+                builder.Append('?');
+            }
+            else if (tokens[i] is Whitespace { WhitespaceKind: WhitespaceKind.InlineComment or WhitespaceKind.MultilineComment })
+            {
+                builder.Append(' ');
+            }
+            else
+            {
+                builder.Append(sql, start, end - start);
+            }
+        }
+
+        return previous == sql.Length ? builder.ToString() : null;
+    }
+
+    private static string MaskedConservatively(string sql)
+    {
+        var builder = new System.Text.StringBuilder(sql.Length);
+        var position = 0;
+        while (position < sql.Length)
+        {
+            var character = sql[position];
+            var rest = sql.AsSpan(position);
+            if (character is '\'' or '"')
+            {
+                position = EndOfQuoted(sql, position, character);
+                builder.Append('?');
+            }
+            else if (character == '$' && DollarTagAt(sql, position) is { } tag)
+            {
+                var close = sql.IndexOf(tag, position + tag.Length, StringComparison.Ordinal);
+                position = close < 0 ? sql.Length : close + tag.Length;
+                builder.Append('?');
+            }
+            else if (rest.StartsWith("--"))
+            {
+                var lineBreak = sql.IndexOf('\n', position);
+                position = lineBreak < 0 ? sql.Length : lineBreak;
+                builder.Append(' ');
+            }
+            else if (rest.StartsWith("/*"))
+            {
+                var close = sql.IndexOf("*/", position + 2, StringComparison.Ordinal);
+                position = close < 0 ? sql.Length : close + 2;
+                builder.Append(' ');
+            }
+            else if (StartsNumber(sql, position))
+            {
+                while (position < sql.Length && (char.IsAsciiLetterOrDigit(sql[position]) || sql[position] == '.'))
+                {
+                    position++;
+                }
+
+                builder.Append('?');
+            }
+            else
+            {
+                builder.Append(character);
+                position++;
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    // Past the quote that closes the span opened at `start`: a doubled quote stays inside, a backslash escapes the next
+    // character; an unclosed quote runs to the end.
+    private static int EndOfQuoted(string sql, int start, char quote)
+    {
+        var position = start + 1;
+        while (position < sql.Length)
+        {
+            if (sql[position] == '\\')
+            {
+                position += 2;
+            }
+            else if (sql[position] != quote)
+            {
+                position++;
+            }
+            else if (position + 1 < sql.Length && sql[position + 1] == quote)
+            {
+                position += 2;
+            }
+            else
+            {
+                return position + 1;
+            }
+        }
+
+        return sql.Length;
+    }
+
+    // `$$` or `$tag$` opening a dollar-quoted string; a bind marker such as `$1` is not one.
+    private static string? DollarTagAt(string sql, int start)
+    {
+        var position = start + 1;
+        while (position < sql.Length && (char.IsAsciiLetter(sql[position]) || sql[position] == '_'))
+        {
+            position++;
+        }
+
+        return position < sql.Length && sql[position] == '$' ? sql[start..(position + 1)] : null;
+    }
+
+    // A digit, or a dot before a digit, that does not continue a name or a bind marker.
+    private static bool StartsNumber(string sql, int position)
+    {
+        var digitAt = sql[position] == '.' ? position + 1 : position;
+        if (digitAt >= sql.Length || !char.IsAsciiDigit(sql[digitAt]))
+        {
+            return false;
+        }
+
+        return position == 0 || !(char.IsLetterOrDigit(sql[position - 1]) || sql[position - 1] is '_' or '$' or '@' or '#' or ':' or '.');
+    }
+
     private static string Strip(string sql, string? dialect, bool lineCommentsOnly)
     {
         if (string.IsNullOrEmpty(sql) || !MayHoldComment(sql, dialect) || SqlAst.IndexOfDisallowedCharacter(sql) >= 0)

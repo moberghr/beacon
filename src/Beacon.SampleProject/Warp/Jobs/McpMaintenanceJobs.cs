@@ -64,6 +64,18 @@ public sealed class PurgeExpiredMcpAuditLogsJobHandler(IMcpAuditRetentionService
         => retentionService.PurgeExpiredAsync(cancellationToken);
 }
 
+// Execution log retention purge (Beacon:Audit:ExecutionLog:RetentionDays); a no-op when unset (rows kept forever).
+[Timeout(1800, Mode = TimeoutMode.Fail)]
+[Mutex("execution-log-retention", Mode = ConcurrencyMode.Skip)]
+public sealed class PurgeExpiredExecutionLogsJob : IJob;
+
+public sealed class PurgeExpiredExecutionLogsJobHandler(IExecutionLogRetentionService retentionService)
+    : IJobHandler<PurgeExpiredExecutionLogsJob>
+{
+    public Task HandleAsync(PurgeExpiredExecutionLogsJob message, CancellationToken cancellationToken)
+        => retentionService.PurgeExpiredAsync(cancellationToken);
+}
+
 // Security audit retention purge (Beacon:Audit:RetentionDays, at least a year); a no-op while unset (events kept forever).
 // The purge records itself in the trail.
 [Timeout(1800, Mode = TimeoutMode.Fail)]

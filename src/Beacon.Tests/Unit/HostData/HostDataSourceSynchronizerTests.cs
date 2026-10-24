@@ -109,6 +109,22 @@ public class HostDataSourceSynchronizerTests
     }
 
     [Test]
+    public async Task SyncAsync_LogsTheExcludedColumns_AndWarnsWhenEveryTableIsExposed()
+    {
+        var store = new HostSyncStore();
+        var logs = new LogRecorder();
+        var (synchronizer, registration) = Build(store, x => x.AllowAllTables(), logs: logs);
+
+        await synchronizer.SyncAsync(registration, CancellationToken.None);
+
+        var warning = logs.Entries.Should().ContainSingle(x => x.Message.Contains("AllowAllTables")).Subject;
+        warning.Level.Should().Be(Microsoft.Extensions.Logging.LogLevel.Warning);
+        var excluded = logs.Entries.Should().ContainSingle(x => x.Message.Contains(" excludes ")).Subject;
+        excluded.Message.Should().Contain("Customer.PasswordHash").And.Contain("Customer.Secret");
+        logs.Entries.Should().NotContain(x => x.FullText.Contains("Sup3rS3cret!"));
+    }
+
+    [Test]
     public async Task SyncAllAsync_WhenTheLoginCheckWarns_TheSyncIsTheSame()
     {
         var checkedStore = new HostSyncStore();
@@ -554,7 +570,7 @@ public class HostDataSourceSynchronizerTests
         var service = new DataSourceService(
             factory.Object,
             FakeEncryption.Instance,
-            Mock.Of<Beacon.Core.Services.Providers.IDataSourceProviderFactory>(),
+            TestProviderFactory.Accepting(),
             new MemoryCache(new MemoryCacheOptions()),
             Mock.Of<Beacon.Core.Services.Metadata.ISchemaGraphService>(),
             new RecordingSecurityAudit(),

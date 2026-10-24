@@ -131,7 +131,7 @@ internal partial class QueryService : IStoredQueryPreview
             executionContext: "FullQueryPreview",
             errorMessage: result.ErrorMessage,
             userId: userContext.UserId,
-            cancellationToken: cancellationToken);
+            cancellationToken: CancellationToken.None);
 
         return result;
     }
@@ -298,7 +298,7 @@ internal partial class QueryService : IStoredQueryPreview
         var executedSql = StoredSql.Flatten(parameterizedSql, dialect);
         var rowSecurity = await rowSecurityResolver.ResolveAsync(step.DataSourceId, cancellationToken);
 
-        var original = new GatedSqlRequest(step.DataSource, executedSql, sqlParameters, ExecutionRowCeiling + 1, rowSecurity);
+        var original = new GatedSqlRequest(step.DataSource, executedSql, sqlParameters, ExecutionRowCeiling + 1, rowSecurity, ExecutionContext: SqlExecutionContexts.QueryStepPreview);
         var report = sqlRunner.Evaluate(original);
         if (report.Blocked)
         {

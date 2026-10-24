@@ -21,21 +21,23 @@ internal sealed class TestLlmConnectionHandler(
         var current = await settingsService.GetSettingsAsync(cancellationToken);
 
         // A SecurityAdmin tests the stored connection only: the stored credentials never go to an endpoint they chose.
+        var connectionRequest = new LlmConnectionRequest(
+            request.LlmProvider,
+            request.LlmRegion,
+            request.LlmBedrockAuthMode,
+            request.LlmApiKey,
+            request.LlmEndpoint,
+            request.LlmSessionToken,
+            request.LlmAwsAccessKeyId,
+            request.LlmAwsSecretAccessKey);
         LlmConnectionSettings.DemandAdminForChanges(
             await permissionAccessor.GetCurrentAsync(cancellationToken),
             await actorAccessor.GetCurrentAsync(cancellationToken),
             logger,
             current,
-            new LlmConnectionRequest(
-                request.LlmProvider,
-                request.LlmRegion,
-                request.LlmBedrockAuthMode,
-                request.LlmApiKey,
-                request.LlmEndpoint,
-                request.LlmSessionToken,
-                request.LlmAwsAccessKeyId,
-                request.LlmAwsSecretAccessKey),
+            connectionRequest,
             nullKeepsStored: true);
+        LlmConnectionSettings.DemandCredentialsForNewDestination(current, connectionRequest);
 
         LlmProviderInstallation.DemandInstalled(providerCatalog, request.LlmProvider, current.LlmProvider);
 
@@ -78,7 +80,16 @@ public record TestLlmConnectionCommand(
     string? LlmEndpoint,
     string? LlmSessionToken,
     string? LlmAwsAccessKeyId,
-    string? LlmAwsSecretAccessKey) : IRequest<TestLlmConnectionResult>;
+    string? LlmAwsSecretAccessKey) : IRequest<TestLlmConnectionResult>
+{
+    // The compiler-generated ToString prints every member; the secrets are printed redacted.
+    protected virtual bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"LlmProvider = {LlmProvider}, LlmModel = {LlmModel}, LlmRegion = {LlmRegion}, LlmBedrockAuthMode = {LlmBedrockAuthMode}, LlmApiKey = {RedactedPrint.Of(LlmApiKey)}, LlmEndpoint = {RedactedPrint.Of(LlmEndpoint)}, LlmSessionToken = {RedactedPrint.Of(LlmSessionToken)}, LlmAwsAccessKeyId = {RedactedPrint.Of(LlmAwsAccessKeyId)}, LlmAwsSecretAccessKey = {RedactedPrint.Of(LlmAwsSecretAccessKey)}");
+
+        return true;
+    }
+}
 
 public record TestLlmConnectionResult(
     bool Ok,

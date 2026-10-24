@@ -25,6 +25,17 @@ internal static class AdapterConstants
         /// Maximum number of rows to display in Teams notifications.
         /// </summary>
         public const int MaxRows = 10;
+
+        /// <summary>Longest text shown in one cell, the query or a name in a card.</summary>
+        public const int MaxCellLength = 200;
+
+        public const int MaxQueryLength = 2000;
+
+        /// <summary>
+        /// Teams refuses a card larger than 28 KB; the default card keeps its serialized size under this, dropping rows
+        /// that do not fit.
+        /// </summary>
+        public const int MaxCardBytes = 24_000;
     }
 
     /// <summary>
@@ -53,6 +64,15 @@ internal static class AdapterConstants
         /// Minimum width for columns to maintain alignment.
         /// </summary>
         public const int MinColumnWidth = 3;
+
+        /// <summary>Slack refuses a section whose text is longer than 3,000 characters; stay under it.</summary>
+        public const int MaxSectionTextLength = 2900;
+
+        /// <summary>Slack refuses a header longer than 150 characters.</summary>
+        public const int MaxHeaderLength = 150;
+
+        /// <summary>Longest explanation of an anomaly shown in the alert.</summary>
+        public const int MaxAnomalyExplanationLength = 1000;
     }
 
 }

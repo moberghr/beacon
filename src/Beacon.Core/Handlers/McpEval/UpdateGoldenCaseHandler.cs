@@ -68,6 +68,7 @@ internal sealed class UpdateGoldenCaseHandler(
             : await CheckedGoldSqlAsync(evalCase.DataSourceId, request.GoldSql, cancellationToken);
 
         var activeBefore = evalCase.IsActive;
+        var contentBefore = CurationContentAudit.Of(evalCase);
         var questionChanged = request.Question != null && !string.Equals(request.Question, evalCase.Question, StringComparison.Ordinal);
         var goldSqlChanged = goldSql != null && !string.Equals(goldSql, evalCase.GoldSql, StringComparison.Ordinal);
         var notesChanged = request.Notes != null && !string.Equals(request.Notes, evalCase.Notes, StringComparison.Ordinal);
@@ -105,7 +106,10 @@ internal sealed class UpdateGoldenCaseHandler(
                     .Add("goldSqlChanged", goldSqlChanged)
                     .Add("notesChanged", notesChanged)
                     .Add("isActiveBefore", activeBefore)
-                    .Add("isActiveAfter", evalCase.IsActive)),
+                    .Add("isActiveAfter", evalCase.IsActive)
+                    .AddCodes(CurationContentAudit.FieldsKey, CurationContentAudit.GoldenFields))
+                .Digesting(CurationContentAudit.BeforeKey, contentBefore)
+                .Digesting(CurationContentAudit.AfterKey, CurationContentAudit.Of(evalCase)),
             cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
     }

@@ -136,6 +136,7 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
     public DbSet<ApiKeyCredential> ApiKeyCredentials => Set<ApiKeyCredential>();
 
     public DbSet<McpAuditLog> McpAuditLogs => Set<McpAuditLog>();
+    public DbSet<MaintenanceHeartbeat> MaintenanceHeartbeats => Set<MaintenanceHeartbeat>();
 
     public DbSet<McpAuditStatement> McpAuditStatements => Set<McpAuditStatement>();
 

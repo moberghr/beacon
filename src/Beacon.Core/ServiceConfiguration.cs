@@ -41,6 +41,13 @@ public static class ServiceConfiguration
     public const string PreviousEncryptionKeysKey = "Beacon:PreviousEncryptionKeys";
 
     /// <summary>
+    /// The configuration key that keeps stored values in the legacy v1 format (unauthenticated AES-CBC) readable. On by
+    /// default; turn it off once <see cref="IStoredValueReEncryptionService"/> reports no legacy value left
+    /// (<see cref="StoredValueReEncryptionResult.LegacyFormatReadRemovable"/>).
+    /// </summary>
+    public const string AllowLegacyCbcKey = "Beacon:Encryption:AllowLegacyCbc";
+
+    /// <summary>
     /// <c>Beacon:PreviousEncryptionKeys</c> lists at least one key: stored values may still be encrypted with it, and
     /// <see cref="IStoredValueReEncryptionService"/> moves them to the current key.
     /// </summary>
@@ -146,7 +153,8 @@ public static class ServiceConfiguration
 
         // Encryption service for sensitive data (e.g., connection strings). The key must be strong in every environment
         // (base64 of at least 32 bytes, never a published or placeholder value); the message never contains it. Values
-        // written with a key that was replaced stay readable through Beacon:PreviousEncryptionKeys (decrypt only).
+        // written with a key that was replaced stay readable through Beacon:PreviousEncryptionKeys (decrypt only), and values in
+        // the legacy v1 format while Beacon:Encryption:AllowLegacyCbc is on (the default).
         var encryptionKey = configuration["Beacon:EncryptionKey"] ?? string.Empty;
         var encryptionKeyProblem = EncryptionKeyRequirements.Problem(encryptionKey);
         if (encryptionKeyProblem != null)
@@ -160,7 +168,8 @@ public static class ServiceConfiguration
         services.AddSingleton<IEncryptionService>(x => new EncryptionService(
             encryptionKey,
             previousEncryptionKeys,
-            x.GetService<Microsoft.Extensions.Logging.ILogger<EncryptionService>>()));
+            x.GetService<Microsoft.Extensions.Logging.ILogger<EncryptionService>>(),
+            configuration.GetValue(AllowLegacyCbcKey, true)));
         services.TryAddTransient<IStoredValueReEncryptionService, StoredValueReEncryptionService>();
 
         // Keyed hash for MCP caller audit identities: from Beacon:Mcp:CallerHashKey when set (so the hashes outlive a
@@ -181,6 +190,7 @@ public static class ServiceConfiguration
             .Bind(configuration.GetSection(Configuration.SecurityAuditOptions.SectionName))
             .ValidateOnStart();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.SecurityAuditOptions>, Configuration.SecurityAuditOptionsValidator>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.SecurityAuditOptions>, Configuration.ExecutionLogRegistrationValidator>());
         services.TryAddSingleton(SecurityAudit.SecurityAuditIntegrity.From(configuration, encryptionKey, previousEncryptionKeys));
         services.TryAddSingleton<SecurityAuditInterceptor>();
         services.TryAddScoped<SecurityAudit.ISecurityAuditRecorder, SecurityAudit.SecurityAuditRecorder>();
@@ -191,6 +201,9 @@ public static class ServiceConfiguration
         services.TryAddSingleton<SecurityAudit.SecurityAuditReadGate>();
         services.TryAddScoped<SecurityAudit.SecurityAuditReads>();
         services.TryAddTransient<SecurityAudit.ISecurityAuditVerificationService, SecurityAudit.SecurityAuditVerificationService>();
+        services.TryAddTransient<SecurityAudit.IMcpAuditVerificationService, SecurityAudit.McpAuditVerificationService>();
+        services.TryAddTransient<SecurityAudit.IMcpAuditSealSchema, SecurityAudit.McpAuditSealSchema>();
+        services.TryAddScoped<SecurityAudit.McpAuditSealingStartup>();
 
         // Keyed hashes of where governed recipients deliver: under a key derived from the encryption key for this purpose;
         // hashes written under a previous key keep matching until the re-encryption run rewrites them.
@@ -269,10 +282,15 @@ public static class ServiceConfiguration
         services.TryAddTransient<IDataQualitySqlGenerator, DataQualitySqlGenerator>();
         services.TryAddTransient<IDataQualityEvaluationService, DataQualityEvaluationService>();
         services.TryAddTransient<IManualQueryExecutionLogger, ManualQueryExecutionLogger>();
+        services.TryAddTransient<ISqlExecutionAudit, SqlExecutionAudit>();
+        // Execution log retention purge (Beacon:Audit:ExecutionLog:RetentionDays); a null window is a no-op. Scheduled by
+        // the host as a Warp recurring job (Beacon.SampleProject/Warp/Jobs/McpMaintenanceJobs.cs).
+        services.TryAddTransient<Services.Retention.IExecutionLogRetentionService, Services.Retention.ExecutionLogRetentionService>();
         services.TryAddTransient<IAppSettingsService, AppSettingsService>();
         services.TryAddTransient<IAppSettingsStager, AppSettingsService>();
         // Applies the stored base URL and LLM configuration once the host has started (Beacon.Api's StoredSettingsStartupApplier).
         services.TryAddTransient<StoredSettingsApplier>();
+        services.TryAddSingleton<StoredSettingsConvergence>();
         services.TryAddTransient<IQueryVersionService, QueryVersionService>();
 
         // Saved queries exposed as MCP tools: callable-tool lookup (project-scoped) and the read-only executor.
@@ -286,6 +304,7 @@ public static class ServiceConfiguration
         services.TryAddScoped<ChangeApprovals.ChangeApprovalSubmitter>();
         services.TryAddScoped<ChangeApprovals.RecipientChangeApproval>();
         services.TryAddScoped<ChangeApprovals.LlmConnectionApproval>();
+        services.TryAddScoped<ChangeApprovals.AdminRoleGrantApproval>();
         services.TryAddSingleton<ChangeApprovals.ILlmConnectionLock, ChangeApprovals.DatabaseLlmConnectionLock>();
         services.TryAddScoped<ChangeApprovals.CustomSqlChangeApproval>();
         services.TryAddTransient<ChangeApprovals.RecipientDeliveryApproval>();
@@ -385,6 +404,10 @@ public static class ServiceConfiguration
             .ValidateOnStart();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.QueryExecutionOptions>, Configuration.QueryExecutionOptionsValidator>());
 
+        // How exported reports are written (Beacon:Reports).
+        services.AddOptions<Configuration.ReportOptions>()
+            .Bind(configuration.GetSection(Configuration.ReportOptions.SectionName));
+
         // Subscription limits (Beacon:Subscriptions): the shortest schedule interval a save accepts and the largest file a
         // delivery attaches. ValidateOnStart so a limit out of range fails the host at boot.
         services.AddOptions<Configuration.SubscriptionOptions>()
@@ -397,6 +420,11 @@ public static class ServiceConfiguration
         // connector's inspector judges it; the options decide what happens to a stored source that does not.
         services.AddOptions<Configuration.DataSourceTransportOptions>()
             .Bind(configuration.GetSection(Configuration.DataSourceTransportOptions.SectionName));
+        // Driver options and hosts (Beacon:DataSources): each connector's option inspector, and the optional host list.
+        services.AddOptions<Configuration.DataSourceConnectionOptions>()
+            .Bind(configuration.GetSection(Configuration.DataSourceConnectionOptions.SectionName))
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.DataSourceConnectionOptions>, Configuration.DataSourceConnectionOptionsValidator>());
         services.TryAddSingleton<Services.Providers.IDataSourceTransportPolicy, Services.Providers.DataSourceTransportPolicy>();
         // The declared engine checked against the server on create, a changed connection or engine, and the connection test.
         services.TryAddSingleton<Services.Providers.IDatabaseEngineVerifier, Services.Providers.DatabaseEngineVerifier>();
@@ -564,9 +592,27 @@ public static class ServiceConfiguration
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<Configuration.McpDeploymentOptions>, Configuration.McpDeploymentOptionsValidator>();
 
+        // The deployment profile (Beacon:Profile; unset = no preset). Under Regulated it fills the MCP settings the host left
+        // unset, turns the retention lock on when unset, and fails the host at boot, with the full list, on any setting the
+        // host set weaker than the profile requires (RegulatedProfile). An unknown profile name fails too.
+        services.AddOptions<Configuration.McpDeploymentOptions>()
+            .PostConfigure(x => Configuration.RegulatedProfile.ApplyDefaults(x, configuration));
+        services.AddOptions<Configuration.DeploymentProfileOptions>()
+            .Configure(x =>
+            {
+                var profile = Configuration.DeploymentProfileOptions.From(configuration);
+                x.Profile = profile.Profile;
+                x.AppliedDefaults = profile.AppliedDefaults;
+                x.UnknownValue = profile.UnknownValue;
+            })
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.DeploymentProfileOptions>, Configuration.DeploymentProfileOptionsValidator>());
+
         // MCP audit retention purge (Beacon:Mcp:Audit:RetentionDays); a null window is a no-op. Scheduled by
         // the host as a Warp recurring job (Beacon.SampleProject/Warp/Jobs/McpMaintenanceJobs.cs).
         services.TryAddTransient<IMcpAuditRetentionService, McpAuditRetentionService>();
+        services.TryAddTransient<IMaintenanceHeartbeat, MaintenanceHeartbeatRecorder>();
+        services.TryAddTransient<IRetentionScheduleCheck, RetentionScheduleCheck>();
 
         // Data retention (Beacon:Retention): one job over every registered IRetentionTarget (0 = keep forever, the
         // default: nothing is deleted unless the host sets a window) plus the content expiry of the content stores, content first, each step within its share of the run's time budget. ValidateOnStart so an unknown target name, a
@@ -574,6 +620,7 @@ public static class ServiceConfiguration
         // one more TryAddEnumerable target. Scheduled by the host (the sample's Warp job data-retention).
         services.AddOptions<Configuration.RetentionOptions>()
             .Bind(configuration.GetSection(Configuration.RetentionOptions.SectionName))
+            .PostConfigure(x => Configuration.RegulatedProfile.ApplyDefaults(x, configuration))
             .ValidateOnStart();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.RetentionOptions>, Configuration.RetentionOptionsValidator>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IRetentionTarget, SubscriptionRunsRetentionTarget>());
@@ -589,12 +636,16 @@ public static class ServiceConfiguration
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IRetentionTarget, ExecutionLogRetentionTarget>());
         services.TryAddTransient<IDataRetentionService, DataRetentionService>();
 
-        // Under the retention lock the learning-signal window Admins edit at runtime resolves to at most Retention:Days.
+        // Under the retention lock (also the regulated profile's default) the learning-signal window Admins edit at runtime
+        // resolves to at most Retention:Days.
         // Bound from the section directly: the retention validator reads the MCP options, so IOptions here would loop.
         services.AddOptions<Configuration.McpDeploymentOptions>()
-            .PostConfigure(x => Configuration.RetentionLock.CapLearningSignals(
-                x,
-                configuration.GetSection(Configuration.RetentionOptions.SectionName).Get<Configuration.RetentionOptions>() ?? new Configuration.RetentionOptions()));
+            .PostConfigure(x =>
+            {
+                var retention = configuration.GetSection(Configuration.RetentionOptions.SectionName).Get<Configuration.RetentionOptions>() ?? new Configuration.RetentionOptions();
+                Configuration.RegulatedProfile.ApplyDefaults(retention, configuration);
+                Configuration.RetentionLock.CapLearningSignals(x, retention);
+            });
 
         // Telemetry (Beacon:Telemetry). An absent section = no content on spans.
         services.AddOptions<Configuration.BeaconTelemetryOptions>()

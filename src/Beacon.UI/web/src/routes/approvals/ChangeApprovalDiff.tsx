@@ -40,6 +40,8 @@ export function ChangeApprovalDiff({ detail }: { detail: ChangeApprovalDetail })
       );
     case ChangeApprovalKind.LlmConnection:
       return <LlmConnectionDiff previous={detail.previousLlmConnection ?? null} proposed={detail.proposedLlmConnection ?? null} />;
+    case ChangeApprovalKind.AdminRoleGrant:
+      return <AdminRoleGrantDiff detail={detail} />;
     default:
       return <div className="text-sm text-text-muted">This kind of change cannot be shown.</div>;
   }
@@ -290,6 +292,27 @@ function DataSourceConnectionDiff({
           passwords and keys never are. A fingerprint is a short keyed digest: equal fingerprints mean equal connections, and
           it reveals nothing else. Project links are read now; changing them does not need this approval.
         </span>
+      </div>
+    </section>
+  );
+}
+
+function AdminRoleGrantDiff({ detail }: { detail: ChangeApprovalDetail }) {
+  const proposed = detail.proposedAdminRoleGrant;
+  if (!proposed) {
+    return <div className="text-sm text-text-muted">The proposed grant cannot be read.</div>;
+  }
+
+  // The user is named by the label the server chose (display name or "User {id}"), never by user name or e-mail.
+  return (
+    <section aria-label="Admin role grant" className="flex flex-col gap-3">
+      <dl className="grid grid-cols-[160px_1fr] gap-x-3 gap-y-1.5 text-sm m-0">
+        <Field label="User" after={detail.resourceName} />
+        <Field label="Role granted" after={proposed.roleName} />
+        <Field label="Requested by" after={detail.requestedByUserName ?? 'Unknown'} />
+      </dl>
+      <div className="text-xs text-text-muted">
+        The user holds the Admin role only once another Admin approves this request; nothing applies before.
       </div>
     </section>
   );
