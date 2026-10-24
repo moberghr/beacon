@@ -127,6 +127,8 @@ Some settings are pinned by host configuration and bind Admins too. The UI shows
 
 Every MCP setting change is recorded in the settings history with who changed it.
 
+`Beacon:Profile: Regulated` requires the regulated values of these locks and of the audit, retention, row-data, ceiling, rate-limit and sign-in settings: it fills the keys a host left unset and fails startup, listing each, on any key set weaker; it never overrides a host value. A startup report (event 9130) names every weaker setting, also without the profile. → [Regulated profile](/getting-started/configuration/#regulated-profile-beaconprofile)
+
 ## 12. Audit and security events
 
 | Record | Where | Who reads it |
@@ -165,7 +167,7 @@ Beacon's guarantees assume the host does its share:
 - HSTS and `AllowedHosts` set by the host, and Beacon's origin check switched to `Enforce` once its warnings are gone;
 - the middleware order from [Host wiring](/integrate/host-setup/#the-middleware-pipeline);
 - every job scope marked as system work;
-- security log events and the `Beacon.Audit` category (including the security audit trail's copies and verification checkpoints, 9104 to 9110) shipped to a monitored log store;
+- security log events and the `Beacon.Audit` category (including the security audit trail's copies and verification checkpoints, 9104 to 9112) shipped to a monitored log store;
 - `Beacon:Audit:IntegrityKey` set from a secret store, and the security audit verification and retention jobs scheduled (the sample host schedules both).
 
 The [production checklist](/integrate/production/) collects all of these.

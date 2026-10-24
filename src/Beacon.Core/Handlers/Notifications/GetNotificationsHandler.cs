@@ -50,7 +50,9 @@ internal sealed class GetNotificationsHandler(
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
+        // A run is a record of what executed: it stays listed after its subscription, query or recipient is archived.
         var page = await context.QueryExecutionHistory
+            .IgnoreQueryFilters()
             .WhereIf(request.SubscriptionId.HasValue, x => x.SubscriptionId == request.SubscriptionId)
             .WhereIf(request.NotificationStatus.HasValue, x => x.NotificationStatus == request.NotificationStatus)
             .WhereReadableWithin(context, request.Scope)
@@ -74,6 +76,7 @@ internal sealed class GetNotificationsHandler(
                     NotificationStatus = x.NotificationStatus,
                     QueryName = x.Subscription.Query.Name,
                     SubscriptionId = x.SubscriptionId,
+                    SubscriptionArchived = x.Subscription.ArchivedTime != null || x.Subscription.Query.ArchivedTime != null,
                     ExecutionTimeMs = x.ExecutionTimeMs,
                     Comment = x.Comment,
                     AiActorId = x.Subscription.AiActorId,

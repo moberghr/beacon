@@ -5,6 +5,10 @@ import { usePagedList } from '@/lib/usePagedList';
 import { createSimpleMutation } from '@/lib/mutations';
 import { OwnedResourceKind } from '@/lib/enums';
 import type { PagedList } from '@/lib/paging';
+import { useAccess } from '@/auth/useAuth';
+import { ChangeApprovalKind } from '@/lib/enums';
+import { toast } from 'sonner';
+import { useNavigate } from 'react-router-dom';
 
 export interface UserRoleEntry {
   id: number;
@@ -193,4 +197,65 @@ export function useOwnedResources(userId: number, kind: OwnedResourceKind, page:
     enabled,
     placeholderData: keepPreviousData,
   });
+}
+
+// Under 'approvals', so a decision on a request refreshes it with the rest of the approvals.
+const PENDING_ADMIN_GRANTS_KEY = ['approvals', 'changes', 'pending-admin-grants'] as const;
+
+interface PendingAdminGrant {
+  id: number;
+  resourceId: number;
+}
+
+/** Request id by user id: the Admin role grants waiting for approval. Only an Admin reads them. */
+async function fetchPendingAdminGrants(): Promise<Map<number, number>> {
+  const page = unwrap<PagedList<PendingAdminGrant>>(
+    await beaconApi().getChangeApprovals(ChangeApprovalKind.AdminRoleGrant, 0, 100, undefined),
+  );
+  return new Map(page.items.map(x => [x.resourceId, x.id]));
+}
+
+/** The users whose grant of the Admin role waits for approval, for a live Admin; empty for anyone else. */
+export function usePendingAdminGrants() {
+  const { isAdmin } = useAccess();
+  const query = useQuery({
+    queryKey: PENDING_ADMIN_GRANTS_KEY,
+    queryFn: fetchPendingAdminGrants,
+    enabled: isAdmin,
+  });
+  return query.data ?? new Map<number, number>();
+}
+
+/**
+ * Around a save that grants the Admin role: `watch` reads the pending grants before it, and the function it returns
+ * reads them again after it and, when the grant was submitted rather than applied, says so with a link to the request.
+ * The role save and the create answer nothing about it, so the approvals list is the one place to ask. `userId` is the
+ * user being edited; null for a user being created (a request that was not there before is the new user's).
+ */
+export function useAdminGrantWatch() {
+  const qc = useQueryClient();
+  const navigate = useNavigate();
+  const { isAdmin } = useAccess();
+
+  return async (userId: number | null) => {
+    if (!isAdmin) {
+      return async () => {};
+    }
+
+    const before = await qc.fetchQuery({ queryKey: PENDING_ADMIN_GRANTS_KEY, queryFn: fetchPendingAdminGrants, staleTime: 0 }).catch(() => null);
+
+    return async () => {
+      const after = await qc.fetchQuery({ queryKey: PENDING_ADMIN_GRANTS_KEY, queryFn: fetchPendingAdminGrants, staleTime: 0 }).catch(() => null);
+      const submitted = [...(after?.entries() ?? [])].find(([user, request]) =>
+        userId != null ? user === userId : !new Set(before?.values()).has(request),
+      );
+      if (!submitted) {
+        return;
+      }
+
+      toast.info('Admin role submitted for approval: the user does not hold it until another Admin approves.', {
+        action: { label: 'View request', onClick: () => navigate(`/approvals/changes/${submitted[1]}`) },
+      });
+    };
+  };
 }

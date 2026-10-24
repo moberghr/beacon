@@ -20,7 +20,7 @@ internal sealed class ForcedMetadataRefreshCooldown(IMemoryCache cache, TimeProv
     private readonly HashSet<int> _running = [];
 
     /// <summary>The memory-cache key holding the time of the data source's last successful forced refresh.</summary>
-    public static string CacheKey(int dataSourceId) => $"metadata-forced-refresh:{dataSourceId}";
+    public static string CacheKey(int dataSourceId) => BeaconCacheEntries.Key($"metadata-forced-refresh:{dataSourceId}");
 
     /// <summary>
     /// Why a forced refresh of the data source may not start now (it runs in this process, or the cooldown holds it back),
@@ -75,7 +75,7 @@ internal sealed class ForcedMetadataRefreshCooldown(IMemoryCache cache, TimeProv
         if (succeeded)
         {
             // Kept for the longest cooldown accepted, so a setting raised later still sees it.
-            cache.Set(CacheKey(dataSourceId), timeProvider.GetUtcNow(), TimeSpan.FromMinutes(MetadataRefreshOptions.MaxCooldownMinutes));
+            cache.Set(CacheKey(dataSourceId), timeProvider.GetUtcNow(), BeaconCacheEntries.For(TimeSpan.FromMinutes(MetadataRefreshOptions.MaxCooldownMinutes)));
         }
 
         lock (_gate)

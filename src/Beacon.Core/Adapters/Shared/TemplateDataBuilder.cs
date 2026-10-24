@@ -1,3 +1,5 @@
+using Beacon.Core.Helpers;
+
 namespace Beacon.Core.Adapters.Shared;
 
 /// <summary>
@@ -28,8 +30,8 @@ internal static class TemplateDataBuilder
             ["PreviousResultCount"] = lastNotificationResultCount,
             ["TimedOut"] = queryResult.TimedOut,
             ["Records"] = queryResult.TopRecords,
-            ["NotificationUrl"] = !string.IsNullOrEmpty(baseUrl) && recipientQueryResult.NotificationId.HasValue
-                ? $"{baseUrl.TrimEnd('/')}/notifications/{recipientQueryResult.NotificationId}"
+            ["NotificationUrl"] = recipientQueryResult.NotificationId.HasValue
+                ? BaseUrlPolicy.Link(baseUrl, $"notifications/{recipientQueryResult.NotificationId}")
                 : null
         };
 
