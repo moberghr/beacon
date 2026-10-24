@@ -19,7 +19,8 @@ internal sealed record EmbedRequestFeature(int GrantId, string GrantPublicId, in
 /// marker (<see cref="FrameHeader"/>), and a render from another origin is refused. A refused credential is answered with
 /// one generic 401 (the reason goes to the log and, when a credential was presented, <c>embed.token_refused</c>; never to the
 /// caller), a store that cannot be read with 503. The limits of <see cref="EmbedRateLimiter"/> answer 429: a grant's budget
-/// once its credential verified, the client's refusal budget only on a refusal. Never logs a token or a secret.
+/// once its credential verified, the client's refusal budget on a refusal and, before the secret's lookup, on the exchange.
+/// Never logs a token or a secret.
 /// </summary>
 public sealed class EmbedTokenAuthMiddleware(RequestDelegate next)
 {
@@ -50,8 +51,8 @@ public sealed class EmbedTokenAuthMiddleware(RequestDelegate next)
             return;
         }
 
-        // The credential is checked before the client's refusal budget is looked at, so a request whose credential verifies
-        // is never refused for other requests' refusals from the same address.
+        // A render's token is checked before the client's refusal budget is looked at, so a valid token is never refused for
+        // other requests' refusals from the same address.
         var limiter = context.RequestServices.GetRequiredService<EmbedRateLimiter>();
         var logger = context.RequestServices.GetRequiredService<ILogger<EmbedTokenAuthMiddleware>>();
         var isRender = route == EmbedRoute.Render;
@@ -65,6 +66,14 @@ public sealed class EmbedTokenAuthMiddleware(RequestDelegate next)
         if (credential == null)
         {
             await RefuseAsync(context, limiter, logger, EmbedRefusalCodes.Unknown, null, presented: false, StatusCodes.Status401Unauthorized);
+            return;
+        }
+
+        // The secret is checked by a lookup: a client past its refusal budget gets none. A render's token is verified by the
+        // codec before any lookup, so a valid token is never refused for other requests' refusals.
+        if (!isRender && !limiter.HasRefusalsLeft(context, out var exhausted))
+        {
+            await TooManyAsync(context, exhausted);
             return;
         }
 

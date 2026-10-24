@@ -196,21 +196,26 @@ public class EmbedEndpointsTests
     }
 
     [Test]
-    public async Task ThePage_OfALiveGrant_IsServed_PastTheClientsRefusalBudget()
+    public async Task PastTheClientsRefusalBudget_ThePageIs429_WithoutALookup()
     {
         var kit = new EmbedTestKit();
         kit.Options.RateLimits.RefusalsPerIpPerMinute = 1;
         var (grant, _) = kit.Grant();
-        await using var host = await EmbedSurfaceHost.StartAsync(kit, FrameOf(grant.PublicId), _webRoot);
+        var mediator = FrameMock(grant.PublicId);
+        await using var host = await EmbedSurfaceHost.StartAsync(kit, mediator.Object, _webRoot);
         var unknown = BeaconEmbedPaths.FramePrefix + "/" + EmbedGrantSecret.NewPublicId();
 
         var firstUnknown = await host.SendAsync(HttpMethod.Get, unknown);
         var secondUnknown = await host.SendAsync(HttpMethod.Get, unknown);
         var live = await host.SendAsync(HttpMethod.Get, BeaconEmbedPaths.FramePrefix + "/" + grant.PublicId);
+        var otherClient = await host.SendAsync(HttpMethod.Get, BeaconEmbedPaths.FramePrefix + "/" + grant.PublicId, clientAddress: "198.51.100.7");
 
         firstUnknown.StatusCode.Should().Be(HttpStatusCode.NotFound);
         secondUnknown.StatusCode.Should().Be((HttpStatusCode)429);
-        live.StatusCode.Should().Be(HttpStatusCode.OK);
+        live.StatusCode.Should().Be((HttpStatusCode)429);
+        live.Headers.RetryAfter.Should().NotBeNull();
+        otherClient.StatusCode.Should().Be(HttpStatusCode.OK);
+        mediator.Verify(x => x.Send(It.IsAny<GetEmbedFrameQuery>(), It.IsAny<CancellationToken>()), Times.Exactly(2));
     }
 
     [Test]
@@ -231,7 +236,7 @@ public class EmbedEndpointsTests
         return mediator.Object;
     }
 
-    private static IMediator FrameOf(string livePublicId)
+    private static Mock<IMediator> FrameMock(string livePublicId)
     {
         var mediator = new Mock<IMediator>();
         mediator
@@ -239,7 +244,7 @@ public class EmbedEndpointsTests
             .ReturnsAsync((GetEmbedFrameQuery x, CancellationToken _) =>
                 x.PublicId == livePublicId ? new GetEmbedFrameResult(true, [EmbedTestKit.Origin]) : new GetEmbedFrameResult(false, []));
 
-        return mediator.Object;
+        return mediator;
     }
 
     private static Task<HttpResponseMessage> Render(EmbedSurfaceHost host, EmbedTestKit kit, EmbedGrant grant, string token)

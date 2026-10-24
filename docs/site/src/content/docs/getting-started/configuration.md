@@ -780,8 +780,9 @@ of the project's row limit and `MaxRows`. The embed page is served with a strict
 `frame-ancestors` lists the grant's origins. An MCP gateway host serves no embed route. Validated at startup.
 
 The limits count per client address (an IPv6 address by its /64 network): the embed page per address and grant, refusals
-per address, and the exchange and render per verified grant. A refusal budget never refuses a request whose credential
-verifies; it only decides whether a refusal is answered 401/403/404 or 429 and whether it is audited. **Behind a reverse
+per address, and the exchange and render per verified grant. Only refusals spend the refusal budget. A render whose
+token verifies is never refused for it; the exchange and the page, which each cost a lookup, are answered 429 without one
+once the address has spent it (a valid secret from that address waits for the next minute). **Behind a reverse
 proxy or load balancer, run `UseForwardedHeaders` with the proxy's address in `KnownProxies` or `KnownNetworks` before
 `UseBeaconAuthentication`** (the sample host: `Beacon:ForwardedHeaders:Enabled` and `KnownProxies`), and set
 `Beacon:PublicBaseUrl` when TLS ends at the proxy. Without forwarded headers every viewer shares the proxy's address (one
@@ -806,7 +807,7 @@ the fallback policy without schemes, or exempt the embed paths from it.
 | `RateLimits:ExchangePerGrantPerMinute` | int | `60` | Exchanges per verified grant; 1–10,000 |
 | `RateLimits:RenderPerGrantPerMinute` | int | `120` | Renders per verified grant (a valid token); 1–10,000 |
 | `RateLimits:PagePerClientPerMinute` | int | `60` | Embed page loads per client address and grant; 1–10,000 |
-| `RateLimits:RefusalsPerIpPerMinute` | int | `30` | Refusals per client address; past it a refusal is answered 429 and not audited. 1–10,000 |
+| `RateLimits:RefusalsPerIpPerMinute` | int | `30` | Refusals per client address; past it a refusal is answered 429 and not audited, and the exchange and page are 429 before any lookup. 1–10,000 |
 
 ## Embed tokens (`Beacon:EmbedToken`, obsolete)
 

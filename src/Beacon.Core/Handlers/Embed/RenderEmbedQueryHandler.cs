@@ -22,13 +22,14 @@ namespace Beacon.Core.Handlers.Embed;
 /// once (<see cref="EmbedBusyException"/>). Any failure is the
 /// one generic refusal (<see cref="EmbedUnavailableException"/>): no gate verdict, database error or table name reaches the
 /// viewer. Records <c>embed.query_rendered</c> (ids, outcome, row count) for every render that reaches the grant, also when no
-/// slot is free (<see cref="Busy"/>) or the executor throws (<see cref="RenderFailed"/>).
+/// slot is free (<see cref="Busy"/>, within the embed audit cap) or the executor throws (<see cref="RenderFailed"/>).
 /// </summary>
 internal sealed class RenderEmbedQueryHandler(
     IBeaconActorAccessor actorAccessor,
     EmbedGrantResolver grants,
     ISavedQueryRunner runner,
     EmbedRenderLimiter renderLimiter,
+    EmbedAuditLimiter auditLimiter,
     IOptions<EmbedOptions> embedOptions,
     ISecurityAuditRecorder securityAudit,
     ILogger<RenderEmbedQueryHandler> logger)
@@ -107,7 +108,12 @@ internal sealed class RenderEmbedQueryHandler(
         var slot = renderLimiter.TryAcquire(grant.Id);
         if (slot == null)
         {
-            await RecordAsync(grant, SecurityAuditOutcomes.Failure, Busy, 0, false, cancellationToken);
+            // A saturated process answers many of these: bounded by the embed audit cap, logged past it.
+            logger.LogWarning("Embed render of grant {GrantId} refused: no render slot is free", grant.Id);
+            if (auditLimiter.TryAcquire())
+            {
+                await RecordAsync(grant, SecurityAuditOutcomes.Failure, Busy, 0, false, cancellationToken);
+            }
 
             throw new EmbedBusyException();
         }

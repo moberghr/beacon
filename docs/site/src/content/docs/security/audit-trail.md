@@ -181,7 +181,7 @@ and refused, with the reason `expired`, `invalid_signature`, `revoked`, `grant_e
 refused without an event; at most 600 a minute are recorded, and a client past its refusal budget is answered 429 without
 one) and `embed.query_rendered` (each render of a grant's query, with the query and version ids, the row count and whether
 the rows were cut at the cap; outcome `failure` with the reason `render_failed` (also when the run throws), `busy` (no
-render slot free) or `unrunnable`, or `refused` with `parameters`). None carries a token, a secret, an origin, a parameter value or SQL.
+render slot free; within the same 600-a-minute cap as refusals) or `unrunnable`, or `refused` with `parameters`). None carries a token, a secret, an origin, a parameter value or SQL.
 
 **The audit itself** (`audit`): `audit.read` (every read of the trail, with the filters' shape and the page),
 `audit.verified` (every verification, with its counts; outcome `failure` when an event failed, `empty` when nothing was

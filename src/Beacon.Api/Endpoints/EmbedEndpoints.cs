@@ -54,12 +54,20 @@ internal static class EmbedEndpoints
     }
 
     // The page, with the grant's frame headers and its frame marker; a grant that is not live is 404 that no site may frame
-    // (a refusal, counted in the client's refusal budget, 429 once that is spent).
+    // (a refusal, counted in the client's refusal budget; once that is spent the page is 429 before any lookup).
     private static async Task GetFrameAsync(string publicId, HttpContext context, IMediator m, CancellationToken ct)
     {
         var limiter = context.RequestServices.GetRequiredService<EmbedRateLimiter>();
         var logger = context.RequestServices.GetRequiredService<ILogger<EmbedRateLimiter>>();
         EmbedFrameHeaders.Apply(context.Response, []);
+
+        // The public id is checked by a lookup: a client past its refusal budget gets none.
+        if (!limiter.HasRefusalsLeft(context, out var exhausted))
+        {
+            context.Response.Headers.RetryAfter = EmbedRateLimiter.RetryAfterSeconds(exhausted);
+            await EmbedTokenAuthMiddleware.WriteUnavailableAsync(context, StatusCodes.Status429TooManyRequests);
+            return;
+        }
 
         GetEmbedFrameResult frame;
         try

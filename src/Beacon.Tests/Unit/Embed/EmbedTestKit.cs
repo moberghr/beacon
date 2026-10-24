@@ -2,12 +2,15 @@ using System.Security.Cryptography;
 using System.Text.Json;
 using Beacon.Core;
 using Beacon.Core.Authorization;
+using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Embed;
 using Beacon.Tests.Unit.SavedQueryTools;
+using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Options;
+using Moq;
 using Microsoft.Extensions.Time.Testing;
 using static Beacon.Tests.Unit.SavedQueryTools.SavedQueryTestData;
 
@@ -28,6 +31,8 @@ internal sealed class EmbedTestKit
     public const string Origin = "https://portal.example.com";
 
     public static readonly DateTimeOffset Now = new(2026, 10, 24, 9, 0, 0, TimeSpan.Zero);
+
+    private int _lookups;
 
     public EmbedTestKit(string sql = "SELECT id, email FROM loans WHERE branch = {branch} AND region = {region}")
     {
@@ -59,8 +64,24 @@ internal sealed class EmbedTestKit
 
     public EmbedTokenCodec Codec => new(Microsoft.Extensions.Options.Options.Create(Options), Clock);
 
-    public EmbedGrantResolver Resolver() =>
-        new(Data.Store.Factory().Object, Codec, Configuration, Microsoft.Extensions.Options.Options.Create(Options), Clock);
+    /// <summary>How many contexts the kit's resolvers opened: one per grant lookup.</summary>
+    public int Lookups => _lookups;
+
+    public EmbedGrantResolver Resolver()
+    {
+        var store = Data.Store.Factory().Object;
+        var factory = new Mock<IDbContextFactory<BeaconContext>>();
+        factory
+            .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .Returns((CancellationToken x) =>
+            {
+                Interlocked.Increment(ref _lookups);
+
+                return store.CreateDbContextAsync(x);
+            });
+
+        return new(factory.Object, Codec, Configuration, Microsoft.Extensions.Options.Options.Create(Options), Clock);
+    }
 
     /// <summary>A grant on the query's active version: <c>region</c> fixed to <c>EU</c>, <c>branch</c> locked.</summary>
     public (EmbedGrant Grant, string Secret) Grant(DateTime? revoked = null, int expiresInDays = 30, string? createdBy = CreatorExternalId)

@@ -55,6 +55,7 @@ public static class ServiceConfiguration
         services.TryAddSingleton<LoginRateLimiter>();
 
         // The embed routes' own per-minute limits (used only while embedding is on).
+        services.TryAddSingleton<Beacon.Core.Services.Embed.EmbedAuditLimiter>();
         services.TryAddSingleton<EmbedRateLimiter>();
 
         if (!options.Realtime)

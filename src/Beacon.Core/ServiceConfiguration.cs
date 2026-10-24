@@ -492,6 +492,7 @@ public static class ServiceConfiguration
         services.TryAddSingleton<EmbedTokenCodec>();
         services.TryAddScoped<EmbedGrantResolver>();
         services.TryAddSingleton<EmbedRenderLimiter>();
+        services.TryAddSingleton<EmbedAuditLimiter>();
 
         // Deployment-level MCP locks and ceilings (Beacon:Mcp). An absent section = no locks, no ceilings.
         // ValidateOnStart so a non-positive ceiling fails the host at boot, not on the first query.

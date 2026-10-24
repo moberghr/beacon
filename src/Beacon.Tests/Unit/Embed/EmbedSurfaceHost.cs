@@ -106,6 +106,7 @@ internal sealed class EmbedSurfaceHost : IAsyncDisposable
         builder.Services.AddSingleton(new BeaconApiOptions { Realtime = false, GatewayMode = gatewayMode });
         builder.Services.AddSingleton(kit.Codec);
         builder.Services.AddScoped(_ => kit.Resolver());
+        builder.Services.AddSingleton<EmbedAuditLimiter>();
         builder.Services.AddSingleton<EmbedRateLimiter>();
         builder.Services.AddSingleton<ISecurityAuditRecorder>(audit);
         if (mediator != null)

@@ -256,6 +256,24 @@ public class RenderEmbedQueryHandlerTests
     }
 
     [Test]
+    public async Task BusyRenders_AreAudited_OnlyWithinTheEmbedAuditCap()
+    {
+        var (grant, _) = _kit.Grant();
+        _kit.Options.MaxConcurrentRenders = 1;
+        var limiter = new EmbedRenderLimiter(_kit.EmbedOptions());
+        using var held = limiter.TryAcquire(grant.Id);
+        var handler = Handler(grant, limiter: limiter, auditLimiter: new EmbedAuditLimiter(1));
+
+        for (var i = 0; i < 3; i++)
+        {
+            var act = () => handler.Handle(Command(grant), CancellationToken.None);
+            await act.Should().ThrowAsync<EmbedBusyException>();
+        }
+
+        _audit.Of(SecurityAuditActions.EmbedQueryRendered).Should().ContainSingle("past the cap a busy render is logged, not recorded");
+    }
+
+    [Test]
     public async Task AGrantAtItsOwnConcurrencyCap_IsBusy_WhileAnotherGrantStillRenders()
     {
         var (grant, _) = _kit.Grant();
@@ -295,7 +313,8 @@ public class RenderEmbedQueryHandlerTests
         IRowSecurityResolver? rowSecurity = null,
         BeaconActor? caller = null,
         EmbedRenderLimiter? limiter = null,
-        ISavedQueryRunner? runner = null)
+        ISavedQueryRunner? runner = null,
+        EmbedAuditLimiter? auditLimiter = null)
     {
         var actor = caller ?? _kit.Actor(grant, EmbedCredential.Token);
         var factory = _kit.Data.Store.Factory().Object;
@@ -324,6 +343,7 @@ public class RenderEmbedQueryHandlerTests
             _kit.Resolver(),
             runner ?? executor,
             limiter ?? new EmbedRenderLimiter(_kit.EmbedOptions()),
+            auditLimiter ?? new EmbedAuditLimiter(),
             _kit.EmbedOptions(),
             _audit,
             NullLogger<RenderEmbedQueryHandler>.Instance);

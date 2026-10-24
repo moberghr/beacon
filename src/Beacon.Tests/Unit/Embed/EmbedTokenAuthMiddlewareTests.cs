@@ -223,7 +223,7 @@ public class EmbedTokenAuthMiddlewareTests
     }
 
     [Test]
-    public async Task PastItsRefusalBudget_AClientsValidTokenAndSecret_AreStillServed()
+    public async Task PastItsRefusalBudget_AClientsValidToken_IsStillServed_AndItsExchangeIs429WithoutALookup()
     {
         var kit = new EmbedTestKit();
         kit.Options.RateLimits.RefusalsPerIpPerMinute = 1;
@@ -235,12 +235,28 @@ public class EmbedTokenAuthMiddlewareTests
         }
 
         var render = await Render(host, kit, grant, await kit.TokenAsync(grant));
+        var lookupsBefore = kit.Lookups;
         var exchange = await host.SendAsync(HttpMethod.Post, BeaconEmbedPaths.TokensPath, $"BeaconEmbedGrant {secret}");
         var refused = await host.SendAsync(HttpMethod.Post, BeaconEmbedPaths.TokensPath, "BeaconEmbedGrant not-the-secret");
 
-        render.StatusCode.Should().Be(HttpStatusCode.OK, "only refusals count, and a verified credential is never refused for them");
-        exchange.StatusCode.Should().Be(HttpStatusCode.OK);
+        render.StatusCode.Should().Be(HttpStatusCode.OK, "a token the codec verifies is never refused for other requests' refusals");
+        exchange.StatusCode.Should().Be((HttpStatusCode)429);
+        exchange.Headers.RetryAfter.Should().NotBeNull();
         refused.StatusCode.Should().Be((HttpStatusCode)429);
+        kit.Lookups.Should().Be(lookupsBefore, "past the budget the exchange looks nothing up");
+    }
+
+    [Test]
+    public async Task WithinItsRefusalBudget_AClientsExchange_LooksUpTheSecret()
+    {
+        var kit = new EmbedTestKit();
+        var (_, secret) = kit.Grant();
+        await using var host = await EmbedSurfaceHost.StartAsync(kit);
+
+        var exchange = await host.SendAsync(HttpMethod.Post, BeaconEmbedPaths.TokensPath, $"BeaconEmbedGrant {secret}");
+
+        exchange.StatusCode.Should().Be(HttpStatusCode.OK);
+        kit.Lookups.Should().BeGreaterThan(0);
     }
 
     [Test]

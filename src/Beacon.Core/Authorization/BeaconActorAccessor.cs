@@ -188,7 +188,7 @@ internal sealed class BeaconActorAccessor(
 
     // An embed grant (its secret, or a token issued for it) acts for the grant's creator in the grant's one project, as the
     // creator's live stored user: a revoked or expired grant, or a creator who is no longer an active user (or whose external
-    // id now belongs to a user created after the grant), is an embed caller without a user, which the project access
+    // id now belongs to a row created after the grant), is an embed caller without a user, which the project access
     // evaluator gives nothing. It never names a user (no UserId), so no
     // owner rule takes it for the creator, and it is never an Admin.
     private static async Task<BeaconActor> ResolveEmbedAsync(
@@ -227,8 +227,10 @@ internal sealed class BeaconActorAccessor(
             return refused;
         }
 
-        // The creator is the user that held the external id when the grant was made: a user created after the grant (the
-        // id re-provisioned, or moved to another user) is not, so an archived creator's grant stays dead.
+        // The creator is read by the external id the grant recorded, and a user created after the grant (the id
+        // re-provisioned to a new row) is not taken for them, so an archived creator's grant stays dead. Not covered: an
+        // Admin moving the id onto a user that predates the grant; that user is taken for the creator until the grant
+        // stores the creator's Users.Id.
         var creator = await FindUserAsync(context, new BeaconUserLookup(null, null, grant.CreatedByUserId), cancellationToken);
         if (creator is not { IsActive: true } || creator.CreatedTime > grant.CreatedTime)
         {
