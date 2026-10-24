@@ -2,6 +2,7 @@ using System.Globalization;
 using System.Text;
 using System.Text.Json;
 using System.Text.Json.Nodes;
+using Beacon.Core;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.Routing;
 using Microsoft.AspNetCore.Routing.Patterns;
@@ -15,7 +16,17 @@ internal sealed record HostEndpointRequestParts(
     IReadOnlyDictionary<string, object?> RouteValues,
     IReadOnlyList<KeyValuePair<string, string>> Headers,
     IReadOnlyList<KeyValuePair<string, string>> FormFields,
-    string? JsonBody);
+    string? JsonBody)
+{
+    // The compiler-generated ToString prints every member; the argument-carrying ones (they may hold an Authorization
+    // header or a password argument) are printed redacted.
+    private bool PrintMembers(StringBuilder builder)
+    {
+        builder.Append($"Path = {Path}, QueryString = {RedactedPrint.Of(QueryString.Value)}, Headers = {(Headers is { Count: > 0 } ? RedactedPrint.Mask : string.Empty)}, FormFields = {(FormFields is { Count: > 0 } ? RedactedPrint.Mask : string.Empty)}, JsonBody = {RedactedPrint.Of(JsonBody)}");
+
+        return true;
+    }
+}
 
 internal sealed class HostEndpointArgumentException(string message) : Exception(message);
 

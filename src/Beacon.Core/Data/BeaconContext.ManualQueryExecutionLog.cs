@@ -41,6 +41,7 @@ public abstract partial class BeaconContext
             entity.HasIndex(e => e.ExecutionContext);
             entity.HasIndex(e => new { e.UserId, e.CreatedTime });
             entity.HasIndex(e => new { e.DataSourceId, e.CreatedTime });
+            entity.HasIndex(e => new { e.TriggeredByUserId, e.CreatedTime });
             entity.HasIndex(e => e.AuditGuid).IsUnique();
         });
     }

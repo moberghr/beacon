@@ -38,12 +38,12 @@ public static class Helpers
         var querySection = queryResult.ShowQuery
             ? $@"
             <p>Sql Query:</p>
-            <pre>{System.Net.WebUtility.HtmlEncode(queryResult.SqlQuery)}</pre>"
+            <pre>{System.Net.WebUtility.HtmlEncode(ChannelText.StripUnsafe(queryResult.SqlQuery))}</pre>"
             : "";
 
         var firstRecord = queryResult.TopRecords.GetFirstRecordSafe();
         var tableHeaders = firstRecord != null
-            ? string.Join("", firstRecord.Select(property => $"<th>{System.Net.WebUtility.HtmlEncode(property.Key)}</th>"))
+            ? string.Join("", firstRecord.Select(property => $"<th>{System.Net.WebUtility.HtmlEncode(ChannelText.StripUnsafe(property.Key))}</th>"))
             : "<th>No data</th>";
 
         var tableRows = queryResult.TopRecords.HasRecords()
@@ -101,7 +101,7 @@ public static class Helpers
         {
             builder
                 .AddHeading(3, "SQL Query")
-                .AddCodeBlock(queryResult.SqlQuery, "sql")
+                .AddCodeBlock(ChannelText.StripUnsafe(queryResult.SqlQuery), "sql")
                 .AddRule();
         }
 
@@ -116,7 +116,7 @@ public static class Helpers
         {
             builder.AddHeading(4, $"First {queryResult.TopRecords.Count} records:");
 
-            var headers = firstRecord.Select(p => p.Key).ToList();
+            var headers = firstRecord.Select(p => ChannelText.StripUnsafe(p.Key)).ToList();
             var rows = queryResult.TopRecords.Select(record =>
                 record.Select(p => CellValueFormatter.FormatAndSanitize(p.Value)).ToList()
             ).ToList();

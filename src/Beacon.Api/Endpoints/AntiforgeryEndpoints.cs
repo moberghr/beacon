@@ -46,4 +46,13 @@ internal static class AntiforgeryEndpoints
     }
 }
 
-internal sealed record CsrfTokenResponse(string Token);
+internal sealed record CsrfTokenResponse(string Token)
+{
+    // The compiler-generated ToString prints every member; the secrets are printed redacted.
+    private bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"Token = {Core.RedactedPrint.Of(Token)}");
+
+        return true;
+    }
+}

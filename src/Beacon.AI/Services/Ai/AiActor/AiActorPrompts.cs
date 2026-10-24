@@ -45,7 +45,10 @@ public static class AiActorPrompts
         - Use reasonable cron expressions (not too frequent to avoid noise)
         - Common schedules: "0 * * * *" (hourly), "0 0 * * *" (daily), "*/15 * * * *" (every 15 min)
         - Match frequency to the nature of the monitoring (urgent issues = more frequent)
-        """ + ResponseFormatSection;
+        """ + DataRuleSection + ResponseFormatSection;
+
+    // The schema, the existing queries and the recent results are data blocks in the user prompt.
+    private const string DataRuleSection = "\n\nDATA:\n" + PromptData.Rule;
 
     private const string ResponseFormatSection = """
 
@@ -101,7 +104,7 @@ public static class AiActorPrompts
         - Don't try to monitor everything - focus on what the user asked for
         - Start with conservative schedules (hourly or daily) that can be adjusted later
         - Each query should monitor a specific aspect mentioned in the instructions
-        """ + ResponseFormatSection;
+        """ + DataRuleSection + ResponseFormatSection;
 
     public const string RefinementSystemPrompt = """
         You are an autonomous database monitoring agent receiving feedback from a user.
@@ -114,7 +117,7 @@ public static class AiActorPrompts
         - Adjust subscription frequencies if needed
 
         Be responsive to the feedback while maintaining the overall monitoring goals.
-        """ + ResponseFormatSection;
+        """ + DataRuleSection + ResponseFormatSection;
 
     #endregion
 
@@ -133,18 +136,18 @@ public static class AiActorPrompts
         var sb = new StringBuilder();
 
         sb.AppendLine("## Actor Instructions");
-        sb.AppendLine(actor.Instructions);
+        sb.AppendLine(PromptData.Neutralise(actor.Instructions));
         sb.AppendLine();
 
         if (!string.IsNullOrWhiteSpace(actor.AdditionalContext))
         {
             sb.AppendLine("## Additional Context");
-            sb.AppendLine(actor.AdditionalContext);
+            sb.AppendLine(PromptData.Neutralise(actor.AdditionalContext));
             sb.AppendLine();
         }
 
         sb.AppendLine("## Data Source Schema");
-        sb.AppendLine(schemaContext);
+        sb.AppendLine(PromptData.Fence("database schema", schemaContext));
         sb.AppendLine();
 
         sb.AppendLine("## Current Configuration");
@@ -156,29 +159,33 @@ public static class AiActorPrompts
         if (existingQueries.Count > 0)
         {
             sb.AppendLine("## Existing Queries & Recent Results");
+            var queries = new StringBuilder();
             foreach (var query in existingQueries)
             {
-                sb.AppendLine($"### Query ID: {query.QueryId} - {query.QueryName}");
-                sb.AppendLine($"**SQL:**");
-                sb.AppendLine("```sql");
-                sb.AppendLine(query.Sql);
-                sb.AppendLine("```");
+                queries.AppendLine($"### Query ID: {query.QueryId} - {query.QueryName}");
+                queries.AppendLine($"**SQL:**");
+                queries.AppendLine("```sql");
+                queries.AppendLine(query.Sql);
+                queries.AppendLine("```");
 
                 if (query.Subscriptions.Count > 0)
                 {
-                    sb.AppendLine("**Subscriptions:**");
+                    queries.AppendLine("**Subscriptions:**");
                     foreach (var sub in query.Subscriptions)
                     {
-                        sb.AppendLine($"- ID {sub.SubscriptionId}: {sub.CronExpression} ({sub.NotificationTrigger})");
+                        queries.AppendLine($"- ID {sub.SubscriptionId}: {sub.CronExpression} ({sub.NotificationTrigger})");
                         if (sub.LastExecutionTime.HasValue)
                         {
-                            sb.AppendLine($"  Last executed: {sub.LastExecutionTime:yyyy-MM-dd HH:mm}");
-                            sb.AppendLine($"  Last result count: {sub.LastResultCount ?? 0}");
+                            queries.AppendLine($"  Last executed: {sub.LastExecutionTime:yyyy-MM-dd HH:mm}");
+                            queries.AppendLine($"  Last result count: {sub.LastResultCount ?? 0}");
                         }
                     }
                 }
-                sb.AppendLine();
+                queries.AppendLine();
             }
+
+            sb.AppendLine(PromptData.Fence("existing queries", queries.ToString()));
+            sb.AppendLine();
         }
         else
         {
@@ -194,7 +201,7 @@ public static class AiActorPrompts
             if (!string.IsNullOrWhiteSpace(recentResults))
             {
                 sb.AppendLine("**Recent Results:**");
-                sb.AppendLine(recentResults);
+                sb.AppendLine(PromptData.Fence("recent results", recentResults));
             }
             sb.AppendLine();
         }
@@ -221,18 +228,18 @@ public static class AiActorPrompts
         var sb = new StringBuilder();
 
         sb.AppendLine("## Actor Instructions");
-        sb.AppendLine(actor.Instructions);
+        sb.AppendLine(PromptData.Neutralise(actor.Instructions));
         sb.AppendLine();
 
         if (!string.IsNullOrWhiteSpace(actor.AdditionalContext))
         {
             sb.AppendLine("## Additional Context");
-            sb.AppendLine(actor.AdditionalContext);
+            sb.AppendLine(PromptData.Neutralise(actor.AdditionalContext));
             sb.AppendLine();
         }
 
         sb.AppendLine("## Data Source Schema");
-        sb.AppendLine(schemaContext);
+        sb.AppendLine(PromptData.Fence("database schema", schemaContext));
         sb.AppendLine();
 
         sb.AppendLine("## Configuration Limits");
@@ -269,36 +276,40 @@ public static class AiActorPrompts
         sb.AppendLine("## User Feedback");
         sb.AppendLine("The user has provided the following feedback:");
         sb.AppendLine();
-        sb.AppendLine($"> {userFeedback}");
+        sb.AppendLine($"> {PromptData.Neutralise(userFeedback)}");
         sb.AppendLine();
 
         sb.AppendLine("## Current Actor Instructions");
-        sb.AppendLine(actor.Instructions);
+        sb.AppendLine(PromptData.Neutralise(actor.Instructions));
         sb.AppendLine();
 
         sb.AppendLine("## Data Source Schema");
-        sb.AppendLine(schemaContext);
+        sb.AppendLine(PromptData.Fence("database schema", schemaContext));
         sb.AppendLine();
 
         if (existingQueries.Count > 0)
         {
             sb.AppendLine("## Existing Queries");
+            var queries = new StringBuilder();
             foreach (var query in existingQueries)
             {
-                sb.AppendLine($"### Query ID: {query.QueryId} - {query.QueryName}");
-                sb.AppendLine("```sql");
-                sb.AppendLine(query.Sql);
-                sb.AppendLine("```");
+                queries.AppendLine($"### Query ID: {query.QueryId} - {query.QueryName}");
+                queries.AppendLine("```sql");
+                queries.AppendLine(query.Sql);
+                queries.AppendLine("```");
                 if (query.Subscriptions.Count > 0)
                 {
-                    sb.AppendLine("Subscriptions:");
+                    queries.AppendLine("Subscriptions:");
                     foreach (var sub in query.Subscriptions)
                     {
-                        sb.AppendLine($"- ID {sub.SubscriptionId}: {sub.CronExpression}");
+                        queries.AppendLine($"- ID {sub.SubscriptionId}: {sub.CronExpression}");
                     }
                 }
-                sb.AppendLine();
+                queries.AppendLine();
             }
+
+            sb.AppendLine(PromptData.Fence("existing queries", queries.ToString()));
+            sb.AppendLine();
         }
 
         sb.AppendLine("## Your Task");

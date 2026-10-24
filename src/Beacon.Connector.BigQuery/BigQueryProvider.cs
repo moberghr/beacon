@@ -390,7 +390,14 @@ public class BigQueryProvider(
     {
         if (!string.IsNullOrEmpty(config.ServiceAccountJson))
         {
-            var credential = GoogleCredential.FromJson(config.ServiceAccountJson);
+            // A service account key that reaches only Google: any other credential configuration, or a key whose token
+            // endpoint or universe is not Google's, is refused before the library reads it.
+            if (!BigQueryCredentialJson.IsServiceAccount(config.ServiceAccountJson))
+            {
+                throw new BeaconException("The BigQuery data source's ServiceAccountJson is not a service account key (\"type\": \"service_account\") that reaches only Google's endpoints.");
+            }
+
+            var credential = CredentialFactory.FromJson<ServiceAccountCredential>(config.ServiceAccountJson).ToGoogleCredential();
             return BigQueryClient.Create(config.ProjectId, credential);
         }
 

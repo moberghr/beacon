@@ -1,6 +1,7 @@
 using System.Globalization;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Caching.Memory;
+using Microsoft.Extensions.Primitives;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
@@ -11,8 +12,13 @@ namespace Beacon.Core.Services;
 
 public class AppSettingsService : IAppSettingsService, IAppSettingsStager
 {
-    private const string CacheKey = "AppSettings_All";
+    internal static readonly string CacheKey = BeaconCacheEntries.Key("app-settings");
     private static readonly TimeSpan CacheDuration = TimeSpan.FromHours(1);
+
+    // One reset token for the cached settings of this process, static as the service is transient: an entry whose read
+    // began before a reset expires as soon as it is written, so a read that raced a save never caches what it replaced.
+    private static CancellationTokenSource _resetSource = new();
+    private static readonly object ResetLock = new();
 
     private readonly IDbContextFactory<BeaconContext> _contextFactory;
     private readonly IMemoryCache _cache;
@@ -42,11 +48,26 @@ public class AppSettingsService : IAppSettingsService, IAppSettingsStager
         if (_cache.TryGetValue(CacheKey, out AppSettingsData? cached) && cached != null)
             return cached;
 
+        var reset = _resetSource.Token;
         await using var context = await _contextFactory.CreateDbContextAsync(ct);
         var data = await ReadAsync(context, ct);
 
-        _cache.Set(CacheKey, data, CacheDuration);
+        _cache.Set(CacheKey, data, BeaconCacheEntries.For(CacheDuration).AddExpirationToken(new CancellationChangeToken(reset)));
         return data;
+    }
+
+    /// <summary>Drops this process's cached settings, also one a read in progress is about to write.</summary>
+    internal static void ResetCache()
+    {
+        CancellationTokenSource previous;
+        lock (ResetLock)
+        {
+            previous = _resetSource;
+            _resetSource = new CancellationTokenSource();
+        }
+
+        // Cancel but never Dispose: an entry written with the previous token after this point still registers on it.
+        previous.Cancel();
     }
 
     Task<AppSettingsData> IAppSettingsStager.ReadStoredAsync(BeaconContext context, CancellationToken cancellationToken)
@@ -258,26 +279,35 @@ public class AppSettingsService : IAppSettingsService, IAppSettingsStager
 
         return new StagedAppSettings(historyEntries, async cancellationToken =>
         {
-            // Invalidate cache
-            _cache.Remove(CacheKey);
-
-            if (parts != AppSettingsParts.ConnectionOnly)
+            // Applies run one at a time in this process, so a re-apply of an older read never lands after this one.
+            await StoredSettingsApplyOrder.Gate.WaitAsync(cancellationToken);
+            try
             {
-                // Mutate BeaconConfiguration singleton
-                _config.BaseUrl = settings.BaseUrl;
+                // Invalidate cache
+                ResetCache();
+
+                if (parts != AppSettingsParts.ConnectionOnly)
+                {
+                    // Mutate BeaconConfiguration singleton
+                    _config.BaseUrl = settings.BaseUrl;
+                }
+
+                // A save of part of the settings applies them as they are now stored, read again after the commit.
+                var applied = parts == AppSettingsParts.Everything ? settings : await GetSettingsAsync(cancellationToken);
+
+                // Update LLM configuration if updater is available; the limits in force change only with an Admin's save.
+                if (applyLimits)
+                {
+                    _llmUpdater?.UpdateConfiguration(applied);
+                }
+                else
+                {
+                    _llmUpdater?.UpdateConfiguration(applied, applyLimits: false);
+                }
             }
-
-            // A save of part of the settings applies them as they are now stored, read again after the commit.
-            var applied = parts == AppSettingsParts.Everything ? settings : await GetSettingsAsync(cancellationToken);
-
-            // Update LLM configuration if updater is available; the limits in force change only with an Admin's save.
-            if (applyLimits)
+            finally
             {
-                _llmUpdater?.UpdateConfiguration(applied);
-            }
-            else
-            {
-                _llmUpdater?.UpdateConfiguration(applied, applyLimits: false);
+                StoredSettingsApplyOrder.Gate.Release();
             }
         });
     }

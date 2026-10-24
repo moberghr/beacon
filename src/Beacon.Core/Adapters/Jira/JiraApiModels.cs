@@ -17,7 +17,8 @@ public record JiraIssueFields(
     [property: JsonPropertyName("created")] string? Created,
     [property: JsonPropertyName("updated")] string? Updated,
     [property: JsonPropertyName("priority")] JiraPriority? Priority,
-    [property: JsonPropertyName("issuetype")] JiraIssueType? IssueType);
+    [property: JsonPropertyName("issuetype")] JiraIssueType? IssueType,
+    [property: JsonPropertyName("labels")] string[]? Labels = null);
 
 public record JiraStatus(
     [property: JsonPropertyName("id")] string? Id,

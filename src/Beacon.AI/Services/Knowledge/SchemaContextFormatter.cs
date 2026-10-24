@@ -20,7 +20,8 @@ internal record SchemaColumn(
 /// <summary>
 /// Renders schema context for LLM grounding in an M-Schema-style structured format:
 /// per-column tuples (name: type, flags, description, Examples: [..]) plus an explicit
-/// Foreign Keys section per table.
+/// Foreign Keys section per table. Descriptions and values are text from the database: each is rendered on its own line or
+/// tuple (<see cref="PromptData.OneLine"/>), so it cannot start a heading, a table or a section of its own.
 /// </summary>
 internal static class SchemaContextFormatter
 {
@@ -33,7 +34,7 @@ internal static class SchemaContextFormatter
         sb.AppendLine($"### {(isApi ? tableName : $"{schemaName}.{tableName}")}");
         if (description != null)
         {
-            sb.AppendLine($"  {description}");
+            sb.AppendLine($"  {PromptData.OneLine(description)}");
         }
 
         sb.AppendLine("  Columns:");
@@ -50,15 +51,16 @@ internal static class SchemaContextFormatter
             }
             if (col.Description != null)
             {
-                sb.Append($", {col.Description}");
+                sb.Append($", {PromptData.OneLine(col.Description)}");
             }
 
             var examples = DeserializeSampleValues(col.SampleValuesJson);
             if (examples is { Count: > 0 })
             {
+                var values = string.Join(", ", examples.Select(PromptData.OneLine));
                 sb.Append(col.SampleValuesComplete
-                    ? $", Values (all {examples.Count}): [{string.Join(", ", examples)}]"
-                    : $", Examples: [{string.Join(", ", examples)}]");
+                    ? $", Values (all {examples.Count}): [{values}]"
+                    : $", Examples: [{values}]");
             }
 
             sb.AppendLine(")");
@@ -93,7 +95,7 @@ internal static class SchemaContextFormatter
         sb.Append($"  - {label} ({pkStr})");
         if (description != null)
         {
-            sb.Append($" -- {description}");
+            sb.Append($" -- {PromptData.OneLine(description)}");
         }
         sb.AppendLine();
 

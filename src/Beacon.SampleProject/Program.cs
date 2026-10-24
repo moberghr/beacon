@@ -23,6 +23,7 @@ using Beacon.Connector.AzureSynapse;
 using Beacon.Connector.Snowflake;
 using Beacon.Connector.Databricks;
 using Beacon.Connector.Api;
+using Beacon.Connector.Api.Services;
 using Beacon.Connector.BigQuery;
 using Beacon.MCP;
 using Beacon.MCP.Discovery;
@@ -77,9 +78,13 @@ if (!string.IsNullOrWhiteSpace(builder.Configuration["OTEL_EXPORTER_OTLP_ENDPOIN
         .ConfigureResource(x => x.AddService(serviceName: builder.Configuration["OTEL_SERVICE_NAME"] ?? "beacon"))
         .WithTracing(x => x
             .AddAspNetCoreInstrumentation(y => y.Filter = z => !z.Request.Path.StartsWithSegments("/beacon/api/health"))
-            // Notification calls are left out: their URLs carry the recipients' secrets (e.g. a Slack webhook path).
-            .AddHttpClientInstrumentation(y => y.FilterHttpRequestMessage = z => !NotificationRequests.IsNotificationRequest(z))
+            // Notification calls are left out: their URLs carry the recipients' secrets (e.g. a Slack webhook path). So are
+            // the API connector's: their paths and queries can carry identifiers or a credential.
+            .AddHttpClientInstrumentation(y => y.FilterHttpRequestMessage = z =>
+                !NotificationRequests.IsNotificationRequest(z) && !ApiConnectorRequests.IsApiConnectorRequest(z))
             .AddBeaconInstrumentation()
+            // The MCP SDK's tools/call spans, which Beacon tags; their status descriptions are cleared.
+            .AddBeaconMcpSdkTracing()
             .AddOtlpExporter())
         .WithMetrics(x => x
             .AddAspNetCoreInstrumentation()
@@ -395,6 +400,10 @@ using (var warpStartupScope = app.Services.CreateScope())
     // everything) and clear content older than Beacon:Retention:ContentDays, daily. Consumer hosts schedule this themselves.
     await recurringJobPublisher.AddOrUpdateRecurringJob(new DataRetentionJob(), DataRetentionJob.Name, "50 3 * * *").WaitAsync(bootToken);
 
+    // Execution log: purge rows older than Beacon:Audit:ExecutionLog:RetentionDays daily (no-op when unset). Consumer
+    // hosts schedule this themselves.
+    await recurringJobPublisher.AddOrUpdateRecurringJob(new PurgeExpiredExecutionLogsJob(), "execution-log-retention", "40 3 * * *");
+
     // Security audit: purge events older than Beacon:Audit:RetentionDays daily (no-op while unset: kept forever).
     // Consumer hosts schedule this themselves.
     await recurringJobPublisher.AddOrUpdateRecurringJob(new PurgeExpiredSecurityAuditEventsJob(), "security-audit-retention", "45 3 * * *").WaitAsync(bootToken);
@@ -413,15 +422,13 @@ using (var warpStartupScope = app.Services.CreateScope())
     // recipient secrets, which an older version cannot read, so an operator runs it once every node runs this version
     // (see "Notification Destinations" in the configuration docs).
 
-    // Retired encryption keys: while Beacon:PreviousEncryptionKeys lists a key, every start enqueues one run of the
-    // re-encryption job, which moves stored values still under a previous key to Beacon:EncryptionKey and logs how many
-    // there were. Once it reports none, remove the previous keys from the configuration.
-    if (Beacon.Core.ServiceConfiguration.HasPreviousEncryptionKeys(app.Configuration))
-    {
-        var publisher = warpStartupScope.ServiceProvider.GetRequiredService<IPublisher>();
-        await publisher.Enqueue(new ReEncryptStoredValuesJob());
-        await publisher.SaveChangesAsync(bootToken);
-    }
+    // Retired encryption keys and the legacy format: every start enqueues one run of the re-encryption job, which moves
+    // stored values still under a key in Beacon:PreviousEncryptionKeys, or still in the legacy v1 format, to
+    // Beacon:EncryptionKey in the current format and logs how many there were. Once it reports none, remove the previous
+    // keys from the configuration and turn Beacon:Encryption:AllowLegacyCbc off. A run with nothing to move writes nothing.
+    var publisher = warpStartupScope.ServiceProvider.GetRequiredService<IPublisher>();
+    await publisher.Enqueue(new ReEncryptStoredValuesJob());
+    await publisher.SaveChangesAsync(bootToken);
 }
 
 app.Run();

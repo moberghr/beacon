@@ -43,20 +43,17 @@ public class DatabaseMetadataService(
     {
     }
 
-    private const string CacheKeyPrefix = "DbMetadata_";
+    private static readonly string CacheKeyPrefix = BeaconCacheEntries.Key("db-metadata:");
     private const int MaxLoggedSkippedNames = 50;
     private static readonly TimeSpan CacheExpiration = TimeSpan.FromHours(1);
 
-    // Lock per data source to prevent concurrent refresh operations
-    private static readonly System.Collections.Concurrent.ConcurrentDictionary<int, SemaphoreSlim> _refreshLocks = new();
+    // Lock per data source to prevent concurrent refresh operations; an entry lives only while someone holds or waits for it
+    private static readonly KeyedRefreshLocks _refreshLocks = new();
 
     public async Task<DatabaseMetadataSnapshot> RefreshMetadataAsync(int dataSourceId, bool forceRefresh = false, CancellationToken cancellationToken = default)
     {
-        // Get or create a lock for this specific data source
-        var refreshLock = _refreshLocks.GetOrAdd(dataSourceId, _ => new SemaphoreSlim(1, 1));
-
-        // Try to acquire the lock - if already locked, wait
-        await refreshLock.WaitAsync(cancellationToken);
+        // Try to acquire the lock for this specific data source - if already locked, wait
+        var refreshLock = await _refreshLocks.AcquireAsync(dataSourceId, cancellationToken);
         try
         {
             // Double-check cache after acquiring lock (another thread may have just completed refresh).
@@ -143,7 +140,7 @@ public class DatabaseMetadataService(
                 && current.DatabaseEngineType == scannedEngine;
             if (unchanged)
             {
-                cache.Set(GetCacheKey(dataSourceId), snapshot, CacheExpiration);
+                cache.Set(GetCacheKey(dataSourceId), snapshot, BeaconCacheEntries.For(CacheExpiration));
             }
 
             if (current is not { Readable: true })
@@ -163,7 +160,7 @@ public class DatabaseMetadataService(
         }
         finally
         {
-            refreshLock.Release();
+            refreshLock.Dispose();
         }
     }
 
@@ -302,7 +299,7 @@ public class DatabaseMetadataService(
             )).ToList();
 
             var snapshot = new DatabaseMetadataSnapshot(dataSourceId, dataSource.DatabaseEngineType.Value, tables, metadata.Max(m => m.LastRefreshed));
-            cache.Set(GetCacheKey(dataSourceId), snapshot, CacheExpiration);
+            cache.Set(GetCacheKey(dataSourceId), snapshot, BeaconCacheEntries.For(CacheExpiration));
 
             return snapshot;
         }
@@ -548,7 +545,7 @@ public class DatabaseMetadataService(
 
         var refreshedAt = metadata.Count > 0 ? metadata.Max(m => m.LastRefreshed) : DateTime.UtcNow;
         var snapshot = new DatabaseMetadataSnapshot(dataSourceId, null, tables, refreshedAt);
-        cache.Set(GetCacheKey(dataSourceId), snapshot, CacheExpiration);
+        cache.Set(GetCacheKey(dataSourceId), snapshot, BeaconCacheEntries.For(CacheExpiration));
         return snapshot;
     }
 
@@ -660,5 +657,13 @@ public class DatabaseMetadataService(
     private sealed record SourceState(DateTime? DisabledTime, bool AllowMigrationWrites, DatabaseEngineType? DatabaseEngineType, string EncryptedConnectionData)
     {
         public bool Readable => DisabledTime == null && !AllowMigrationWrites;
+
+        // The compiler-generated ToString prints every member; the secrets are printed redacted.
+        private bool PrintMembers(System.Text.StringBuilder builder)
+        {
+            builder.Append($"DisabledTime = {DisabledTime}, AllowMigrationWrites = {AllowMigrationWrites}, DatabaseEngineType = {DatabaseEngineType}, EncryptedConnectionData = {RedactedPrint.Of(EncryptedConnectionData)}, Readable = {Readable}");
+
+            return true;
+        }
     }
 }
