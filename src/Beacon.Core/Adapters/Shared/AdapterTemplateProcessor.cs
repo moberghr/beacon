@@ -11,7 +11,7 @@ internal static partial class AdapterTemplateProcessor
     private static readonly JsonSerializerOptions IndentedJson = new() { WriteIndented = true };
     private static readonly JsonSerializerOptions CompactJson = new() { WriteIndented = false };
 
-    [GeneratedRegex(@"\{\{([^}]+)\}\}", RegexOptions.Compiled)]
+    [GeneratedRegex(@"\{\{([^}]+)\}\}", RegexOptions.Compiled, matchTimeoutMilliseconds: 1000)]
     private static partial Regex PlaceholderRegex();
 
     /// <summary>

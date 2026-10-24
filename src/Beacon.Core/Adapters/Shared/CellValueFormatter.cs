@@ -44,9 +44,10 @@ internal static partial class CellValueFormatter
         }
 
         // Remove characters that would break table formatting
-        return TableBreakingChars().Replace(formatted, " ").Trim();
+        return formatted
+            .Replace('\t', ' ')
+            .Replace('\n', ' ')
+            .Replace('\r', ' ')
+            .Trim();
     }
-
-    [System.Text.RegularExpressions.GeneratedRegex(@"\t|\n|\r")]
-    private static partial System.Text.RegularExpressions.Regex TableBreakingChars();
 }

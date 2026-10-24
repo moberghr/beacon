@@ -36,6 +36,7 @@
 
     <ItemGroup>
         <Compile Include="..\Shared\Http\HttpContextRequestPrincipal.cs" Link="Shared\HttpContextRequestPrincipal.cs" />
+        <Compile Include="..\Shared\Http\FixedWindowPartitions.cs" Link="Shared\FixedWindowPartitions.cs" />
     </ItemGroup>
 
     <ItemGroup>

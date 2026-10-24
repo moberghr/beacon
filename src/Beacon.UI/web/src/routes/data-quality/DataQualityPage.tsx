@@ -25,7 +25,7 @@ export default function DataQualityPage() {
   const [editId, setEditId] = useState<number | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<DataContractData | null>(null);
 
-  const overviews = overviewQ.data ?? [];
+  const overviews = overviewQ.items;
   const contracts = contractsQ.items;
 
   function handleConfirmDelete() {
@@ -76,6 +76,7 @@ export default function DataQualityPage() {
           ))}
         </div>
       )}
+      {overviewQ.tableProps.paging.pageCount > 1 && <Pager {...overviewQ.tableProps.paging} />}
 
       <h2 className="text-lg font-semibold mt-2 mb-0">Contracts</h2>
 

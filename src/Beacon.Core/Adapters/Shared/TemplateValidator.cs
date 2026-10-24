@@ -8,7 +8,7 @@ namespace Beacon.Core.Adapters.Shared;
 /// </summary>
 public static partial class TemplateValidator
 {
-    [GeneratedRegex(@"\{\{([^}]+)\}\}", RegexOptions.Compiled)]
+    [GeneratedRegex(@"\{\{([^}]+)\}\}", RegexOptions.Compiled, matchTimeoutMilliseconds: 1000)]
     private static partial Regex PlaceholderRegex();
 
     /// <summary>
