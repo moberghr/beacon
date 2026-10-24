@@ -249,6 +249,13 @@ internal sealed class JwtBearerAuthMiddleware(
             return;
         }
 
+        // Counted against the client address's limit of refused anonymous requests: over it, 429 instead of the 401.
+        if (!AnonymousRefusalThrottle.TryAdmit(context, out var retryAfter))
+        {
+            await RateLimitRefusal.WriteAsync(context, retryAfter);
+            return;
+        }
+
         context.Response.StatusCode = StatusCodes.Status401Unauthorized;
         context.Response.Headers.WWWAuthenticate = InvalidTokenChallenge;
         await context.Response.WriteAsJsonAsync(

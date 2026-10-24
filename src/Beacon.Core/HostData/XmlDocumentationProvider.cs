@@ -35,7 +35,7 @@ internal sealed class AssemblyXmlDocumentationProvider(ILogger<AssemblyXmlDocume
     // Separates a member id from one of its <param> names in the parsed dictionary; never part of a member id.
     internal const string ParameterSeparator = "#param:";
 
-    private static readonly Regex Whitespace = new(@"\s+", RegexOptions.Compiled);
+    private static readonly Regex Whitespace = new(@"\s+", RegexOptions.Compiled, TimeSpan.FromMilliseconds(1000));
 
     private readonly ConcurrentDictionary<Assembly, IReadOnlyDictionary<string, string>> _documents = new();
 

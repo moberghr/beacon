@@ -20,13 +20,19 @@ internal static class SignInAudit
 
     internal const string PasswordChangeRequiredReason = "password_change_required";
 
+    /// <summary>A password sign-in refused because the user is locked out after too many wrong passwords.</summary>
+    internal const string LockedOutReason = "locked_out";
+
     /// <summary>
     /// A password sign-in that did not succeed: the user the name resolved to, when it did, and the attempt named by a keyed
     /// hash of <paramref name="typedName"/> (trimmed, ignoring case), never the name itself.
     /// </summary>
     public static Task PasswordFailedAsync(HttpContext context, AuthenticationResult result, string? typedName)
     {
-        var refused = result.LocalLoginRefused;
+        var refused = result.LocalLoginRefused || result.LockedOut;
+        var reason = result.LockedOut
+            ? LockedOutReason
+            : result.LocalLoginRefused ? "local_login_off" : "invalid_credentials";
         var recorder = Recorder(context);
         var attempt = string.IsNullOrWhiteSpace(typedName)
             ? SecurityAuditActor.Anonymous
@@ -37,7 +43,7 @@ internal static class SignInAudit
                 .On(SecurityAuditResources.User, result.BeaconUserId)
                 .Ending(refused ? SecurityAuditOutcomes.Refused : SecurityAuditOutcomes.Failure)
                 .By(attempt)
-                .With(new SecurityAuditDetails().AddCode("reason", refused ? "local_login_off" : "invalid_credentials")),
+                .With(new SecurityAuditDetails().AddCode("reason", reason)),
             context.RequestAborted);
     }
 
