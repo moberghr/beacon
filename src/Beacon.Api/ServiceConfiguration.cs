@@ -1,15 +1,50 @@
+using Beacon.Core.Configuration;
 using Beacon.Api.Authentication;
+using Beacon.Api.Endpoints;
 using Beacon.Api.Hubs;
+using Beacon.Api.Security;
 using Beacon.Api.SignalR;
+using Beacon.Core;
 using Beacon.Core.Authorization;
 using Beacon.Core.Services;
 using Microsoft.AspNetCore.SignalR;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Options;
 
 namespace Beacon.Api;
 
 public static class ServiceConfiguration
 {
+    /// <summary>
+    /// The antiforgery header Beacon's React shell sends its token in, which <see cref="AddApi"/> sets.
+    /// </summary>
+    public const string AntiforgeryHeaderName = "X-XSRF-TOKEN";
+
+    /// <summary>The antiforgery cookie name <see cref="AddApi"/> sets, kept apart from a default-named host cookie.</summary>
+    public const string AntiforgeryCookieName = ".Beacon.Antiforgery";
+
+    /// <summary>
+    /// Adds Beacon's REST API for the React shell: its services (<c>AddBeaconApiServices</c>,
+    /// configured by <paramref name="configure"/>), its authorization policies (<c>AddBeaconApiAuthorization</c>) and
+    /// antiforgery with the header the shell sends (<see cref="AntiforgeryHeaderName"/>) and Beacon's cookie name
+    /// (<see cref="AntiforgeryCookieName"/>). Both are set on the application's antiforgery options, which the host's own
+    /// antiforgery shares. <c>MapBeacon()</c> maps the API.
+    /// </summary>
+    public static BeaconBuilder AddApi(this BeaconBuilder builder, Action<BeaconApiOptions>? configure = null)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        builder.Services.AddBeaconApiServices(configure);
+        builder.Services.AddBeaconApiAuthorization();
+        builder.Services.AddAntiforgery(x =>
+        {
+            x.HeaderName = AntiforgeryHeaderName;
+            x.Cookie.Name = AntiforgeryCookieName;
+        });
+
+        return builder;
+    }
+
     /// <summary>
     /// Registers Beacon.Api's own services (SignalR-backed notifiers, etc.). Keeps API-layer DI out
     /// of the host's Program.cs per §2.12. Realtime is on by default — see the overload taking
@@ -54,6 +89,18 @@ public static class ServiceConfiguration
         // Login throttle ships with Beacon.Api so every host gets it, realtime on or off.
         services.TryAddSingleton<LoginRateLimiter>();
 
+        // Security headers and the Host/Origin check (UseBeaconAuthentication): Beacon:Security, unreadable origins refused at startup.
+        services.AddOptions<BeaconHostSecurityOptions>()
+            .BindConfiguration(BeaconHostSecurityOptions.SectionName)
+            .ValidateOnStart();
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<BeaconHostSecurityOptions>, BeaconHostSecurityOptionsValidator>());
+
+        // The per-caller limits of /beacon/api and of the anonymous requests Beacon refuses (Beacon:RateLimits).
+        services.TryAddSingleton<BeaconApiRateLimiter>();
+        // The embed routes' own per-minute limits (used only while embedding is on).
+        services.TryAddSingleton<Beacon.Core.Services.Embed.EmbedAuditLimiter>();
+        services.TryAddSingleton<EmbedRateLimiter>();
+
         if (!options.Realtime)
         {
             services.TryAddScoped<IApprovalNotifier, RealtimeDisabledApprovalNotifier>();
@@ -61,12 +108,49 @@ public static class ServiceConfiguration
             return services;
         }
 
+        // Hub bounds from Beacon:RequestLimits, registered before the host's ConfigureSignalR hook so a host's own
+        // AddHubOptions (applied later) wins.
+        services.AddOptions<HubOptions>()
+            .Configure<IOptions<RequestLimitsOptions>>((hub, limits) =>
+            {
+                var value = limits.Value;
+                if (value.HubMaxReceiveMessageBytes > 0)
+                {
+                    hub.MaximumReceiveMessageSize = value.HubMaxReceiveMessageBytes;
+                }
+
+                if (value.HubMaxParallelInvocationsPerClient > 0)
+                {
+                    hub.MaximumParallelInvocationsPerClient = value.HubMaxParallelInvocationsPerClient;
+                }
+
+                if (value.HubClientTimeoutSeconds > 0)
+                {
+                    hub.ClientTimeoutInterval = TimeSpan.FromSeconds(value.HubClientTimeoutSeconds);
+                }
+            });
+
         var signalR = services.AddSignalR();
         options.ConfigureSignalR?.Invoke(signalR);
 
-        services.TryAddSingleton<IUserIdProvider, HubUserIdProvider>();
+        UseHubUserIdProvider(services);
         services.TryAddScoped<IApprovalNotifier, SignalRApprovalNotifier>();
 
         return services;
+    }
+
+    // AddSignalR registers SignalR's own provider with TryAdd, so a TryAdd here would never win. Beacon's provider replaces
+    // that default (also when the host called AddSignalR first, and a later AddSignalR keeps it); one the host registered
+    // itself stays.
+    private static void UseHubUserIdProvider(IServiceCollection services)
+    {
+        var registered = services.LastOrDefault(x => x.ServiceType == typeof(IUserIdProvider));
+        if (registered != null && registered.ImplementationType != typeof(DefaultUserIdProvider))
+        {
+            return;
+        }
+
+        services.RemoveAll<IUserIdProvider>();
+        services.AddSingleton<IUserIdProvider, HubUserIdProvider>();
     }
 }

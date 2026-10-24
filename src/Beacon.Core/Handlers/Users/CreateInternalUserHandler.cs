@@ -13,6 +13,9 @@ internal sealed class CreateInternalUserHandler(
 {
     public async Task Handle(CreateInternalUserCommand request, CancellationToken cancellationToken)
     {
+        // Stored, and looked up to log the creation, trimmed.
+        request = request with { UserName = UserAccountFields.Trimmed(request.UserName), Email = UserAccountFields.TrimmedEmail(request.Email) };
+
         // The caller, then the roles, are checked before the user is created: a refusal creates nobody.
         await rules.DemandMayCreateInternalUserAsync(cancellationToken);
         var roles = await rules.RolesAsync(request.RoleIds, cancellationToken);
@@ -37,7 +40,7 @@ internal sealed class CreateInternalUserHandler(
             throw new InvalidOperationException(response.Message ?? "Failed to create user.");
         }
 
-        await rules.LogCreatedAsync(request.UserName, true, roles, cancellationToken);
+        await rules.LogCreatedAsync(request.UserName, true, cancellationToken);
     }
 }
 
@@ -45,7 +48,8 @@ internal sealed class CreateInternalUserHandler(
 /// Creates an internal (password) user with <c>RoleIds</c>. For an Admin only (403 for a UserAdmin who is not one): whoever
 /// sets the password can sign in as the user, so the user must choose a new password at their first sign-in. Separation of
 /// duties, when on, refuses a conflicting pair (400). Each role assignment records who made it; the new user and the roles
-/// assigned are logged.
+/// assigned are logged. While the approval workflow reviews grants of the Admin role, the user is created with the other
+/// roles and the Admin role waits for another live Admin's approval.
 /// </summary>
 [ProjectScopeExempt("user management, gated by the UserAdmin permission and, by the handler, Admin-only; no project data", Policy = BeaconPermissions.UserAdminPolicy)]
 public record CreateInternalUserCommand(
@@ -53,4 +57,13 @@ public record CreateInternalUserCommand(
     string? Email,
     string? DisplayName,
     string Password,
-    int[] RoleIds) : IRequest;
+    int[] RoleIds) : IRequest
+{
+    // The compiler-generated ToString prints every member; the secrets are printed redacted.
+    protected virtual bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"UserName = {UserName}, Email = {Email}, DisplayName = {DisplayName}, Password = {RedactedPrint.Of(Password)}, RoleIds = {RoleIds}");
+
+        return true;
+    }
+}

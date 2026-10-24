@@ -51,7 +51,29 @@ public static class GroundingText
         return builder.ToString().Trim();
     }
 
-    private static bool IsHidden(Rune rune)
+    /// <summary><paramref name="text"/> without the characters a reviewer cannot see (see <see cref="GroundingText"/>).</summary>
+    public static string WithoutHiddenCharacters(string text)
+    {
+        ArgumentNullException.ThrowIfNull(text);
+
+        if (!HasHiddenCharacters(text))
+        {
+            return text;
+        }
+
+        var builder = new StringBuilder(text.Length);
+        foreach (var rune in text.EnumerateRunes())
+        {
+            if (!IsHidden(rune))
+            {
+                builder.Append(rune.ToString());
+            }
+        }
+
+        return builder.ToString();
+    }
+
+    internal static bool IsHidden(Rune rune)
     {
         var value = rune.Value;
 

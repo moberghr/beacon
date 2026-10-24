@@ -53,6 +53,8 @@ public class AdminGatedRoutesTests
         ["GET /beacon/api/mcp/projects/{projectId:int}/settings"] = BeaconPermissions.AuditorOrSecurityAdminPolicy,
         ["GET /beacon/api/admin-settings/"] = BeaconPermissions.AuditorOrSecurityAdminPolicy,
         ["GET /beacon/api/admin-settings/llm-providers"] = BeaconPermissions.AuditorOrSecurityAdminPolicy,
+        ["GET /beacon/api/execution-log/"] = BeaconPermissions.AuditorOrSecurityAdminPolicy,
+        ["GET /beacon/api/execution-log/export"] = BeaconPermissions.AuditorOrSecurityAdminPolicy,
         ["GET /beacon/api/api-keys/admin/"] = BeaconPermissions.AuditorOrUserAdminPolicy,
         ["GET /beacon/api/users/{id:int}/owned-resources"] = BeaconPermissions.AuditorOrUserAdminPolicy,
 
@@ -64,6 +66,9 @@ public class AdminGatedRoutesTests
         ["PUT /beacon/api/recipients/{id:int}"] = BeaconPermissions.SecurityAdminPolicy,
         ["DELETE /beacon/api/recipients/{id:int}"] = BeaconPermissions.SecurityAdminPolicy,
         ["PUT /beacon/api/queries/{id:int}/mcp-tool"] = BeaconPermissions.SecurityAdminPolicy,
+        ["POST /beacon/api/embed-grants/"] = BeaconPermissions.SecurityAdminPolicy,
+        ["GET /beacon/api/embed-grants/"] = BeaconPermissions.SecurityAdminPolicy,
+        ["POST /beacon/api/embed-grants/{id:int}/revoke"] = BeaconPermissions.SecurityAdminPolicy,
         ["PUT /beacon/api/projects/repositories/{id:int}/token"] = BeaconPermissions.SecurityAdminPolicy,
 
         ["GET /beacon/api/users/"] = BeaconPermissions.UserAdminPolicy,
@@ -90,6 +95,8 @@ public class AdminGatedRoutesTests
         ["GET /beacon/api/migrations/jobs/{id:int}"] = BeaconPermissions.MigrationOperatorPolicy,
         ["POST /beacon/api/migrations/jobs"] = BeaconPermissions.MigrationOperatorPolicy,
         ["POST /beacon/api/migrations/jobs/{id:int}/run"] = BeaconPermissions.MigrationOperatorPolicy,
+        ["POST /beacon/api/migrations/jobs/{id:int}/runs"] = BeaconPermissions.MigrationOperatorPolicy,
+        ["GET /beacon/api/migrations/jobs/{id:int}/runs/{taskId:int}"] = BeaconPermissions.MigrationOperatorPolicy,
         ["DELETE /beacon/api/migrations/jobs/{id:int}"] = BeaconPermissions.MigrationOperatorPolicy,
         ["GET /beacon/api/migrations/executions"] = BeaconPermissions.MigrationOperatorPolicy
     };

@@ -37,7 +37,9 @@ internal enum SchemaColumnLayout
 
 /// <summary>
 /// The shape of one table block in a prompt: how its description and columns are introduced, whether a foreign-key section,
-/// a line naming every column, or a trailing blank line follow.
+/// a line naming every column, or a trailing blank line follow. With <c>OneLineText</c> the table description is rendered
+/// on one line (<see cref="PromptData.OneLine"/>), so text from the database cannot start a heading, a table or a section
+/// of its own; the <see cref="SchemaColumnLayout.Tuple"/> columns always render their descriptions and values that way.
 /// </summary>
 internal sealed record SchemaTableLayout(
     SchemaColumnLayout Columns,
@@ -45,10 +47,11 @@ internal sealed record SchemaTableLayout(
     string? ColumnsHeading,
     bool ForeignKeySection,
     bool ColumnNamesLine,
-    bool BlankLineAfter)
+    bool BlankLineAfter,
+    bool OneLineText = false)
 {
     /// <summary>The ask schema context: M-Schema-style column tuples plus an explicit Foreign Keys section.</summary>
-    public static SchemaTableLayout Ask { get; } = new(SchemaColumnLayout.Tuple, "  ", "  Columns:", ForeignKeySection: true, ColumnNamesLine: false, BlankLineAfter: true);
+    public static SchemaTableLayout Ask { get; } = new(SchemaColumnLayout.Tuple, "  ", "  Columns:", ForeignKeySection: true, ColumnNamesLine: false, BlankLineAfter: true, OneLineText: true);
 
     /// <summary>The documentation data model prompt; the caller appends indexes and enum values, then the blank line.</summary>
     public static SchemaTableLayout DocumentationDataModel { get; } = new(SchemaColumnLayout.Inline, "Description: ", "Columns:", ForeignKeySection: false, ColumnNamesLine: false, BlankLineAfter: false);
@@ -86,7 +89,7 @@ internal static class SchemaContextFormatter
         sb.AppendLine($"### {label}");
         if (description != null)
         {
-            sb.AppendLine($"{layout.DescriptionPrefix}{description}");
+            sb.AppendLine($"{layout.DescriptionPrefix}{(layout.OneLineText ? PromptData.OneLine(description) : description)}");
         }
 
         if (layout.ColumnsHeading != null)
@@ -129,7 +132,7 @@ internal static class SchemaContextFormatter
         sb.Append($"  - {label} ({pkStr})");
         if (description != null)
         {
-            sb.Append($" -- {description}");
+            sb.Append($" -- {PromptData.OneLine(description)}");
         }
         sb.AppendLine();
 
@@ -323,15 +326,16 @@ internal static class SchemaContextFormatter
         }
         if (col.Description != null)
         {
-            sb.Append($", {col.Description}");
+            sb.Append($", {PromptData.OneLine(col.Description)}");
         }
 
         var examples = DeserializeSampleValues(col.SampleValuesJson);
         if (examples is { Count: > 0 })
         {
+            var values = string.Join(", ", examples.Select(PromptData.OneLine));
             sb.Append(col.SampleValuesComplete
-                ? $", Values (all {examples.Count}): [{string.Join(", ", examples)}]"
-                : $", Examples: [{string.Join(", ", examples)}]");
+                ? $", Values (all {examples.Count}): [{values}]"
+                : $", Examples: [{values}]");
         }
 
         sb.AppendLine(")");

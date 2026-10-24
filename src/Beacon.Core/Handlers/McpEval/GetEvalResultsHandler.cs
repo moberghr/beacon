@@ -1,22 +1,27 @@
 using MediatR;
+using Microsoft.Extensions.Logging;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Authorization;
+using Beacon.Core.Helpers;
 
 namespace Beacon.Core.Handlers.McpEval;
 
 /// <summary>Returns the per-case outcomes of a single eval run.</summary>
-internal sealed class GetEvalResultsHandler(IDbContextFactory<BeaconContext> contextFactory)
+internal sealed class GetEvalResultsHandler(IDbContextFactory<BeaconContext> contextFactory,
+    LegacyListTruncation? truncation = null,
+    ILogger<GetEvalResultsHandler>? logger = null)
     : IRequestHandler<GetEvalResultsQuery, List<EvalResultItem>>
 {
     public async Task<List<EvalResultItem>> Handle(GetEvalResultsQuery request, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
-        return await context.McpEvalResults
+        var items = await context.McpEvalResults
             .Where(x => x.EvalRunId == request.RunId)
             .OrderBy(x => x.EvalCaseId)
+            .Take(ListRequest.LegacyUnpagedCap + 1)
             .Select(x =>
                 new EvalResultItem
                 {
@@ -33,6 +38,8 @@ internal sealed class GetEvalResultsHandler(IDbContextFactory<BeaconContext> con
                     ExecutionTimeMs = x.ExecutionTimeMs
                 })
             .ToListAsync(cancellationToken);
+
+        return LegacyListTruncation.Apply(items, truncation, logger, "eval results");
     }
 }
 

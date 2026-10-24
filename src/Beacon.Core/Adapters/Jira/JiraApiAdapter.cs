@@ -37,7 +37,8 @@ public record JiraTicketSearchDto(
     string Status,
     string? Reporter,
     DateTime Created,
-    DateTime Updated);
+    DateTime Updated,
+    IReadOnlyList<string>? Labels = null);
 
 public class JiraApiAdapter(
     IJiraRestClientFactory clientFactory,
@@ -62,10 +63,15 @@ public class JiraApiAdapter(
             sessionId,
             credentials.Project,
             credentials.Email);
-        var searchResponse = await client.SearchAsync(jqlQuery, 10, 0, "key,summary", cancellationToken);
+        var searchResponse = await client.SearchAsync(jqlQuery, 10, 0, "key,summary,labels", cancellationToken);
 
+        // An issue another recipient's deliveries are tied to (it carries a different correlation label) is never reused.
+        var ownLabels = (label ?? string.Empty).Split(' ', StringSplitOptions.RemoveEmptyEntries)
+            .Where(x => x.StartsWith(JqlHelper.CorrelationLabelPrefix, StringComparison.Ordinal))
+            .ToList();
         var existingIssue = searchResponse.Issues
             .Where(x => x.Fields.Summary == title)
+            .Where(x => (x.Fields.Labels ?? []).Where(y => y.StartsWith(JqlHelper.CorrelationLabelPrefix, StringComparison.Ordinal)).All(y => ownLabels.Contains(y)))
             .FirstOrDefault();
 
         if (existingIssue == null)
@@ -104,7 +110,7 @@ public class JiraApiAdapter(
     public async Task<List<JiraTicketSearchDto>> SearchTickets(JiraCredentials credentials, string jql, int maxResults, CancellationToken cancellationToken)
     {
         var client = clientFactory.CreateClient(credentials);
-        var searchResponse = await client.SearchAsync(jql, maxResults, 0, "key,summary,description,status,reporter,created,updated", cancellationToken);
+        var searchResponse = await client.SearchAsync(jql, maxResults, 0, "key,summary,description,status,reporter,created,updated,labels", cancellationToken);
         return searchResponse.Issues.Select(MapToTicketSearchDto).ToList();
     }
 
@@ -142,7 +148,8 @@ public class JiraApiAdapter(
             issue.Fields.Status.Name,
             issue.Fields.Reporter?.EmailAddress,
             ParseDateTime(issue.Fields.Created),
-            ParseDateTime(issue.Fields.Updated));
+            ParseDateTime(issue.Fields.Updated),
+            issue.Fields.Labels ?? []);
     }
 
     private static DateTime ParseDateTime(string? dateTimeString)
@@ -185,7 +192,7 @@ public class JiraApiAdapter(
                 description,
                 new JiraIssueTypeRef(issueType),
                 string.IsNullOrEmpty(assignee) ? null : new JiraAssignee(assignee),
-                !string.IsNullOrEmpty(label) ? [label] : null,
+                !string.IsNullOrWhiteSpace(label) ? label.Split(' ', StringSplitOptions.RemoveEmptyEntries) : null,
                 !string.IsNullOrEmpty(priorityName) ? new JiraPriorityRef(priorityName) : null,
                 !string.IsNullOrEmpty(parentKey) ? new JiraParentRef(parentKey) : null));
 

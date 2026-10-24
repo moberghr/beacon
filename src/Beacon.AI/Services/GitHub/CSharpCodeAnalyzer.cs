@@ -19,7 +19,7 @@ internal sealed class CSharpCodeAnalyzer : ICodeAnalyzer
     public List<CodeReference> AnalyzeFile(string filePath, string content)
     {
         var references = new List<CodeReference>();
-        var lines = content.Split('\n');
+        var lineEnds = BuildLineEnds(content);
         var className = ExtractClassName(content);
         var methodNames = new Lazy<List<(int End, string Name)>>(() => FindMethodNames(content));
 
@@ -30,7 +30,7 @@ internal sealed class CSharpCodeAnalyzer : ICodeAnalyzer
             references.Add(new CodeReference
             {
                 FilePath = filePath,
-                LineNumber = GetLineNumber(lines, match.Index),
+                LineNumber = GetLineNumber(lineEnds, match.Index),
                 ReferenceType = CodeReferenceType.EntityModel,
                 TableName = match.Groups[1].Value,
                 ClassName = className,
@@ -45,7 +45,7 @@ internal sealed class CSharpCodeAnalyzer : ICodeAnalyzer
             references.Add(new CodeReference
             {
                 FilePath = filePath,
-                LineNumber = GetLineNumber(lines, match.Index),
+                LineNumber = GetLineNumber(lineEnds, match.Index),
                 ReferenceType = CodeReferenceType.DbContextConfiguration,
                 TableName = match.Groups[1].Value,
                 SchemaName = match.Groups[2].Success ? match.Groups[2].Value : null,
@@ -61,7 +61,7 @@ internal sealed class CSharpCodeAnalyzer : ICodeAnalyzer
             references.Add(new CodeReference
             {
                 FilePath = filePath,
-                LineNumber = GetLineNumber(lines, match.Index),
+                LineNumber = GetLineNumber(lineEnds, match.Index),
                 ReferenceType = CodeReferenceType.EntityModel,
                 TableName = match.Groups[1].Value,
                 SchemaName = match.Groups[2].Success ? match.Groups[2].Value : null,
@@ -84,7 +84,7 @@ internal sealed class CSharpCodeAnalyzer : ICodeAnalyzer
                 references.Add(new CodeReference
                 {
                     FilePath = filePath,
-                    LineNumber = GetLineNumber(lines, match.Index),
+                    LineNumber = GetLineNumber(lineEnds, match.Index),
                     ReferenceType = CodeReferenceType.DapperQuery,
                     TableName = table.Table,
                     SchemaName = table.Schema,
@@ -109,7 +109,7 @@ internal sealed class CSharpCodeAnalyzer : ICodeAnalyzer
                 references.Add(new CodeReference
                 {
                     FilePath = filePath,
-                    LineNumber = GetLineNumber(lines, match.Index),
+                    LineNumber = GetLineNumber(lineEnds, match.Index),
                     ReferenceType = CodeReferenceType.RawSql,
                     TableName = table.Table,
                     SchemaName = table.Schema,
@@ -127,7 +127,7 @@ internal sealed class CSharpCodeAnalyzer : ICodeAnalyzer
             references.Add(new CodeReference
             {
                 FilePath = filePath,
-                LineNumber = GetLineNumber(lines, match.Index),
+                LineNumber = GetLineNumber(lineEnds, match.Index),
                 ReferenceType = CodeReferenceType.Migration,
                 TableName = match.Groups[2].Value,
                 ClassName = className,
@@ -142,7 +142,7 @@ internal sealed class CSharpCodeAnalyzer : ICodeAnalyzer
             references.Add(new CodeReference
             {
                 FilePath = filePath,
-                LineNumber = GetLineNumber(lines, match.Index),
+                LineNumber = GetLineNumber(lineEnds, match.Index),
                 ReferenceType = CodeReferenceType.ApiEndpoint,
                 ClassName = className,
                 CodeSnippet = match.Value.Trim()
@@ -156,7 +156,7 @@ internal sealed class CSharpCodeAnalyzer : ICodeAnalyzer
             references.Add(new CodeReference
             {
                 FilePath = filePath,
-                LineNumber = GetLineNumber(lines, match.Index),
+                LineNumber = GetLineNumber(lineEnds, match.Index),
                 ReferenceType = CodeReferenceType.ApiEndpoint,
                 ClassName = className,
                 CodeSnippet = match.Value.Trim()
@@ -186,30 +186,62 @@ internal sealed class CSharpCodeAnalyzer : ICodeAnalyzer
 
     private static string? ExtractMethodName(List<(int End, string Name)> methodNames, int position)
     {
-        // The enclosing method is the last declaration that ends before the reference
-        string? name = null;
-        foreach (var method in methodNames)
+        // The enclosing method is the last declaration that ends at or before the reference. The list is in source
+        // order, so its ends only grow: binary search for the first one past the position.
+        var low = 0;
+        var high = methodNames.Count;
+        while (low < high)
         {
-            if (method.End > position)
+            var mid = (low + high) / 2;
+            if (methodNames[mid].End > position)
             {
-                break;
+                high = mid;
             }
-
-            name = method.Name;
+            else
+            {
+                low = mid + 1;
+            }
         }
 
-        return name;
+        return low == 0 ? null : methodNames[low - 1].Name;
     }
 
-    private static int GetLineNumber(string[] lines, int charIndex)
+    // lineEnds[i] is the offset just past line i's '\n' (the last one past the end of the content): the offsets at which a
+    // character index moves on to the next line.
+    private static int[] BuildLineEnds(string content)
     {
-        var count = 0;
-        for (var i = 0; i < lines.Length; i++)
+        var ends = new List<int>();
+        for (var i = 0; i < content.Length; i++)
         {
-            count += lines[i].Length + 1; // +1 for \n
-            if (count > charIndex) return i + 1;
+            if (content[i] == '\n')
+            {
+                ends.Add(i + 1);
+            }
         }
-        return lines.Length;
+
+        ends.Add(content.Length + 1);
+        return [.. ends];
+    }
+
+    private static int GetLineNumber(int[] lineEnds, int charIndex)
+    {
+        // The first line whose end is past the index; an index beyond the content belongs to the last line.
+        var low = 0;
+        var high = lineEnds.Length;
+        while (low < high)
+        {
+            var mid = (low + high) / 2;
+            if (lineEnds[mid] > charIndex)
+            {
+                high = mid;
+            }
+            else
+            {
+                low = mid + 1;
+            }
+        }
+
+        return low < lineEnds.Length ? low + 1 : lineEnds.Length;
     }
 
     private static List<(string? Schema, string Table)> ExtractTableNamesFromSql(string sql)

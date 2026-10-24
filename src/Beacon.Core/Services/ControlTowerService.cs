@@ -14,7 +14,7 @@ internal class ControlTowerService(
     IDbContextFactory<BeaconContext> contextFactory,
     IMemoryCache memoryCache) : IControlTowerService
 {
-    private const string StatisticsCacheKeyPrefix = "ControlTower_Statistics";
+    private static readonly string StatisticsCacheKeyPrefix = BeaconCacheEntries.Key("control-tower-statistics");
     private static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(30);
     private const double GreenThreshold = 90;
     private const double AmberThreshold = 70;
@@ -117,7 +117,7 @@ internal class ControlTowerService(
         CancellationToken cancellationToken)
     {
         // The statistics depend on what the caller may read, so callers share an entry only with the same scope.
-        var cacheKey = $"{StatisticsCacheKeyPrefix}:{request.TimeRangeDays}:{request.FolderId}:{request.DataSourceId}:{request.SearchKeyword}:{request.HasUnresolvedTasks}:{request.HealthStatus}:{ProjectSetFingerprint.Of(request.Readable)}";
+        var cacheKey = StatisticsCacheKey(request);
         if (memoryCache.TryGetValue(cacheKey, out ControlTowerStatistics? cached))
         {
             return cached!;
@@ -218,7 +218,7 @@ internal class ControlTowerService(
             OwnerNotAuthorizedContracts = ownerNotAuthorizedContracts
         };
 
-        memoryCache.Set(cacheKey, statistics, CacheDuration);
+        memoryCache.Set(cacheKey, statistics, BeaconCacheEntries.For(CacheDuration));
         return statistics;
     }
 
@@ -352,6 +352,16 @@ internal class ControlTowerService(
             });
     }
 
+    // The free-text filter enters the key as a fixed-size digest, so a caller's keyword never sets the key's length.
+    internal static string StatisticsCacheKey(GetControlTowerDataRequest request)
+    {
+        var keyword = string.IsNullOrEmpty(request.SearchKeyword)
+            ? ""
+            : Convert.ToHexString(System.Security.Cryptography.SHA256.HashData(System.Text.Encoding.UTF8.GetBytes(request.SearchKeyword)));
+
+        return $"{StatisticsCacheKeyPrefix}:{request.TimeRangeDays}:{request.FolderId}:{request.DataSourceId}:{keyword}:{request.HasUnresolvedTasks}:{request.HealthStatus}:{ProjectSetFingerprint.Of(request.Readable)}";
+    }
+
     private static IQueryable<SubscriptionStatsRow> ApplyFilters(
         IQueryable<SubscriptionStatsRow> source,
         GetControlTowerDataRequest request,
@@ -427,6 +437,8 @@ internal class ControlTowerService(
             return [];
         }
 
+        // The page's subscriptions only, and one latest-row pick per subscription (a single row-number pass, not one
+        // ordered sub-select per column).
         var rows = await context.QueryExecutionHistory
             .Where(x => pageIds.Contains(x.SubscriptionId))
             .GroupBy(x => x.SubscriptionId)
@@ -434,16 +446,24 @@ internal class ControlTowerService(
                 new
                 {
                     SubscriptionId = g.Key,
-                    NotificationStatus = g.OrderByDescending(y => y.CreatedTime).Select(y => y.NotificationStatus).First(),
-                    CreatedTime = g.OrderByDescending(y => y.CreatedTime).Select(y => y.CreatedTime).First(),
-                    ResultCount = g.OrderByDescending(y => y.CreatedTime).Select(y => y.ResultCount).First(),
-                    Comment = g.OrderByDescending(y => y.CreatedTime).Select(y => y.Comment).First()
+                    Latest = g
+                        .OrderByDescending(y => y.CreatedTime)
+                        .ThenByDescending(y => y.Id)
+                        .Select(y =>
+                            new
+                            {
+                                y.NotificationStatus,
+                                y.CreatedTime,
+                                y.ResultCount,
+                                y.Comment
+                            })
+                        .First()
                 })
             .ToListAsync(cancellationToken);
 
         return rows.ToDictionary(
             x => x.SubscriptionId,
-            x => (x.NotificationStatus, x.CreatedTime, x.ResultCount, x.Comment));
+            x => (x.Latest.NotificationStatus, x.Latest.CreatedTime, x.Latest.ResultCount, x.Latest.Comment));
     }
 
     private static async Task<Dictionary<int, List<AnomalySparklinePoint>>> LoadAnomalySparklines(

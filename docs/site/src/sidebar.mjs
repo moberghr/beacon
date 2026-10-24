@@ -123,6 +123,7 @@ export const SECTIONS = [
       { label: 'Background jobs', slug: 'integrate/background-jobs' },
       { label: 'Data-source connectors', slug: 'integrate/connectors' },
       { label: 'AI providers', slug: 'integrate/ai' },
+      { label: 'Embedding saved queries', slug: 'integrate/embedding' },
       { label: 'Extending Beacon', slug: 'integrate/extending' },
       { label: 'Production checklist', slug: 'integrate/production' },
       { label: 'Troubleshooting', slug: 'integrate/troubleshooting' },

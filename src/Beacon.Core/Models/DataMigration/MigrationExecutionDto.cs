@@ -18,4 +18,8 @@ public record MigrationExecutionDto(
     string? ErrorMessage,
     int RetryAttempt,
     bool IsRetry
-);
+)
+{
+    /// <summary>True when the run's job has been archived since; the run stays listed as a record of what it wrote.</summary>
+    public bool JobArchived { get; init; }
+}

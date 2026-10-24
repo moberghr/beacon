@@ -28,12 +28,12 @@ column has a foreign key: an event outlives the user, key or project it names.
 | `CreatedTime` | When the event was recorded (UTC, kept to the microsecond). |
 | `Category`, `Action` | The event family and what happened, named `{category}.{what happened}` in the past tense; see the [catalogue](#event-catalogue). |
 | `Outcome` | `success`, `failure` (the attempt did not succeed, such as a wrong password), `refused` (Beacon refused it by rule: local login off, a setup token that does not match, a purge of events that fail verification) or `empty` (there was nothing to act on: a verification that found no event to check, which is not a success). |
-| `ActorKind` | How the actor was authenticated: `user`, `session` (a signed-in session without a stored Beacon user), `api_key`, `mcp_caller`, `system` (Beacon's own background work) or `anonymous`. |
+| `ActorKind` | How the actor was authenticated: `user`, `session` (a signed-in session without a stored Beacon user), `api_key`, `mcp_caller`, `system` (Beacon's own background work), `embed` (an embed grant or token, recorded as the grant's creator) or `anonymous`. |
 | `ActorUserId` | The acting user's `Users.Id` (an API key's owner); `null` for a caller without a stored Beacon user. |
 | `ApiKeyId` | The API key the actor used. |
 | `CallerHash` | For a caller without a Beacon user (a single sign-on subject, a host session, an MCP caller, the name typed at a failed password sign-in): a keyed hash, never the subject or the name itself. For an MCP caller it is the same hash the MCP audit records. |
 | `ProjectId` | The project the action concerns, when it concerns one. |
-| `ResourceType`, `ResourceId` | What was acted on: `user`, `api_key`, `project`, `data_source`, `repository`, `query`, `subscription`, `recipient`, `data_contract`, `migration_job`, `ai_actor`, `ai_actor_plan`, `approval_request`, `change_approval_request`, `task`, `settings`, `learned_pattern`, `documentation_patch`, `eval_case`, `schema_relationship`, `glossary_term`, `documentation_section`, `mcp_audit` or `security_audit`. |
+| `ResourceType`, `ResourceId` | What was acted on: `user`, `api_key`, `project`, `data_source`, `repository`, `query`, `subscription`, `recipient`, `data_contract`, `migration_job`, `ai_actor`, `ai_actor_plan`, `approval_request`, `change_approval_request`, `task`, `settings`, `learned_pattern`, `documentation_patch`, `eval_case`, `schema_relationship`, `glossary_term`, `documentation_section`, `mcp_audit`, `embed_grant` or `security_audit`. |
 | `DetailsJson` | What else the event needs, as a small JSON object of identifiers, counts, flags, codes and keyed digests (below). |
 | `TraceId` | The W3C trace id of the request or job that recorded the event. |
 | `KeyId`, `Hmac` | The integrity key the event was signed with, and the signature; see [Integrity](#integrity-signatures-and-verification). |
@@ -48,6 +48,12 @@ A settings change also carries, for each key it changed and in the order of `cha
 before and after (`beforeDigests`, `afterDigests`: 32 hex characters under a key derived from the integrity key; an
 absent value has a digest of its own). The values never go into the event; the digests let an Auditor tell whether the
 settings history still holds the values the event was sealed over; a history row edited later no longer matches.
+
+A glossary term's and a golden case's events carry their grounding text the same way: `contentFields` names the text
+fields (a term's `term`, `synonyms`, `definition`, `targetSchema`, `targetTable`, `targetColumn` and `metricExpression`;
+a case's `question` and `goldSql`), and `beforeDigests` / `afterDigests` hold a keyed digest of each one's stored text in
+that order: before and after an edit, after a creation or a promotion, before a deletion. The text never goes into the
+event; the digests show which field an edit changed. A digest is keyed: only a holder of the integrity key can check a disclosed text against it, and digests made under different keys do not compare.
 
 ### What is never stored
 
@@ -81,7 +87,7 @@ Every action belongs to one category, the part of its name before the dot.
 |---|---|
 | `auth.password_sign_in_succeeded` | A password sign-in issued a session. |
 | `auth.password_sign_in_failed` | A password sign-in did not succeed (`failure`); names the user the sign-in name resolved to, when it did, and the attempt by a keyed hash of the name typed. |
-| `auth.password_sign_in_refused` | A password sign-in refused by rule (`refused`): local login is off and the account is no break-glass account (`local_login_off`), or the password was right but an administrator set it and the user must choose a new one first (`password_change_required`). |
+| `auth.password_sign_in_refused` | A password sign-in refused by rule (`refused`): local login is off and the account is no break-glass account (`local_login_off`), or the password was right but an administrator set it and the user must choose a new one first (`password_change_required`), or the user is locked out after too many wrong passwords, whatever password was sent (`locked_out`). |
 | `auth.break_glass_signed_in` | A break-glass account signed in with its password while local login is off. |
 | `auth.signed_out` | A session signed out. |
 | `auth.signed_out_everywhere` | Every session of a user was ended (**Sign out everywhere**, by the user or an administrator). |
@@ -89,6 +95,7 @@ Every action belongs to one category, the part of its name before the dot.
 | `auth.sso_signed_in` | A single sign-on was admitted. |
 | `auth.sso_refused` | A single sign-on was refused, with the reason; the subject only as its keyed hash. |
 | `auth.setup_token_refused` | First-run setup was attempted with a setup token that does not match. |
+| `auth.user_locked_out` | An internal user's password sign-in was locked after too many wrong passwords in a row (`Beacon:RateLimits:Lockout`); names the user, with the number of attempts, the lockout length in minutes and when it ends. |
 
 **Identity** (`identity`)
 
@@ -111,7 +118,9 @@ Every action belongs to one category, the part of its name before the dot.
 **Project access** (`access`): `access.project_created`, `access.member_added`, `access.member_role_changed`,
 `access.member_removed`, `access.access_mode_changed` (a project opened or restricted), `access.data_sources_linked`,
 `access.data_source_unlinked`, `access.repository_token_changed` (whether a token is now set, never the token),
-`access.repository_scan_requested`. Events recorded before dashboards were removed keep their
+`access.repository_scan_requested`, `access.repository_scan_ran` (a background scan ended: its task, the ids of the
+repositories it scanned and how many failed, were partial or were not scanned; `refused` with the reason when the task
+was skipped). Events recorded before dashboards were removed keep their
 `access.dashboard_shared` and `access.dashboard_share_revoked` actions and the `dashboard` resource type, and the page
 still filters by them. The project-access log events (`ProjectAccessEvents`, 7101 onwards) are still written
 as before; refused and hidden reads of a project (7108, 7109) and skipped scheduled work (7111) stay on the log only, for
@@ -146,7 +155,9 @@ migration jobs, Custom SQL rules, recipients, data-source connections and the LL
 submission supersedes);
 `approvals.ai_plan_submitted`, `approvals.ai_plan_approved`, `approvals.ai_plan_rejected` and
 `approvals.ai_plan_revision_requested` (AI actor plans); `approvals.ai_actor_created` (an AI actor created, with its
-data source and whether its changes wait for approval).
+data source and whether its changes wait for approval); `approvals.ai_actor_think_started` (an on-demand think cycle
+accepted as a background task, with the task id); `approvals.ai_actor_archived` (an AI actor archived; archiving one
+already archived changes and records nothing).
 
 **Ownership** (`ownership`): `ownership.owner_changed`: the owner of a subscription, data contract or AI actor changed,
 with the previous and the new owner as `Users.Id`. Setting the owner a resource already has changes nothing and records
@@ -160,17 +171,34 @@ nothing.
 `curation.golden_case_edited`, `curation.relationship_created`, `curation.relationship_verified`,
 `curation.relationship_unverified`, `curation.relationship_edited`, `curation.relationship_deleted`,
 `curation.grounding_rechecked` (a run of the grounding recheck, with what it checked and refused),
-`curation.glossary_term_created`, `curation.glossary_term_updated`, `curation.glossary_term_deleted` and
-`curation.documentation_section_edited`.
+`curation.glossary_term_created`, `curation.glossary_term_updated`, `curation.glossary_term_deleted`,
+`curation.documentation_section_edited`, `curation.documentation_generation_started` (a documentation regeneration someone
+started, with its task id) and `curation.documentation_generated` (a documentation generation finished, on the project, by
+the user who started it or the `system` actor: the new documentation's id, its section count, how many curated sections it
+kept and how many sections failed to generate).
 
 **Data quality** (`data_quality`): `data_quality.contract_created`, `data_quality.contract_updated`,
 `data_quality.contract_archived` and `data_quality.contract_evaluated` (an evaluation someone started; scheduled
 evaluations are not recorded).
 
-**Data migrations** (`migrations`): `migrations.job_created`, `migrations.job_deleted`, `migrations.job_started` (a run
+**Data migrations** (`migrations`): `migrations.job_created`, `migrations.job_deleted`, `migrations.job_run_requested`
+(a run started as a background task, with its task id and where the caller's MigrationOperator permission came from:
+`role` or `idp`), `migrations.job_started` (a run
 began (by the caller, or the `system` actor for a scheduled run), recorded before it touches a data source, with the
 execution id and the source and destination data sources) and `migrations.job_run_ended` (`success`, `failure` with the
-row counts, or `refused` before it started, with the reason: `not_approved`, `write_target_refused`).
+row counts, or `refused` before it started, with the reason: `not_approved`, `write_target_refused`, `run_in_progress`,
+or for a background run task, with its task id, `forbidden` or `abandoned`).
+
+**Embedding** (`embed`): `embed.grant_created` (with the project, query and version ids, the number of origins and
+locked parameters and the days until it expires; never an origin or a parameter value) and `embed.grant_revoked`.
+Revoking a revoked grant records nothing. `embed.token_issued` (a grant secret exchanged for a token, with its lifetime
+in seconds), `embed.token_refused` (outcome `refused`, the `embed` actor never set: an embed credential that was presented
+and refused, with the reason `expired`, `invalid_signature`, `revoked`, `grant_expired`, `superseded`, `unknown` or
+`origin`, and the grant when the credential named one; a request from another origin that carries no credential is
+refused without an event; at most 600 a minute are recorded, and a client past its refusal budget is answered 429 without
+one) and `embed.query_rendered` (each render of a grant's query, with the query and version ids, the row count and whether
+the rows were cut at the cap; outcome `failure` with the reason `render_failed` (also when the run throws), `busy` (no
+render slot free; within the same 600-a-minute cap as refusals) or `unrunnable`, or `refused` with `parameters`). None carries a token, a secret, an origin, a parameter value or SQL.
 
 **The audit itself** (`audit`): `audit.read` (every read of the trail, with the filters' shape and the page),
 `audit.verified` (every verification, with its counts; outcome `failure` when an event failed, `empty` when nothing was
@@ -289,6 +317,8 @@ forged event is found within the schedule's period without anyone asking:
   committed). Kept in your SIEM, the checkpoints anchor the trail outside the database: an event deleted later leaves a
   gap below a checkpoint that once covered it, and an id passed as never committed is named there.
 - A run that checked events records them as a `system` `audit.verified` event, which is the next run's starting point.
+- Each run then verifies the [MCP audit](#the-mcp-audit-rows) rows written since its own last run, so the one job covers
+  both.
 
 The sample host schedules it hourly as the Warp recurring job `security-audit-verify` (`15 * * * *`,
 `VerifySecurityAuditEventsJob` in `Beacon.SampleProject/Warp/Jobs/McpMaintenanceJobs.cs`). **A host embedding Beacon
@@ -371,6 +401,46 @@ await recurringJobPublisher.AddOrUpdateRecurringJob(new PurgeExpiredSecurityAudi
 
 or by calling `ISecurityAuditRetentionService.PurgeExpiredAsync(cancellationToken)` from its own scheduler.
 
+## The execution log
+
+Besides the trail, Beacon keeps an **execution log** (`manual_query_execution_logs`) of the statements it runs on a data
+source for its own features: every statement of a query preview, a query run (from the editor, an AI actor's check, a
+migration's read), a subscription run and a column value sample, every documentation enum discovery statement and every
+data contract rule. (MCP calls have their own [audit](/mcp/observability-and-audit/).)
+
+- **Written before the statement is sent.** Each statement gets a row with `status = Started` (its SQL as sent, without
+  parameter values, the data source and what ran it) before it reaches the data source, and the row is closed when it
+  ends: `Succeeded` (with its row count), `Failed` (with the database's error redacted as it is with PII detection on,
+  whatever the caller's PII setting, so no quoted value is kept; a host data source's generic text as it is), `Cancelled`
+  (the caller stopped it) or `TimedOut` (its statement timeout, on every path), and `completed_time`. A statement the
+  gate refuses never runs and has no row.
+- **Abandoned rows.** A row still `Started` longer than `Beacon:Query:StatementTimeoutSeconds` plus 10 minutes is a
+  statement whose end was never recorded (the process stopped, the log store failed): the read and the export show it as
+  `Abandoned`, and `status=Abandoned` filters for it (nothing is written; the stored status stays `Started`).
+- **Who it ran for.** `triggered_by_user_id` is the `Users.Id` the statement ran for: the request's caller, or the owner
+  scheduled work runs as; null for work the system does on its own. Subscription runs record the same id on their run
+  history (`query_execution_history.triggered_by_user_id`).
+- **Fail-open by default.** A statement whose `Started` row cannot be written still runs, and a Warning is logged. Set
+  `Beacon:Audit:ExecutionLog:Required: true` to refuse such a statement instead (its caller gets an error); with it on,
+  the host fails to start when no execution log (`ISqlExecutionAudit`) is registered. The end of a statement that ran is
+  recorded whatever the caller's cancellation, and never in place of its result.
+- **Read and export.** `GET /beacon/api/execution-log` (paged, newest first) and `GET /beacon/api/execution-log/export`
+  (CSV, at most 10,000 rows; the `X-Beacon-Truncated` header says when more matched) take `from` and `to` (UTC, at most
+  93 days apart) and optional `dataSourceId`, `triggeredByUserId`, `status` and `executionContext`. Both are an Auditor's
+  or a SecurityAdmin's, list only the data sources the caller may read, and record an `audit.execution_log_read` or
+  `audit.execution_log_exported` event (the filters' shape, the row count) before they return; they fail when the event
+  cannot be written.
+- **Values masked on the way out.** The stored SQL keeps the values written into it (bind values are never stored); the
+  read and the export replace its string literals and numbers with `?` and drop its comments, read with the data
+  source's dialect (every quoted span and number when the source or its dialect is unknown). The export also cuts each
+  statement at 4,000 characters (marked ` [cut]`), and writes a cell that starts with `=`, `+`, `-`, `@`, a tab or a line
+  break with a leading `'`, so a spreadsheet reads it as text.
+- **Retention.** Rows are kept forever unless `Beacon:Audit:ExecutionLog:RetentionDays` is set (greater than zero);
+  schedule `IExecutionLogRetentionService.PurgeExpiredAsync` daily (the sample host's `execution-log-retention` job),
+  which deletes the older rows and logs `Beacon.Audit` event 9111. The log grows with every statement Beacon runs, one row
+  per column value sample of a metadata scan included, so set a retention that fits your storage.
+- **Not sealed.** The execution log is evidence, not signed like the trail.
+
 ## Shipping to a SIEM
 
 Every event is logged at category **`Beacon.Audit`** once the transaction that wrote it has committed; an event whose
@@ -387,6 +457,8 @@ to keep a copy Beacon's database cannot change.
 | 9108 | `SecurityAuditVerificationFailed` | Error | The scheduled verification or the retention purge found stored events that fail verification (or a checkpoint that does). | The counts by verdict, the first failing ids |
 | 9109 | `SecurityAuditCheckpoint` | Information | Each run of the scheduled verification. | `FromEventId`, `MaxEventId`, `Checked`, `Failed`, `LastHmac`, `KeyId`, `NeverCommitted`, `FirstNeverCommittedId`, `LastNeverCommittedId`, `WaitingForEventId` |
 | 9110 | `SecurityAuditPurgeFailed` | Error | The retention purge did not run. | The cutoff, the failure's type and code |
+| 9111 | `McpAuditVerificationFailed` | Error | The scheduled verification found MCP audit rows that fail verification (or an MCP audit checkpoint that does). | The counts by verdict, the first failing row ids |
+| 9112 | `McpAuditCheckpoint` | Information | Each run of the MCP audit verification. | `FromAuditId`, `MaxAuditId`, `Checked`, `Failed`, `Unsealed`, `LastHmac`, `KeyId`, `SealedFromAuditId`, `NeverCommitted`, `WaitingForAuditId` |
 
 Match a log-stream copy to its row by `EventGuid`. The copy holds the same identifiers, codes and digests as the row,
 nothing more.
@@ -412,9 +484,56 @@ disagree.
   the table append-only at the database itself, give Beacon's connection a role that may not update or delete
   `SecurityAuditEvents` rows other than through the purge, or add triggers; that is the host's to configure. A chain of
   signatures across events, which would make a deletion visible inside the trail, is not part of this version.
-- **MCP audit rows are evidence, not sealed.** The [MCP audit](/mcp/observability-and-audit/) rows and their
-  statements carry keyed hashes of their content, but no signature over the row: they record what a call ran, and an
-  edit at the database is not detected. The security audit trail records who read that export.
+- **MCP audit rows are sealed too.** See [The MCP audit rows](#the-mcp-audit-rows): a changed row or statement is found
+  by the next scheduled run, and again later by the rolling re-check; a deleted row that was already checked is found by
+  the row count, one not yet checked only through the checkpoints and the 9100 copies. Rows written before this version
+  are reported as unsealed. The security audit trail records who read that export.
+
+## The MCP audit rows
+
+The [MCP audit](/mcp/observability-and-audit/) rows (`McpAuditLogs`) are sealed the same way as events, with the same
+keys and rotation: each row carries an HMAC-SHA256 (`Hmac`) under a key derived from the current integrity key for the
+MCP audit only, the id of that key (`HmacKeyId`), the version of the field list it covers (`SealVersion`) and a guid of
+its own (`AuditGuid`, unique in the table, so a row cannot be copied into a second one). The seal covers every field of
+the row but its database id, and every statement the row holds (`McpAuditStatements`): a statement changed, removed,
+added or moved to another row fails its row. A row is sealed as it is saved, with what the content retention lock leaves
+of it. Beacon's data context refuses to change or delete a row or a statement, or to add a statement to a row already
+saved; the MCP audit retention purge deletes whole rows by age.
+
+Each run of the scheduled verification (`ISecurityAuditVerificationService.VerifyNewEventsAsync`) then checks the MCP
+audit rows written since the last intact `audit.mcp_audit_verified` checkpoint, by id, with their statements, the same
+way: *intact*, *modified*, *unknown key*, or out of range (a sealed row dated in the future, or older than
+`Beacon:Mcp:Audit:RetentionDays` allows), waiting for a missing id and passing it as never committed after an hour.
+Rows checked by an earlier run are checked again too, 10,000 per run, continuing where the last run stopped and starting
+over at the checkpoint, so a row changed after it was checked is found within one cycle (at an hourly schedule, a table
+of 240,000 rows is re-checked every day). Each run also counts the rows up to its checkpoint (under a retention, those
+dated at least two days inside it, which the purge cannot reach before the next run) and compares the count the last
+run recorded: fewer rows means a checked row was deleted, more that one was written below a checkpoint; both are
+failures. After a pause longer than two days the comparison is skipped once (a Warning). A row deleted before any run
+checked it, or one in the oldest two days of the retention, is not found inside the database: the 9100 copies and the
+checkpoints are the anchor.
+
+Rows written before this version carry no seal and are reported as **unsealed**, never as modified. When the host first
+starts with sealing in place, Beacon records a `system` `audit.mcp_audit_sealing_started` event naming the highest row id
+written before it; rows up to that id (or up to the first intact sealed row, when that is lower) are unsealed. While an
+upgrade rolls out, a node still on the version before writes rows without a seal: those dated, by their own time, within
+a day of that start, and below the first sealed row dated after that day, are unsealed too. Any other row without a seal
+is a row whose seal was removed, and is reported as modified. A row sealed under the next seal version (written by a
+node already on a later version) is reported at Warning as *unknown version*, never as modified; one that stays after
+the upgrade is worth a look. Failures are logged at Error (`Beacon.Audit` 9111) and counted on
+`beacon.security_audit.verification_failures` (tagged `audit.mcp_audit_verified`); every run writes a checkpoint to the
+log stream (9112); a run that read rows records them as a `system` `audit.mcp_audit_verified` event, sealed in this
+trail, which is the next run's starting point.
+
+At startup Beacon warns when its data context runs without the interceptor that seals (`SecurityAuditInterceptor`,
+registered by `UsePostgreSql` / `UseSqlServer`), and when rows exist but no MCP audit verification was recorded for two
+days (the host does not schedule the verification). Beacon does not migrate its schema at startup: while the seal
+columns are missing it logs an Error, and writes each MCP audit row without its seal rather than lose it (a Warning per
+row); those rows are reported as unsealed. Apply the migrations before, or with, the upgrade.
+
+A user deleted at the database, outside Beacon, sets `UserId` to null on that user's MCP audit rows (the foreign key's
+`ON DELETE SET NULL`), which changes sealed rows: they are reported as modified. Beacon itself never deletes a user (a
+removed user is archived); remove users through Beacon, or expect those findings.
 
 ## Table growth
 
@@ -443,6 +562,14 @@ lets a deployment pin the MCP audit's content on. See
 [MCP observability and audit](/mcp/observability-and-audit/).
 
 - **Events start at the upgrade.** Nothing is backfilled: the trail holds the actions taken after the upgrade only.
+- **The execution log writes a row before each statement.** From `AddExecutionLogStatus` (PostgreSQL `20261024210000`,
+  SQL Server `20261024210001`, additive: nullable `status`, `completed_time` and `triggered_by_user_id` on
+  `manual_query_execution_logs` plus an index on `triggered_by_user_id` and `created_time`, and a nullable
+  `triggered_by_user_id` on `query_execution_history`; nothing is backfilled) every statement Beacon runs for its own
+  features is in the [execution log](#the-execution-log), subscription steps, column value samples, enum discovery and
+  data contract rules included, so the table grows faster. Older rows keep a null `status`. A step of a query run is
+  recorded as `QueryStep` (the per-step `QueryStepPreview` rows written after the step are gone; a step preview's own
+  statements are `QueryStepPreview`).
   Earlier actions are only in the logs you kept (the project-access events 7101 onwards, the `Beacon.Audit` events 9100
   onwards), which are written as before.
 - **Existing resources have no attribution.** Queries, subscriptions, recipients, data contracts and migration jobs that
@@ -457,14 +584,18 @@ lets a deployment pin the MCP audit's content on. See
   the events written since its last run and writes a checkpoint to the log stream) and `security-audit-retention`
   (daily; a no-op until `Beacon:Audit:RetentionDays` is set). A host embedding Beacon schedules
   `ISecurityAuditVerificationService.VerifyNewEventsAsync` and `ISecurityAuditRetentionService.PurgeExpiredAsync`
-  itself; nothing is verified on a schedule, and nothing is purged, until it does.
+  itself; nothing is verified on a schedule, and nothing is purged, until it does. The verification also checks the MCP
+  audit rows.
+- **MCP audit rows are sealed.** The migration `AddMcpAuditSeal` adds `AuditGuid`, `SealVersion`, `HmacKeyId` and `Hmac`
+  to `McpAuditLogs` (nullable, no backfill) and a unique index on `AuditGuid`. Rows written before it are reported as
+  unsealed. Upgrade every node within a day: past that, a row without a seal is reported as modified.
 - **Retention needs no action now.** Events are kept forever until you set `Beacon:Audit:RetentionDays` (365 to 36,500
   days). The purge verifies the events it is about to delete first and, while any fails verification, deletes nothing,
   records a refused `audit.purged` event and throws (its job fails): investigate the events it names.
 - **Alert on two counters.** `beacon.security_audit.write_failures` (an event written on its own was not stored, and the
   log stream holds it as 9107 with `Persisted=False`; or a purge did not run, 9110) and
   `beacon.security_audit.verification_failures` (stored events failed verification, 9108). Ship the `Beacon.Audit` events
-  9104 to 9110 to your SIEM; the database stays the source of truth, the 9104 copy is best-effort.
+  9104 to 9112 to your SIEM; the database stays the source of truth, the 9104 copy is best-effort.
 - **Reads of audit data fail closed.** `GET /security-audit`, `POST /security-audit/verify`, `GET /mcp/audit` and
   `GET /users/{id}/owned-resources` are recorded in the trail before they return anything and fail when that record
   cannot be written (so they fail while the database cannot take writes). An identical read by the same actor within 60
@@ -483,8 +614,7 @@ lets a deployment pin the MCP audit's content on. See
   rest), and every audit row keeps a keyed `ContentHash` of its parameters. Review this against your privacy policy:
   switch content retention off for projects that must not keep it, pin it off with `Beacon:Mcp:ForceNoContentRetention`,
   or bound it with `Beacon:Mcp:Audit:RetentionDays`. Under no retention, statements keep their keyed `SqlHash` and no
-  text. Audit rows written before the upgrade have no statements and no content hash. MCP audit rows are evidence but
-  not sealed: they carry no signature.
+  text. Audit rows written before the upgrade have no statements and no content hash.
 - **Audit content can be pinned on.** `Beacon:Mcp:Audit:RequireContent: true` pins `RetainQueryContent` on, globally and
   for every project; a save that switches it off is refused with `409`, an Admin's too, and the MCP Settings page shows
   the switch disabled with the reason. A call whose project settings cannot be read keeps its content under the lock

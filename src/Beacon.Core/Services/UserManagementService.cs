@@ -3,7 +3,9 @@ using System.Diagnostics.CodeAnalysis;
 using System.Security.Cryptography;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Beacon.Core.Authentication;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Helpers;
@@ -22,13 +24,19 @@ internal class UserManagementService(
     TimeProvider timeProvider,
     ISecurityAuditRecorder securityAudit,
     ILogger<UserManagementService>? logger = null,
-    SessionStampExpectation? stampExpectation = null) : IUserManagementService
+    SessionStampExpectation? stampExpectation = null,
+    IOptions<RateLimitOptions>? rateLimits = null,
+    ChangeApprovals.AdminRoleGrantApproval? adminRoleGrants = null) : IUserManagementService
 {
     private const string InvalidCredentials = "Invalid username or password.";
+    private const string CurrentPasswordIncorrect = "Current password is incorrect.";
     private const string NewPasswordRequired = "Your password was set by an administrator. Choose a new password to finish signing in.";
 
+    private const string AdminGrantNotReviewable =
+        "The Admin role cannot be granted here while the approval workflow reviews its grants: set the user's roles, which submits the grant for approval.";
+
     // A well-formed credential no password matches: verifying against it costs what a real verification costs.
-    private static readonly string DummyPasswordHash = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
+    private static readonly string DummyPasswordHash = PasswordHasher.UnmatchableHash();
     private static readonly string DummyPasswordSalt = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32));
 
     // "No super admin has EVER existed": an archived super admin counts, so archiving it never reopens first-run setup,
@@ -51,7 +59,18 @@ internal class UserManagementService(
 
     public async Task<BeaconUserData> CreateSuperAdminAsync(CreateSuperAdminRequest request, CancellationToken ct = default)
     {
+        var userName = UserAccountFields.Trimmed(request.UserName);
+        var email = UserAccountFields.TrimmedEmail(request.Email);
+        if (UserAccountFields.Problem(userName, email) is { } invalidAccount)
+        {
+            throw new BeaconException(invalidAccount);
+        }
+
         ValidatePassword(request.Password);
+        if (!string.Equals(request.Password, request.ConfirmPassword, StringComparison.Ordinal))
+        {
+            throw new BeaconException("Passwords do not match.");
+        }
 
         // Seeded on its own connection before the transaction below, so the serializable unit stays
         // read-super-admins-then-insert. Two concurrent first-run requests may both try to seed: the loser's unique
@@ -103,9 +122,9 @@ internal class UserManagementService(
             var user = new BeaconUser
             {
                 ExternalId = Guid.NewGuid().ToString(),
-                UserName = request.UserName,
-                Email = request.Email,
-                DisplayName = request.DisplayName ?? request.UserName,
+                UserName = userName,
+                Email = email,
+                DisplayName = request.DisplayName ?? userName,
                 IsInternalUser = true,
                 PasswordHash = hash,
                 PasswordSalt = salt,
@@ -385,6 +404,11 @@ internal class UserManagementService(
             return new BaseResponse { Success = false, Message = "Internal user creation is disabled." };
         }
 
+        if (UserAccountFields.Problem(request.UserName, request.Email) is { } invalidAccount)
+        {
+            return new BaseResponse { Success = false, Message = invalidAccount };
+        }
+
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
         // Check for duplicate username
@@ -407,14 +431,23 @@ internal class UserManagementService(
 
         // Filter the requested roles to those that actually exist before staging,
         // so the user + UserRoles commit together in a single SaveChanges (§5.7).
-        var validRoleIds = await context.Roles
-            .Where(r => request.RoleIds.Contains(r.Id))
-            .Select(r => r.Id)
-            .ToListAsync(ct);
-
-        var user = new BeaconUser
+        var validRoles = await NewUserRolesAsync(context, request.RoleIds, ct);
+        var adminGrant = GovernedAdminGrant(validRoles);
+        if (adminGrant != null && adminRoleGrants == null)
         {
-            ExternalId = Guid.NewGuid().ToString(),
+            return new BaseResponse { Success = false, Message = AdminGrantNotReviewable };
+        }
+
+        var requester = adminGrant == null ? null : await adminRoleGrants!.RequesterAsync(null, ct);
+        var validRoleIds = validRoles
+            .Where(x => x.Id != adminGrant)
+            .Select(x => x.Id)
+            .ToList();
+
+        var externalId = Guid.NewGuid().ToString();
+        BeaconUser NewUser() => new()
+        {
+            ExternalId = externalId,
             UserName = request.UserName,
             Email = request.Email,
             DisplayName = request.DisplayName ?? request.UserName,
@@ -436,6 +469,14 @@ internal class UserManagementService(
                 .ToList(),
         };
 
+        if (requester != null)
+        {
+            await CreateWithAdminGrantAsync(context, NewUser, true, validRoleIds, requester, adminGrant!.Value, ct);
+
+            return new BaseResponse { Success = true, Message = "User created successfully. " + ChangeApprovals.AdminRoleGrantApproval.GrantWaitsMessage };
+        }
+
+        var user = NewUser();
         context.Users.Add(user);
         await securityAudit.SaveWithEventsAsync(context, () => [UserCreated(user.Id, true, validRoleIds)], ct);
 
@@ -554,6 +595,18 @@ internal class UserManagementService(
                 ?? throw new BeaconException($"Default role '{defaultRoleName}' does not exist.");
         }
 
+        // While the workflow reviews grants of the Admin role, nobody gets it by signing in: the user is provisioned with no
+        // role, never with one nobody approved.
+        if (defaultRole != null
+            && ChangeApprovals.AdminRoleGrantApproval.IsAdminRole(defaultRole.Name)
+            && configuration.ApprovalWorkflow.Covers(Data.Enums.ChangeApprovalKind.AdminRoleGrant))
+        {
+            logger?.LogWarning(
+                "A user provisioned at a first sign-in is given no role: the default role is the Admin role, whose grants the approval workflow reviews ({Option}). Configure a default role that is not Admin",
+                nameof(BeaconConfiguration.ApprovalWorkflow) + "." + nameof(ApprovalWorkflowOptions.CoversAdminRoleGrants));
+            defaultRole = null;
+        }
+
         // Stage the default role on the navigation collection so the user and
         // the UserRole commit together in a single SaveChanges (§5.7). No assigner is recorded: Beacon grants the configured
         // default role itself, at the user's first sign-in, not a person.
@@ -625,6 +678,11 @@ internal class UserManagementService(
 
     public async Task<BaseResponse> CreateExternalUserAsync(CreateExternalUserRequest request, CancellationToken ct = default)
     {
+        if (UserAccountFields.Problem(request.UserName, request.Email) is { } invalidAccount)
+        {
+            return new BaseResponse { Success = false, Message = invalidAccount };
+        }
+
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
         // Check for duplicate external ID
@@ -641,12 +699,20 @@ internal class UserManagementService(
 
         // Filter the requested roles to those that actually exist before staging,
         // so the user + UserRoles commit together in a single SaveChanges (§5.7).
-        var validRoleIds = await context.Roles
-            .Where(r => request.RoleIds.Contains(r.Id))
-            .Select(r => r.Id)
-            .ToListAsync(ct);
+        var validRoles = await NewUserRolesAsync(context, request.RoleIds, ct);
+        var adminGrant = GovernedAdminGrant(validRoles);
+        if (adminGrant != null && adminRoleGrants == null)
+        {
+            return new BaseResponse { Success = false, Message = AdminGrantNotReviewable };
+        }
 
-        var user = new BeaconUser
+        var requester = adminGrant == null ? null : await adminRoleGrants!.RequesterAsync(null, ct);
+        var validRoleIds = validRoles
+            .Where(x => x.Id != adminGrant)
+            .Select(x => x.Id)
+            .ToList();
+
+        BeaconUser NewUser() => new()
         {
             ExternalId = request.ExternalId,
             UserName = request.UserName,
@@ -665,6 +731,14 @@ internal class UserManagementService(
                 .ToList(),
         };
 
+        if (requester != null)
+        {
+            await CreateWithAdminGrantAsync(context, NewUser, false, validRoleIds, requester, adminGrant!.Value, ct);
+
+            return new BaseResponse { Success = true, Message = "External user pre-registered successfully. " + ChangeApprovals.AdminRoleGrantApproval.GrantWaitsMessage };
+        }
+
+        var user = NewUser();
         context.Users.Add(user);
         await securityAudit.SaveWithEventsAsync(context, () => [UserCreated(user.Id, false, validRoleIds)], ct);
 
@@ -679,6 +753,14 @@ internal class UserManagementService(
             if (user == null)
             {
                 return new GuardedChange(new BaseResponse { Success = false, Message = "User not found." });
+            }
+
+            // Only what changes: an account stored before these rules can be saved again as it is.
+            var invalidAccount = (user.UserName != request.UserName ? UserAccountFields.UserNameProblem(request.UserName) : null)
+                ?? (EmptyAsNull(user.Email) != EmptyAsNull(request.Email) ? UserAccountFields.EmailProblem(request.Email) : null);
+            if (invalidAccount != null)
+            {
+                return new GuardedChange(new BaseResponse { Success = false, Message = invalidAccount });
             }
 
             // Check for duplicate username (if changed)
@@ -713,9 +795,12 @@ internal class UserManagementService(
                 ? await RevokeApiKeysAsync(context, user, ct)
                 : 0;
 
+            // A pending grant of the Admin role was reviewed against how the user signed in: it can no longer be approved.
+            ChangeApprovals.ChangeSubmission? superseded = null;
             if (signsOut)
             {
                 user.SecurityStamp = SecurityStamps.New();
+                superseded = await SupersedeAdminGrantsAsync(context, user.Id, ct);
             }
 
             // Which fields changed, never their values.
@@ -738,7 +823,7 @@ internal class UserManagementService(
 
             await context.SaveChangesAsync(ct);
 
-            return new GuardedChange(new BaseResponse { Success = true, Message = "User updated successfully." });
+            return new GuardedChange(new BaseResponse { Success = true, Message = "User updated successfully." }, Superseded: superseded);
         }, ct);
     }
 
@@ -797,6 +882,7 @@ internal class UserManagementService(
             // Either transition revokes: disabling, and re-enabling too (see RevokeApiKeysAsync), and signs out every session.
             user.IsEnabled = !user.IsEnabled;
             user.SecurityStamp = SecurityStamps.New();
+            var superseded = await SupersedeAdminGrantsAsync(context, user.Id, ct);
             var revokedKeys = await RevokeApiKeysAsync(context, user, ct);
             await securityAudit.StageAsync(
                 context,
@@ -807,11 +893,13 @@ internal class UserManagementService(
 
             await context.SaveChangesAsync(ct);
 
-            return new GuardedChange(new BaseResponse
-            {
-                Success = true,
-                Message = user.IsEnabled ? "User enabled successfully." : "User disabled successfully."
-            });
+            return new GuardedChange(
+                new BaseResponse
+                {
+                    Success = true,
+                    Message = user.IsEnabled ? "User enabled successfully." : "User disabled successfully."
+                },
+                Superseded: superseded);
         }, ct);
     }
 
@@ -829,6 +917,13 @@ internal class UserManagementService(
         if (role == null)
         {
             return new BaseResponse { Success = false, Message = "Role not found." };
+        }
+
+        // Never granted unreviewed: while the workflow reviews grants of the Admin role, this path grants it to nobody.
+        if (ChangeApprovals.AdminRoleGrantApproval.IsAdminRole(role.Name)
+            && configuration.ApprovalWorkflow.Covers(Data.Enums.ChangeApprovalKind.AdminRoleGrant))
+        {
+            return new BaseResponse { Success = false, Message = AdminGrantNotReviewable };
         }
 
         // Check if already assigned
@@ -896,9 +991,19 @@ internal class UserManagementService(
             return new BaseResponse { Success = false, Message = "Cannot change password for external users." };
         }
 
+        // A wrong current password counts toward the lockout like a wrong sign-in, and a locked-out user cannot change the
+        // password either; both answer like a wrong password.
+        var now = timeProvider.GetUtcNow().UtcDateTime;
         if (!passwordHasher.VerifyPassword(currentPassword, user.PasswordHash!, user.PasswordSalt!))
         {
-            return new BaseResponse { Success = false, Message = "Current password is incorrect." };
+            await RecordFailedSignInAsync(context, user, now, ct);
+
+            return new BaseResponse { Success = false, Message = CurrentPasswordIncorrect };
+        }
+
+        if (!await TryClaimSignInAsync(context, user, now, ct))
+        {
+            return new BaseResponse { Success = false, Message = CurrentPasswordIncorrect };
         }
 
         try
@@ -959,6 +1064,9 @@ internal class UserManagementService(
         user.PasswordSalt = salt;
         user.MustChangePassword = true;
         user.SecurityStamp = SecurityStamps.New();
+        user.FailedSignInCount = 0;
+        user.LockoutEndTime = null;
+        user.LastFailedSignInTime = null;
 
         await securityAudit.StageAsync(
             context,
@@ -966,7 +1074,28 @@ internal class UserManagementService(
                 .On(SecurityAuditResources.User, user.Id)
                 .With(new SecurityAuditDetails().Add("mustChangePassword", true)),
             ct);
-        await context.SaveChangesAsync(ct);
+
+        if (adminRoleGrants == null)
+        {
+            await context.SaveChangesAsync(ct);
+
+            return new BaseResponse { Success = true, Message = "Password reset successfully." };
+        }
+
+        // A pending grant of the Admin role was reviewed against the user's old credentials: it is superseded in the same
+        // transaction as the new password.
+        var strategy = context.Database.CreateExecutionStrategy();
+        var superseded = await strategy.ExecuteAsync(async () =>
+        {
+            await using var transaction = await context.Database.BeginTransactionAsync(ct);
+            var outdated = await adminRoleGrants.SupersedePendingAsync(context, user.Id, ct);
+            await context.SaveChangesAsync(false, ct);
+            await transaction.CommitAsync(ct);
+            context.ChangeTracker.AcceptAllChanges();
+
+            return outdated;
+        });
+        await adminRoleGrants.NotifySupersededAsync(superseded, ct);
 
         return new BaseResponse { Success = true, Message = "Password reset successfully." };
     }
@@ -976,22 +1105,28 @@ internal class UserManagementService(
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
         var user = await FindInternalUserAsync(context, username, ct);
-        if (!MaySignIn(user, password, out var refusedByLocalLogin))
+        var now = timeProvider.GetUtcNow().UtcDateTime;
+        var passwordMatches = PasswordMatches(user, password);
+        if (!MaySignIn(user, passwordMatches, out var refusedByLocalLogin))
         {
-            // The user the name resolved to, for the security audit of the attempt (the caller never sees it).
-            return new AuthenticationResult
-            {
-                Success = false,
-                ErrorMessage = InvalidCredentials,
-                BeaconUserId = user?.Id,
-                LocalLoginRefused = refusedByLocalLogin
-            };
+            await RecordFailedSignInAsync(context, passwordMatches ? null : user, now, ct);
+
+            return SignInRefused(user, refusedByLocalLogin, IsLockedOut(user, now));
+        }
+
+        // The lockout is decided after the password check by the statement that clears the count, never by the user as
+        // loaded before it: an attempt that raced a concurrent lock is refused like a wrong password.
+        if (!await TryClaimSignInAsync(context, user, now, ct))
+        {
+            return SignInRefused(user, refusedByLocalLogin: false, lockedOut: true);
         }
 
         if (user.MustChangePassword)
         {
             return PasswordChangeNeeded(NewPasswordRequired, user.Id);
         }
+
+        await UpgradePasswordHashAsync(context, user, password, ct);
 
         user.LastLoginAt = DateTime.UtcNow;
         await context.SaveChangesAsync(ct);
@@ -1011,7 +1146,16 @@ internal class UserManagementService(
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
         var user = await FindInternalUserAsync(context, username, ct);
-        if (!MaySignIn(user, currentPassword, out _) || !user.MustChangePassword)
+        var now = timeProvider.GetUtcNow().UtcDateTime;
+        var passwordMatches = PasswordMatches(user, currentPassword);
+        if (!MaySignIn(user, passwordMatches, out _) || !user.MustChangePassword)
+        {
+            await RecordFailedSignInAsync(context, passwordMatches ? null : user, now, ct);
+
+            return AuthenticationResult.Failed(InvalidCredentials);
+        }
+
+        if (!await TryClaimSignInAsync(context, user, now, ct))
         {
             return AuthenticationResult.Failed(InvalidCredentials);
         }
@@ -1099,6 +1243,20 @@ internal class UserManagementService(
         };
     }
 
+    // A refused password sign-in: the generic answer; the user the name resolved to, for the security audit of the attempt
+    // only (the caller never sees it).
+    private static AuthenticationResult SignInRefused(BeaconUser? user, bool refusedByLocalLogin, bool lockedOut)
+    {
+        return new AuthenticationResult
+        {
+            Success = false,
+            ErrorMessage = InvalidCredentials,
+            BeaconUserId = user?.Id,
+            LocalLoginRefused = refusedByLocalLogin,
+            LockedOut = lockedOut
+        };
+    }
+
     // The right password of a user who must choose a new one first: not signed in; the user named for the security audit
     // of the refused attempt only.
     private static AuthenticationResult PasswordChangeNeeded(string message, int userId)
@@ -1119,16 +1277,20 @@ internal class UserManagementService(
     }
 
     // The password is verified BEFORE the account state is looked at, and against a dummy credential when there is no
-    // account, so neither the answer nor its timing tells an unknown, disabled or (with local login off) non-break-glass
-    // account from a wrong password. Local login is decided by the user name the account is stored with (exact), not by
-    // what was typed (an e-mail address, another casing). A right password refused because local login is off is logged,
-    // with the user's id only.
-    private bool MaySignIn([NotNullWhen(true)] BeaconUser? user, string password, out bool refusedByLocalLogin)
+    // account, so neither the answer nor its timing tells an unknown, disabled, locked-out or (with local login off)
+    // non-break-glass account from a wrong password.
+    private bool PasswordMatches(BeaconUser? user, string password)
     {
-        refusedByLocalLogin = false;
-        var passwordMatches = user is { PasswordHash: not null, PasswordSalt: not null }
+        return user is { PasswordHash: not null, PasswordSalt: not null }
             ? passwordHasher.VerifyPassword(password, user.PasswordHash, user.PasswordSalt)
             : VerifyAgainstDummyCredential(password);
+    }
+
+    // Local login is decided by the user name the account is stored with (exact), not by what was typed (an e-mail
+    // address, another casing). A right password refused because local login is off is logged, with the user's id only.
+    private bool MaySignIn([NotNullWhen(true)] BeaconUser? user, bool passwordMatches, out bool refusedByLocalLogin)
+    {
+        refusedByLocalLogin = false;
         if (user == null || !passwordMatches || !user.IsEnabled || user.ArchivedTime.HasValue)
         {
             return false;
@@ -1149,11 +1311,145 @@ internal class UserManagementService(
         return false;
     }
 
+    // As the user was loaded, for the security audit of a refused attempt only: whether a sign-in may proceed is decided by
+    // TryClaimSignInAsync.
+    private bool IsLockedOut(BeaconUser? user, DateTime now)
+    {
+        return LockoutApplies(user) && user?.LockoutEndTime > now;
+    }
+
+    // A break-glass account (Beacon:UserManagement:LocalLogin) is never locked or counted, so a third party cannot lock
+    // the emergency way in; it stays limited per client address by Beacon:RateLimits:Login.
+    private bool LockoutApplies([NotNullWhen(true)] BeaconUser? user)
+    {
+        return LockoutSettings.IsEnabled
+            && user != null
+            && !configuration.UserManagement.LocalLogin.IsBreakGlass(user.UserName);
+    }
+
+    private LockoutOptions LockoutSettings => rateLimits?.Value.Lockout ?? new LockoutOptions();
+
+    // After the right password: one atomic statement starts the count again only while no lockout holds, and zero rows means
+    // the user is locked out. Deciding here, not from the user loaded before the password check, refuses the attempts that
+    // were in flight when a concurrent one locked the user.
+    private async Task<bool> TryClaimSignInAsync(BeaconContext context, BeaconUser user, DateTime now, CancellationToken ct)
+    {
+        if (!LockoutApplies(user))
+        {
+            return true;
+        }
+
+        var claimed = await context.Users
+            .Where(x => x.Id == user.Id)
+            .Where(x => x.LockoutEndTime == null || x.LockoutEndTime <= now)
+            .ExecuteUpdateAsync(
+                x => x
+                    .SetProperty(y => y.FailedSignInCount, 0)
+                    .SetProperty(y => y.LockoutEndTime, (DateTime?)null)
+                    .SetProperty(y => y.LastFailedSignInTime, (DateTime?)null),
+                ct);
+
+        return claimed > 0;
+    }
+
+    // Every refused password sign-in runs the same two statements, so a wrong password for an existing user costs what
+    // one for an unknown, locked-out, break-glass or refused account costs: the count goes up only for the user a wrong
+    // password was sent for (no row matches otherwise) and only while that user is not locked out; it starts again at one
+    // when the previous wrong password is a lockout duration old. The statement that reaches the threshold locks the user
+    // and starts the count again. Each is one atomic update, so concurrent attempts are all counted and exactly one of
+    // them locks.
+    private async Task RecordFailedSignInAsync(BeaconContext context, BeaconUser? wrongPasswordUser, DateTime now, CancellationToken ct)
+    {
+        var lockout = LockoutSettings;
+        if (!lockout.IsEnabled)
+        {
+            return;
+        }
+
+        var userId = LockoutApplies(wrongPasswordUser) ? wrongPasswordUser.Id : 0;
+        var maxFailedAttempts = lockout.MaxFailedAttempts;
+        var lockedUntil = now.Add(lockout.Duration);
+        var countStartsAgainAt = now.Subtract(lockout.Duration);
+
+        await context.Users
+            .Where(x => x.Id == userId)
+            .Where(x => x.LockoutEndTime == null || x.LockoutEndTime <= now)
+            .ExecuteUpdateAsync(
+                x => x
+                    .SetProperty(
+                        y => y.FailedSignInCount,
+                        y => y.LastFailedSignInTime == null || y.LastFailedSignInTime <= countStartsAgainAt ? 1 : y.FailedSignInCount + 1)
+                    .SetProperty(y => y.LastFailedSignInTime, now),
+                ct);
+
+        var locked = await context.Users
+            .Where(x => x.Id == userId)
+            .Where(x => x.FailedSignInCount >= maxFailedAttempts)
+            .Where(x => x.LockoutEndTime == null || x.LockoutEndTime <= now)
+            .ExecuteUpdateAsync(
+                x => x
+                    .SetProperty(y => y.LockoutEndTime, lockedUntil)
+                    .SetProperty(y => y.FailedSignInCount, 0)
+                    .SetProperty(y => y.LastFailedSignInTime, (DateTime?)null),
+                ct);
+        if (locked == 0)
+        {
+            return;
+        }
+
+        logger?.LogWarning(
+            Authorization.ProjectAccess.ProjectAccessEvents.UserLockedOut,
+            "User {UserId} locked out of password sign-in for {LockoutMinutes} minutes after {FailedAttempts} wrong passwords",
+            userId,
+            lockout.DurationMinutes,
+            maxFailedAttempts);
+
+        // No unit of work to join: the lock is already written by the statement above.
+        await securityAudit.RecordAsync(
+            new SecurityAuditEntry(SecurityAuditActions.UserLockedOut)
+                .On(SecurityAuditResources.User, userId)
+                .By(SecurityAuditActor.Anonymous)
+                .With(new SecurityAuditDetails()
+                    .Add("failedAttempts", maxFailedAttempts)
+                    .Add("lockoutMinutes", lockout.DurationMinutes)
+                    .Add("lockedUntil", lockedUntil)),
+            ct);
+    }
+
     private bool VerifyAgainstDummyCredential(string password)
     {
         passwordHasher.VerifyPassword(password, DummyPasswordHash, DummyPasswordSalt);
 
         return false;
+    }
+
+    // A hash written with weaker parameters is replaced by one of the password just verified, at the current parameters.
+    // The same password, so the user's sessions stay. Written only while the stored credential is still the one verified:
+    // a password changed in the meantime is never replaced by the old one.
+    private async Task UpgradePasswordHashAsync(BeaconContext context, BeaconUser user, string password, CancellationToken ct)
+    {
+        var verifiedHash = user.PasswordHash!;
+        var verifiedSalt = user.PasswordSalt!;
+        if (!passwordHasher.NeedsRehash(verifiedHash))
+        {
+            return;
+        }
+
+        var (hash, salt) = passwordHasher.HashPassword(password);
+        var upgraded = await context.Users
+            .Where(x => x.Id == user.Id)
+            .Where(x => x.PasswordHash == verifiedHash)
+            .Where(x => x.PasswordSalt == verifiedSalt)
+            .ExecuteUpdateAsync(
+                x => x
+                    .SetProperty(y => y.PasswordHash, hash)
+                    .SetProperty(y => y.PasswordSalt, salt),
+                ct);
+
+        if (upgraded > 0)
+        {
+            logger?.LogInformation("The password hash of user {UserId} was upgraded to the current parameters at sign-in", user.Id);
+        }
     }
 
     private void ValidatePassword(string password)
@@ -1218,6 +1514,8 @@ internal class UserManagementService(
             await securityAudit.RecordAsync(result.Refusal, ct);
         }
 
+        await NotifySupersededAdminGrantsAsync(result.Superseded, ct);
+
         return result.Response;
     }
 
@@ -1241,7 +1539,19 @@ internal class UserManagementService(
                 .With(new SecurityAuditDetails().AddCode("attempt", attempt)));
     }
 
-    private sealed record GuardedChange(BaseResponse Response, SecurityAuditEntry? Refusal = null);
+    private sealed record GuardedChange(BaseResponse Response, SecurityAuditEntry? Refusal = null, ChangeApprovals.ChangeSubmission? Superseded = null);
+
+    // The user's security stamp changes in this unit of work: their pending grants of the Admin role are superseded with it.
+    private async Task<ChangeApprovals.ChangeSubmission?> SupersedeAdminGrantsAsync(BeaconContext context, int userId, CancellationToken ct)
+    {
+        return adminRoleGrants == null ? null : await adminRoleGrants.SupersedePendingAsync(context, userId, ct);
+    }
+
+    // After the commit: the requesters of the superseded grants are told.
+    private Task NotifySupersededAdminGrantsAsync(ChangeApprovals.ChangeSubmission? superseded, CancellationToken ct)
+    {
+        return adminRoleGrants?.NotifySupersededAsync(superseded, ct) ?? Task.CompletedTask;
+    }
 
     private async Task<int> RevokeApiKeysAsync(BeaconContext context, BeaconUser user, CancellationToken ct)
     {
@@ -1262,6 +1572,65 @@ internal class UserManagementService(
         return keys.Count;
     }
 
+    private static Task<List<NewUserRole>> NewUserRolesAsync(BeaconContext context, IEnumerable<int> roleIds, CancellationToken ct)
+    {
+        var ids = roleIds.ToList();
+
+        return context.Roles
+            .Where(x => ids.Contains(x.Id))
+            .Select(x => new NewUserRole(x.Id, x.Name))
+            .ToListAsync(ct);
+    }
+
+    // The Admin role among the roles a new user is created with, while the workflow reviews its grants: its id, else null.
+    private int? GovernedAdminGrant(IEnumerable<NewUserRole> roles)
+    {
+        if (!configuration.ApprovalWorkflow.Covers(Data.Enums.ChangeApprovalKind.AdminRoleGrant))
+        {
+            return null;
+        }
+
+        return roles
+            .Where(x => ChangeApprovals.AdminRoleGrantApproval.IsAdminRole(x.Name))
+            .Select(x => (int?)x.Id)
+            .FirstOrDefault();
+    }
+
+    // The new user with its other roles and the request of its Admin role's grant, in one transaction: the user saved first
+    // (the request names its id), then the request with the events. Through the execution strategy; a retry starts from a
+    // clean tracker with a new user object.
+    private async Task CreateWithAdminGrantAsync(
+        BeaconContext context,
+        Func<BeaconUser> newUser,
+        bool isInternalUser,
+        List<int> grantedRoleIds,
+        ChangeApprovals.ChangeRequester requester,
+        int adminRoleId,
+        CancellationToken ct)
+    {
+        var strategy = context.Database.CreateExecutionStrategy();
+        var (userId, submission) = await strategy.ExecuteAsync(async () =>
+        {
+            context.ChangeTracker.Clear();
+            await using var transaction = await context.Database.BeginTransactionAsync(ct);
+
+            var user = newUser();
+            context.Users.Add(user);
+            await context.SaveChangesAsync(ct);
+
+            var submitted = await adminRoleGrants!.SubmitAsync(context, requester, user, adminRoleId, ct);
+            await securityAudit.SaveWithEventsAsync(
+                context,
+                () => [UserCreated(user.Id, isInternalUser, grantedRoleIds), .. ChangeApprovals.ChangeApprovalAuditEntries.Submitted(submitted)],
+                ct);
+            await transaction.CommitAsync(ct);
+
+            return (user.Id, submitted);
+        });
+
+        adminRoleGrants!.LogSubmitted(submission, userId);
+    }
+
     private static SecurityAuditEntry UserCreated(int userId, bool isInternalUser, IReadOnlyCollection<int> roleIds)
     {
         return new SecurityAuditEntry(SecurityAuditActions.UserCreated)
@@ -1279,4 +1648,6 @@ internal class UserManagementService(
                 .Add("addedRoleIds", addedRoleIds)
                 .Add("removedRoleIds", removedRoleIds));
     }
+
+    private sealed record NewUserRole(int Id, string Name);
 }

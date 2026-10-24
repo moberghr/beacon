@@ -1,0 +1,15 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="referrer" content="no-referrer" />
+    <title>Beacon</title>
+  </head>
+  <body>
+    <div id="root"></div>
+    <!-- The embed view only: a separate entry from the app (no sign-in, no sidebar, no session). Served by
+         GET /beacon/embed/{publicId}, which adds the grant's frame marker to the head and a CSP without inline code. -->
+    <script type="module" src="/src/embed/main.tsx"></script>
+  </body>
+</html>

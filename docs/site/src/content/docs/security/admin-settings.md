@@ -30,7 +30,7 @@ While the [approval workflow](/security/approvals/#migration-jobs-custom-sql-rul
 
 | Field | What it does |
 |---|---|
-| **Base URL** | The address Beacon puts in notification links (`{BaseUrl}/notifications/{id}` in Teams, Slack and webhook messages). The UI is served under `/beacon`, so include it: `https://beacon.example.com/beacon` |
+| **Base URL** | The address Beacon puts in notification links (`{BaseUrl}/notifications/{id}` in Teams, Slack and webhook messages). The UI is served under `/beacon`, so include it: `https://beacon.example.com/beacon`. A saved value is an absolute `https` URL without user information or a fragment (plain `http` only for `localhost` or a loopback address while the host runs in Development); anything else answers `400`. A stored value that is not usable leaves the link out of messages. |
 
 ### AI provider
 
@@ -51,7 +51,7 @@ An install that stored the key pair as `accessKey:secretKey` in the API key fiel
 
 **Test connection** sends a tiny request (at most 16 output tokens) with the stored connection and the models on the form, without saving.
 
-Credentials and the Azure endpoint are encrypted at rest with `Beacon:EncryptionKey` and never returned: the page shows only whether each is set. Over the API, `null` for a credential or the endpoint keeps the stored value. The REST API sends enums as integers; configuration takes the names.
+Credentials and the Azure endpoint are encrypted at rest with `Beacon:EncryptionKey` and never returned: the page shows only whether each is set. Over the API, `null` for a credential or the endpoint keeps the stored value. The stored API key (or, for Bedrock, the AWS secret access key) is never sent to a different provider or endpoint: a save or a test that changes the provider or endpoint must carry the key again, or it answers `400` and nothing is saved or sent. The REST API sends enums as integers; configuration takes the names.
 
 ### Rate limits & budget
 

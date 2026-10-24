@@ -1,12 +1,16 @@
+using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Authorization;
+using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
-using Beacon.Core.Services;
+using Beacon.Core.DTOs;
+using Beacon.Core.Helpers;
+using Beacon.Core.Models.Tasks;
 using MediatR;
 
 namespace Beacon.Core.Handlers.Tasks;
 
 internal sealed class GetTaskDetailHandler(
-    ITaskService taskService,
+    IDbContextFactory<BeaconContext> contextFactory,
     IBeaconUserContext userContext,
     IBeaconActorAccessor actorAccessor)
     : IRequestHandler<GetTaskDetailQuery, TaskDetailResult?>
@@ -15,7 +19,7 @@ internal sealed class GetTaskDetailHandler(
     {
         var currentUserId = userContext.IsAuthenticated ? userContext.UserId : null;
 
-        var details = await taskService.GetTaskDetails(request.Id, currentUserId, cancellationToken);
+        var details = await Read(request.Id, currentUserId, cancellationToken);
 
         if (details == null)
         {
@@ -24,6 +28,12 @@ internal sealed class GetTaskDetailHandler(
 
         var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
 
+        return ToResult(details, actor);
+    }
+
+    // The detail as the caller sees it: the assignee's external id is reduced to "assigned" and "assigned to the caller".
+    internal static TaskDetailResult ToResult(TaskDetailsData details, BeaconActor actor)
+    {
         return new TaskDetailResult(
             details.Id,
             details.QueryId,
@@ -53,6 +63,77 @@ internal sealed class GetTaskDetailHandler(
             details.IsWatching,
             details.HasOwner,
             details.OwnerDisplayName);
+    }
+
+    internal async Task<TaskDetailsData?> Read(int taskId, string? currentUserId, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        return await context.QueryTasks
+            .Where(x => x.Id == taskId)
+            .Select(x =>
+                new TaskDetailsData
+                {
+                    Id = x.Id,
+                    Subscription = new SubscriptionSummary(
+                        x.Subscription.Id,
+                        x.Subscription.Query.Name,
+                        null),
+                    LatestResultCount = x.LatestResultCount,
+                    LastNotificationAt = x.LastNotificationAt,
+                    NotificationCount = x.Notifications.Count,
+                    // The notifications' stored result rows are not part of a task's detail.
+                    Notifications = x.Notifications
+                        .OrderByDescending(y => y.SentAt)
+                        .Select(y =>
+                            new NotificationSummary(
+                                y.Id,
+                                y.SentAt,
+                                y.QueryExecutionHistory.ResultCount))
+                        .ToList(),
+                    CreatedAt = x.CreatedTime,
+                    Resolved = x.Resolved,
+                    ResolvedAt = x.ResolvedAt,
+                    ResolvedByUserId = x.ResolvedByUserId,
+                    // Named by display name or "User {id}", never by user name.
+                    ResolvedByUserName = x.ResolvedByUserId == null
+                        ? null
+                        : context.Users
+                            .Where(y => y.ExternalId == x.ResolvedByUserId)
+                            .Select(UserLabel.OfUser)
+                            .FirstOrDefault(),
+                    ResolutionNotes = x.ResolutionNotes,
+                    QueryId = x.Subscription.QueryId,
+                    QueryName = x.Subscription.Query.Name,
+                    AiActorId = x.Subscription.AiActorId,
+                    AiActorName = x.Subscription.AiActor != null ? x.Subscription.AiActor.Name : null,
+                    CronExpression = x.Subscription.CronExpression,
+                    LastExecutionAt = context.QueryExecutionHistory
+                        .Where(y => y.SubscriptionId == x.SubscriptionId)
+                        .OrderByDescending(y => y.CreatedTime)
+                        .Select(y => (DateTime?)y.CreatedTime)
+                        .FirstOrDefault(),
+                    Priority = x.Priority,
+                    AssigneeUserId = x.AssigneeUserId,
+                    AssigneeUserName = x.AssigneeUserId == null
+                        ? null
+                        : context.Users
+                            .Where(y => y.ExternalId == x.AssigneeUserId)
+                            .Select(UserLabel.OfUser)
+                            .FirstOrDefault(),
+                    SnoozedUntil = x.SnoozedUntil,
+                    SlaHours = x.Subscription.SlaHours,
+                    WatcherCount = x.Watchers.Count,
+                    IsWatching = currentUserId != null && x.Watchers.Any(y => y.UserId == currentUserId),
+                    HasOwner = x.Subscription.AiActor != null && x.Subscription.AiActor.CreatedByUserId != null,
+                    OwnerDisplayName = x.Subscription.AiActor != null && x.Subscription.AiActor.CreatedByUserId != null
+                        ? context.Users
+                            .Where(y => y.ExternalId == x.Subscription.AiActor!.CreatedByUserId)
+                            .Select(UserLabel.OfUser)
+                            .FirstOrDefault()
+                        : null
+                })
+            .FirstOrDefaultAsync(cancellationToken);
     }
 }
 
