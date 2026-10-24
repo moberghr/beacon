@@ -40,6 +40,18 @@ namespace Beacon.Tests.Unit;
 /// migrates the Warp schema before it serves), so its wiring is rebuilt here without one (§4.7); the database-free pieces
 /// the sample adds (the user store, the API-key store, the SPA and the Warp dashboard) are stand-ins. These tests pin the
 /// observable behaviour of that pipeline, so a change of how a host wires it must leave them green.
+/// <para>
+/// Not mirrored from <c>Program.cs</c>: <c>UseForwardedHeaders</c>, <c>UseHttpsRedirection</c>, <c>UseStaticFiles</c>,
+/// <c>UseApiExceptionHandler</c> (which the sample runs before the authentication chain), <c>UseAntiforgery</c>,
+/// <c>MapOpenApi</c>, <c>MapBeaconApi</c>, <c>MapLoginEndpoints</c>, <c>MapSetupEndpoints</c>, <c>UseWarpUI</c> and
+/// <c>MapBeaconUi</c>; the Warp dashboard, the SPA and the whoami and sign-in routes are <c>MapGet</c> stand-ins, so the
+/// "spa" and "warp" assertions prove the Beacon middlewares' decisions, not the real dashboard or SPA. Bearer
+/// authentication is disabled here (the sample enables it only when OIDC is configured with a JWKS endpoint), so the
+/// JWT middleware's position for a bearer caller is pinned elsewhere: <c>BeaconAuthenticationScopeTests</c> (a JWT
+/// through <c>UseBeaconAuthentication</c>) and <c>RestBearerUserBindingTests</c>.
+/// <see cref="Program_KeepsTheMirroredCallsInTheOrderThisPipelineUses"/> fails when <c>Program.cs</c> reorders the seven
+/// calls that are mirrored.
+/// </para>
 /// </summary>
 [TestFixture]
 public class SampleHostPipelineTests
@@ -99,7 +111,7 @@ public class SampleHostPipelineTests
     }
 
     [Test]
-    public async Task WarpDashboard_MixedCasePath_IsRedirectedToLogin_NotServedByTheSpaFallback()
+    public async Task WarpDashboard_MixedCasePath_IsRedirectedToLogin()
     {
         await using var host = await PipelineHost.StartAsync();
 
@@ -107,6 +119,32 @@ public class SampleHostPipelineTests
 
         response.StatusCode.Should().Be(HttpStatusCode.Redirect);
         response.Headers.Location!.OriginalString.Should().Be("/beacon/login");
+    }
+
+    [Test]
+    public void Program_KeepsTheMirroredCallsInTheOrderThisPipelineUses()
+    {
+        var code = File.ReadAllLines(SampleProgramPath())
+            .Select(x => x.Trim())
+            .Where(x => !x.StartsWith("//", StringComparison.Ordinal))
+            .ToList();
+        string[] mirrored =
+        [
+            "app.UseMcpResourceMetadataChallenge();",
+            "app.UseBeaconAuthentication();",
+            "app.UseAuthorization();",
+            "app.UseMiddleware<LoginFormAuthMiddleware>(",
+            "app.UseMiddleware<FirstRunSetupMiddleware>(",
+            "app.MapBeaconMcp();",
+            "app.MapMcpDiscovery();"
+        ];
+
+        var positions = mirrored
+            .Select(x => code.FindIndex(y => y.StartsWith(x, StringComparison.Ordinal)))
+            .ToList();
+
+        positions.Should().OnlyContain(x => x >= 0, "every mirrored call is still in Program.cs");
+        positions.Should().BeInAscendingOrder().And.OnlyHaveUniqueItems();
     }
 
     [Test]
@@ -211,9 +249,7 @@ public class SampleHostPipelineTests
 
         var response = await host.SendAsync(HttpMethod.Post, "/beacon/mcp", body: McpBody, apiKey: ExecuteKey);
 
-        response.StatusCode.Should().NotBe(HttpStatusCode.Unauthorized);
-        response.StatusCode.Should().NotBe(HttpStatusCode.Forbidden);
-        response.StatusCode.Should().NotBe(HttpStatusCode.Redirect);
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
     }
 
     [Test]
@@ -247,6 +283,11 @@ public class SampleHostPipelineTests
     {
         return response.Headers.GetValues("Set-Cookie")
             .Single(x => x.StartsWith("Beacon.Auth=", StringComparison.Ordinal));
+    }
+
+    private static string SampleProgramPath()
+    {
+        return Path.Combine(Path.GetDirectoryName(SampleAppSettingsPath())!, "Program.cs");
     }
 
     private static string SampleAppSettingsPath()
