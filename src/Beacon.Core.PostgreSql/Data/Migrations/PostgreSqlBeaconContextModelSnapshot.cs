@@ -2380,6 +2380,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
                     NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
 
+                    b.Property<string>("ContentHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("content_hash");
+
                     b.Property<DateTime>("CreatedTime")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("created_time");
@@ -3730,6 +3735,9 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
                     b.HasIndex("RecipientId")
                         .HasDatabaseName("ix_notifications_recipient_id");
+
+                    b.HasIndex("SentAt")
+                        .HasDatabaseName("ix_notifications_sent_at");
 
                     b.HasIndex("TaskId")
                         .HasDatabaseName("ix_notifications_task_id");
