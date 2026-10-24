@@ -49,6 +49,12 @@ before and after (`beforeDigests`, `afterDigests`: 32 hex characters under a key
 absent value has a digest of its own). The values never go into the event; the digests let an Auditor tell whether the
 settings history still holds the values the event was sealed over; a history row edited later no longer matches.
 
+A glossary term's and a golden case's events carry their grounding text the same way: `contentFields` names the text
+fields (a term's `term`, `synonyms`, `definition`, `targetSchema`, `targetTable`, `targetColumn` and `metricExpression`;
+a case's `question` and `goldSql`), and `beforeDigests` / `afterDigests` hold a keyed digest of each one's stored text in
+that order: before and after an edit, after a creation or a promotion, before a deletion. The text never goes into the
+event; the digests show which field an edit changed. A digest is keyed: only a holder of the integrity key can check a disclosed text against it, and digests made under different keys do not compare.
+
 ### What is never stored
 
 The trail names people by id only and keeps no secret. The details are restricted by construction, not left to care at
@@ -165,9 +171,11 @@ nothing.
 `curation.golden_case_edited`, `curation.relationship_created`, `curation.relationship_verified`,
 `curation.relationship_unverified`, `curation.relationship_edited`, `curation.relationship_deleted`,
 `curation.grounding_rechecked` (a run of the grounding recheck, with what it checked and refused),
-`curation.glossary_term_created`, `curation.glossary_term_updated`, `curation.glossary_term_deleted` and
-`curation.documentation_section_edited` and `curation.documentation_generation_started` (a documentation regeneration someone
-started, with its task id).
+`curation.glossary_term_created`, `curation.glossary_term_updated`, `curation.glossary_term_deleted`,
+`curation.documentation_section_edited`, `curation.documentation_generation_started` (a documentation regeneration someone
+started, with its task id) and `curation.documentation_generated` (a documentation generation finished, on the project, by
+the user who started it or the `system` actor: the new documentation's id, its section count, how many curated sections it
+kept and how many sections failed to generate).
 
 **Data quality** (`data_quality`): `data_quality.contract_created`, `data_quality.contract_updated`,
 `data_quality.contract_archived` and `data_quality.contract_evaluated` (an evaluation someone started; scheduled

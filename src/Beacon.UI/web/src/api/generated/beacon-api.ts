@@ -20882,6 +20882,7 @@ export interface ProjectDocSectionEntry {
   title: string;
   content: string;
   sortOrder: number;
+  editedTime?: Date | null;
 
   [key: string]: any;
 }
@@ -22180,6 +22181,7 @@ export interface UpdateDataSourceBody {
 
 export interface UpdateDocumentationSectionRequest {
   content: string;
+  releaseToGenerated?: boolean;
 
   [key: string]: any;
 }

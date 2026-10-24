@@ -219,6 +219,7 @@ public static class SecurityAuditActions
     public const string GlossaryTermUpdated = "curation.glossary_term_updated";
     public const string GlossaryTermDeleted = "curation.glossary_term_deleted";
     public const string DocumentationSectionEdited = "curation.documentation_section_edited";
+    public const string DocumentationGenerated = "curation.documentation_generated";
     public const string DocumentationGenerationStarted = "curation.documentation_generation_started";
 
     // Data quality

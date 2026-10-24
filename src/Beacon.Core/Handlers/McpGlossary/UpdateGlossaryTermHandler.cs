@@ -11,7 +11,8 @@ namespace Beacon.Core.Handlers.McpGlossary;
 /// Edits a glossary term — its text, synonyms, definition, target column/metric, data-source scope, or
 /// active flag. Only the fields supplied on the command are applied; the rest are left untouched. Throws
 /// (§9.8) when the term does not exist. The next glossary re-index re-embeds the changed text. The edit is recorded in the
-/// security audit with the names of the fields it supplied (never their text) in the same save.
+/// security audit with the names of the fields it supplied and a keyed digest of each text field before and after (never
+/// their text; <see cref="CurationContentAudit"/>) in the same save.
 /// </summary>
 internal sealed class UpdateGlossaryTermHandler(IDbContextFactory<BeaconContext> contextFactory, ISecurityAuditRecorder securityAudit)
     : IRequestHandler<UpdateGlossaryTermCommand>
@@ -37,6 +38,7 @@ internal sealed class UpdateGlossaryTermHandler(IDbContextFactory<BeaconContext>
             throw new InvalidOperationException("Glossary term definition cannot be blank.");
         }
 
+        var before = CurationContentAudit.Of(term);
         if (request.Term != null)
         {
             term.Term = request.Term;
@@ -91,7 +93,10 @@ internal sealed class UpdateGlossaryTermHandler(IDbContextFactory<BeaconContext>
                 .With(new SecurityAuditDetails()
                     .AddCodes("fields", SuppliedFields(request))
                     .Add("dataSourceId", term.DataSourceId)
-                    .Add("isActive", term.IsActive)),
+                    .Add("isActive", term.IsActive)
+                    .AddCodes(CurationContentAudit.FieldsKey, CurationContentAudit.GlossaryFields))
+                .Digesting(CurationContentAudit.BeforeKey, before)
+                .Digesting(CurationContentAudit.AfterKey, CurationContentAudit.Of(term)),
             cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
     }

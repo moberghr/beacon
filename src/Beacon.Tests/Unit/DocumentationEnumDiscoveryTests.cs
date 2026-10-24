@@ -532,6 +532,8 @@ public class DocumentationEnumDiscoveryTests
             shared.Object,
             new QueryGuardrailService(),
             egress ?? TestRowDataEgress.Discarding(),
+            new RecordingSecurityAudit(),
+            Microsoft.Extensions.Options.Options.Create(new Beacon.Core.Configuration.McpDeploymentOptions()),
             logger ?? NullLogger<ProjectDocumentationService>.Instance,
             executionAudit);
     }

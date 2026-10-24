@@ -56,13 +56,18 @@ public class ContractRuleHistoryMigrationTests
         differ.GetDifferences(target, before)
             .Select(Signature)
             .Should().Equal(migration.DownOperations.Select(Signature), "Down removes exactly what Up adds");
-        differ.GetDifferences(target, Initialized(migrations.ModelSnapshot!.Model, initializer).GetRelationalModel())
-            .Should().BeEmpty("the migration's target model is the snapshot");
-        context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
+        // The next migration's own content is pinned by its own tests.
+        var next = MigrationNamed(context, migrations, "_AddDocumentationSectionEdits");
+        Signatures(differ.GetDifferences(target, Initialized(next.TargetModel!, initializer).GetRelationalModel()))
+            .Should().BeEquivalentTo(
+                Signatures(next.UpOperations),
+                "this migration's target model differs from the next one's only by the next migration");
         migrations.Migrations.Keys
             .Order(StringComparer.Ordinal)
-            .Last()
-            .Should().EndWith(Suffix, "it sorts after every earlier migration");
+            .SkipWhile(x => !x.EndsWith(Suffix, StringComparison.Ordinal))
+            .Skip(1)
+            .First()
+            .Should().EndWith("_AddDocumentationSectionEdits", "the next migration sorts right after it");
     }
 
     private static string Signature(MigrationOperation operation)
@@ -73,6 +78,65 @@ public class ContractRuleHistoryMigrationTests
             DropColumnOperation x => $"drop {x.Schema}.{x.Table}.{x.Name}",
             _ => operation.GetType().Name
         };
+    }
+
+    private static List<string> Signatures(IEnumerable<MigrationOperation> operations)
+    {
+        var signatures = new List<string>();
+        foreach (var operation in operations)
+        {
+            switch (operation)
+            {
+                case CreateTableOperation table:
+                    signatures.Add($"create {table.Schema}.{table.Name} pk {table.PrimaryKey?.Name}");
+                    signatures.AddRange(table.Columns.Select(x => $"column {table.Name}.{x.Name} {Signature(x)}"));
+                    signatures.AddRange(table.ForeignKeys.Select(Signature));
+                    signatures.AddRange(table.UniqueConstraints.Select(x => $"unique {x.Name} {table.Name}({string.Join(",", x.Columns)})"));
+                    break;
+                case AddColumnOperation column:
+                    signatures.Add($"add {column.Schema}.{column.Table}.{column.Name} {Signature(column)}");
+                    break;
+                case AddForeignKeyOperation foreignKey:
+                    signatures.Add(Signature(foreignKey));
+                    break;
+                case CreateIndexOperation index:
+                    signatures.Add($"index {index.Name} {index.Schema}.{index.Table}({string.Join(",", index.Columns)}) {index.IsUnique} {index.Filter}");
+                    break;
+                case DropTableOperation table:
+                    signatures.Add($"drop {table.Schema}.{table.Name}");
+                    break;
+                case DropColumnOperation column:
+                    signatures.Add($"drop {column.Schema}.{column.Table}.{column.Name}");
+                    break;
+                case DropForeignKeyOperation foreignKey:
+                    signatures.Add($"drop fk {foreignKey.Name} {foreignKey.Schema}.{foreignKey.Table}");
+                    break;
+                default:
+                    signatures.Add(operation.GetType().Name);
+                    break;
+            }
+        }
+
+        return signatures;
+    }
+
+    // Type, length, unicode, nullability, default, and the identity or value generation the provider records.
+    private static string Signature(ColumnOperation column)
+    {
+        var generation = column.GetAnnotations()
+            .Where(x => x.Name.Contains("ValueGeneration") || x.Name.Contains("Identity"))
+            .OrderBy(x => x.Name, StringComparer.Ordinal)
+            .Select(x => $"{x.Name}={x.Value}");
+
+        return $"{column.ColumnType} len={column.MaxLength} unicode={column.IsUnicode} fixed={column.IsFixedLength} "
+            + $"precision={column.Precision}/{column.Scale} null={column.IsNullable} default={column.DefaultValue} "
+            + $"defaultSql={column.DefaultValueSql} computed={column.ComputedColumnSql} [{string.Join(";", generation)}]";
+    }
+
+    private static string Signature(AddForeignKeyOperation foreignKey)
+    {
+        return $"fk {foreignKey.Name} {foreignKey.Schema}.{foreignKey.Table}({string.Join(",", foreignKey.Columns)}) -> "
+            + $"{foreignKey.PrincipalSchema}.{foreignKey.PrincipalTable}({string.Join(",", foreignKey.PrincipalColumns!)}) {foreignKey.OnDelete}";
     }
 
     private static Migration MigrationNamed(BeaconContext context, IMigrationsAssembly migrations, string suffix)
