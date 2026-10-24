@@ -9,7 +9,7 @@ namespace Beacon.Core.Helpers;
 /// </summary>
 public static partial class SqlTableNameExtractor
 {
-    [GeneratedRegex(@"(?:FROM|JOIN)\s+(?:""?(\w+)""?\.)?""?(\w+)""?", RegexOptions.IgnoreCase)]
+    [GeneratedRegex(@"(?:FROM|JOIN)\s+(?:""?(\w+)""?\.)?""?(\w+)""?", RegexOptions.IgnoreCase, matchTimeoutMilliseconds: 1000)]
     private static partial Regex TableNameRegex();
 
     public static List<string> ExtractTableNames(string sql)

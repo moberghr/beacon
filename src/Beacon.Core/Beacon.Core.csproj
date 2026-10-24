@@ -22,6 +22,8 @@
 		<InternalsVisibleTo Include="Beacon.Api" />
 		<InternalsVisibleTo Include="Beacon.MCP" />
 		<InternalsVisibleTo Include="Beacon.AI" />
+		<InternalsVisibleTo Include="Beacon.Connector.SqlServer" />
+		<InternalsVisibleTo Include="Beacon.Connector.AzureSynapse" />
 		<InternalsVisibleTo Include="Beacon.Tests" />
 		<InternalsVisibleTo Include="Beacon.Core.PostgreSql" />
 		<InternalsVisibleTo Include="Beacon.Core.SqlServer" />

@@ -92,6 +92,27 @@ public class GroundingProjectFilterTests
         other.Select(x => x.DataSourceId).Should().BeEquivalentTo([SharedDataSourceId, OtherProjectsDataSourceId]);
     }
 
+    // The overview of the project's sources is read with one query of each kind, however many sources the project links.
+    [Test]
+    public async Task ProjectDataSources_AreReadWithOneQueryOfEachKind_HoweverManySourcesTheProjectLinks()
+    {
+        var capture = new SqlCapture()
+            .ThenRows([7], [8], [9])
+            .ThenRows([7, "warehouse", 0, 0], [8, "hr", 0, 0], [9, "sales", 0, 0])
+            .ThenRows([7, "public", 2], [9, "sales", 1])
+            .ThenNoRows()
+            .ThenScalar(0)
+            .ThenScalar(false);
+        var service = Service(new UnavailableEmbeddingService(), capture.Factory());
+
+        var sources = await service.GetProjectDataSourcesAsync(CallerProjectId);
+
+        sources.Select(x => (x.DataSourceId, x.Name, x.TableCount)).Should().Equal((7, "warehouse", 2), (8, "hr", 0), (9, "sales", 1));
+        capture.Commands.Should().HaveCount(6);
+        capture.Commands[2].Should().Contain("FROM beacon.database_metadata").And.Contain("GROUP BY");
+        capture.Commands[3].Should().Contain("FROM beacon.data_quality_scores").And.Contain("GROUP BY");
+    }
+
     [Test]
     public async Task CatalogSearch_ReadsTheColumnsOfTheCallersDataSourcesOnly()
     {

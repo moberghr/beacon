@@ -112,7 +112,6 @@ public static class BeaconMcpGatewayServiceCollectionExtensions
             // that makes a holder of the host's admin policy Beacon's administrator on /beacon.
             services.AddBeaconApiAuthorization();
             services.AddAntiforgery(x => x.HeaderName = "X-XSRF-TOKEN");
-            services.AddMemoryCache();
             services.AddScoped<BeaconGatewayAdminDirectory>();
             services.AddScoped<IClaimsTransformation, BeaconGatewayAdminClaimsTransformation>();
             services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, BeaconGatewayAdminStartupCheck>());

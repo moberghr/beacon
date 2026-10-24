@@ -18,11 +18,11 @@ internal static class EncryptionKeyRequirements
     /// <summary>The fewest distinct byte values a key may have; 32 random bytes have about 30.</summary>
     public const int MinimumDistinctByteValues = 16;
 
-    private const string HowToGenerate =
-        "Generate one with `openssl rand -base64 32` and supply it through a secret store or the Beacon__EncryptionKey environment variable.";
+    /// <summary><c>Beacon:EncryptionKey</c>, whose replaced values stay readable through <c>Beacon:PreviousEncryptionKeys</c>.</summary>
+    internal static KeySetting EncryptionKey { get; } = new("Beacon:EncryptionKey", "Beacon__EncryptionKey", KeepsPreviousKeys: true);
 
-    private const string HowToKeepReading =
-        " To keep reading the values encrypted with the key configured now, move that key to Beacon:PreviousEncryptionKeys (decrypt only) and set a new Beacon:EncryptionKey.";
+    /// <summary><c>Beacon:Embed:SigningKey</c>: no previous keys, a replaced key only ends the tokens it signed.</summary>
+    internal static KeySetting EmbedSigningKey { get; } = new("Beacon:Embed:SigningKey", "Beacon__Embed__SigningKey", KeepsPreviousKeys: false);
 
     // SHA-256 (lowercase hex) of the key values the sample host, the README and earlier versions of the documentation
     // printed. They are public, so whatever they encrypt can be read by anyone; kept as digests so the values themselves
@@ -49,45 +49,71 @@ internal static class EncryptionKeyRequirements
     /// <summary>Why <paramref name="key"/> cannot be the encryption key, or null when it can.</summary>
     public static string? Problem(string? key)
     {
-        return Problem(key, PublishedKeys);
+        return Problem(key, PublishedKeys, EncryptionKey);
+    }
+
+    /// <summary>Why <paramref name="key"/> cannot be the key <paramref name="setting"/> names, or null when it can.</summary>
+    internal static string? Problem(string? key, KeySetting setting)
+    {
+        return Problem(key, PublishedKeys, setting);
     }
 
     internal static string? Problem(string? key, IReadOnlySet<string> publishedKeyDigests)
     {
+        return Problem(key, publishedKeyDigests, EncryptionKey);
+    }
+
+    internal static string? Problem(string? key, IReadOnlySet<string> publishedKeyDigests, KeySetting setting)
+    {
+        var name = setting.Name;
+        var howToGenerate =
+            $"Generate one with `openssl rand -base64 32` and supply it through a secret store or the {setting.EnvironmentVariable} environment variable.";
+        var howToKeepReading = setting.KeepsPreviousKeys
+            ? $" To keep reading the values encrypted with the key configured now, move that key to Beacon:PreviousEncryptionKeys (decrypt only) and set a new {name}."
+            : string.Empty;
+
         if (string.IsNullOrWhiteSpace(key))
         {
-            return "Beacon:EncryptionKey must be configured. " + HowToGenerate;
+            return $"{name} must be configured. " + howToGenerate;
         }
 
         if (key.Contains("${", StringComparison.Ordinal))
         {
-            return "Beacon:EncryptionKey contains '${': .NET configuration does not expand placeholders, so the key would be "
-                + "the placeholder text itself. " + HowToGenerate;
+            return $"{name} contains '${{': .NET configuration does not expand placeholders, so the key would be "
+                + "the placeholder text itself. " + howToGenerate;
         }
 
         var value = key.Trim();
         if (publishedKeyDigests.Contains(Digest(value)))
         {
-            return "Beacon:EncryptionKey is a publicly known value (the sample placeholder or a key printed in the "
-                + "documentation), so anything it encrypts can be read by anyone. " + HowToGenerate + HowToKeepReading;
+            return $"{name} is a publicly known value (the sample placeholder or a key printed in the "
+                + "documentation), so anything it protects can be read or forged by anyone. " + howToGenerate + howToKeepReading;
         }
 
         var bytes = new byte[value.Length];
         if (!Convert.TryFromBase64String(value, bytes, out var length) || length < MinimumKeyBytes)
         {
-            return $"Beacon:EncryptionKey must be base64 that decodes to at least {MinimumKeyBytes} random bytes. "
-                + HowToGenerate + HowToKeepReading;
+            return $"{name} must be base64 that decodes to at least {MinimumKeyBytes} random bytes. "
+                + howToGenerate + howToKeepReading;
         }
 
         var decoded = bytes.AsSpan(0, length);
         if (IsPrintableText(decoded) || CountDistinct(decoded) < MinimumDistinctByteValues)
         {
-            return "Beacon:EncryptionKey decodes to bytes that are not random (printable text, or a repeated pattern): "
+            return $"{name} decodes to bytes that are not random (printable text, or a repeated pattern): "
                 + $"it must be base64 of at least {MinimumKeyBytes} random bytes, not a passphrase encoded as base64. "
-                + HowToGenerate + HowToKeepReading;
+                + howToGenerate + howToKeepReading;
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// The decoded bytes of a key <see cref="Problem(string?, KeySetting)"/> accepted; throws for one it would refuse.
+    /// </summary>
+    internal static byte[] Decode(string key)
+    {
+        return Convert.FromBase64String(key.Trim());
     }
 
     internal static string Digest(string value)
@@ -120,3 +146,6 @@ internal static class EncryptionKeyRequirements
         return seen.Count;
     }
 }
+
+/// <summary>A key setting the requirements name in their messages, and whether it has a decrypt-only list of previous keys.</summary>
+internal sealed record KeySetting(string Name, string EnvironmentVariable, bool KeepsPreviousKeys);

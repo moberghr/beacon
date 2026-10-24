@@ -373,49 +373,10 @@ internal sealed class SqlGenerationService(TimeProvider? timeProvider = null, IL
             throw new AiServiceException("The model returned no SQL (empty response).");
         }
 
-        var sql = content.Trim();
-
-        if (sql.Contains("```"))
+        var sql = SqlResponseCleaner.Clean(content, out var foundSql);
+        if (!foundSql)
         {
-            var startIdx = sql.IndexOf("```", StringComparison.Ordinal);
-            var afterFence = sql[(startIdx + 3)..];
-            var newlineIdx = afterFence.IndexOf('\n');
-            if (newlineIdx >= 0)
-            {
-                afterFence = afterFence[(newlineIdx + 1)..];
-            }
-
-            var endIdx = afterFence.IndexOf("```", StringComparison.Ordinal);
-            sql = endIdx >= 0 ? afterFence[..endIdx].Trim() : afterFence.Trim();
-        }
-        else
-        {
-            var keywords = new[] { "SELECT ", "WITH ", "EXPLAIN " };
-            var bestIdx = -1;
-            foreach (var kw in keywords)
-            {
-                var idx = sql.IndexOf(kw, StringComparison.OrdinalIgnoreCase);
-                if (idx >= 0 && (bestIdx < 0 || idx < bestIdx))
-                {
-                    bestIdx = idx;
-                }
-            }
-
-            if (bestIdx < 0)
-            {
-                throw new AiServiceException("The model returned no SQL — the response contains no SELECT, WITH, or EXPLAIN statement.");
-            }
-
-            if (bestIdx > 0)
-            {
-                sql = sql[bestIdx..].Trim();
-            }
-        }
-
-        var lastSemicolon = sql.LastIndexOf(';');
-        if (lastSemicolon >= 0)
-        {
-            sql = sql[..(lastSemicolon + 1)].Trim();
+            throw new AiServiceException("The model returned no SQL — the response contains no SELECT, WITH, or EXPLAIN statement.");
         }
 
         return sql;
