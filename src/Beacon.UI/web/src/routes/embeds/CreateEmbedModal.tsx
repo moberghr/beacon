@@ -74,7 +74,11 @@ export function CreateEmbedModal({ open, onClose }: CreateEmbedModalProps) {
     }
   }, [open]);
 
+  // Never while the create call is in flight: the grant it makes would exist with a secret nobody saw.
+  const closable = !created && !create.isPending;
+
   const handleClose = () => {
+    if (create.isPending) return;
     setCreated(null);
     setCopied(false);
     // Drop the mutation's result too, or the secret would linger in the query client after the dialog closes.
@@ -147,8 +151,8 @@ export function CreateEmbedModal({ open, onClose }: CreateEmbedModalProps) {
           : 'A read-only view of one approved query, framed by the sites you name.'
       }
       size="lg"
-      closeOnBackdrop={!created}
-      closeOnEscape={!created}
+      closeOnBackdrop={closable}
+      closeOnEscape={closable}
       footer={
         created ? (
           <Button type="button" variant="primary" onClick={handleClose}>

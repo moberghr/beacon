@@ -1,9 +1,18 @@
+import { StrictMode } from 'react';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import { http, HttpResponse } from 'msw';
 import { cleanup, render, screen } from '@testing-library/react';
 import { mswServer } from '../../vitest.setup';
 import { EmbedView } from './EmbedView';
-import { EXPIRED_MESSAGE, FRAME_HEADER, FRAME_MARKER_META, readFrameMarker, takeToken } from './embedClient';
+import {
+  EXPIRED_MESSAGE,
+  FRAME_HEADER,
+  FRAME_MARKER_META,
+  expiryNotifier,
+  readFrameMarker,
+  refusalMeansExpired,
+  takeToken,
+} from './embedClient';
 
 /** An unsigned token shaped like Beacon's: the view reads only its `exp`, Beacon verifies the rest. */
 function tokenExpiringIn(seconds: number): string {
@@ -88,7 +97,7 @@ describe('embed page', () => {
     const token = tokenExpiringIn(300);
     const seen = recordRenders({ body: result });
 
-    render(<EmbedView token={token} frameMarker="marker-1" host={null} />);
+    render(<EmbedView token={token} frameMarker="marker-1" />);
 
     expect(await screen.findByText('Orders by region')).toBeInTheDocument();
     expect(seen).toEqual([
@@ -99,7 +108,7 @@ describe('embed page', () => {
   it('renders the columns and rows', async () => {
     recordRenders({ body: result });
 
-    render(<EmbedView token={tokenExpiringIn(300)} frameMarker="marker-1" host={null} />);
+    render(<EmbedView token={tokenExpiringIn(300)} frameMarker="marker-1" />);
 
     expect(await screen.findByRole('columnheader', { name: 'region' })).toBeInTheDocument();
     expect(screen.getAllByRole('columnheader').map(x => x.textContent)).toEqual(['region', 'orders', 'note']);
@@ -112,7 +121,7 @@ describe('embed page', () => {
   it('says where a truncated result was cut', async () => {
     recordRenders({ body: { ...result, truncated: true, maxRows: 2 } });
 
-    render(<EmbedView token={tokenExpiringIn(300)} frameMarker="marker-1" host={null} />);
+    render(<EmbedView token={tokenExpiringIn(300)} frameMarker="marker-1" />);
 
     expect(await screen.findByText('Truncated at 2 rows.')).toBeInTheDocument();
   });
@@ -120,7 +129,7 @@ describe('embed page', () => {
   it('shows an empty table for an empty result', async () => {
     recordRenders({ body: { ...result, rows: [] } });
 
-    render(<EmbedView token={tokenExpiringIn(300)} frameMarker="marker-1" host={null} />);
+    render(<EmbedView token={tokenExpiringIn(300)} frameMarker="marker-1" />);
 
     expect(await screen.findByText('No rows')).toBeInTheDocument();
     expect(screen.getAllByRole('columnheader')).toHaveLength(3);
@@ -128,45 +137,113 @@ describe('embed page', () => {
 
   it('shows the unavailable state and calls nothing without a token', async () => {
     const seen = recordRenders({ body: result });
-    const host = { postMessage: vi.fn() };
+    const onExpired = vi.fn();
 
-    render(<EmbedView token={null} frameMarker="marker-1" host={host} />);
+    render(<EmbedView token={null} frameMarker="marker-1" onExpired={onExpired} />);
 
     expect(screen.getByText('This view is unavailable')).toBeInTheDocument();
     await new Promise(x => setTimeout(x, 20));
     expect(seen).toHaveLength(0);
-    expect(host.postMessage).not.toHaveBeenCalled();
+    expect(onExpired).not.toHaveBeenCalled();
   });
 
   it('calls nothing without the frame marker', async () => {
     const seen = recordRenders({ body: result });
 
-    render(<EmbedView token={tokenExpiringIn(300)} frameMarker={null} host={null} />);
+    render(<EmbedView token={tokenExpiringIn(300)} frameMarker={null} />);
 
     expect(screen.getByText('This view is unavailable')).toBeInTheDocument();
     await new Promise(x => setTimeout(x, 20));
     expect(seen).toHaveLength(0);
   });
 
-  it('tells the host page an expired token has expired, without calling Beacon', async () => {
+  it('asks Beacon even when the viewer clock says the token has expired', async () => {
     const seen = recordRenders({ body: result });
-    const host = { postMessage: vi.fn() };
+    const onExpired = vi.fn();
 
-    render(<EmbedView token={tokenExpiringIn(-5)} frameMarker="marker-1" host={host} />);
+    render(<EmbedView token={tokenExpiringIn(-60)} frameMarker="marker-1" onExpired={onExpired} />);
 
-    expect(await screen.findByText('This view has expired')).toBeInTheDocument();
-    expect(host.postMessage).toHaveBeenCalledWith(EXPIRED_MESSAGE, '*');
-    expect(seen).toHaveLength(0);
+    expect(await screen.findByText('Orders by region')).toBeInTheDocument();
+    expect(seen).toHaveLength(1);
+    expect(onExpired).not.toHaveBeenCalled();
   });
 
-  it('shows the generic unavailable state for a refusal of a live token', async () => {
-    recordRenders({ status: 401 });
-    const host = { postMessage: vi.fn() };
+  it('reads a refusal of a token past its expiry as expired and tells the host page', async () => {
+    const seen = recordRenders({ status: 401 });
+    const onExpired = vi.fn();
 
-    render(<EmbedView token={tokenExpiringIn(300)} frameMarker="marker-1" host={host} />);
+    render(<EmbedView token={tokenExpiringIn(-5)} frameMarker="marker-1" onExpired={onExpired} />);
+
+    expect(await screen.findByText('This view has expired')).toBeInTheDocument();
+    expect(screen.getByText('The page showing it needs to refresh it.')).toBeInTheDocument();
+    expect(screen.queryByText(/reload/i)).not.toBeInTheDocument();
+    expect(seen).toHaveLength(1);
+    expect(onExpired).toHaveBeenCalledTimes(1);
+  });
+
+  it('shows the generic unavailable state for a refusal of a token the viewer clock calls live', async () => {
+    recordRenders({ status: 401 });
+    const onExpired = vi.fn();
+
+    render(<EmbedView token={tokenExpiringIn(300)} frameMarker="marker-1" onExpired={onExpired} />);
 
     expect(await screen.findByText('This view is unavailable')).toBeInTheDocument();
-    expect(host.postMessage).not.toHaveBeenCalled();
+    expect(onExpired).not.toHaveBeenCalled();
+  });
+
+  it('shows the unavailable state for an answer other than a refusal, past expiry too', async () => {
+    recordRenders({ status: 503 });
+    const onExpired = vi.fn();
+
+    render(<EmbedView token={tokenExpiringIn(-5)} frameMarker="marker-1" onExpired={onExpired} />);
+
+    expect(await screen.findByText('This view is unavailable')).toBeInTheDocument();
+    expect(onExpired).not.toHaveBeenCalled();
+  });
+
+  it('reads any refusal after an earlier render of the same token as expired', () => {
+    const live = tokenExpiringIn(300);
+
+    expect(refusalMeansExpired(live, true)).toBe(true);
+    expect(refusalMeansExpired(live, false)).toBe(false);
+    expect(refusalMeansExpired(tokenExpiringIn(-5), false)).toBe(true);
+  });
+
+  it('posts the expiry notice at most once per page load', async () => {
+    recordRenders({ status: 401 });
+    const host = { postMessage: vi.fn() };
+    const notifyExpired = expiryNotifier(host);
+
+    // StrictMode runs every effect twice; a second view on the same page load shares the notifier.
+    render(
+      <StrictMode>
+        <EmbedView token={tokenExpiringIn(-5)} frameMarker="marker-1" onExpired={notifyExpired} />
+      </StrictMode>,
+    );
+    await screen.findByText('This view has expired');
+    notifyExpired();
+
+    expect(host.postMessage).toHaveBeenCalledTimes(1);
+    expect(host.postMessage).toHaveBeenCalledWith(EXPIRED_MESSAGE, '*');
+  });
+
+  it('posts nothing when the view is not framed', () => {
+    expect(() => expiryNotifier(null)()).not.toThrow();
+  });
+
+  it('reads only a row\'s own values and keys repeated column names apart', async () => {
+    const errors = vi.spyOn(console, 'error').mockImplementation(() => {});
+    recordRenders({
+      body: { ...result, columns: ['constructor', 'toString', 'id', 'id'], rows: [{ id: 4 }] },
+    });
+
+    render(<EmbedView token={tokenExpiringIn(300)} frameMarker="marker-1" />);
+
+    await screen.findByRole('columnheader', { name: 'constructor' });
+    const cells = screen.getAllByRole('cell').map(x => x.textContent);
+    expect(cells).toEqual(['—', '—', '4', '4']);
+    expect(screen.getAllByRole('columnheader', { name: 'id' })).toHaveLength(2);
+    expect(errors.mock.calls.flat().join(' ')).not.toMatch(/same key/);
   });
 
   it('keeps nothing in browser storage', async () => {
@@ -176,7 +253,7 @@ describe('embed page', () => {
     const cookiesBefore = document.cookie;
     recordRenders({ body: result });
 
-    render(<EmbedView token={takeToken()} frameMarker="marker-1" host={null} />);
+    render(<EmbedView token={takeToken()} frameMarker="marker-1" />);
 
     await screen.findByText('Orders by region');
     expect(localStorage.length).toBe(0);

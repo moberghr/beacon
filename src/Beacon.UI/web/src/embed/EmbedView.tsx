@@ -1,35 +1,47 @@
-import { useEffect, useState } from 'react';
-import { EXPIRED_MESSAGE, isExpired, renderEmbed, type EmbedRender, type RenderOutcome } from './embedClient';
+import { useEffect, useRef, useState } from 'react';
+import { refusalMeansExpired, renderEmbed, type EmbedRender } from './embedClient';
 
-type ViewState = { kind: 'loading' } | RenderOutcome;
+type ViewState = { kind: 'loading' } | { kind: 'ok'; data: EmbedRender } | { kind: 'expired' } | { kind: 'unavailable' };
 
 interface EmbedViewProps {
   /** The embed token, from the fragment; null when the page was opened without one. */
   token: string | null;
   /** The frame marker of the served page; null when the page was not served by Beacon's embed route. */
   frameMarker: string | null;
-  /** Where the expiry notice goes: the framing page. Null when the view is not framed. */
-  host?: Pick<Window, 'postMessage'> | null;
+  /** Tells the framing page the token has expired; at most once per page load (see `expiryNotifier`). */
+  onExpired?: () => void;
 }
 
-/** A read-only view of one embedded query: its title, columns and rows, from a single render call. */
-export function EmbedView({ token, frameMarker, host = framingWindow() }: EmbedViewProps) {
+/**
+ * A read-only view of one embedded query: its title, columns and rows. With a token and a frame marker it always asks
+ * Beacon, which alone decides whether the token is still valid; the viewer's clock only words a refusal.
+ */
+export function EmbedView({ token, frameMarker, onExpired }: EmbedViewProps) {
   const [state, setState] = useState<ViewState>(() =>
-    token == null || frameMarker == null
-      ? { kind: 'unavailable' }
-      : isExpired(token)
-        ? { kind: 'expired' }
-        : { kind: 'loading' },
+    token == null || frameMarker == null ? { kind: 'unavailable' } : { kind: 'loading' },
   );
+  const renderedBefore = useRef(false);
 
   useEffect(() => {
-    if (state.kind !== 'loading' || token == null || frameMarker == null) {
+    if (token == null || frameMarker == null) {
       return;
     }
 
     const controller = new AbortController();
     renderEmbed(token, frameMarker, controller.signal).then(
-      outcome => setState(outcome),
+      outcome => {
+        if (outcome.kind === 'ok') {
+          renderedBefore.current = true;
+          setState(outcome);
+          return;
+        }
+
+        setState(
+          outcome.kind === 'refused' && refusalMeansExpired(token, renderedBefore.current)
+            ? { kind: 'expired' }
+            : { kind: 'unavailable' },
+        );
+      },
       () => {
         // Aborted: the view is gone.
       },
@@ -41,17 +53,17 @@ export function EmbedView({ token, frameMarker, host = framingWindow() }: EmbedV
 
   useEffect(() => {
     if (state.kind === 'expired') {
-      // Carries nothing but its type, so any framing origin may read it.
-      host?.postMessage(EXPIRED_MESSAGE, '*');
+      onExpired?.();
     }
-  }, [state.kind, host]);
+  }, [state.kind, onExpired]);
 
   if (state.kind === 'loading') {
     return <Notice title="Loading…" />;
   }
 
   if (state.kind === 'expired') {
-    return <Notice title="This view has expired" sub="Reload the page to see it again." />;
+    // The token has left the address, so reloading this frame cannot bring it back: only the page showing it can.
+    return <Notice title="This view has expired" sub="The page showing it needs to refresh it." />;
   }
 
   if (state.kind === 'unavailable') {
@@ -59,10 +71,6 @@ export function EmbedView({ token, frameMarker, host = framingWindow() }: EmbedV
   }
 
   return <ResultTable data={state.data} />;
-}
-
-function framingWindow(): Window | null {
-  return window.parent !== window ? window.parent : null;
 }
 
 function Notice({ title, sub }: { title: string; sub?: string }) {
@@ -74,6 +82,11 @@ function Notice({ title, sub }: { title: string; sub?: string }) {
   );
 }
 
+/** A row's own value of the column; never a property it inherits (`constructor`, `toString`, …). */
+function valueOf(row: Record<string, unknown>, column: string): unknown {
+  return Object.hasOwn(row, column) ? row[column] : null;
+}
+
 function ResultTable({ data }: { data: EmbedRender }) {
   return (
     <div className="flex flex-col gap-2 p-4">
@@ -82,9 +95,10 @@ function ResultTable({ data }: { data: EmbedRender }) {
         <table className="w-full border-collapse text-sm">
           <thead className="bg-surface-2">
             <tr>
-              {data.columns.map(column => (
+              {/* Keyed by position: a result may name two columns alike (SELECT a.id, b.id). */}
+              {data.columns.map((column, index) => (
                 <th
-                  key={column}
+                  key={index}
                   scope="col"
                   className="whitespace-nowrap border-b border-border px-3 py-2 text-left text-xs font-semibold text-text-muted"
                 >
@@ -101,11 +115,11 @@ function ResultTable({ data }: { data: EmbedRender }) {
                 </td>
               </tr>
             ) : (
-              data.rows.map((row, index) => (
-                <tr key={index} className="border-b border-border last:border-b-0">
-                  {data.columns.map(column => (
-                    <td key={column} className="whitespace-nowrap px-3 py-1.5 text-text">
-                      <Cell value={row[column]} />
+              data.rows.map((row, rowIndex) => (
+                <tr key={rowIndex} className="border-b border-border last:border-b-0">
+                  {data.columns.map((column, index) => (
+                    <td key={index} className="whitespace-nowrap px-3 py-1.5 text-text">
+                      <Cell value={valueOf(row, column)} />
                     </td>
                   ))}
                 </tr>

@@ -6,6 +6,9 @@ const webRoot = path.resolve(__dirname, '../..');
 const embedDir = __dirname;
 
 describe('embed bundle', () => {
+  // Every allowed import is React, the shared stylesheet or another file of this folder, which this test reads too, so
+  // nothing reaches the app transitively. The emitted chunk graph (embed-*.js importing only the React chunk) is checked
+  // on the built output by hand; a CI check on wwwroot/beacon/embed.html would need the build before the tests.
   it('imports none of the app: only React and its own modules', () => {
     const sources = fs
       .readdirSync(embedDir)
@@ -14,6 +17,8 @@ describe('embed bundle', () => {
 
     for (const file of sources) {
       const text = fs.readFileSync(path.join(embedDir, file), 'utf8');
+      // A dynamic import() or require() would load code this list never sees.
+      expect(text, file).not.toMatch(/\bimport\s*\(|\brequire\s*\(/);
       const specifiers = [...text.matchAll(/^\s*import\s+(?:[^'";]*?\sfrom\s+)?['"]([^'"]+)['"]/gm)].map(x => x[1]);
       for (const specifier of specifiers) {
         const allowed = ['react', 'react-dom/client', '../index.css'].includes(specifier) || /^\.\/\w+$/.test(specifier);

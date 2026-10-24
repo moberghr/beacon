@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { http, HttpResponse } from 'msw';
+import { vi } from 'vitest';
 import { fireEvent, screen, waitFor } from '@testing-library/react';
 import { mswServer } from '../../../vitest.setup';
 import { renderWithProviders } from '@/test/render';
@@ -138,6 +139,48 @@ describe('CreateEmbedModal', () => {
     fireEvent.click(screen.getByRole('button', { name: 'Create grant' }));
     expect(await screen.findByText('Pick a query with an approved version.')).toBeInTheDocument();
     expect(payloads).toHaveLength(0);
+  });
+
+  it('cannot be closed while the create call is in flight', async () => {
+    let release: () => void = () => {};
+    const answered = new Promise<void>(x => {
+      release = x;
+    });
+    mswServer.use(
+      csrf,
+      queryList,
+      queryDetail(3),
+      http.post('*/beacon/api/embed-grants', async () => {
+        await answered;
+        return HttpResponse.json({
+          id: 11,
+          publicId: '0123456789abcdef0123456789abcdef',
+          secret: 'bge_shown-once',
+          queryVersionId: 30,
+          versionNumber: 3,
+          expiresTime: '2026-11-23T09:00:00Z',
+          allowedOrigins: ['https://portal.example.com'],
+          lockedParameters: ['region'],
+        });
+      }),
+    );
+    const onClose = vi.fn();
+    renderWithProviders(<CreateEmbedModal open onClose={onClose} />);
+
+    await fillForm();
+    fireEvent.click(screen.getByRole('button', { name: 'Create grant' }));
+    await screen.findByRole('button', { name: 'Creating…' });
+
+    fireEvent.keyDown(document, { key: 'Escape' });
+    fireEvent.mouseDown(screen.getByRole('dialog').parentElement!);
+    fireEvent.click(screen.getByRole('button', { name: 'Cancel' }));
+    fireEvent.click(screen.getByRole('button', { name: 'Close dialog' }));
+    expect(onClose).not.toHaveBeenCalled();
+
+    release();
+
+    expect(await screen.findByText('bge_shown-once')).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
   });
 
   it("shows the server's reason when it refuses the grant", async () => {
