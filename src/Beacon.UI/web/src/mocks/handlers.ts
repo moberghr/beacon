@@ -250,6 +250,10 @@ const projectsHandlers = [
   http.post('/beacon/api/projects', () => HttpResponse.json({ projectId: 2, requiresMembership: true }, { status: 201 })),
   http.get('/beacon/api/projects/:id/documentation', () =>
     HttpResponse.json({ latest: null, history: [] })),
+  http.post('/beacon/api/projects/:id/documentation-generations', () =>
+    HttpResponse.json({ taskId: 1, jobId: null, state: 2 }, { status: 202 })),
+  http.get('/beacon/api/projects/:id/documentation-generations/:taskId', () =>
+    HttpResponse.json({ taskId: 1, jobId: null, state: 2, createdTime: iso(0), startedTime: iso(0), finishedTime: iso(0), failureCode: null, warningCount: null })),
   http.get('/beacon/api/projects/:id/members', () =>
     HttpResponse.json(paged([
       {

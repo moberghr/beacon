@@ -115,6 +115,7 @@ public static class ServiceConfiguration
 
         // Project Documentation (living knowledge base)
         services.TryAddTransient<IProjectDocumentationService, ProjectDocumentationService>();
+        services.TryAddEnumerable(ServiceDescriptor.Transient<Beacon.Core.BackgroundTasks.IBackgroundTaskExecutor, DocumentationGenerationTaskExecutor>());
 
         // MCP LLM lesson extractor (LLM-primary schema-correction detection; regex fallback lives in the
         // aggregation service). Queue-backed via DelegatingLlmProvider (§6.1); provider-agnostic (§9.4).

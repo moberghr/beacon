@@ -115,6 +115,7 @@ public class ApiKeyScopeEnforcementTests
         "/beacon/api/projects/documentation/{id:int}/export",
         "/beacon/api/projects/{id:int}",
         "/beacon/api/projects/{id:int}/documentation",
+        "/beacon/api/projects/{id:int}/documentation-generations/{taskId:int}",
         "/beacon/api/projects/{id:int}/imported-documents",
         "/beacon/api/projects/{id:int}/imported-documents/{documentId:int}",
         "/beacon/api/projects/{id:int}/mcp-context",

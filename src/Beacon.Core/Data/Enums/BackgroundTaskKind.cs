@@ -4,5 +4,8 @@ namespace Beacon.Core.Data.Enums;
 public enum BackgroundTaskKind
 {
     /// <summary>A forced re-read of a data source's metadata; the subject is the data source.</summary>
-    MetadataRefresh = 1
+    MetadataRefresh = 1,
+
+    /// <summary>A regeneration of a project's documentation; the subject is the project.</summary>
+    DocumentationGeneration = 5
 }

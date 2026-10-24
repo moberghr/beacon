@@ -10,7 +10,7 @@ import { ProjectMembershipManagement, ProjectRole } from '@/lib/enums';
 import ProjectDetailPage from './ProjectDetailPage';
 
 vi.mock('sonner', () => ({
-  toast: { success: vi.fn(), error: vi.fn() },
+  toast: { success: vi.fn(), error: vi.fn(), warning: vi.fn() },
 }));
 
 function project(overrides: Record<string, unknown> = {}) {
