@@ -612,14 +612,12 @@ public class MetadataRefreshTests
             .ReturnsAsync(Snapshot());
 
         return new RefreshDataSourceMetadataHandler(
-            metadata.Object,
-            Mock.Of<ISchemaRelationshipSyncService>(),
+            new ForcedMetadataRefresh(metadata.Object, Mock.Of<ISchemaRelationshipSyncService>(), NullLogger<ForcedMetadataRefresh>.Instance),
             new ForcedMetadataRefreshCooldown(cache ?? new MemoryCache(new MemoryCacheOptions()), time ?? TimeProvider.System),
             settings ?? new RefreshSettings { CurrentValue = new MetadataRefreshOptions { ForcedRefreshCooldownMinutes = cooldownMinutes } },
             permissions ?? TestPermissions.None,
             new MetadataSampleView(permissions ?? TestPermissions.None, Mock.Of<ISharedSourceSettings>(), new QueryGuardrailService()),
-            audit ?? new RecordingSecurityAudit(),
-            NullLogger<RefreshDataSourceMetadataHandler>.Instance);
+            audit ?? new RecordingSecurityAudit());
     }
 
     private static DatabaseMetadataSnapshot CachedCatalog()

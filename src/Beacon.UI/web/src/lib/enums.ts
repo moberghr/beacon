@@ -12,6 +12,7 @@ export {
   AnomalyDetectionMethod,
   AnomalySensitivity,
   ApprovalStatus,
+  BackgroundTaskState,
   BedrockAuthMode,
   ChangeApprovalKind,
   ChangeSource,

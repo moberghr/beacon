@@ -381,6 +381,11 @@ public static class ServiceConfiguration
             .ValidateOnStart();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.MetadataRefreshOptions>, Configuration.MetadataRefreshOptionsValidator>());
         services.TryAddSingleton<Services.Metadata.ForcedMetadataRefreshCooldown>();
+        services.TryAddTransient<Services.Metadata.ForcedMetadataRefresh>();
+
+        // Long work a caller starts and follows (a background metadata refresh, ...): one executor per task kind.
+        services.TryAddScoped<BackgroundTasks.IBackgroundTaskService, BackgroundTasks.BackgroundTaskService>();
+        services.TryAddEnumerable(ServiceDescriptor.Transient<BackgroundTasks.IBackgroundTaskExecutor, Services.Metadata.MetadataRefreshTaskExecutor>());
 
         // The stored sample values a metadata response carries: an Admin's only.
         services.TryAddTransient<Handlers.DataSources.MetadataSampleView>();

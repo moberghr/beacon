@@ -286,22 +286,35 @@ cannot read the catalog.
 
 ### Refreshing metadata
 
-**Refresh metadata** on a data source (`POST /beacon/api/data-sources/{id}/refresh-metadata`) re-reads its tables and
-columns from the database now. It changes what every project that links the data source sees, so it needs Write in each
-of them, or an Admin; a DataSourceAdmin needs Manage only where it acts (see [Projects and access](#projects-and-access)).
-A [migration write target](#migration-write-targets) has no refresh, because Beacon never reads it.
+**Refresh metadata** on a data source re-reads its tables and columns from the database. It changes what every project
+that links the data source sees, so it needs Write in each of them, or an Admin; a DataSourceAdmin needs Manage only
+where it acts (see [Projects and access](#projects-and-access)). A [migration write target](#migration-write-targets) has
+no refresh, because Beacon never reads it. There are two ways to start one:
+
+- **As a background task** (what the page's button does): `POST /beacon/api/data-sources/{id}/metadata-refreshes`
+  answers `202` at once with `{ taskId, jobId, state }` and a `Location` header. Read its progress with
+  `GET /beacon/api/data-sources/{id}/metadata-refreshes/{taskId}` (`state`: `0` queued, `1` running, `2` succeeded,
+  `3` failed; `failureCode` says why a failed one failed, `warningCount` is the number of names left out), with the
+  same access check. The user who started it also gets `JobStatusChanged` events for `jobId` on the SignalR hub. One
+  refresh of a data source is queued or running at a time; one queued or running for more than an hour is given up
+  (`abandoned`) when the next one starts. The job runs through your host's
+  [`IBeaconScheduler.EnqueueBackgroundTask`](/integrate/background-jobs/); a host that does not implement it runs the
+  refresh in the request, and the `202` then carries the state it finished in.
+- **In the request** (kept for API callers of Beacon 5.0): `POST /beacon/api/data-sources/{id}/refresh-metadata`
+  answers with the refreshed catalog once the scan is done, which holds the request open for as long as the scan takes.
 
 - **Cooldown.** A data source's metadata is force-refreshed at most once per
   `Beacon:Metadata:ForcedRefreshCooldownMinutes` (default `15`; `0` turns the cooldown off; at most `1440`), whoever asks
   (Admins and DataSourceAdmins are not held to it) and from whichever project: the cooldown belongs to the data source.
   A second refresh inside the cooldown, or while one is running, answers `429`. The cooldown counts from the last refresh
-  that succeeded, so a failed refresh can be retried at once. It is kept in memory per Beacon process: on a host running
-  several instances, each instance keeps its own.
+  that succeeded, so a failed refresh can be retried at once. It is kept in memory per Beacon process (for a background
+  refresh, the process whose job ran it): on a host running several instances, each instance keeps its own. A background
+  refresh queued or running anywhere refuses another start on every instance.
 - **Curated descriptions are kept.** A table or column description set by applying a documentation patch stays; every
   other description is taken from the database catalog again (and cleared when the catalog has none).
 - **Names that cannot be quoted safely are left out.** A table or column whose name carries a quote, backtick, bracket,
   semicolon or control character is not stored, because Beacon builds SQL from catalog names. The refresh answers
-  `skippedNameCount` (the page says how many were left out), and the server log lists their names: control characters
+  `skippedNameCount` (a background refresh: `warningCount`; the page says how many were left out), and the server log lists their names: control characters
   written as `\uXXXX`, at most 50 names. A table left out loses its stored description, a curated one included.
 - **Sampling is logged per table.** With sample-value collection on, each table that could not be sampled is logged by
   name with the reason (refused by the execution gate, failed on the data source, timed out, or a name that is not a
