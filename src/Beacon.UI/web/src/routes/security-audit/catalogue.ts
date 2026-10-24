@@ -24,6 +24,7 @@ export const SECURITY_AUDIT_CATEGORIES: readonly SecurityAuditCategory[] = [
       'auth.sso_signed_in',
       'auth.sso_refused',
       'auth.setup_token_refused',
+      'auth.user_locked_out',
     ],
   },
   {
@@ -125,6 +126,8 @@ export const SECURITY_AUDIT_CATEGORIES: readonly SecurityAuditCategory[] = [
       'approvals.ai_plan_rejected',
       'approvals.ai_plan_revision_requested',
       'approvals.ai_actor_created',
+      'approvals.ai_actor_think_started',
+      'approvals.ai_actor_archived',
     ],
   },
   {

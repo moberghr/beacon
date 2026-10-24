@@ -96,6 +96,33 @@ public class AskSqlPipelineTests
         log.CurrentPurpose.Should().BeNull("each purpose ends with its execution");
     }
 
+    // The outcome carries the tables the schema context judged relevant, so a caller (the eval harness) need not build the
+    // same context a second time.
+    [Test]
+    public async Task RunAsync_Outcome_CarriesTheContextsRelevantTables()
+    {
+        _knowledgeGraph
+            .Setup(x => x.GetSmartContextForAskAsync(DataSourceId, ProjectId, It.IsAny<string>(), true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new SmartSchemaContext
+            {
+                FullContext = "schema-context",
+                DatabaseDialect = "PostgreSQL",
+                TotalTableCount = 2,
+                RelevantTables = ["public.sales", "public.customers"]
+            });
+        _sqlGeneration
+            .Setup(x => x.GenerateAsync(It.IsAny<ILlmProvider>(), It.IsAny<string>(), It.IsAny<string>(), _settings, It.IsAny<CancellationToken>(), It.IsAny<decimal?>()))
+            .ReturnsAsync(new SqlGenerationResult(GeneratedSql, ["sales"]));
+        _executor
+            .Setup(x => x.ExecuteAsync(DataSourceId, GeneratedSql, 100, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AskExecutionResult("### Results (3 rows)\n", null, 3, true));
+
+        var outcome = await CreatePipeline().RunAsync(
+            _llmProvider.Object, DataSourceId, ProjectId, Question, _settings, _executor.Object, new AskSqlPipelineOptions(), CancellationToken.None);
+
+        outcome.RelevantTables.Should().Equal("public.sales", "public.customers");
+    }
+
     [TestCase(10, 10)]
     [TestCase(100, 100)]
     [TestCase(5000, 100)]

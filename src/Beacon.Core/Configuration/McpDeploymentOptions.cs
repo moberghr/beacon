@@ -42,15 +42,21 @@ public sealed class McpDeploymentOptions
     public McpAuditOptions Audit { get; set; } = new();
 }
 
-/// <summary>Audit guarantees bound from <c>Beacon:Mcp:Audit</c>. Defaults reproduce today's behaviour.</summary>
+/// <summary>Audit guarantees bound from <c>Beacon:Mcp:Audit</c>.</summary>
 public sealed class McpAuditOptions
 {
     public const string DefaultRequestIdHeader = "X-Request-Id";
 
+    /// <summary>The audit retention recommended where nothing else requires longer: one year. Not a default.</summary>
+    public const int RecommendedRetentionDays = 365;
+
     /// <summary>Fail closed: withhold a tool result whose audit row could not be written.</summary>
     public bool Required { get; set; }
 
-    /// <summary>Days audit rows are kept. <c>null</c> = keep forever; must be greater than zero when set.</summary>
+    /// <summary>
+    /// Days audit rows are kept; <c>null</c> (the default) or <c>0</c> keeps them forever. Older rows are deleted by the MCP
+    /// audit retention job, which the host schedules. <see cref="RecommendedRetentionDays"/> is the recommended window.
+    /// </summary>
     public int? RetentionDays { get; set; }
 
     /// <summary>Upstream correlation header recorded as <c>UpstreamRequestId</c>. <c>null</c>/empty = read none.</summary>
@@ -90,6 +96,12 @@ public sealed class McpCeilingOptions
     public int? MaxResultBytes { get; set; }
     public decimal? MaxExplainCost { get; set; }
     public int? MaxConcurrentQueriesPerKey { get; set; }
+
+    /// <summary>
+    /// The longest learning-signal retention (<c>LearningSignalRetentionDays</c>) a global or project setting may resolve
+    /// to. Under <c>Beacon:Retention:Locked</c> it is at most <c>Beacon:Retention:Days</c>.
+    /// </summary>
+    public int? LearningSignalRetentionDays { get; set; }
 
     /// <summary>Longest SQL text the execution gate evaluates; <c>null</c> = 100 000 characters.</summary>
     public int? MaxSqlChars { get; set; }
@@ -140,6 +152,7 @@ internal sealed class McpDeploymentOptionsValidator : IValidateOptions<McpDeploy
         RequirePositive(failures, nameof(McpCeilingOptions.MaxConcurrentQueriesPerKey), ceilings.MaxConcurrentQueriesPerKey);
         RequirePositive(failures, nameof(McpCeilingOptions.MaxSqlChars), ceilings.MaxSqlChars);
         RequirePositive(failures, nameof(McpCeilingOptions.MaxQuestionChars), ceilings.MaxQuestionChars);
+        RequirePositive(failures, nameof(McpCeilingOptions.LearningSignalRetentionDays), ceilings.LearningSignalRetentionDays);
 
         if (ceilings.AskTimeoutSeconds is <= 0 or > McpCeilingOptions.MaxAskTimeoutSeconds)
         {
@@ -163,9 +176,9 @@ internal sealed class McpDeploymentOptionsValidator : IValidateOptions<McpDeploy
 
         var audit = options.Audit ?? new McpAuditOptions();
 
-        if (audit.RetentionDays is <= 0)
+        if (audit.RetentionDays is < 0)
         {
-            failures.Add($"{McpDeploymentOptions.SectionName}:Audit:{nameof(McpAuditOptions.RetentionDays)} must be greater than zero when set.");
+            failures.Add($"{McpDeploymentOptions.SectionName}:Audit:{nameof(McpAuditOptions.RetentionDays)} must be zero (keep forever) or more.");
         }
 
         if (!string.IsNullOrEmpty(audit.RequestIdHeader) && !IsHeaderToken(audit.RequestIdHeader))

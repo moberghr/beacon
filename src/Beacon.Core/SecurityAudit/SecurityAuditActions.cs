@@ -114,6 +114,7 @@ public static class SecurityAuditActions
     public const string SsoSignedIn = "auth.sso_signed_in";
     public const string SsoRefused = "auth.sso_refused";
     public const string SetupTokenRefused = "auth.setup_token_refused";
+    public const string UserLockedOut = "auth.user_locked_out";
 
     // Identity
     public const string SuperAdminCreated = "identity.super_admin_created";
@@ -188,6 +189,8 @@ public static class SecurityAuditActions
     public const string AiPlanRejected = "approvals.ai_plan_rejected";
     public const string AiPlanRevisionRequested = "approvals.ai_plan_revision_requested";
     public const string AiActorCreated = "approvals.ai_actor_created";
+    public const string AiActorThinkStarted = "approvals.ai_actor_think_started";
+    public const string AiActorArchived = "approvals.ai_actor_archived";
 
     // Ownership
     public const string OwnerChanged = "ownership.owner_changed";

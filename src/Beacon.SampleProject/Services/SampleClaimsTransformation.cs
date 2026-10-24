@@ -14,6 +14,10 @@ namespace Beacon.SampleProject.Services;
 /// </summary>
 public class SampleClaimsTransformation(IUserManagementService userService) : IClaimsTransformation
 {
+    // The transformation is scoped and runs once per authenticate call, which can be several times in one request:
+    // the user store is read once per request and external id, not once per call.
+    private readonly Dictionary<string, string?> rolesByExternalId = [];
+
     public async Task<ClaimsPrincipal> TransformAsync(ClaimsPrincipal principal)
     {
         if (principal.Identity is not ClaimsIdentity identity || !identity.IsAuthenticated)
@@ -39,13 +43,13 @@ public class SampleClaimsTransformation(IUserManagementService userService) : IC
             return principal;
         }
 
-        var user = await userService.GetUserByExternalIdAsync(externalId);
-        if (user == null || !user.IsEnabled)
+        if (!rolesByExternalId.TryGetValue(externalId, out var role))
         {
-            return principal;
+            var user = await userService.GetUserByExternalIdAsync(externalId);
+            role = user is { IsEnabled: true } ? ResolveRole(user) : null;
+            rolesByExternalId[externalId] = role;
         }
 
-        var role = ResolveRole(user);
         if (role != null)
         {
             identity.AddClaim(new Claim(BeaconClaims.Role, role));

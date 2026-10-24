@@ -246,7 +246,10 @@ internal sealed class AskSqlPipeline(
             text += $"**Validation Error:** {validationError}\n";
             return new AskSqlOutcome(initialSql, generatedSql, tables, false, text, null,
                 validationError, null, null, repairs, false, votingNote, assumptions, clarificationHint, [],
-                null, []);
+                null, [])
+            {
+                RelevantTables = smartContext.RelevantTables
+            };
         }
 
         var repairAttempts = 0;
@@ -408,7 +411,8 @@ internal sealed class AskSqlPipeline(
                 null, schemaValidationError, null, repairs, false, votingNote, assumptions, clarificationHint, lintFindings,
                 correctedSql, columnsUsed)
             {
-                UnrepairedFailures = unrepairedFailures
+                UnrepairedFailures = unrepairedFailures,
+                RelevantTables = smartContext.RelevantTables
             };
         }
 
@@ -482,7 +486,8 @@ internal sealed class AskSqlPipeline(
                         null, schemaValidationError, dryRunError, repairs, false, votingNote, assumptions, clarificationHint, lintFindings,
                         retriedSql, columnsUsed)
                     {
-                        UnrepairedFailures = unrepairedFailures
+                        UnrepairedFailures = unrepairedFailures,
+                        RelevantTables = smartContext.RelevantTables
                     };
                 }
             }
@@ -518,7 +523,8 @@ internal sealed class AskSqlPipeline(
                             null, schemaValidationError, dryRunError, repairs, true, votingNote, assumptions, clarificationHint, lintFindings,
                             emptyRetry, columnsUsed)
                         {
-                            UnrepairedFailures = unrepairedFailures
+                            UnrepairedFailures = unrepairedFailures,
+                            RelevantTables = smartContext.RelevantTables
                         };
                     }
 
@@ -550,7 +556,8 @@ internal sealed class AskSqlPipeline(
             null, schemaValidationError, dryRunError, repairs, emptyResultRetried, votingNote, assumptions, clarificationHint, lintFindings,
             correctedSql, columnsUsed)
         {
-            UnrepairedFailures = unrepairedFailures
+            UnrepairedFailures = unrepairedFailures,
+            RelevantTables = smartContext.RelevantTables
         };
     }
 

@@ -41,6 +41,7 @@ public class ProjectAuthorizationCoverageTests
         ["DeleteGlossaryTerm"] = "Admin: glossary curation",
         ["UpdateGlossaryTerm"] = "Admin: glossary curation",
         ["GetEvalResults"] = "Admin: eval curation",
+        ["ListEvalResults"] = "Admin: eval curation",
         ["UpdateGoldenCase"] = "Admin: eval curation",
         ["DeleteMigrationJob"] = "MigrationOperator: data migration",
         ["GetMigrationJob"] = "MigrationOperator: data migration",
