@@ -1,3 +1,4 @@
+using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Http;
 
 namespace Beacon.Api.Authentication;
@@ -7,7 +8,8 @@ namespace Beacon.Api.Authentication;
 /// <see cref="Microsoft.AspNetCore.Authentication.AuthenticateResult.Failure"/> of its scheme. It holds what the caller
 /// is told — never the reason that was logged — and whether the request is answered with it there and then: an API key
 /// always, a bearer token only on an API request (<see cref="BeaconApiRequest"/>), so a page continues anonymously to
-/// the cookie and the login redirect.
+/// the cookie and the login redirect. A scheme handler keeps it on the request (<see cref="Recorded"/>) and answers no
+/// result instead, so the framework does not log every refused credential (Beacon's own logs throttle them).
 /// </summary>
 internal sealed class BeaconCredentialRefusal : Exception
 {
@@ -34,6 +36,22 @@ internal sealed class BeaconCredentialRefusal : Exception
 
     /// <summary>The <c>Retry-After</c> value of the answer, if any.</summary>
     public string? RetryAfter { get; }
+
+    /// <summary>The refusal a scheme handler recorded on this request, if any.</summary>
+    public static BeaconCredentialRefusal? Recorded(HttpContext context) => context.Features.Get<BeaconCredentialRefusal>();
+
+    /// <summary>Keeps the refusal of <paramref name="result"/> on the request and turns it into no result.</summary>
+    public static AuthenticateResult Record(HttpContext context, AuthenticateResult result)
+    {
+        if (result.Failure is not BeaconCredentialRefusal refusal)
+        {
+            return result;
+        }
+
+        context.Features.Set(refusal);
+
+        return AuthenticateResult.NoResult();
+    }
 
     public static BeaconCredentialRefusal Unauthorized(string detail, bool answersRequest, string? error = null, string? challenge = null)
     {

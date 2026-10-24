@@ -68,7 +68,35 @@ public class BeaconAuthenticationSchemeTests
         hostRoute.None.Should().BeTrue();
         beaconRoute.Succeeded.Should().BeTrue();
         beaconRoute.Principal!.Identity!.AuthenticationType.Should().Be(McpCallerClaimTypes.ApiKeyAuthenticationType);
-        refused.Failure.Should().NotBeNull();
+        refused.None.Should().BeTrue("a refused key is kept on the request for the challenge, not logged as a failure by the framework");
+    }
+
+    [Test]
+    public async Task RefusedCredential_IsNotLoggedPerRequestByTheFramework()
+    {
+        await using var host = await SchemeHost.StartAsync(bearer: true);
+
+        (await host.SendAsync("/beacon/api/whoami", authorization: "Bearer sk-sem_unknown")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await host.SendAsync("/beacon/api/whoami", authorization: "Bearer not-a-token")).StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        host.Logs.Should().NotContain(x => x.Contains("was not authenticated"), "Beacon's own logs record refusals, throttled");
+    }
+
+    [Test]
+    public async Task HostWithoutBeaconCookieAuthentication_StillAuthenticatesKeysAndTokens_WithoutAServerError()
+    {
+        await using var host = await SchemeHost.StartAsync(bearer: true, beaconCookie: false);
+
+        var key = await host.SendAsync("/beacon/api/whoami", authorization: $"Bearer {ApiKey}");
+        var unknownKey = await host.SendAsync("/beacon/api/whoami", authorization: "Bearer sk-sem_unknown");
+        var badToken = await host.SendAsync("/beacon/api/whoami", authorization: "Bearer not-a-token");
+
+        key.StatusCode.Should().Be(HttpStatusCode.OK);
+        (await key.Content.ReadAsStringAsync()).Should().Be(McpCallerClaimTypes.ApiKeyAuthenticationType);
+        unknownKey.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        unknownKey.Content.Headers.ContentType!.MediaType.Should().Be("application/problem+json");
+        badToken.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        badToken.Headers.WwwAuthenticate.ToString().Should().Be("Bearer error=\"invalid_token\"");
     }
 
     [Test]
@@ -111,6 +139,7 @@ public class BeaconAuthenticationSchemeTests
         problem.GetProperty("title").GetString().Should().Be("Unauthorized");
         problem.GetProperty("detail").GetString().Should().Be("The bearer token was not accepted.");
         problem.GetProperty("error").GetString().Should().Be("invalid_token");
+        problem.GetProperty("message").GetString().Should().Be("The bearer token was not accepted.", "the member 5.x bearer clients read is kept");
     }
 
     [Test]
@@ -127,26 +156,41 @@ public class BeaconAuthenticationSchemeTests
     {
         private readonly WebApplication _app;
 
-        private SchemeHost(WebApplication app)
+        private SchemeHost(WebApplication app, List<string> logs)
         {
             _app = app;
+            Logs = logs;
             Client = app.GetTestClient();
         }
 
         public HttpClient Client { get; }
 
-        public static async Task<SchemeHost> StartAsync(bool bearer = false, bool hostScheme = false)
+        public List<string> Logs { get; }
+
+        public static async Task<SchemeHost> StartAsync(bool bearer = false, bool hostScheme = false, bool beaconCookie = true)
         {
             var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing" });
             builder.WebHost.UseTestServer();
             builder.Logging.ClearProviders();
+            var logs = new List<string>();
+            builder.Logging.SetMinimumLevel(LogLevel.Information);
+            builder.Logging.AddProvider(new ListLoggerProvider(logs));
             builder.Services.AddSingleton<IUserSessionStore>(new BeaconAuthenticationScopeTests.CountingSessionStore());
             builder.Services.AddSingleton(Options.Create(new SessionLifetimeOptions { RevalidateMinutes = 0, AbsoluteLifetimeHours = 12 }));
             builder.Services.AddSingleton(ApiKeys().Object);
             builder.Services.AddSingleton(Mock.Of<IMcpCallerMapper>());
             builder.Services.AddSingleton(new HttpClient());
             builder.Services.AddDataProtection().UseEphemeralDataProtectionProvider();
-            builder.Services.AddBeaconCookieAuthentication("/beacon");
+            if (beaconCookie)
+            {
+                builder.Services.AddBeaconCookieAuthentication("/beacon");
+            }
+            else
+            {
+                // The host owns sign-in: its own cookie scheme, no Beacon cookie and no Beacon scheme.
+                builder.Services.AddAuthentication().AddCookie();
+            }
+
             if (bearer)
             {
                 builder.Services.AddBeaconJwtAuthentication(x =>
@@ -183,7 +227,7 @@ public class BeaconAuthenticationSchemeTests
             });
             await app.StartAsync();
 
-            return new SchemeHost(app);
+            return new SchemeHost(app, logs);
         }
 
         public async Task<string> SignInAsync()
@@ -238,6 +282,31 @@ public class BeaconAuthenticationSchemeTests
         private static string WhoAmI(HttpContext context)
         {
             return context.User.Identity?.AuthenticationType ?? string.Empty;
+        }
+
+        private sealed class ListLoggerProvider(List<string> logs) : ILoggerProvider
+        {
+            public ILogger CreateLogger(string categoryName) => new ListLogger(logs);
+
+            public void Dispose()
+            {
+            }
+        }
+
+        private sealed class ListLogger(List<string> logs) : ILogger
+        {
+            public IDisposable? BeginScope<TState>(TState state)
+                where TState : notnull => null;
+
+            public bool IsEnabled(LogLevel logLevel) => true;
+
+            public void Log<TState>(LogLevel logLevel, EventId eventId, TState state, Exception? exception, Func<TState, Exception?, string> formatter)
+            {
+                lock (logs)
+                {
+                    logs.Add(formatter(state, exception));
+                }
+            }
         }
 
         private static Mock<IApiKeyService> ApiKeys()

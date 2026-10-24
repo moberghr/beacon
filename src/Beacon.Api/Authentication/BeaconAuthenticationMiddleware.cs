@@ -1,24 +1,29 @@
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
 using Microsoft.AspNetCore.Http;
+using Beacon.Core.Authentication.Providers;
+using Beacon.Core.Mcp;
+using Beacon.Core.Services.Security;
 
 namespace Beacon.Api.Authentication;
 
 /// <summary>
-/// The one point where <c>UseBeaconAuthentication</c> authenticates a Beacon request (§1.9), before the host's
-/// <c>UseAuthentication</c> and <c>UseAuthorization</c>. On Beacon's routes only (<see cref="BeaconRequestPaths"/>, checked
-/// first), and only when nothing authenticated the request earlier, it picks the scheme of the request's credential as
-/// the <see cref="BeaconAuthenticationDefaults.AuthenticationScheme"/> policy scheme does and records the scheme's result
-/// as the request's authentication result (<see cref="BeaconAuthenticationFeatures"/>), which the authorization
-/// middleware and SignalR read (SignalR closes a hub connection when the result's expiry passes).
+/// The one point where <c>UseBeaconAuthentication</c> authenticates a Beacon request (§1.9), after the host's
+/// <c>UseAuthentication</c> and before <c>UseAuthorization</c>. On Beacon's routes only (<see cref="BeaconRequestPaths"/>,
+/// checked first) it picks the scheme of the request's credential as the
+/// <see cref="BeaconAuthenticationDefaults.AuthenticationScheme"/> policy scheme does and records the result as the
+/// request's authentication result (<see cref="BeaconAuthenticationFeatures"/>), which the authorization middleware and
+/// SignalR read (SignalR closes a hub connection when the result's expiry passes).
 /// <list type="bullet">
-/// <item>An API key or bearer token is judged by its handler, called directly, so the principal is not passed through the
-/// host's claims transformations: a transformation never gives a scoped caller a role. A refused API key is answered
-/// with a 401 problem on every Beacon route, also an anonymous one; a refused bearer token is answered on an API request
+/// <item>A presented API key or bearer token decides, whatever authenticated the request before (a session cookie the
+/// host's default scheme read): the caller gets the key's scope, projects and identity, never the session's rights. It is
+/// judged by its handler, called directly (or by its authenticator, when the host registered no Beacon scheme), so the
+/// principal is not passed through the host's claims transformations. A refused API key is answered with a 401 problem on
+/// every Beacon route, also an anonymous one; a refused bearer token is answered on an API request
 /// (<see cref="BeaconApiRequest"/>) and otherwise leaves the request to the cookie, so a page still reaches its session or
 /// the login redirect.</item>
-/// <item>Otherwise the <c>Beacon.Auth</c> cookie, through the authentication service (with the host's claims
-/// transformations, as a sign-in's session needs its roles).</item>
+/// <item>Otherwise, when nothing authenticated the request yet, the <c>Beacon.Auth</c> cookie, through the authentication
+/// service (with the host's claims transformations, as a sign-in's session needs its roles).</item>
 /// </list>
 /// </summary>
 internal sealed class BeaconAuthenticationMiddleware(RequestDelegate next)
@@ -32,17 +37,10 @@ internal sealed class BeaconAuthenticationMiddleware(RequestDelegate next)
             return;
         }
 
-        if (context.User.Identity?.IsAuthenticated == true)
-        {
-            await next(context);
-            return;
-        }
-
         var scheme = BeaconAuthenticationDefaults.SelectScheme(context);
         if (scheme != CookieAuthenticationDefaults.AuthenticationScheme)
         {
-            var handler = await GetHandlerAsync(context, scheme);
-            var result = await handler.AuthenticateAsync();
+            var result = await AuthenticateCredentialAsync(context, scheme);
             if (result.Succeeded)
             {
                 BeaconAuthenticationFeatures.Set(context, result);
@@ -50,14 +48,18 @@ internal sealed class BeaconAuthenticationMiddleware(RequestDelegate next)
                 return;
             }
 
-            if (result.Failure is BeaconCredentialRefusal { AnswersRequest: true })
+            var refusal = result.Failure as BeaconCredentialRefusal ?? BeaconCredentialRefusal.Recorded(context);
+            if (refusal is { AnswersRequest: true })
             {
-                await handler.ChallengeAsync(properties: null);
+                await BeaconAuthenticationResponses.WriteRefusalAsync(context, refusal);
                 return;
             }
         }
 
-        await AuthenticateCookieAsync(context);
+        if (context.User.Identity?.IsAuthenticated != true)
+        {
+            await AuthenticateCookieAsync(context);
+        }
 
         await next(context);
     }
@@ -72,11 +74,31 @@ internal sealed class BeaconAuthenticationMiddleware(RequestDelegate next)
         }
     }
 
-    private static async Task<IAuthenticationHandler> GetHandlerAsync(HttpContext context, string scheme)
+    // The scheme's handler when the host registered Beacon's schemes (AddBeaconCookieAuthentication); otherwise the same
+    // judgement straight from the authenticator, as before the schemes existed.
+    private static async Task<AuthenticateResult> AuthenticateCredentialAsync(HttpContext context, string scheme)
     {
         var handler = await context.RequestServices.GetRequiredService<IAuthenticationHandlerProvider>().GetHandlerAsync(context, scheme);
+        if (handler != null)
+        {
+            return await handler.AuthenticateAsync();
+        }
 
-        return handler ?? throw new InvalidOperationException(
-            $"The '{scheme}' authentication scheme is not registered: call services.AddBeaconCookieAuthentication() before app.UseBeaconAuthentication().");
+        if (scheme == BeaconAuthenticationDefaults.ApiKeyScheme)
+        {
+            return await ApiKeyAuthenticator.AuthenticateAsync(
+                context,
+                context.RequestServices.GetRequiredService<IApiKeyService>(),
+                context.RequestServices.GetRequiredService<ILogger<ApiKeyAuthenticationHandler>>());
+        }
+
+        var authenticator = context.RequestServices.GetService<BeaconJwtAuthenticator>();
+
+        return authenticator == null
+            ? AuthenticateResult.NoResult()
+            : await authenticator.AuthenticateAsync(
+                context,
+                context.RequestServices.GetRequiredService<JwtExternalApiAuthenticationProvider>(),
+                context.RequestServices.GetRequiredService<IMcpCallerMapper>());
     }
 }

@@ -242,17 +242,17 @@ public static class AuthServiceExtensions
     }
 
     /// <summary>
-    /// Beacon's authentication in the order it needs (§1.9): one Beacon step — the API key, the bearer JWT (when enabled)
-    /// or the <c>Beacon.Auth</c> cookie, whichever the request presents (<see cref="BeaconAuthenticationDefaults"/>),
-    /// recorded as the request's authentication result — then the host's <c>UseAuthentication</c>. Call it in place of
-    /// <c>UseAuthentication</c>, before <c>UseAuthorization</c>. Beacon's step acts on <c>/beacon</c> and
-    /// <c>Beacon:Authentication:AdditionalPaths</c> only (<see cref="BeaconRequestPaths"/>); every other route keeps the
-    /// host's own authentication. Needs <c>AddBeaconCookieAuthentication</c>.
+    /// Beacon's authentication in the order it needs (§1.9): the host's <c>UseAuthentication</c>, then one Beacon step —
+    /// a presented API key or bearer JWT (when enabled), which decides whatever the host's schemes read, else the
+    /// <c>Beacon.Auth</c> cookie (<see cref="BeaconAuthenticationDefaults"/>), recorded as the request's authentication
+    /// result. Call it in place of <c>UseAuthentication</c>, before <c>UseAuthorization</c>. Beacon's step acts on
+    /// <c>/beacon</c> and <c>Beacon:Authentication:AdditionalPaths</c> only (<see cref="BeaconRequestPaths"/>); every other
+    /// route keeps the host's own authentication.
     /// </summary>
     public static IApplicationBuilder UseBeaconAuthentication(this IApplicationBuilder app)
     {
-        app.UseMiddleware<BeaconAuthenticationMiddleware>();
         app.UseAuthentication();
+        app.UseMiddleware<BeaconAuthenticationMiddleware>();
 
         return app;
     }

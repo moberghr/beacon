@@ -278,7 +278,7 @@ Beacon's API keys, bearer tokens and `Beacon.Auth` cookie authenticate Beacon's 
 { "Beacon": { "Authentication": { "AdditionalPaths": [ "/warp" ] } } }
 ```
 
-`app.UseBeaconAuthentication()` wires Beacon's authentication in the order it needs: one Beacon step (the API key, the bearer JWT or the `Beacon.Auth` cookie, whichever the request presents), then the host's `UseAuthentication()`. Call it in place of `UseAuthentication()`, before `UseAuthorization()`.
+`app.UseBeaconAuthentication()` wires Beacon's authentication in the order it needs: the host's `UseAuthentication()`, then one Beacon step: a presented API key or bearer JWT, which wins over any session, else the `Beacon.Auth` cookie. Call it in place of `UseAuthentication()`, before `UseAuthorization()`.
 
 The cookie scheme (`Cookies`) applies the same scope itself. When it is the host's default authentication scheme (set as the default, or the only scheme registered), or a host policy names it, it authenticates nothing outside `/beacon` and `AdditionalPaths`: the session is refused there without a check against the user store, without renewal, and its cookie is left as it is. A host route that requires an authenticated user therefore needs the host's own scheme.
 

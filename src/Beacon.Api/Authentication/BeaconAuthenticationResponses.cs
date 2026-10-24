@@ -31,9 +31,10 @@ internal static class BeaconAuthenticationResponses
             context.Response.Headers.RetryAfter = refusal.RetryAfter;
         }
 
+        // A bearer refusal keeps the members its body had before it was a problem (error, message) for 5.x clients.
         var extensions = refusal.Error == null
             ? null
-            : new Dictionary<string, object?> { ["error"] = refusal.Error };
+            : new Dictionary<string, object?> { ["error"] = refusal.Error, ["message"] = refusal.Message };
 
         return WriteProblemAsync(context, refusal.StatusCode, refusal.Message, extensions);
     }

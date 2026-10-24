@@ -283,10 +283,10 @@ app.UseApiExceptionHandler("/beacon/api");
 app.UseMcpResourceMetadataChallenge();
 
 // Middleware order is load-bearing per §1.9:
-//   Beacon (API key, JWT bearer or the Beacon.Auth cookie, whichever the request presents) → Authentication
-//   → Authorization → LoginForm.
-// UseBeaconAuthentication wires the first two. A presented key or token wins over the cookie so MCP clients are
-// never redirected, and the result is recorded as the request's authentication result BEFORE UseAuthorization
+//   Authentication → Beacon (a presented API key or JWT bearer, else the Beacon.Auth cookie) → Authorization
+//   → LoginForm.
+// UseBeaconAuthentication wires the first two. A presented key or token wins over any session, so its scope and
+// projects apply and MCP clients are never redirected, and the result is recorded as the request's authentication result BEFORE UseAuthorization
 // evaluates policies (the first cookie request is authorized). Beacon's authentication acts on /beacon and on
 // Beacon:Authentication:AdditionalPaths only (this sample lists /warp in appsettings.json): a Beacon
 // credential never authenticates another route of the host.

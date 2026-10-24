@@ -20,6 +20,7 @@ using Beacon.Core.Services.Security;
 using FluentAssertions;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.Cookies;
+using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.DataProtection;
 using Microsoft.AspNetCore.Hosting;
@@ -31,6 +32,7 @@ using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Time.Testing;
+using Microsoft.IdentityModel.Protocols.OpenIdConnect;
 using Microsoft.IdentityModel.Tokens;
 using Moq;
 using NUnit.Framework;
@@ -146,6 +148,53 @@ public class BeaconAuthenticationPipelineTests
         key.Should().NotContainKey(ClaimTypes.Role);
         rest.Should().NotContainKey(TransformedClaim);
         session.Should().ContainKey(TransformedClaim);
+    }
+
+    [Test]
+    public async Task PresentedApiKey_WinsOverTheSessionCookieBesideIt(
+        [Values("/beacon/api/claims", "/beacon/mcp")] string path,
+        [Values] bool singleSignOn)
+    {
+        await using var host = await PipelineHost.StartAsync(singleSignOn);
+        var cookie = await host.SignInAsync();
+
+        var claims = await host.ClaimsAsync(path, bearer: ReadKey, cookie: cookie);
+
+        claims["authentication_type"].Should().Equal(McpCallerClaimTypes.ApiKeyAuthenticationType);
+        claims[McpCallerClaimTypes.ApiKeyId].Should().Equal("3");
+        claims[McpCallerClaimTypes.Scope].Should().Equal("Read");
+        claims.Should().NotContainKey(TransformedClaim);
+        claims.Should().NotContainKey(ClaimTypes.Role);
+    }
+
+    [Test]
+    public async Task PresentedApiKey_BesideAnAdminsSession_StillNeverReachesAnAdminRoute([Values] bool singleSignOn)
+    {
+        await using var host = await PipelineHost.StartAsync(singleSignOn);
+        var cookie = await host.SignInAsync();
+
+        var response = await host.SendAsync("/beacon/api/admin", bearer: AdminOwnerKey, cookie: cookie);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Forbidden);
+    }
+
+    [Test]
+    public async Task PresentedJwt_WinsOverTheSessionCookieBesideIt([Values] bool singleSignOn)
+    {
+        await using var host = await PipelineHost.StartAsync(singleSignOn);
+        var cookie = await host.SignInAsync();
+
+        var mcp = await host.ClaimsAsync("/beacon/mcp", bearer: MintToken(McpSubject), cookie: cookie);
+        var rest = await host.ClaimsAsync("/beacon/api/claims", bearer: MintToken(RestSubject), cookie: cookie);
+
+        mcp["authentication_type"].Should().Equal("Bearer");
+        mcp[McpCallerClaimTypes.AuthMethod].Should().Equal(McpCallerClaimTypes.McpCallerAuthMethod);
+        mcp[McpCallerClaimTypes.Scope].Should().Equal(nameof(McpCallerScope.Execute));
+        mcp.Should().NotContainKey(TransformedClaim);
+        rest["authentication_type"].Should().Equal("Bearer");
+        rest[McpCallerClaimTypes.AuthMethod].Should().Equal(McpCallerClaimTypes.JwtAuthMethod);
+        rest[ClaimTypes.NameIdentifier].Should().Equal(RestSubject);
+        rest.Should().NotContainKey(TransformedClaim);
     }
 
     [Test]
@@ -336,7 +385,7 @@ public class BeaconAuthenticationPipelineTests
 
         public FakeTimeProvider Time { get; }
 
-        public static async Task<PipelineHost> StartAsync()
+        public static async Task<PipelineHost> StartAsync(bool singleSignOn = false)
         {
             var configuration = new BeaconConfiguration();
             configuration.Authentication.EnableLoginForm = true;
@@ -374,6 +423,18 @@ public class BeaconAuthenticationPipelineTests
                 x.Validation.ValidAudience = Audience;
             });
             builder.Services.AddBeaconHostInfrastructure<AdminRoleTransformation>();
+            if (singleSignOn)
+            {
+                // Single sign-on beside the cookie: the cookie is no longer the host's only scheme, so no default remains.
+                builder.Services.AddAuthentication().AddOpenIdConnect(OpenIdConnectDefaults.AuthenticationScheme, x =>
+                {
+                    x.Authority = "https://login.example.test";
+                    x.ClientId = "beacon";
+                    x.ClientSecret = "unused";
+                    x.Configuration = new OpenIdConnectConfiguration();
+                });
+            }
+
             builder.Services.AddBeaconApiAuthorization();
             builder.Services.AddSignalR();
 
