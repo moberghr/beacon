@@ -9,6 +9,7 @@ using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using Beacon.Core.HostData;
+using Beacon.Core.HostDocs;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
 using Beacon.Core.Services;
@@ -198,7 +199,7 @@ public class HostOutputMaskingPathTests
     {
         Connect(true, ServerColumns());
 
-        var result = await QueryTool().ExecuteAsync(datasource_id: HostDataSourceId, sql: PostgresSql, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(QueryTool(), x => x.ExecuteAsync(datasource_id: HostDataSourceId, sql: PostgresSql, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         var text = result.Content.OfType<TextContentBlock>().Single().Text;
@@ -226,13 +227,56 @@ public class HostOutputMaskingPathTests
                 Rows = [new Dictionary<string, object?> { ["Id"] = 1, ["kt"] = Ssn }]
             });
 
-        var result = await QueryTool(provider.Object, piiDetection).ExecuteAsync(datasource_id: HostDataSourceId, sql: PostgresSql, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(QueryTool(provider.Object, piiDetection), x => x.ExecuteAsync(datasource_id: HostDataSourceId, sql: PostgresSql, cancellationToken: CancellationToken.None));
 
         (result.IsError ?? false).Should().BeFalse();
         result.Content.OfType<TextContentBlock>().Single().Text.Should().NotContain(Ssn);
         result.StructuredContent!.Value.GetProperty("rows").EnumerateArray()
             .Select(x => (x[0].GetInt32(), x[1].GetString()))
             .Should().Equal((1, HostResultMasker.MaskedValue));
+    }
+
+    // With PII detection off the project brief still states that the host's masked columns are masked, because the query
+    // tool masks them from the host policy whatever the detection setting.
+    [Test]
+    public async Task ProjectBrief_PiiDetectionOff_StatesTheMaskingTheQueryToolApplies()
+    {
+        var snapshot = HostTestModelFactory.Read(x => x.AllowTables("Customer").MaskColumns(y => y.Name == "SSN"), npgsql: true);
+        var maskedColumns = snapshot.Tables
+            .SelectMany(x => x.Columns
+                .Where(y => y.Description != null)
+                .Where(y => y.Description!.Contains(HostModelReader.MaskedDescriptionMarker))
+                .Select(y => new BriefMaskedColumn(x.SchemaName, x.TableName, y.ColumnName)))
+            .ToList();
+        var brief = ProjectBriefService.Render(new ProjectBriefData(
+            "Netgiro",
+            null,
+            [new BriefDataSource("Netgiro", DataSourceType.Database, DatabaseEngineType.PostgreSQL, false, true, 1)],
+            [],
+            0,
+            maskedColumns,
+            [],
+            0,
+            [],
+            0,
+            Guarantees: new BriefGuarantees(ReadOnlyEnforced: true, PiiDetection: false)));
+        var provider = new Mock<IDataSourceProvider>();
+        provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ProviderQueryResult
+            {
+                Success = true,
+                Rows = [new Dictionary<string, object?> { ["Id"] = 1, ["kt"] = Ssn }]
+            });
+
+        var result = await QueryTool(provider.Object, piiDetection: false).ExecuteAsync(datasource_id: HostDataSourceId, sql: PostgresSql, cancellationToken: CancellationToken.None);
+
+        maskedColumns.Should().ContainSingle().Which.ColumnName.Should().Be("SSN");
+        brief.Should().Contain("Values of these columns are masked in every query result by the host application's policy");
+        brief.Should().Contain("- `public.Customer.SSN`");
+        result.StructuredContent!.Value.GetProperty("rows").EnumerateArray()
+            .Select(x => x[1].GetString())
+            .Should().Equal(HostResultMasker.MaskedValue);
     }
 
     private static IReadOnlyList<(string Name, Func<int, object?> Value)> ServerColumns() => [("Id", x => x + 1), (ServerLabel, _ => Ssn)];
@@ -353,7 +397,7 @@ public class HostOutputMaskingPathTests
             NullLogger<McpSignalService>.Instance);
         var guardrail = new QueryGuardrailService();
 
-        return new ProjectQueryTool(
+        return TestToolCalls.Track(recorder => new ProjectQueryTool(
             factory.Object,
             TestQueryServices.Providers(provider ?? Provider(npgsql: true)),
             guardrail,
@@ -363,11 +407,10 @@ public class HostOutputMaskingPathTests
             knowledgeGraph.Object,
             SettingsProviderMock.Unshared(settingsProvider.Object),
             new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId] },
-            auditService,
-            signalService,
+            recorder,
             new McpQueryConcurrencyLimiter(),
             TestQueryCostLimit.Passing,
-            NullLogger<ProjectQueryTool>.Instance);
+            NullLogger<ProjectQueryTool>.Instance), () => TestToolCalls.Recorder(auditService, signalService));
     }
 
     private sealed record Paging : ListRequest;

@@ -141,6 +141,56 @@ public class SqlExecutionPathCoverageTests
         ["src/Beacon.Core/HostData/HostReadOnlyLoginCheck.cs"] = "the startup check of a host source's read-only login, on the resolver's connection: fixed catalog SQL, outside the gate"
     };
 
+    // Of the files that call a provider's execute method, those that do not write the statement's execution log row
+    // (ISqlExecutionAudit) before it is sent, and why. Every other one writes it.
+    private static readonly Dictionary<string, string> ExecutionLogExempt = new(StringComparer.Ordinal)
+    {
+        ["src/Beacon.Connector.BigQuery/BigQueryProvider.cs"] = "declares the row-capped read the runner calls; the runner logs it",
+        ["src/Beacon.Connector.Databricks/DatabricksProvider.cs"] = "declares the row-capped read the runner calls; the runner logs it",
+        ["src/Beacon.Core/Services/QueryCostLimit.cs"] = "the planner's estimate (EXPLAIN without ANALYZE): returns no rows",
+        ["src/Beacon.Core/Services/VirtualTableManager.cs"] = "Beacon's own in-memory join store, not a data source",
+        ["src/Beacon.Core/SavedQueries/SavedQueryToolExecutor.cs"] = "an MCP tool: the MCP audit records the call",
+        ["src/Beacon.AI/Services/Knowledge/ValueGroundingService.cs"] = "the MCP statement log records each probe before it runs",
+        ["src/Beacon.AI/Services/Eval/EvalReadOnlySqlExecutor.cs"] = "the eval harness: its run records each case",
+        ["src/Beacon.MCP/Services/QueryExecutionService.cs"] = "MCP: the MCP audit and statement log record it",
+        ["src/Beacon.MCP/Services/CrossSourceQueryService.cs"] = "MCP: the MCP audit and statement log record it",
+        ["src/Beacon.MCP/Tools/ProjectQueryTool.cs"] = "MCP: the MCP audit records the call"
+    };
+
+    private static readonly Regex ExecutionLogUse = new(@"\bexecutionAudit\.(?:StartAsync|RunAsync)\(", RegexOptions.CultureInvariant);
+
+    // The production files that name the saved-query executor (an approved version's steps, run through the gate), and why.
+    private static readonly Dictionary<string, string> SavedQueryExecutorUsers = new(StringComparer.Ordinal)
+    {
+        ["src/Beacon.Core/SavedQueries/SavedQueryToolExecutor.cs"] = "the executor",
+        ["src/Beacon.Core/ServiceConfiguration.cs"] = "registers it",
+        ["src/Beacon.MCP/SavedQueries/SavedQueryToolService.cs"] = "a saved-query MCP tool call",
+        ["src/Beacon.Core/Handlers/Embed/RenderEmbedQueryHandler.cs"] = "an embed render of a grant's pinned version, PII always masked and the embed row cap applied"
+    };
+
+    // The anonymous embed surface: it reaches SQL through the saved-query executor alone.
+    private static readonly string[] EmbedSurfacePrefixes =
+    [
+        "src/Beacon.Core/Handlers/Embed/",
+        "src/Beacon.Core/Services/Embed/",
+        "src/Beacon.Api/Endpoints/Embed",
+        "src/Beacon.Api/Authentication/Embed",
+        "src/Beacon.Api/Authentication/BeaconEmbedPaths.cs"
+    ];
+
+    private static readonly Regex SavedQueryExecutorUse = new(@"\b(?:ISavedQueryToolExecutor|ISavedQueryRunner)\b", RegexOptions.CultureInvariant);
+    // The production files that run Dapper CommandDefinition statements (catalog scans, locks, the migration writer), and why.
+    private static readonly Dictionary<string, string> DapperCommandUsers = new(StringComparer.Ordinal)
+    {
+        ["src/Beacon.Connector.PostgreSql/PostgreSqlMetadataExtractor.cs"] = "the metadata scan's fixed catalog SQL",
+        ["src/Beacon.Connector.MySql/MySqlMetadataExtractor.cs"] = "the metadata scan's fixed catalog SQL",
+        ["src/Beacon.Connector.Snowflake/SnowflakeMetadataExtractor.cs"] = "the metadata scan's fixed catalog SQL",
+        ["src/Beacon.Core/Services/Providers/TsqlCatalogScan.cs"] = "the SQL Server and Synapse metadata scan's fixed catalog SQL, passed in by those extractors",
+        ["src/Beacon.Core/DataMigration/MigrationRunLock.cs"] = "the destination lock statements",
+        ["src/Beacon.Core/Services/MigrationService.Sql.cs"] = "the migration writer's statements on its write target",
+        ["src/Beacon.Core/Services/Providers/DatabaseProvider.cs"] = "the database connectors' gated reads"
+    };
+
     private static readonly Regex GateUse = new(@"\b(?:ISqlExecutionGate|SqlGateRequest)\b", RegexOptions.CultureInvariant);
 
     private static readonly Regex ExecuteCall = new(@"\.(?:ExecuteReadOnlyQueryAsync|ExecuteQueryAsync|ValidateQueryAsync|EstimateReadOnlyCostAsync)\b", RegexOptions.CultureInvariant);
@@ -156,6 +206,17 @@ public class SqlExecutionPathCoverageTests
     private static readonly Regex RowSecurityContextCreation = new(@"\bRowSecurityContext\.(?:NotApplicable|Filtered|Denied)\(", RegexOptions.CultureInvariant);
 
     private static readonly Lazy<Dictionary<string, string>> Sources = new(ReadProductionSources);
+
+    [Test]
+    public void EveryFileThatRunsADapperCommand_IsListed()
+    {
+        var users = Sources.Value
+            .Where(x => x.Value.Contains("new CommandDefinition(", StringComparison.Ordinal))
+            .Select(x => x.Key)
+            .ToList();
+
+        users.Should().BeEquivalentTo(DapperCommandUsers.Keys, "a Dapper statement in an unlisted file could run SQL the gate never saw: review it and list it with its reason");
+    }
 
     [Test]
     public void EveryFileThatUsesTheGate_IsListed()
@@ -179,6 +240,18 @@ public class SqlExecutionPathCoverageTests
         calls.Should().BeEquivalentTo(
             ExecuteCallers.ToDictionary(x => x.Key, x => x.Value.Calls, StringComparer.Ordinal),
             "every statement that reaches a data source must be the gate's output: a new call site is reviewed and listed with what it runs");
+    }
+
+    [Test]
+    public void EveryProviderExecuteCaller_WritesTheExecutionLog_OrIsExemptWithAReason()
+    {
+        var unlogged = ExecuteCallers.Keys
+            .Where(x => !ExecutionLogUse.IsMatch(Sources.Value[x]))
+            .ToList();
+
+        unlogged.Should().BeEquivalentTo(
+            ExecutionLogExempt.Keys,
+            "a statement Beacon runs on a data source for its own features is in the execution log before it is sent; a path that is not is reviewed and listed with why");
     }
 
     [Test]
@@ -249,6 +322,40 @@ public class SqlExecutionPathCoverageTests
             .ToList();
 
         others.Should().BeEquivalentTo(RowSecurityContextReceivers.Keys, "every gate request carries a context: from the resolver, created by a listed file, or handed in by a caller");
+    }
+
+    [Test]
+    public void EveryFileThatUsesTheSavedQueryExecutor_IsListed()
+    {
+        var users = Sources.Value
+            .Where(x => SavedQueryExecutorUse.IsMatch(x.Value))
+            .Select(x => x.Key)
+            .ToList();
+
+        users.Should().BeEquivalentTo(SavedQueryExecutorUsers.Keys, "a new caller of the saved-query executor runs approved SQL: it is reviewed and listed with its reason");
+    }
+
+    [Test]
+    public void TheEmbedSurface_ReachesSqlThroughTheSavedQueryExecutorAlone()
+    {
+        var embedFiles = Sources.Value
+            .Where(x => EmbedSurfacePrefixes.Any(y => x.Key.StartsWith(y, StringComparison.Ordinal)))
+            .ToList();
+
+        embedFiles.Should().NotBeEmpty();
+        embedFiles
+            .Where(x => GateUse.IsMatch(x.Value)
+                || ExecuteCall.IsMatch(x.Value)
+                || ResolverUse.IsMatch(x.Value)
+                || ConnectionFactoryUse.IsMatch(x.Value)
+                || RowSecurityResolverUse.IsMatch(x.Value)
+                || RowSecurityContextCreation.IsMatch(x.Value))
+            .Select(x => x.Key)
+            .Should().BeEmpty("an embed render runs SQL only through the saved-query executor, which takes its row security from the resolver and passes the gate");
+        embedFiles
+            .Where(x => SavedQueryExecutorUse.IsMatch(x.Value))
+            .Select(x => x.Key)
+            .Should().Equal(["src/Beacon.Core/Handlers/Embed/RenderEmbedQueryHandler.cs"]);
     }
 
     // Production C# under src, without tests, migrations and build output, each file without its whole-line comments so a

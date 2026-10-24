@@ -45,7 +45,7 @@ internal sealed class SchemaGraphService(
         // An id with no tables and no relationships (a data source never scanned, or one that does not exist) is kept
         // only briefly, so a repeated call is cheap without letting arbitrary ids hold cache entries for long.
         var isEmpty = tables.Count == 0 && relationships.Count == 0;
-        cache.Set(CacheKey(dataSourceId), graph, isEmpty ? EmptyCacheExpiration : CacheExpiration);
+        cache.Set(CacheKey(dataSourceId), graph, BeaconCacheEntries.For(isEmpty ? EmptyCacheExpiration : CacheExpiration));
 
         return graph;
     }
@@ -80,7 +80,7 @@ internal sealed class SchemaGraphService(
 
     public void Invalidate(int dataSourceId) => cache.Remove(CacheKey(dataSourceId));
 
-    private static string CacheKey(int dataSourceId) => $"schema-graph:{dataSourceId}";
+    private static string CacheKey(int dataSourceId) => BeaconCacheEntries.Key($"schema-graph:{dataSourceId}");
 
     private static async Task<List<TableMetadataDto>> LoadTablesAsync(
         BeaconContext context,

@@ -224,7 +224,7 @@ public class MetadataRefreshTests
             {
                 DataSourceId = DataSourceId,
                 Name = "warehouse",
-                ConnectionString = "Host=fixed;SSL Mode=VerifyFull",
+                ConnectionString = "Host=fixed;Password=reader;SSL Mode=VerifyFull",
                 DatabaseEngineType = DatabaseEngineType.PostgreSQL,
                 ConfirmTargetChange = true
             },
@@ -363,13 +363,35 @@ public class MetadataRefreshTests
     }
 
     [Test]
-    public async Task Refresh_InvalidatesTheRelationshipGraph()
+    public async Task Refresh_InvalidatesTheRelationshipGraphAndTheCatalogSnapshots()
     {
         var world = new MetadataWorld();
         world.Extracted = [Extracted("sales", "orders", null, ("id", null))];
 
         await world.Service().RefreshMetadataAsync(DataSourceId, forceRefresh: true);
 
+        world.Graph.Verify(x => x.Invalidate(DataSourceId), Times.Once);
+        world.Snapshots.Verify(x => x.Invalidate(DataSourceId), Times.Once);
+    }
+
+    // The stored catalog changed: what was built from it is dropped even when a later step of the refresh fails.
+    [Test]
+    public async Task Refresh_ThatFailsAfterStoringTheCatalog_StillInvalidatesTheCatalogSnapshots()
+    {
+        var world = new MetadataWorld();
+        world.Extracted = [Extracted("sales", "orders", null, ("id", null))];
+        world.BeforeContext = () =>
+        {
+            if (world.Saved.Count > 0)
+            {
+                throw new InvalidOperationException("database unavailable");
+            }
+        };
+
+        var refresh = () => world.Service().RefreshMetadataAsync(DataSourceId, forceRefresh: true);
+
+        await refresh.Should().ThrowAsync<InvalidOperationException>();
+        world.Snapshots.Verify(x => x.Invalidate(DataSourceId), Times.Once);
         world.Graph.Verify(x => x.Invalidate(DataSourceId), Times.Once);
     }
 
@@ -541,7 +563,7 @@ public class MetadataRefreshTests
     }
 
     [Test]
-    public async Task ArchivingADataSource_EvictsItsMetadataAndGraph()
+    public async Task ArchivingADataSource_EvictsItsMetadataGraphAndCatalogSnapshots()
     {
         var world = new MetadataWorld();
         world.Cache.Set(DatabaseMetadataService.GetCacheKey(DataSourceId), Snapshot());
@@ -551,6 +573,7 @@ public class MetadataRefreshTests
         world.DataSources.Single().ArchivedTime.Should().NotBeNull();
         world.Cache.TryGetValue(DatabaseMetadataService.GetCacheKey(DataSourceId), out _).Should().BeFalse("an archived source's metadata is never served from the cache");
         world.Graph.Verify(x => x.Invalidate(DataSourceId), Times.Once);
+        world.Snapshots.Verify(x => x.Invalidate(DataSourceId), Times.Once);
     }
 
     // Archiving takes the column values sampled from the source with it, archived tables' columns included; another
@@ -578,7 +601,7 @@ public class MetadataRefreshTests
     }
 
     [Test]
-    public async Task ChangingADataSourcesConnection_EvictsItsMetadataAndGraph()
+    public async Task ChangingADataSourcesConnection_EvictsItsMetadataGraphAndCatalogSnapshots()
     {
         var world = new MetadataWorld();
         world.Cache.Set(DatabaseMetadataService.GetCacheKey(DataSourceId), Snapshot());
@@ -588,7 +611,7 @@ public class MetadataRefreshTests
             {
                 DataSourceId = DataSourceId,
                 Name = "warehouse",
-                ConnectionString = "Host=elsewhere;SSL Mode=VerifyFull",
+                ConnectionString = "Host=elsewhere;Password=reader;SSL Mode=VerifyFull",
                 DatabaseEngineType = DatabaseEngineType.PostgreSQL,
                 ConfirmTargetChange = true
             },
@@ -596,6 +619,7 @@ public class MetadataRefreshTests
 
         world.Cache.TryGetValue(DatabaseMetadataService.GetCacheKey(DataSourceId), out _).Should().BeFalse();
         world.Graph.Verify(x => x.Invalidate(DataSourceId), Times.Once);
+        world.Snapshots.Verify(x => x.Invalidate(DataSourceId), Times.Once);
     }
 
     private static RefreshDataSourceMetadataHandler RefreshHandler(
@@ -612,14 +636,12 @@ public class MetadataRefreshTests
             .ReturnsAsync(Snapshot());
 
         return new RefreshDataSourceMetadataHandler(
-            metadata.Object,
-            Mock.Of<ISchemaRelationshipSyncService>(),
+            new ForcedMetadataRefresh(metadata.Object, Mock.Of<ISchemaRelationshipSyncService>(), NullLogger<ForcedMetadataRefresh>.Instance),
             new ForcedMetadataRefreshCooldown(cache ?? new MemoryCache(new MemoryCacheOptions()), time ?? TimeProvider.System),
             settings ?? new RefreshSettings { CurrentValue = new MetadataRefreshOptions { ForcedRefreshCooldownMinutes = cooldownMinutes } },
             permissions ?? TestPermissions.None,
             new MetadataSampleView(permissions ?? TestPermissions.None, Mock.Of<ISharedSourceSettings>(), new QueryGuardrailService()),
-            audit ?? new RecordingSecurityAudit(),
-            NullLogger<RefreshDataSourceMetadataHandler>.Instance);
+            audit ?? new RecordingSecurityAudit());
     }
 
     private static DatabaseMetadataSnapshot CachedCatalog()
@@ -704,6 +726,9 @@ public class MetadataRefreshTests
 
         public IReadOnlyList<TableMetadataDto> Extracted { get; set; } = [];
 
+        /// <summary>Runs before every context the service opens.</summary>
+        public Action? BeforeContext { get; set; }
+
         /// <summary>Runs as the scan starts, before the extracted tables are returned.</summary>
         public Func<Task>? BeforeExtract { get; set; }
 
@@ -712,6 +737,8 @@ public class MetadataRefreshTests
         public MemoryCache Cache { get; } = new(new MemoryCacheOptions());
 
         public Mock<ISchemaGraphService> Graph { get; } = new();
+
+        public Mock<ICatalogSnapshotCache> Snapshots { get; } = new();
 
         public DatabaseMetadataService Service(
             ILogger<DatabaseMetadataService>? logger = null,
@@ -741,7 +768,8 @@ public class MetadataRefreshTests
                 SettingsProviderMock.Unshared(SettingsProviderMock.Create(settings ?? new McpSettingsData { EnableSampleValueCollection = false }).Object),
                 Cache,
                 Graph.Object,
-                logger ?? NullLogger<DatabaseMetadataService>.Instance);
+                logger ?? NullLogger<DatabaseMetadataService>.Instance,
+                Snapshots.Object);
         }
 
         public IDataSourceService DataSourceService()
@@ -749,7 +777,7 @@ public class MetadataRefreshTests
             return new DataSourceService(
                 Factory(),
                 Encryption(),
-                Mock.Of<IDataSourceProviderFactory>(),
+                TestProviderFactory.Accepting(),
                 Cache,
                 Graph.Object,
                 new RecordingSecurityAudit(),
@@ -757,7 +785,8 @@ public class MetadataRefreshTests
                 TestEngineVerifier.Passing,
                 TestChangeApprovals.Submitter(),
                 TestTransport.Hasher(),
-                NullLogger<DataSourceService>.Instance);
+                NullLogger<DataSourceService>.Instance,
+                catalogSnapshots: Snapshots.Object);
         }
 
         private IDbContextFactory<BeaconContext> Factory()
@@ -773,7 +802,12 @@ public class MetadataRefreshTests
             var factory = new Mock<IDbContextFactory<BeaconContext>>();
             factory
                 .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
-                .ReturnsAsync(() => new RecordingBeaconContext(sets, Saved));
+                .ReturnsAsync(() =>
+                {
+                    BeforeContext?.Invoke();
+
+                    return new RecordingBeaconContext(sets, Saved);
+                });
 
             return factory.Object;
         }

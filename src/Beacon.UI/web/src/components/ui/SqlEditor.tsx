@@ -1,5 +1,6 @@
 import { lazy, Suspense, useEffect, useRef, useState } from 'react';
 import { loadLocalMonaco } from '@/components/ui/monacoLocal';
+import { pickCompletionTables } from '@/components/ui/schemaLimits';
 import type { DatabaseMetadataSnapshot } from '@/routes/data-sources/queries';
 
 // Monaco is heavy — keep it out of the main bundle. The default `loading`
@@ -204,8 +205,10 @@ function registerSqlCompletionProvider(monaco: MonacoLikeNamespace) {
       const triggersTable = TABLE_TRIGGER_KEYWORDS.some(kw =>
         new RegExp(`\\b${kw}\\s+\\w*$`).test(lookback),
       );
+      // A warehouse can hold thousands of tables: offer those matching what is typed, capped.
+      const candidateTables = pickCompletionTables(tables, word.word);
       if (triggersTable && tables.length > 0) {
-        for (const t of tables) {
+        for (const t of candidateTables) {
           const fqn = `${t.schemaName}.${t.tableName}`;
           suggestions.push({
             label: fqn,
@@ -228,7 +231,7 @@ function registerSqlCompletionProvider(monaco: MonacoLikeNamespace) {
           sortText: '5' + kw,
         });
       }
-      for (const t of tables) {
+      for (const t of candidateTables) {
         suggestions.push({
           label: t.tableName,
           kind: Kind.Struct,

@@ -1,5 +1,6 @@
 using System.Text;
 using Beacon.Core.Adapters.Shared;
+using Beacon.Core.Helpers;
 using Beacon.Core.Models.Anomaly;
 
 namespace Beacon.Core.Adapters.Slack;
@@ -46,25 +47,35 @@ internal class SlackMessageBuilder
         // Divider
         blocks.Add(new { type = "divider" });
 
+        // The table is built first: the summary states how many of its rows it really shows
+        object? tableBlock = null;
+        var shownRows = 0;
+        if (queryResult.TopRecords.HasRecords())
+        {
+            tableBlock = _tableFormatter.GenerateTableBlock(queryResult.TopRecords, out shownRows);
+        }
+
         // Summary section
-        blocks.Add(BuildSummaryBlock(queryResult));
+        blocks.Add(BuildSummaryBlock(queryResult, shownRows));
 
         // View full results button (if BaseUrl configured)
-        if (!string.IsNullOrEmpty(_configuration.BaseUrl) && notificationId.HasValue)
+        var resultsLink = notificationId.HasValue
+            ? BaseUrlPolicy.Link(_configuration.BaseUrl, $"notifications/{notificationId}")
+            : null;
+        if (resultsLink != null)
         {
-            blocks.Add(BuildActionsBlock(_configuration.BaseUrl, notificationId.Value));
+            blocks.Add(BuildActionsBlock(resultsLink));
         }
 
         // Data table (if records exist)
-        if (queryResult.TopRecords.HasRecords())
+        if (tableBlock != null)
         {
-            var tableBlock = _tableFormatter.GenerateTableBlock(queryResult.TopRecords);
             blocks.Add(tableBlock);
         }
 
         return new SlackMessage
         {
-            Text = $"{AdapterConstants.NotificationPrefix} {queryResult.DataSourceName} - {queryResult.SubscriptionName}",
+            Text = ChannelText.TruncateEscaped(ChannelText.Slack($"{AdapterConstants.NotificationPrefix} {queryResult.DataSourceName} - {queryResult.SubscriptionName}"), AdapterConstants.Slack.MaxSectionTextLength),
             Blocks = blocks
         };
     }
@@ -81,7 +92,7 @@ internal class SlackMessageBuilder
             text = new
             {
                 type = "plain_text",
-                text = $"{prefix} {queryResult.DataSourceName} - {queryResult.SubscriptionName}"
+                text = ChannelText.Truncate(ChannelText.StripUnsafe($"{prefix} {queryResult.DataSourceName} - {queryResult.SubscriptionName}").Replace('\n', ' ').Replace('\r', ' '), AdapterConstants.Slack.MaxHeaderLength)
             }
         };
     }
@@ -97,8 +108,8 @@ internal class SlackMessageBuilder
         };
 
         var details = new StringBuilder();
-        details.AppendLine($"*{severityEmoji} Anomaly Severity:* {anomalyEvaluation.Severity}");
-        details.AppendLine($"*Explanation:* {anomalyEvaluation.Explanation}");
+        details.AppendLine($"*{severityEmoji} Anomaly Severity:* {ChannelText.Slack(anomalyEvaluation.Severity)}");
+        details.AppendLine($"*Explanation:* {ChannelText.TruncateEscaped(ChannelText.Slack(anomalyEvaluation.Explanation), AdapterConstants.Slack.MaxAnomalyExplanationLength)}");
 
         if (anomalyEvaluation.BaselineMean.HasValue)
         {
@@ -116,7 +127,7 @@ internal class SlackMessageBuilder
             text = new
             {
                 type = "mrkdwn",
-                text = details.ToString()
+                text = ChannelText.TruncateEscaped(details.ToString(), AdapterConstants.Slack.MaxSectionTextLength)
             }
         };
     }
@@ -129,15 +140,15 @@ internal class SlackMessageBuilder
             text = new
             {
                 type = "mrkdwn",
-                text = $"*Query:*\n```sql\n{sqlQuery}\n```"
+                text = $"*Query:*\n```sql\n{ChannelText.TruncateEscaped(ChannelText.SlackFenced(sqlQuery), AdapterConstants.Slack.MaxSectionTextLength - 40)}\n```"
             }
         };
     }
 
-    private object BuildSummaryBlock(QueryResult queryResult)
+    private object BuildSummaryBlock(QueryResult queryResult, int shownRows)
     {
         var summaryText = queryResult.TopRecords.HasRecords()
-            ? $"*Results:* Showing {queryResult.TopRecords.Count} of {queryResult.TotalRecords} total records"
+            ? $"*Results:* Showing {shownRows} of {queryResult.TotalRecords} total records"
             : $"*Results:* Query executed successfully. Total records: {queryResult.TotalRecords}";
 
         return new
@@ -151,7 +162,7 @@ internal class SlackMessageBuilder
         };
     }
 
-    private object BuildActionsBlock(string baseUrl, int notificationId)
+    private object BuildActionsBlock(string resultsLink)
     {
         return new
         {
@@ -166,7 +177,7 @@ internal class SlackMessageBuilder
                         type = "plain_text",
                         text = "View Full Results"
                     },
-                    url = $"{baseUrl.TrimEnd('/')}/notifications/{notificationId}"
+                    url = resultsLink
                 }
             }
         };

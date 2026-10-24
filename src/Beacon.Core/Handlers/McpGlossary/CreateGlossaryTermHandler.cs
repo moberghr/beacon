@@ -13,7 +13,8 @@ namespace Beacon.Core.Handlers.McpGlossary;
 /// The term is embedded on the next glossary re-index (the Warp doc-chunk/glossary job) and its definition
 /// is injected into the smart context when it is near a masked question (Tier-3 ⑪). Throws (§9.8) when the
 /// term or definition is blank — a blank term produces a useless embedding. The creation is recorded in the security audit
-/// (ids only, never the term's text) in the same unit of work.
+/// (ids and a keyed digest of each text field, never the term's text; <see cref="CurationContentAudit"/>) in the same unit
+/// of work.
 /// </summary>
 internal sealed class CreateGlossaryTermHandler(IDbContextFactory<BeaconContext> contextFactory, ISecurityAuditRecorder securityAudit)
     : IRequestHandler<CreateGlossaryTermCommand, CreateGlossaryTermResult>
@@ -56,7 +57,10 @@ internal sealed class CreateGlossaryTermHandler(IDbContextFactory<BeaconContext>
                 new SecurityAuditEntry(SecurityAuditActions.GlossaryTermCreated)
                     .On(SecurityAuditResources.GlossaryTerm, term.Id)
                     .InProject(term.ProjectId)
-                    .With(new SecurityAuditDetails().Add("dataSourceId", term.DataSourceId))
+                    .With(new SecurityAuditDetails()
+                        .Add("dataSourceId", term.DataSourceId)
+                        .AddCodes(CurationContentAudit.FieldsKey, CurationContentAudit.GlossaryFields))
+                    .Digesting(CurationContentAudit.AfterKey, CurationContentAudit.Of(term))
             ],
             cancellationToken);
 

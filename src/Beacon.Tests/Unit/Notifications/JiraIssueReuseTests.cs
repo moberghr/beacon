@@ -77,11 +77,55 @@ public class JiraIssueReuseTests
         VerifyCreated(Times.Once());
     }
 
-    private void Existing(Ticket ticket)
+    // The ticket an issue search answers with: only the legacy (text) search finds it unless labelled is set.
+    private void Existing(Ticket ticket, bool labelled = false)
     {
+        var found = new JiraTicketSearchDto(ticket.Key, ticket.Summary, "", "Open", null, DateTime.UtcNow, DateTime.UtcNow);
+        _jira
+            .Setup(x => x.SearchTickets(It.IsAny<JiraCredentials>(), It.Is<string>(y => y.Contains("labels =") == labelled), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([found]);
+        _jira
+            .Setup(x => x.SearchTickets(It.IsAny<JiraCredentials>(), It.Is<string>(y => y.Contains("labels =") != labelled), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync([]);
+    }
+
+    [Test]
+    public async Task FirstDelivery_LabelsTheIssueWithTheSubscriptionAndRecipient()
+    {
+        await Adapter().SendNotificationAsync(Delivery(totalRecords: 3), lastNotificationResultCount: null);
+
+        _jira.Verify(
+            x => x.CreateWorkItem(
+                It.IsAny<JiraCredentials>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<AdfDocument>(), "Task",
+                It.IsAny<CancellationToken>(), "Beacon beacon-sub-1-rcpt-7", It.IsAny<string?>(), It.IsAny<string?>()),
+            Times.Once);
+    }
+
+    [Test]
+    public async Task LaterDelivery_FindsTheIssueByLabelEvenWhenTheSummaryWasEdited()
+    {
+        Existing(new Ticket("SEC-5", "renamed by a person"), labelled: true);
+
+        await Adapter().SendNotificationAsync(Delivery(totalRecords: 3), lastNotificationResultCount: 1);
+
+        VerifyCreated(Times.Never());
+        _jira.Verify(x => x.AddCommentToTicket(It.IsAny<JiraCredentials>(), "SEC-5", It.IsAny<AdfDocument>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public async Task LaterDelivery_SearchesOnlyTheRecipientsProjectForOpenIssues()
+    {
+        var queries = new List<string>();
         _jira
             .Setup(x => x.SearchTickets(It.IsAny<JiraCredentials>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync([new JiraTicketSearchDto(ticket.Key, ticket.Summary, "", "Open", null, DateTime.UtcNow, DateTime.UtcNow)]);
+            .Callback<JiraCredentials, string, int, CancellationToken>((_, jql, _, _) => queries.Add(jql))
+            .ReturnsAsync([]);
+
+        await Adapter().SendNotificationAsync(Delivery(totalRecords: 3), lastNotificationResultCount: 1);
+
+        queries.Should().HaveCount(2);
+        queries.Should().OnlyContain(x => x.Contains("project = \"SEC\"") && x.Contains("statusCategory != Done"));
+        queries[0].Should().Contain("labels = \"beacon-sub-1-rcpt-7\"");
     }
 
     private void VerifyCreated(Times times)
@@ -109,7 +153,8 @@ public class JiraIssueReuseTests
                 SqlQuery = "SELECT 1",
                 SubscriptionName = Subscription,
                 SubscriptionId = 1
-            }
+            },
+            RecipientId = 7
         };
     }
 

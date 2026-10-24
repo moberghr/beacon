@@ -19,11 +19,9 @@ public sealed class FirstRunSetupMiddleware(
 {
     private readonly string _basePath = basePath.TrimEnd('/');
 
-    // First run ends once and never comes back (an archived super admin still counts), so the answer "over" is kept for
-    // the life of the process: no database query per request, and a database that is slow or down no longer holds up
-    // Beacon's routes after setup. A database restored or swapped under a running process needs a restart to reopen
-    // the setup redirect.
-    private volatile bool _firstRunOver;
+    // One-way: a super admin that has ever existed never stops having existed (an archived one counts), so once the
+    // check has answered "set up" this process asks the database no more.
+    private volatile bool _setupComplete;
 
     public async Task InvokeAsync(HttpContext context, IUserManagementService userService)
     {
@@ -42,13 +40,14 @@ public sealed class FirstRunSetupMiddleware(
             return;
         }
 
-        // Check if this is first run (no super admin has ever existed)
-        var isFirstRun = !_firstRunOver && await userService.IsFirstRunAsync(context.RequestAborted);
-        if (!isFirstRun)
+        if (_setupComplete)
         {
-            _firstRunOver = true;
+            await next(context);
+            return;
         }
 
+        // Check if this is first run (no super admin has ever existed)
+        var isFirstRun = await userService.IsFirstRunAsync(context.RequestAborted);
         if (isFirstRun)
         {
             // Covers a process whose startup check could not reach the database: the setup token is announced once.
@@ -59,6 +58,7 @@ public sealed class FirstRunSetupMiddleware(
             return;
         }
 
+        _setupComplete = true;
         await next(context);
     }
 

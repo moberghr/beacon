@@ -94,6 +94,47 @@ public class StoredValueReEncryptionServiceTests
     }
 
     [Test]
+    public async Task ALegacyFormatValue_IsRewrittenInTheCurrentFormat_UnderWhicheverKey_AndCountedAsLegacy()
+    {
+        var store = new Store();
+        store.DataSources.Add(DataSource(1, EncryptionServiceTests.LegacyV1("Host=legacy", CurrentKey)));
+        store.Settings.Add(new AppSetting { Id = 2, Key = "LLM.ApiKey", Category = "LLM", IsSensitive = true, Value = EncryptionServiceTests.LegacyV1("llm-key", PreviousKey) });
+        store.DataSources.Add(DataSource(3, _encryption.Encrypt("Host=current")));
+
+        var counted = await Service(store).CountAsync(CancellationToken.None);
+        var result = await Service(store).ReEncryptAsync(CancellationToken.None);
+        var after = await Service(store).CountAsync(CancellationToken.None);
+
+        counted.LegacyFormat.Should().Be(2);
+        counted.UnderPreviousKeys.Should().Be(1, "only the setting needs the previous key");
+        counted.LegacyFormatReadRemovable.Should().BeFalse();
+        result.ReEncrypted.Should().Be(2);
+        InCurrentFormat(store.DataSources[0].EncryptedConnectionData).Should().Be("Host=legacy");
+        InCurrentFormat(store.Settings[0].Value!).Should().Be("llm-key");
+        after.LegacyFormat.Should().Be(0);
+        after.LegacyFormatReadRemovable.Should().BeTrue();
+        after.PreviousKeysRemovable.Should().BeTrue();
+        _logs.Entries.Should().NotContain(x => x.Message.Contains("Host=legacy") || x.Message.Contains("llm-key"));
+    }
+
+    [Test]
+    public async Task TheStartupWarning_ReportsLegacyFormatValues_WithoutAPreviousKey()
+    {
+        var store = new Store();
+        store.DataSources.Add(DataSource(1, EncryptionServiceTests.LegacyV1("Host=legacy", CurrentKey)));
+        var services = new ServiceCollection()
+            .AddScoped<IStoredValueReEncryptionService>(_ => Service(store))
+            .BuildServiceProvider();
+        var warnings = new EncryptionKeyStartupWarnings(new ConfigurationBuilder().Build(), _logs.For<EncryptionKeyStartupWarnings>());
+
+        await warnings.WarnAboutValuesUnderPreviousKeysAsync(services, CancellationToken.None);
+
+        var entry = _logs.Entries.Should().ContainSingle().Subject;
+        entry.Level.Should().Be(LogLevel.Warning);
+        entry.Message.Should().StartWith("1 stored values are still in the legacy unauthenticated encryption format").And.Contain("Beacon:Encryption:AllowLegacyCbc");
+    }
+
+    [Test]
     public async Task AValueNoKeyDecrypts_IsCountedAndLoggedById_AndLeftAsStored()
     {
         var foreign = new EncryptionService("a key nobody configured").Encrypt("Host=foreign");
@@ -394,6 +435,14 @@ public class StoredValueReEncryptionServiceTests
         _encryption.Identify(cipherText).Should().Be(EncryptionService.KeyMatch.Current);
 
         return new EncryptionService(CurrentKey).Decrypt(cipherText);
+    }
+
+    private string InCurrentFormat(string cipherText)
+    {
+        _encryption.Identify(cipherText, out var legacyFormat).Should().Be(EncryptionService.KeyMatch.Current);
+        legacyFormat.Should().BeFalse();
+
+        return new EncryptionService(CurrentKey, [], allowLegacyFormat: false).Decrypt(cipherText);
     }
 
     private StoredValueReEncryptionService Service(Store store, RecipientDestinationHasher? hasher = null)

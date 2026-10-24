@@ -208,6 +208,11 @@ public static partial class LoginEndpoints
         .Produces<LoginResponse>(StatusCodes.Status200OK)
         .Produces<LoginResponse>(StatusCodes.Status400BadRequest)
         .Produces<LoginResponse>(StatusCodes.Status401Unauthorized)
+        // Only with a valid antiforgery token, anonymous callers included (the SPA primes one from GET /csrf and sends it
+        // like on every mutation): a cross-site form POST cannot sign the browser in to another account. Refused (400)
+        // before the throttle or the password check; a caller authenticated by its Authorization header is not checked.
+        .AddEndpointFilter<AntiforgeryEndpointFilter>()
+        .WithMetadata(AntiforgeryForAnonymousCallers.Instance)
         .AddEndpointFilter<LoginRateLimitFilter>()
         .DisableAntiforgery();
     }
@@ -245,7 +250,16 @@ public static partial class LoginEndpoints
 /// A password sign-in. <see cref="NewPassword"/> is sent by a user who must choose a new password (an administrator set the
 /// current one; the answer to the first attempt says so): it becomes their password and they are signed in.
 /// </summary>
-public record LoginRequest(string? Username, string? Password, bool RememberMe = false, string? NewPassword = null);
+public record LoginRequest(string? Username, string? Password, bool RememberMe = false, string? NewPassword = null)
+{
+    // The compiler-generated ToString prints every member; the secrets are printed redacted.
+    protected virtual bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"Username = {Username}, Password = {Core.RedactedPrint.Of(Password)}, RememberMe = {RememberMe}, NewPassword = {Core.RedactedPrint.Of(NewPassword)}");
+
+        return true;
+    }
+}
 
 public record LoginResponse
 {

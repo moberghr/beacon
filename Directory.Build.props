@@ -12,4 +12,23 @@
     <PackageId>Moberg.$(MSBuildProjectName)</PackageId>
   </PropertyGroup>
 
+  <PropertyGroup>
+    <!-- Reproducible restore: every project commits a packages.lock.json. Lock files must be
+         regenerated (dotnet restore with the force-evaluate switch) whenever Directory.Packages.props or a
+         project's package references change. CI restores in locked mode. -->
+    <RestorePackagesWithLockFile>true</RestorePackagesWithLockFile>
+  </PropertyGroup>
+
+  <PropertyGroup>
+    <!-- SourceLink is built into the .NET SDK (no Microsoft.SourceLink.GitHub package needed). -->
+    <PublishRepositoryUrl>true</PublishRepositoryUrl>
+    <EmbedUntrackedSources>true</EmbedUntrackedSources>
+    <IncludeSymbols>true</IncludeSymbols>
+    <SymbolPackageFormat>snupkg</SymbolPackageFormat>
+  </PropertyGroup>
+
+  <PropertyGroup Condition="'$(GITHUB_ACTIONS)' == 'true'">
+    <ContinuousIntegrationBuild>true</ContinuousIntegrationBuild>
+  </PropertyGroup>
+
 </Project>

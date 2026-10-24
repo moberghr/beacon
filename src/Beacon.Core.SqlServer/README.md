@@ -36,10 +36,11 @@ Beacon.Core.ServiceConfiguration.UseBeacon(app.Services, createSchema: true);
 
 | Overload | What it does |
 |---|---|
-| `UseSqlServer()` | Connection string from `ConnectionStrings:BeaconContext`, schema from `Beacon:Schema`. |
-| `UseSqlServer(string connectionString, string schema = "beacon")` | Same, with the connection string passed in. |
+| `UseSqlServer()` | Connection string from `ConnectionStrings:BeaconContext`. |
+| `UseSqlServer(string connectionString)` | Same, with the connection string passed in. |
 
-The `schema` argument and `Beacon:Schema` accept only `beacon`; any other value throws at registration. With
+The schema is always `beacon`: `Beacon:Schema` and the obsolete `schema` overloads (removed in 6.0) accept only `beacon`;
+any other value throws at registration. With
 `createSchema: true`, `UseBeacon` creates the `beacon` schema when it does not exist. The migration history table
 is `beacon.__EFMigrationsHistory`.
 

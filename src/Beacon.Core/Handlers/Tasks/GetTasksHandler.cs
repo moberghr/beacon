@@ -1,12 +1,15 @@
+using Microsoft.EntityFrameworkCore;
+using Beacon.Core.Data;
+using Beacon.Core.DTOs;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models.Tasks;
-using Beacon.Core.Services;
 using MediatR;
 using Beacon.Core.Authorization;
+using Beacon.Core.Authorization.ProjectAccess;
 
 namespace Beacon.Core.Handlers.Tasks;
 
-internal sealed class GetTasksHandler(ITaskService taskService, IProjectAccessEvaluator projectAccess)
+internal sealed class GetTasksHandler(IDbContextFactory<BeaconContext> contextFactory, IProjectAccessEvaluator projectAccess)
     : IRequestHandler<GetTasksQuery, PagedList<TaskEntry>>
 {
     public async Task<PagedList<TaskEntry>> Handle(GetTasksQuery request, CancellationToken cancellationToken)
@@ -22,7 +25,7 @@ internal sealed class GetTasksHandler(ITaskService taskService, IProjectAccessEv
             Resolved = request.Resolved,
         };
 
-        var result = await taskService.GetTasks(serviceRequest, cancellationToken);
+        var result = await Read(serviceRequest, cancellationToken);
 
         return result.Map(x =>
             new TaskEntry(
@@ -39,6 +42,60 @@ internal sealed class GetTasksHandler(ITaskService taskService, IProjectAccessEv
                 x.ResolvedByUserName,
                 x.AiActorId,
                 x.AiActorName));
+    }
+
+    internal async Task<PagedList<TaskData>> Read(GetTasksRequest request, CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        var query = context.QueryTasks
+            .WhereAllSourcesInOneProject(context, request.Readable, x => x.Subscription.Query.Steps.Select(y => y.DataSourceId), x => x.Subscription.Query.OwnerUserId);
+
+        if (request.SubscriptionId.HasValue)
+        {
+            query = query.Where(x => x.SubscriptionId == request.SubscriptionId.Value);
+        }
+
+        if (request.Resolved.HasValue)
+        {
+            query = query.Where(x => x.Resolved == request.Resolved.Value);
+        }
+
+        return await query
+            .Select(x =>
+                new TaskData
+                {
+                    Id = x.Id,
+                    SubscriptionName = x.Subscription.Query.Name,
+                    QueryName = x.Subscription.Query.Name,
+                    LatestResultCount = x.LatestResultCount,
+                    LastNotificationAt = x.LastNotificationAt,
+                    NotificationCount = x.Notifications.Count,
+                    CreatedAt = x.CreatedTime,
+                    Resolved = x.Resolved,
+                    ResolvedAt = x.ResolvedAt,
+                    // Named by display name or "User {id}", never by user name.
+                    ResolvedByUserName = x.ResolvedByUserId == null
+                        ? null
+                        : context.Users
+                            .Where(y => y.ExternalId == x.ResolvedByUserId)
+                            .Select(UserLabel.OfUser)
+                            .FirstOrDefault(),
+                    AiActorId = x.Subscription.AiActorId,
+                    AiActorName = x.Subscription.AiActor != null ? x.Subscription.AiActor.Name : null,
+                    ExecutionCount = context.QueryExecutionHistory
+                        .Where(y => y.SubscriptionId == x.SubscriptionId)
+                        .Where(y => y.CreatedTime >= x.CreatedTime)
+                        .Count(),
+                    // Distinct result counts since task creation show the volatility.
+                    UniqueResultCounts = context.QueryExecutionHistory
+                        .Where(y => y.SubscriptionId == x.SubscriptionId)
+                        .Where(y => y.CreatedTime >= x.CreatedTime)
+                        .Select(y => y.ResultCount)
+                        .Distinct()
+                        .Count()
+                })
+            .ToPagedListAsync(request, cancellationToken, defaultSort: "-createdAt");
     }
 }
 

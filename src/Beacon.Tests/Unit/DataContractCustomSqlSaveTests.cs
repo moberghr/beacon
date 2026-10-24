@@ -268,10 +268,12 @@ public class DataContractCustomSqlSaveTests
     [Test]
     public async Task Update_ACustomSqlRuleFoundOnlyInsideTheTransaction_IsStillAnAdminsChange()
     {
-        // The pre-transaction check sees no CustomSql rule, the contract loaded inside the transaction does.
+        // The pre-transaction check sees no CustomSql rule, the rules read inside the transaction do.
         var contract = Contract(ExistingCustomSqlRule());
+        var rules = new List<DataContractRule>();
+        _store.TransactionBegun = () => rules.AddRange(contract.Rules);
         var handler = new UpdateDataContractHandler(
-            ContextFactory(OrdinarySource(), contract, rules: []),
+            ContextFactory(OrdinarySource(), contract, rules: rules),
             _scheduler.Object,
             UserContext(Interactive(RoleService.RoleNames.Editor)),
             TestSqlGate.Create(),
@@ -343,7 +345,8 @@ public class DataContractCustomSqlSaveTests
 
         contract.Rules.Should().ContainSingle()
             .Which.Configuration.Should().Be(JsonSerializer.Serialize(new { sql = "SELECT 1 AS passed" }));
-        _store.PurgedResults.Should().Be(1, "the old rule's results go with it");
+        oldRule.ArchivedTime.Should().NotBeNull("the old rule is retired, not deleted");
+        _store.PurgedResults.Should().Be(0, "the old rule's results stay with it");
         _store.Saves.Should().Be(1);
         _store.Commits.Should().Be(1);
         _scheduler.Verify(x => x.RemoveDataQualityJob(ContractId, "contract"), Times.Once);
@@ -1096,6 +1099,9 @@ public class DataContractCustomSqlSaveTests
         public int TransactionsBegun { get; set; }
         public int Commits { get; set; }
         public int PurgedResults { get; set; }
+
+        /// <summary>Run when a transaction begins: a test that changes what is stored between two reads.</summary>
+        public Action? TransactionBegun { get; set; }
     }
 
     /// <summary>
@@ -1129,7 +1135,11 @@ public class DataContractCustomSqlSaveTests
             _database = new Mock<DatabaseFacade>(this);
             _database
                 .Setup(x => x.BeginTransactionAsync(It.IsAny<CancellationToken>()))
-                .Callback(() => _store.TransactionsBegun++)
+                .Callback(() =>
+                {
+                    _store.TransactionsBegun++;
+                    _store.TransactionBegun?.Invoke();
+                })
                 .ReturnsAsync(transaction.Object);
         }
 
