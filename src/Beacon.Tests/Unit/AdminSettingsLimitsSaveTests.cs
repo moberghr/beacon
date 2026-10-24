@@ -154,6 +154,7 @@ public class AdminSettingsLimitsSaveTests
             TestProjectAccess.Actors(),
             permissions,
             catalog.Object,
+            TestChangeApprovals.Llm(new ChangeGovernance.ChangeApprovalStore().Factory(), settingsService: service),
             NullLogger<UpdateAdminSettingsHandler>.Instance);
     }
 

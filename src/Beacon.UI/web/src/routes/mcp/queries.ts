@@ -3,6 +3,7 @@ import { toast } from 'sonner';
 import { describeError, httpErrorInfo, unwrap } from '@/lib/api';
 import { beaconApi } from '@/api/client';
 import { usePagedList } from '@/lib/usePagedList';
+import { fetchPagedList } from '@/lib/paging';
 import { GroundingRecheckKind, McpDocPatchStatus, McpDocPatchTarget, McpPatternStatus, McpPatternType } from '@/lib/enums';
 import { createSimpleMutation } from '@/lib/mutations';
 
@@ -151,6 +152,19 @@ export interface McpProjectSettingsData {
   maxExplainCost?: number | null;
   maxConcurrentQueriesPerKey?: number | null;
   allowExplicitFeedbackContent?: boolean | null;
+}
+
+/**
+ * The global GET: the resolved settings every MCP consumer reads (locks and ceilings applied), the row as stored (what the
+ * page edits and sends back, so a value above a ceiling or under a lock survives a save) and which fields a lock or a
+ * ceiling decides.
+ */
+export interface GetMcpSettingsResult extends McpSettingsData {
+  stored: McpSettingsData;
+  /** Field names (PascalCase, as the server reports them) pinned by a `Beacon:Mcp` deployment lock. */
+  lockedFields: string[];
+  /** Field names whose stored value a `Beacon:Mcp:Ceilings` value lowers. */
+  clampedFields: string[];
 }
 
 export interface GetMcpProjectSettingsResult {
@@ -361,7 +375,7 @@ export const GROUNDING_RECHECK_KEY = ['eval', 'grounding', 'recheck'] as const;
 export function useMcpSettings() {
   return useQuery({
     queryKey: MCP_SETTINGS_KEY,
-    queryFn: async () => unwrap<McpSettingsData>(await beaconApi().getMcpSettings()),
+    queryFn: async () => unwrap<GetMcpSettingsResult>(await beaconApi().getMcpSettings()),
   });
 }
 
@@ -528,13 +542,29 @@ export function useGoldenCandidatesList(enabled: boolean) {
   });
 }
 
-/** A project's golden cases (Admin). Only read once a project is chosen. */
-export function useGoldenCases(projectId: number | null) {
-  return useQuery({
-    queryKey: [...GOLDEN_CASES_KEY, projectId],
-    queryFn: async () =>
-      unwrap<GoldenCaseItem[]>(await beaconApi().getGoldenCases(projectId as number, undefined)),
+/** A project's golden cases (Admin): server-paged, newest first. Only read once a project is chosen (`cases*` in the URL). */
+export function useGoldenCasesList(projectId: number | null) {
+  return usePagedList<GoldenCaseItem>({
+    queryKey: [...GOLDEN_CASES_KEY, 'list', projectId],
+    path: '/beacon/api/eval/golden/paged',
+    fixedParams: { projectId },
+    urlPrefix: 'cases',
     enabled: projectId !== null,
+  });
+}
+
+/** One golden case of a project (Admin), read by id: a promotion's case may be on no loaded page. */
+export function useGoldenCase(projectId: number, caseId: number) {
+  return useQuery({
+    queryKey: [...GOLDEN_CASES_KEY, 'one', projectId, caseId],
+    queryFn: async () => {
+      const page = await fetchPagedList<GoldenCaseItem>('/beacon/api/eval/golden/paged', {
+        projectId,
+        id: caseId,
+        pageSize: 1,
+      });
+      return page.items[0] ?? null;
+    },
   });
 }
 

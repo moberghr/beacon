@@ -56,7 +56,7 @@ Administrative duties are split out of the Admin role. Each is held through a **
 
 | Permission | Grants |
 |---|---|
-| **Approver** | Approve or reject query changes and change requests (migration jobs, Custom SQL rules, recipient destinations). |
+| **Approver** | Approve or reject query changes and change requests (migration jobs, Custom SQL rules, recipient destinations and, when covered, data-source connections). A change of the LLM connection is an Admin's to decide. |
 | **Auditor** | Read and verify the [security audit trail](/security/audit-trail/); read the MCP audit log, MCP settings, admin settings, every API key and what a user owns, created or changed last. |
 | **SecurityAdmin** | Change MCP and admin settings (not the LLM connection or base URL, which are Admin only), manage notification recipients, publish saved queries as MCP tools, set repository tokens. |
 | **UserAdmin** | Manage users and their non-privileged roles, end sessions, see what a user owns, created or changed last, revoke API keys, change owners of scheduled work, manage project members, restrict projects. |
@@ -95,7 +95,7 @@ A functional permission grants **no project data**. A UserAdmin can never grant 
 
 ## 4. Change approvals (four-eyes)
 
-Opt in with `options.EnableApprovalWorkflow(...)`. Then a change to a query's executable content goes live only after a **second person** with the Approver permission approves exactly the content they reviewed, and scheduled runs execute only reviewed SQL. By default it also covers migration jobs, Custom SQL rules and new or changed notification destinations.
+Opt in with `options.EnableApprovalWorkflow(...)`. Then a change to a query's executable content goes live only after a **second person** with the Approver permission approves exactly the content they reviewed, and scheduled runs execute only reviewed SQL. By default it also covers migration jobs, Custom SQL rules and new or changed notification destinations; data-source connections (`CoversDataSourceConnections`) and the LLM connection (`CoversLlmConnection`) are covered when you switch them on.
 
 ```csharp
 options.EnableApprovalWorkflow(x =>

@@ -106,6 +106,8 @@ internal static class OidcEventHandlers
         var idpPermissions = SeparatedFromStoredRoles(MappedIdpPermissions(principal, roleMapping, user, logger), user, roleMapping, logger);
 
         EnrichBeaconClaims(context, user);
+        // A session cookie unless the host keeps SSO sessions across browser restarts (Session:PersistSsoCookie).
+        context.Properties!.IsPersistent = services.GetService<IOptions<SessionLifetimeOptions>>()?.Value.PersistSsoCookie == true;
         AddIdpPermissions(context, roleMapping, idpPermissions, services.GetService<TimeProvider>() ?? TimeProvider.System);
         await SignInAudit.SsoSignedInAsync(context.HttpContext, user.Id);
         if (idpPermissions.Count > 0)
@@ -186,8 +188,7 @@ internal static class OidcEventHandlers
             }
         }
 
-        context.Properties!.IsPersistent = true;
-        context.Properties.AllowRefresh = true;
+        context.Properties!.AllowRefresh = true;
     }
 
     // The functional permissions the identity provider's app roles map to (Beacon:Authorization:IdpRoles), when the

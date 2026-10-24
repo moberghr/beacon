@@ -196,6 +196,19 @@ public class DatabaseEngineIdentityTests
             .Which.FullText.Should().Contain("9").And.NotContain("db.internal");
     }
 
+    // At an approval the check is the only one a held source gets: a server it cannot reach refuses, the cause kept.
+    [Test]
+    public async Task EnsureDeclaredEngine_ThatMustReachTheServer_RefusesWhenItCannot()
+    {
+        DbConnectionFactory.Register(DatabaseEngineType.PostgreSQL, _ => throw new TimeoutException("db.internal did not answer"));
+
+        var act = () => Verifier().EnsureDeclaredEngineAsync(9, DatabaseEngineType.PostgreSQL, "Host=db.internal", refuseUnreachable: true, CancellationToken.None);
+
+        var refused = (await act.Should().ThrowAsync<InvalidOperationException>().WithMessage(DatabaseEngineVerifier.UnreachableMessage)).Which;
+        refused.InnerException.Should().BeOfType<TimeoutException>();
+        refused.Message.Should().NotContain("db.internal");
+    }
+
     [Test]
     public async Task Identify_WithACancelledToken_PropagatesTheCancellation()
     {

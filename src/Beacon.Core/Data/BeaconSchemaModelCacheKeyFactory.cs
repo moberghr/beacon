@@ -4,12 +4,10 @@ using Microsoft.EntityFrameworkCore.Infrastructure;
 namespace Beacon.Core.Data;
 
 /// <summary>
-/// Incorporates the configured schema into the model cache key so two <see cref="BeaconContext"/>
-/// instances configured with different schemas via <c>UseBeaconSchema</c> build and cache
-/// distinct EF models, instead of the second schema silently reusing the first schema's cached
-/// model. Shared by both the SQL Server and PostgreSQL providers — it needs no provider-specific
-/// type at all, so it lives in Core (§2.4).
+/// Incorporates the schema set with <c>UseBeaconSchema</c> into the model cache key. Beacon's schema is fixed to
+/// <c>beacon</c> and Beacon's providers no longer use it; kept for hosts that registered it themselves.
 /// </summary>
+[Obsolete("Beacon's schema is fixed to 'beacon', so the model cache key needs no schema; Beacon no longer uses this type. It is removed in 6.0.")]
 public sealed class BeaconSchemaModelCacheKeyFactory : IModelCacheKeyFactory
 {
     public object Create(DbContext context, bool designTime)

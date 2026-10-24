@@ -145,7 +145,7 @@ export function useUpdateAdminSettings() {
     createSimpleMutation<UpdateAdminSettingsPayload, void>({
       qc,
       mutationFn: (values) => beaconApi().updateAdminSettings(values as never),
-      invalidate: [ADMIN_SETTINGS_KEY],
+      invalidate: [ADMIN_SETTINGS_KEY, ['approvals']],
       errorFallback: 'Update admin settings failed',
     }),
   );

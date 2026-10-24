@@ -144,6 +144,21 @@ public class HostDataSourceSynchronizerTests
         FakeEncryption.Instance.Decrypt(stored).Should().Be("{\"hostConnectionStringName\":\"BeaconReadOnly\"}");
     }
 
+    // The host's model is the stored catalog of a host source: a sync that rewrites it drops the source's catalog snapshots,
+    // a sync that leaves it as it was does not.
+    [Test]
+    public async Task SyncAsync_InvalidatesTheCatalogSnapshots_OnlyWhenItRewritesTheMetadata()
+    {
+        var store = new HostSyncStore();
+        var snapshots = new Mock<ICatalogSnapshotCache>();
+        var (synchronizer, registration) = Build(store, x => x.AllowTables("Customer", "lending.Loan"), snapshots: snapshots.Object);
+
+        var first = await synchronizer.SyncAsync(registration, CancellationToken.None);
+        await synchronizer.SyncAsync(registration, CancellationToken.None);
+
+        snapshots.Verify(x => x.Invalidate(first.DataSourceId), Times.Once);
+    }
+
     [Test]
     public async Task SyncAsync_SecondRunWithSameModel_SkipsMetadataRewrite()
     {
@@ -397,7 +412,7 @@ public class HostDataSourceSynchronizerTests
     [Test]
     public void ConnectionResolver_HostManagedSource_ResolvesFromConfigurationAtCallTime()
     {
-        var resolver = new DataSourceConnectionResolver(FakeEncryption.Instance, Configuration(ReadOnlyConnectionString), TestTransport.Policy());
+        var resolver = new DataSourceConnectionResolver(FakeEncryption.Instance, Configuration(ReadOnlyConnectionString), TestTransport.Policy(), new BeaconConfiguration(), TestTransport.Hasher());
 
         var connection = resolver.GetConnectionString(HostDataSource());
 
@@ -407,7 +422,7 @@ public class HostDataSourceSynchronizerTests
     [Test]
     public void ConnectionResolver_HostManagedSourceWithoutConfiguredString_Throws()
     {
-        var resolver = new DataSourceConnectionResolver(FakeEncryption.Instance, Configuration(null), TestTransport.Policy());
+        var resolver = new DataSourceConnectionResolver(FakeEncryption.Instance, Configuration(null), TestTransport.Policy(), new BeaconConfiguration(), TestTransport.Hasher());
 
         var act = () => resolver.GetConnectionString(HostDataSource());
 
@@ -417,7 +432,7 @@ public class HostDataSourceSynchronizerTests
     [Test]
     public void ConnectionResolver_OrdinarySource_DecryptsStoredString()
     {
-        var resolver = new DataSourceConnectionResolver(FakeEncryption.Instance, Configuration(ReadOnlyConnectionString), TestTransport.Policy());
+        var resolver = new DataSourceConnectionResolver(FakeEncryption.Instance, Configuration(ReadOnlyConnectionString), TestTransport.Policy(), new BeaconConfiguration(), TestTransport.Hasher());
         var dataSource = new DataSource
         {
             Id = 7,
@@ -545,6 +560,8 @@ public class HostDataSourceSynchronizerTests
             new RecordingSecurityAudit(),
             TestTransport.Policy(),
             TestEngineVerifier.Passing,
+            TestChangeApprovals.Submitter(),
+            TestTransport.Hasher(),
             NullLogger<DataSourceService>.Instance);
 
         var update = () => service.UpdateDataSource(new Beacon.Core.Models.DataSources.DataSourceData
@@ -583,7 +600,8 @@ public class HostDataSourceSynchronizerTests
         string projectName = "Netgiro Admin",
         IProjectMembershipSource? membershipSource = null,
         LogRecorder? logs = null,
-        IHostReadOnlyLoginCheck? loginCheck = null)
+        IHostReadOnlyLoginCheck? loginCheck = null,
+        ICatalogSnapshotCache? snapshots = null)
     {
         var registry = BuildRegistry(configure, projectName);
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
@@ -603,7 +621,8 @@ public class HostDataSourceSynchronizerTests
             membershipSource ?? BeaconMembership(factory.Object),
             Options.Create(new ProjectAuthorizationOptions()),
             loginCheck ?? new RecordingHostLoginCheck(),
-            logs?.For<HostDataSourceSynchronizer>() ?? NullLogger<HostDataSourceSynchronizer>.Instance);
+            logs?.For<HostDataSourceSynchronizer>() ?? NullLogger<HostDataSourceSynchronizer>.Instance,
+            snapshots);
 
         return (synchronizer, registry.Registrations.Single());
     }
