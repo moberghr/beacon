@@ -1,5 +1,6 @@
 using Beacon.Api.Authentication;
 using Beacon.Core.Authorization;
+using Beacon.Core.BackgroundTasks;
 using Beacon.Core.Handlers.Projects;
 using Beacon.Core.Handlers.Projects.Members;
 using MediatR;
@@ -81,9 +82,26 @@ internal static class ProjectsEndpoints
                 m.Send(new InstructDocumentationCommand(id, body.Instruction), ct))
             .WithName("InstructDocumentation");
 
+        // Scans in the request and answers with the outcome (kept for 5.0 callers; many repositories hold the request open).
         projects.MapPost("/{id:int}/scan", (int id, IMediator m, CancellationToken ct) =>
                 m.Send(new ScanAllRepositoriesCommand(id), ct))
             .WithName("ScanAllRepositories");
+
+        // Starts the scan as a background task: 202 with the task (its job id correlates JobStatusChanged), read below; each
+        // repository's result is on the project's repositories.
+        projects.MapPost("/{id:int}/scans", async (int id, IMediator m, CancellationToken ct) =>
+            {
+                var ticket = await m.Send(new StartRepositoryScanCommand(id), ct);
+                return TypedResults.Accepted($"/beacon/api/projects/{id}/scans/{ticket.TaskId}", ticket);
+            })
+            .WithName("StartRepositoryScan");
+
+        projects.MapGet("/{id:int}/scans/{taskId:int}", async Task<Results<Ok<BackgroundTaskStatus>, NotFound>> (int id, int taskId, IMediator m, CancellationToken ct) =>
+            {
+                var status = await m.Send(new GetRepositoryScanQuery(id, taskId), ct);
+                return status is null ? TypedResults.NotFound() : TypedResults.Ok(status);
+            })
+            .WithName("GetRepositoryScan");
 
         projects.MapGet("/{id:int}/mcp-context", (int id, IMediator m, CancellationToken ct) =>
                 m.Send(new GetProjectMcpContextQuery(id), ct))

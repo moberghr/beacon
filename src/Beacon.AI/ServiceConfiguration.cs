@@ -101,6 +101,7 @@ public static class ServiceConfiguration
         services.TryAddTransient<GitHubApiClient>();
         services.AddTransient<ICodeAnalyzer, CSharpCodeAnalyzer>();
         services.TryAddTransient<IGitHubScannerService, GitHubScannerService>();
+        services.TryAddEnumerable(ServiceDescriptor.Transient<Beacon.Core.BackgroundTasks.IBackgroundTaskExecutor, Handlers.Projects.RepositoryScanTaskExecutor>());
 
         // Disabled by default; Moberg.Beacon.AI.Embeddings.Onnx replaces it through AddBeaconOnnxEmbeddings().
         services.TryAddSingleton<IBeaconEmbeddingService, DisabledEmbeddingService>();

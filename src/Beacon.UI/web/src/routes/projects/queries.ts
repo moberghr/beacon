@@ -5,6 +5,8 @@ import { ProjectMembershipManagement, ProjectRole } from '@/lib/enums';
 import { fetchPagedList } from '@/lib/paging';
 import { usePagedList } from '@/lib/usePagedList';
 import { createSimpleMutation } from '@/lib/mutations';
+import { useBackgroundTaskStatus } from '@/lib/useBackgroundTask';
+import type { BackgroundTaskStatus, BackgroundTaskTicket } from '@/api/generated/beacon-api';
 
 // Local strict mirrors of the loose generated DTOs (see `unwrap` in
 // '@/lib/api'). Dates are strings on the wire.
@@ -397,5 +399,21 @@ export function useLinkProjectDataSources(projectId: number) {
       successMsg: (ids) => (ids.length === 1 ? 'Data source linked' : `${ids.length} data sources linked`),
       errorFallback: 'Linking data sources failed',
     }),
+  );
+}
+
+/**
+ * Starts a scan of every repository of the project as a background task (202 with its ticket). Its progress is followed
+ * with useRepositoryScanStatus; the scan in the request (scanAllRepositories) stays for API callers.
+ */
+export function useStartRepositoryScan() {
+  return useMutation({
+    mutationFn: async (projectId: number) => unwrap<BackgroundTaskTicket>(await beaconApi().startRepositoryScan(projectId)),
+  });
+}
+
+export function useRepositoryScanStatus(projectId: number, ticket: BackgroundTaskTicket | null) {
+  return useBackgroundTaskStatus(['projects', projectId, 'repository-scan'] as const, ticket, async (taskId) =>
+    unwrap<BackgroundTaskStatus>(await beaconApi().getRepositoryScan(projectId, taskId)),
   );
 }

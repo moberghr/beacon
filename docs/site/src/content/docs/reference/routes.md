@@ -82,7 +82,7 @@ Functional permissions named below are held by Admins too. A by-id request on a 
 |---|---|---|
 | `/auth/me`, `/auth/sso`, `/auth/permissions` | Current user, SSO config, current permissions | `permissions` returns `canRead`, `canWrite`, `isAdmin`, `permissions`, `migrationsEnabled`. |
 | `/home` | Home page: trends, activity, task summary, uptime, migration summary | `migration-summary` admits MigrationOperator. |
-| `/projects` | Projects, linked data sources, members, access mode, repositories, documentation, imported documents, MCP context | Members: project admins, UserAdmin. Access mode: UserAdmin (opening a restricted project: Admin). Unlinking a data source: Admin. Repository token: SecurityAdmin. |
+| `/projects` | Projects, linked data sources, members, access mode, repositories and their scans (in the request, or as a background task), documentation, imported documents, MCP context | Members: project admins, UserAdmin. Access mode: UserAdmin (opening a restricted project: Admin). Unlinking a data source: Admin. Repository token: SecurityAdmin. |
 | `/data-sources` | Data sources, connection test, metadata, metadata refresh | Create, test and delete: DataSourceAdmin. `GET /{id}/metadata` needs Execute scope. `PUT /{id}/migration-writes`: Admin. Forced refresh is rate limited per data source (`429`). |
 | `/data-sources/{id}/relationships`, `/data-sources/{id}/schema-health` | Schema relationships: list, add, edit, verify, delete, discover; schema health | Verifying needs the Curate action. |
 | `/queries` | Queries: list, detail, create, update, lock, change history, preview, step preview, publish as MCP tool | No delete route. Previews need Execute scope. `PUT /{id}/mcp-tool`: SecurityAdmin. |

@@ -213,7 +213,7 @@ The rows are written as the source returns them:
 ### Schedules
 
 The cron schedule is stored with the job and shown on it. Beacon does not start migration runs from it by itself: a run
-starts from **Run now** or from `POST /beacon/api/migrations/jobs/{id}/run`. A host that wants scheduled runs starts them
+starts from **Run now**, `POST /beacon/api/migrations/jobs/{id}/runs` or `POST /beacon/api/migrations/jobs/{id}/run`. A host that wants scheduled runs starts them
 from its own background job (see [Background jobs](/integrate/background-jobs/)); the approval and write-target checks,
 the timeout and the one-run-at-a-time rule apply to those runs too. `IMigrationService.ExecuteMigrationJob` answers a
 run that overlaps one starting or in progress with a failed response whose `RunInProgress` is `true` (execution id 0,
@@ -224,8 +224,27 @@ nothing run or recorded in the history); it does not throw.
 1. Open the job from the jobs list.
 2. Click **Run now**.
 
-**Run now** is disabled while the job is disabled or awaiting approval. The run happens in the request; the page then
-shows it in the job's runs.
+**Run now** is disabled while the job is disabled or awaiting approval. The run is a background task: the button shows
+it queued and running, and when it ends the page reads the job's runs again and says how it went (the run history has its
+counts and error).
+
+- **As a background task** (what the page's button does): `POST /beacon/api/migrations/jobs/{id}/runs` answers `202` at
+  once with `{ taskId, jobId, state }` and a `Location` header, after the same checks as a run in the request (the
+  deployment lock, project access, write targets, an existing enabled job). Read its progress with
+  `GET /beacon/api/migrations/jobs/{id}/runs/{taskId}` (MigrationOperator, with the run's access checks; `state`: `0`
+  queued, `1` running, `2` succeeded, `3` failed, `4` skipped; `warningCount` is the rows that failed in a run that
+  finished; `failureCode` is `run_failed` for a run that failed, whose history row says why). The job runs as the user
+  who started it and checks again, right before the run, that they still hold MigrationOperator and meet the job's
+  access rules: if not, it is skipped (`forbidden`) and nothing runs. A job has one run task queued or running at a time
+  (a second start answers `409`); a run task that finds a run of the job already in progress (started another way) is
+  skipped (`busy`). The run itself is the same as in the request: the one-run-at-a-time claim, the destination lock, the
+  job's timeout, the commit that is never cancelled and the history row that is always closed all apply. A run task left
+  running by a host that stopped is given up (`abandoned`) when the next one starts or its progress is read, once the
+  job's run history shows its run ended (closed, or left running past the job's timeout plus 10 minutes) or no run of it
+  began within five minutes; at the latest after the longest timeout (1,440 minutes) plus 10 minutes. The job runs through your host's [`IBeaconScheduler.EnqueueBackgroundTask`](/integrate/background-jobs/);
+  a host that does not implement it runs the migration in the request, and the `202` then carries the state it finished in.
+- **In the request** (kept for API callers of Beacon 5.0): `POST /beacon/api/migrations/jobs/{id}/run` answers with the
+  run's counts once it has ended, which holds the request open for as long as the run takes.
 
 - **One run at a time.** A job runs once at a time, across every host: a run of a job that already has a run starting
   or in progress is refused with `409 Conflict` before it reads or writes anything, and adds no run to the history (the
@@ -332,7 +351,9 @@ MigrationOperator permission.
 | `GET` | `/jobs` | List jobs (paged: `page`, `pageSize`, `sort`). |
 | `GET` | `/jobs/{id}` | One job. |
 | `POST` | `/jobs` | Create a job. |
-| `POST` | `/jobs/{id}/run` | Run a job now. |
+| `POST` | `/jobs/{id}/runs` | Start a run of a job as a background task (`202` with its ticket). |
+| `GET` | `/jobs/{id}/runs/{taskId}` | The state of a run task. |
+| `POST` | `/jobs/{id}/run` | Run a job now, in the request (kept for 5.0 callers). |
 | `DELETE` | `/jobs/{id}` | Archive a job. |
 | `GET` | `/executions` | List runs (paged). |
 

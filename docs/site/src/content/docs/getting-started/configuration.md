@@ -642,7 +642,13 @@ A project's repository scan reads source files from `https://github.com` with th
 | `MaxFileBytes` | int | `1000000` | A larger source file is skipped |
 | `MaxTreeResponseBytes` | int | `33554432` | The most bytes read from the repository's file list |
 
-A scan that hits a bound still ends as completed, and its error text starts with "Partial scan:" and names what was left out (files over the cap, files over the size limit, the time limit, files that could not be read, or a file list GitHub itself truncated), so a partial result is never mistaken for a full one. The project's repository list marks such a repository **Partial** with the reasons (`partialScan` and `partialScanReasons` on each repository of `GET /beacon/api/projects/{id}`), and `POST /beacon/api/projects/{id}/scan` returns them in `partialScans`. The time limit also covers reading the repository's metadata and file list: a scan that reaches it before the file list is read fails. A scan replaces the repository's code references only when it finishes; one that fails or is cancelled by the caller keeps the previous references.
+A scan that hits a bound still ends as completed, and its error text starts with "Partial scan:" and names what was left out (files over the cap, files over the size limit, the time limit, files that could not be read, or a file list GitHub itself truncated), so a partial result is never mistaken for a full one. The project's repository list marks such a repository **Partial** with the reasons (`partialScan` and `partialScanReasons` on each repository of `GET /beacon/api/projects/{id}`), and `POST /beacon/api/projects/{id}/scan` returns them in `partialScans`. **Scan repositories** on a project's
+Repositories tab (an Editor's) starts the scan as a background task, `POST /beacon/api/projects/{id}/scans` (`202` with
+`{ taskId, jobId, state }`; progress at `GET /beacon/api/projects/{id}/scans/{taskId}`, whose `warningCount` is the
+repositories that failed or were only partly scanned): it runs as the user who started it, checks again that they may
+still change the project (`forbidden` otherwise), and each repository keeps these bounds. One scan of a project is
+queued or running at a time (`409` for a second); one unfinished after four hours is given up (`abandoned`). The
+in-request `POST /beacon/api/projects/{id}/scan` stays for Beacon 5.0 callers. The time limit also covers reading the repository's metadata and file list: a scan that reaches it before the file list is read fails. A scan replaces the repository's code references only when it finishes; one that fails or is cancelled by the caller keeps the previous references.
 
 ## Notification destinations (optional)
 

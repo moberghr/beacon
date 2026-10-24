@@ -232,6 +232,51 @@ internal sealed class BackgroundTaskService(
                     .SetProperty(y => y.FinishedTime, now)
                     .SetProperty(y => y.FailureCode, BackgroundTaskFailureCodes.Abandoned),
                 cancellationToken);
+
+        if (executor is IReconcilingBackgroundTaskExecutor reconciling)
+        {
+            await GiveUpEndedAsync(context, kind, subjectId, reconciling, now, cancellationToken);
+        }
+    }
+
+    // A running task whose work has ended by its own record (the job runner stopped after or before it) is given up now;
+    // written only while it is still running from the same start, so a task that finished meanwhile keeps its outcome.
+    private static async Task GiveUpEndedAsync(
+        BeaconContext context,
+        BackgroundTaskKind kind,
+        int subjectId,
+        IReconcilingBackgroundTaskExecutor executor,
+        DateTime now,
+        CancellationToken cancellationToken)
+    {
+        var running = await context.BackgroundTasks
+            .AsNoTracking()
+            .Where(x => x.Kind == kind)
+            .Where(x => x.SubjectId == subjectId)
+            .Where(x => x.State == BackgroundTaskState.Running)
+            .Where(x => x.StartedTime != null)
+            .Select(x =>
+                new
+                {
+                    x.Id,
+                    x.StartedTime
+                })
+            .FirstOrDefaultAsync(cancellationToken);
+        if (running == null || !await executor.HasEndedAsync(subjectId, running.StartedTime!.Value, cancellationToken))
+        {
+            return;
+        }
+
+        await context.BackgroundTasks
+            .Where(x => x.Id == running.Id)
+            .Where(x => x.State == BackgroundTaskState.Running)
+            .Where(x => x.StartedTime == running.StartedTime)
+            .ExecuteUpdateAsync(
+                x => x
+                    .SetProperty(y => y.State, BackgroundTaskState.Failed)
+                    .SetProperty(y => y.FinishedTime, now)
+                    .SetProperty(y => y.FailureCode, BackgroundTaskFailureCodes.Abandoned),
+                cancellationToken);
     }
 
     private IBackgroundTaskExecutor? ExecutorOf(BackgroundTaskKind kind)

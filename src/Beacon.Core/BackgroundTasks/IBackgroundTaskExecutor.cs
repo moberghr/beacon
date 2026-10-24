@@ -22,6 +22,21 @@ public interface IBackgroundTaskExecutor
     Task<BackgroundTaskOutcome> ExecuteAsync(BackgroundTaskContext task, CancellationToken cancellationToken);
 }
 
+/// <summary>
+/// An executor whose work keeps its own record of whether it is still going on (a migration run's history row). Before a
+/// task of its kind starts on a subject, and when one's state is read, a running task of the subject is asked about: one
+/// whose work has ended without the task saying so (its job runner stopped mid-run) is given up as abandoned then, instead
+/// of holding the subject until <see cref="IBackgroundTaskExecutor.AbandonAfter"/>.
+/// </summary>
+public interface IReconcilingBackgroundTaskExecutor : IBackgroundTaskExecutor
+{
+    /// <summary>
+    /// Whether the work of the running task on <paramref name="subjectId"/>, started at <paramref name="startedTime"/>, has
+    /// ended (or never began and no longer will).
+    /// </summary>
+    Task<bool> HasEndedAsync(int subjectId, DateTime startedTime, CancellationToken cancellationToken);
+}
+
 /// <summary>The task an executor runs: its id, the id of the resource it works on, and the <c>Users.Id</c> of who asked.</summary>
 public sealed record BackgroundTaskContext(int TaskId, int SubjectId, int? RequestedByUserId);
 

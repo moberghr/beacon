@@ -345,6 +345,32 @@ public class BackgroundTaskServiceTests
         capture.CommandParameters[0].Values.Should().Contain([BackgroundTaskFailureCodes.Abandoned, SubjectId]);
     }
 
+    [TestCase(true, Description = "its work ended by its own record")]
+    [TestCase(false, Description = "its work still goes on")]
+    public async Task GetStatus_AsksAReconcilingExecutor_AndGivesUpARunningTaskWhoseWorkEnded(bool ended)
+    {
+        var started = Now.UtcDateTime.AddHours(-2);
+        var capture = new SqlCapture()
+            .ThenRowsAffected(0)
+            .ThenRow(TaskId, started)
+            .ThenRowsAffected(1)
+            .ThenNoRows();
+        var executor = new ReconcilingExecutor { Ended = ended };
+
+        await Service(capture, new Mock<IBeaconScheduler>().Object, executor)
+            .GetStatusAsync(BackgroundTaskKind.MetadataRefresh, SubjectId, TaskId, CancellationToken.None);
+
+        executor.Asked.Should().Equal((SubjectId, started));
+        var givenUp = capture.Commands
+            .Skip(2)
+            .Any(x => x.Contains("UPDATE beacon.background_tasks"));
+        givenUp.Should().Be(ended);
+        if (ended)
+        {
+            capture.CommandParameters[2].Values.Should().Contain([BackgroundTaskFailureCodes.Abandoned, TaskId]);
+        }
+    }
+
     [Test]
     public async Task Execute_OffARequest_RunsAsTheUserWhoStartedIt()
     {
@@ -495,6 +521,27 @@ public class BackgroundTaskServiceTests
             Runs.Add(task);
 
             return Failure == null ? Task.FromResult(Outcome) : Task.FromException<BackgroundTaskOutcome>(Failure);
+        }
+    }
+
+    private sealed class ReconcilingExecutor : IReconcilingBackgroundTaskExecutor
+    {
+        public bool Ended { get; init; }
+
+        public List<(int SubjectId, DateTime StartedTime)> Asked { get; } = [];
+
+        public BackgroundTaskKind Kind => BackgroundTaskKind.MetadataRefresh;
+
+        public TimeSpan AbandonAfter => TimeSpan.FromDays(1);
+
+        public Task<BackgroundTaskOutcome> ExecuteAsync(BackgroundTaskContext task, CancellationToken cancellationToken)
+            => Task.FromResult(new BackgroundTaskOutcome());
+
+        public Task<bool> HasEndedAsync(int subjectId, DateTime startedTime, CancellationToken cancellationToken)
+        {
+            Asked.Add((subjectId, startedTime));
+
+            return Task.FromResult(Ended);
         }
     }
 }
