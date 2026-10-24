@@ -18,6 +18,7 @@ public static class SecurityAuditCategories
     public const string DataQuality = "data_quality";
     public const string Migrations = "migrations";
     public const string RowSecurity = "row_security";
+    public const string Embed = "embed";
     public const string Audit = "audit";
 }
 
@@ -66,6 +67,7 @@ public static class SecurityAuditResources
     public const string AttributeDefinition = "attribute_definition";
     public const string RowPolicy = "row_policy";
     public const string TableClassification = "table_classification";
+    public const string EmbedGrant = "embed_grant";
 }
 
 /// <summary>How the actor of an event was authenticated.</summary>
@@ -84,6 +86,12 @@ public static class SecurityAuditActorKinds
 
     /// <summary>Work Beacon does for itself (a background job, a startup task).</summary>
     public const string System = "system";
+
+    /// <summary>
+    /// An embed grant's secret or an embed token, acting for the grant: named by the grant creator's user, the grant being
+    /// the event's resource.
+    /// </summary>
+    public const string Embed = "embed";
 
     /// <summary>No authenticated caller (a sign-in attempt, a refused request).</summary>
     public const string Anonymous = "anonymous";
@@ -221,6 +229,13 @@ public static class SecurityAuditActions
     public const string MigrationJobDeleted = "migrations.job_deleted";
     public const string MigrationJobStarted = "migrations.job_started";
     public const string MigrationJobRunEnded = "migrations.job_run_ended";
+
+    // Embedding
+    public const string EmbedGrantCreated = "embed.grant_created";
+    public const string EmbedGrantRevoked = "embed.grant_revoked";
+    public const string EmbedTokenIssued = "embed.token_issued";
+    public const string EmbedTokenRefused = "embed.token_refused";
+    public const string EmbedQueryRendered = "embed.query_rendered";
 
     // Row security
     public const string AttributeDefined = "row_security.attribute_defined";

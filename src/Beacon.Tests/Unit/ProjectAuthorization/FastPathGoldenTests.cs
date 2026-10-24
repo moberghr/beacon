@@ -6,6 +6,7 @@ using Beacon.Core.Handlers.ControlTower;
 using Beacon.Core.Handlers.DataQuality.GetDataContracts;
 using Beacon.Core.Handlers.DataQuality.GetDataQualityOverview;
 using Beacon.Core.Handlers.DataSources;
+using Beacon.Core.Handlers.Embed;
 using Beacon.Core.Handlers.Home;
 using Beacon.Core.Handlers.McpLearning;
 using Beacon.Core.Handlers.Notifications;
@@ -58,6 +59,7 @@ public class FastPathGoldenTests
         yield return Case("GetLearnedPatterns", new GetLearnedPatternsQuery());
         yield return Case("GetDocumentationPatches", new GetDocumentationPatchesQuery());
         yield return Case("GetLearningStats", new GetLearningStatsQuery());
+        yield return Case("ListEmbedGrants", new ListEmbedGrantsQuery());
     }
 
     [TestCaseSource(nameof(ListRequests))]

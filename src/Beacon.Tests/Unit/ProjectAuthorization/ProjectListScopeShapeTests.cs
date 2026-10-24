@@ -5,6 +5,7 @@ using Beacon.Core.Handlers.ControlTower;
 using Beacon.Core.Handlers.DataQuality.GetDataContracts;
 using Beacon.Core.Handlers.DataQuality.GetDataQualityOverview;
 using Beacon.Core.Handlers.DataSources;
+using Beacon.Core.Handlers.Embed;
 using Beacon.Core.Handlers.Home;
 using Beacon.Core.Handlers.McpLearning;
 using Beacon.Core.Handlers.Notifications;
@@ -61,7 +62,8 @@ public class ProjectListScopeShapeTests
         [typeof(GetPendingPlanCountQuery)] = new GetPendingPlanCountQuery(),
         [typeof(GetLearnedPatternsQuery)] = new GetLearnedPatternsQuery(),
         [typeof(GetDocumentationPatchesQuery)] = new GetDocumentationPatchesQuery(),
-        [typeof(GetLearningStatsQuery)] = new GetLearningStatsQuery()
+        [typeof(GetLearningStatsQuery)] = new GetLearningStatsQuery(),
+        [typeof(ListEmbedGrantsQuery)] = new ListEmbedGrantsQuery()
     };
 
     public static IEnumerable<TestCaseData> FilteredRequests() =>

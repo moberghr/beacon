@@ -57,12 +57,17 @@ public class BackgroundTasksMigrationTests
             .Should().BeEquivalentTo(Signatures(differ.GetDifferences(before, target)), "Up is exactly the difference from the model before");
         Signatures(migration.DownOperations)
             .Should().BeEquivalentTo(Signatures(differ.GetDifferences(target, before)), "Down removes exactly what Up adds");
-        differ.GetDifferences(target, Initialized(migrations.ModelSnapshot!.Model, initializer).GetRelationalModel())
-            .Should().BeEmpty("the migration's target model is the snapshot");
-        context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
+        // The next migration's own content is pinned by EmbedGrantMigrationTests.
+        var next = MigrationNamed(context, migrations, "_AddEmbedGrants");
+        Signatures(differ.GetDifferences(target, Initialized(next.TargetModel!, initializer).GetRelationalModel()))
+            .Should().BeEquivalentTo(
+                Signatures(next.UpOperations),
+                "this migration's target model differs from the next one's only by the next migration");
         migrations.Migrations.Keys
             .Order(StringComparer.Ordinal)
-            .Last()
+            .SkipWhile(x => !x.EndsWith("_AddUserSignInFailureTime", StringComparison.Ordinal))
+            .Skip(1)
+            .First()
             .Should().EndWith(Suffix, "it sorts after every earlier migration");
     }
 

@@ -33,7 +33,7 @@ public class ConnectionChangeApprovalMigrationTests
 
     [TestCase(false)]
     [TestCase(true)]
-    public void TheMigration_AddsTheTwoColumnsAndTheIndex_AndIsTheSnapshot(bool sqlServer)
+    public void TheMigration_AddsTheTwoColumnsAndTheIndex_AndPrecedesTheNextOne(bool sqlServer)
     {
         using var provider = BuildProvider(sqlServer);
         using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
