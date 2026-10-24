@@ -35,6 +35,18 @@ internal sealed class McpLearningAggregationService(
             CountedSentenceOptions), "$1#$2#$3")
     ];
 
+    // Schema validation format: "Column 'created_at' does not exist on 'l'. Available: col1, col2, ..."
+    private static readonly Regex SchemaErrorPattern = new(
+        @"Column '(\w+)' does not exist on '[\w.]+'\.\s*Available:\s*([^;]+)",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    // PostgreSQL execution error format: '42703: column "created_at" does not exist'
+    private static readonly Regex PgErrorPattern = new(
+        @"column ""(\w+)"" does not exist",
+        RegexOptions.IgnoreCase | RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
+    private static readonly Regex WordPattern = new(@"\w+", RegexOptions.CultureInvariant | RegexOptions.Compiled);
+
     private const RegexOptions CountedSentenceOptions = RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.Singleline;
 
     public async Task AggregateLearnedPatternsAsync(CancellationToken ct = default)
@@ -410,16 +422,6 @@ internal sealed class McpLearningAggregationService(
 
         if (corrections.Count == 0) return;
 
-        // Schema validation format: "Column 'created_at' does not exist on 'l'. Available: col1, col2, ..."
-        var schemaErrorPattern = new Regex(
-            @"Column '(\w+)' does not exist on '[\w.]+'\.\s*Available:\s*([^;]+)",
-            RegexOptions.IgnoreCase);
-
-        // PostgreSQL execution error format: '42703: column "created_at" does not exist'
-        var pgErrorPattern = new Regex(
-            @"column ""(\w+)"" does not exist",
-            RegexOptions.IgnoreCase);
-
         var mappings = new List<(string WrongColumn, string? CorrectColumn, string Schema, string Table, McpQuerySignal Signal)>();
 
         foreach (var signal in corrections)
@@ -437,7 +439,7 @@ internal sealed class McpLearningAggregationService(
             // Schema validation errors have the Available columns list — best source for mapping
             if (!string.IsNullOrEmpty(signal.SchemaValidationError))
             {
-                foreach (Match match in schemaErrorPattern.Matches(signal.SchemaValidationError))
+                foreach (Match match in SchemaErrorPattern.Matches(signal.SchemaValidationError))
                 {
                     var wrongCol = match.Groups[1].Value;
                     var availableCsv = match.Groups[2].Value;
@@ -450,7 +452,7 @@ internal sealed class McpLearningAggregationService(
             // Execution errors (PostgreSQL column-not-found) — fallback when schema validation missed it
             if (!string.IsNullOrEmpty(signal.ExecutionError))
             {
-                var pgMatch = pgErrorPattern.Match(signal.ExecutionError);
+                var pgMatch = PgErrorPattern.Match(signal.ExecutionError);
                 if (pgMatch.Success)
                 {
                     var wrongCol = pgMatch.Groups[1].Value;
@@ -1207,8 +1209,16 @@ internal sealed class McpLearningAggregationService(
         var candidates = available;
         if (!string.IsNullOrEmpty(correctedSql))
         {
+            // The SQL is tokenized once; a column made of word characters is in it exactly when it is one of its words
+            // (what a whole-word match means), so no pattern is built per column.
+            var words = WordPattern.Matches(correctedSql)
+                .Select(x => x.Value)
+                .ToHashSet(StringComparer.OrdinalIgnoreCase);
+
             var inSql = available
-                .Where(col => Regex.IsMatch(correctedSql, @$"\b{Regex.Escape(col)}\b", RegexOptions.IgnoreCase))
+                .Where(col => col.All(x => char.IsLetterOrDigit(x) || x == '_')
+                    ? words.Contains(col)
+                    : Regex.IsMatch(correctedSql, @$"\b{Regex.Escape(col)}\b", RegexOptions.IgnoreCase))
                 .ToList();
             if (inSql.Count > 0)
             {
