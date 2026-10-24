@@ -106,8 +106,12 @@ export function ResultsTable({
 /** Tab-separated with a header row, so a paste into Excel or Sheets lands in cells. */
 export function rowsToTsv(rows: PreviewRow[]): string {
   const columns = collectColumns(rows);
-  const clean = (value: unknown) => formatCell(value).replace(/[\t\r\n]+/g, ' ');
-  return [columns.join('\t'), ...rows.map(x => columns.map(y => clean(x[y])).join('\t'))].join('\n');
+  const clean = (value: unknown) => {
+    const text = formatCell(value).replace(/[\t\r\n]+/g, ' ');
+    // A text value a spreadsheet could read as a formula is pasted as text (the leading quote is not shown by Excel or Sheets).
+    return typeof value === 'string' && /^[=+\-@]/.test(text) ? `'${text}` : text;
+  };
+  return [columns.map(clean).join('\t'), ...rows.map(x => columns.map(y => clean(x[y])).join('\t'))].join('\n');
 }
 
 const HEAD_CELL =

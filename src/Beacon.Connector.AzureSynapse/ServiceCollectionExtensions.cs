@@ -16,6 +16,7 @@ public static class ServiceCollectionExtensions
         ConnectorRegistry.RegisterDatabaseEngine(DatabaseEngineType.AzureSynapse, "Azure Synapse");
         builder.Services.AddTransient<IDatabaseMetadataExtractor, AzureSynapseMetadataExtractor>();
         builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceTransportInspector, AzureSynapseTransportInspector>());
+        builder.Services.TryAddEnumerable(ServiceDescriptor.Singleton<IDataSourceConnectionOptionInspector, AzureSynapseConnectionOptionInspector>());
         return builder;
     }
 

@@ -112,7 +112,7 @@ public class QueryPathFailureLoggingTests
             log.For<ApiProvider>());
         var source = new DataSource { Id = 9, Name = "api", DataSourceType = DataSourceType.Api, EncryptedConnectionData = "encrypted" };
 
-        var result = await provider.ExecuteQueryAsync(source, "{\"method\":\"GET\",\"path\":\"/accounts/HR1210010051863000160?api_key=" + SecretLooking + "\",\"resultMapping\":{\"arrayPath\":\"$.data\"}}", [], CancellationToken.None);
+        var result = await provider.ExecuteQueryAsync(source, "{\"method\":\"GET\",\"path\":\"/accounts/HR1210010051863000160\",\"parameters\":{\"query\":{\"api_key\":\"" + SecretLooking + "\"}},\"resultMapping\":{\"arrayPath\":\"$.data\"}}", [], CancellationToken.None);
 
         result.Success.Should().BeFalse();
         log.Entries.Should().Contain(x => x.Level == LogLevel.Information && x.Message == "Executing API query on data source 9");

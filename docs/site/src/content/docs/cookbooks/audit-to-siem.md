@@ -8,7 +8,7 @@ description: "Send Beacon's MCP audit events and security log events to your log
 | **You end up with** | The `Beacon.Audit` log stream and the security log events in your SIEM, traces and metrics in your collector, retention and content locks set, and alerts on the signals that matter |
 | **Time** | about 30 minutes |
 | **You need** | A running Beacon host ([Integrate Beacon](/integrate/) or the [MCP gateway](/mcp/gateway/)), a log pipeline that reads container stdout (CloudWatch, a collector or a SIEM agent), and for traces an OpenTelemetry collector |
-| **Applies to** | Beacon 5.0 · Both. The MCP audit (events 9100 to 9103, the UI page, tracing and metrics) applies to the gateway too. The security audit trail (9104 to 9110) and its page are full Beacon: the gateway serves no security audit API or page |
+| **Applies to** | Beacon 5.0 · Both. The MCP audit (events 9100 to 9103, the UI page, tracing and metrics) applies to the gateway too. The security audit trail (9104 to 9112) and its page are full Beacon: the gateway serves no security audit API or page |
 
 :::tip[Let your AI do it]
 Paste this into Claude Code (or another coding agent) in your Beacon host's repository.
@@ -67,6 +67,8 @@ Ship the stream with whatever reads your container's stdout, such as the `awslog
 | 9108 | `SecurityAuditVerificationFailed` | Error | Stored security events failed verification |
 | 9109 | `SecurityAuditCheckpoint` | Information | One per scheduled verification run: keep these, they anchor the trail outside the database |
 | 9110 | `SecurityAuditPurgeFailed` | Error | The security trail's purge did not run |
+| 9111 | `McpAuditVerificationFailed` | Error | Stored MCP audit rows failed verification |
+| 9112 | `McpAuditCheckpoint` | Information | One per MCP audit verification run: keep these with the 9109 checkpoints |
 
 The full field list is in [MCP observability and audit](/mcp/observability-and-audit/#the-beaconaudit-log-event-catalogue)
 and [Shipping to a SIEM](/security/audit-trail/#shipping-to-a-siem).
@@ -118,7 +120,8 @@ builder.Services.AddOpenTelemetry()
     .ConfigureResource(x => x.AddService(serviceName: "your-app"))
     .WithTracing(x => x
         .AddAspNetCoreInstrumentation()
-        .AddBeaconInstrumentation()      // sources: "Beacon" and "Experimental.ModelContextProtocol"
+        .AddBeaconInstrumentation()      // source: "Beacon"
+        .AddBeaconMcpSdkTracing()        // source: "Experimental.ModelContextProtocol", status descriptions cleared
         .AddOtlpExporter())
     .WithMetrics(x => x
         .AddAspNetCoreInstrumentation()
@@ -205,6 +208,7 @@ the security trail.
 | No `Beacon.Audit` events in the SIEM | The category is filtered below Information, or the log driver does not ship stdout. Check `Logging:LogLevel` for `Beacon.Audit`. |
 | 9100 events but no 9104 | 9104 is full Beacon only and best-effort: it is missing when the category is filtered or the process stops between commit and log. |
 | Host fails to start with an options error | `RetentionDays` must be greater than 0 (security trail: 365 to 36500), `RequestIdHeader` must be a valid header token, and `RequireContent` cannot be on with `ForceNoContentRetention`. |
+| No `CorrelationId` on old rows | Rows written before it existed carry none; every later row and 9100 event has one Beacon minted. |
 | `UpstreamRequestId` is empty | The header is absent, longer than 128 characters, or has characters outside `[A-Za-z0-9._:-]`. |
 | No traces | `AddBeaconInstrumentation()` is not on the tracer provider, or `OTEL_EXPORTER_OTLP_ENDPOINT` is unset. |
 | Logs in the dispatched endpoint carry no trace id | Host endpoint dispatch does not flow `Activity.Current`. See [Trace continuity](/mcp/observability-and-audit/#trace-continuity-into-host-endpoint-dispatch). |

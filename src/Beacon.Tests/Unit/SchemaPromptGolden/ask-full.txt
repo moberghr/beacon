@@ -1,0 +1,65 @@
+### sales.order_lines
+  One line per ordered item
+  Columns:
+    - (order_id: integer, PK, NOT NULL, Order the line belongs to)
+    - (tenant_id: integer, PK, NOT NULL)
+    - (line_no: smallint, PK, NOT NULL)
+    - (sku: varchar(32), NOT NULL, Examples: [A-1, B-2])
+    - (status: text, NOT NULL, Line state, Values (all 3): [open, shipped, returned])
+    - (amount: numeric(12,2))
+    - (contact_email: varchar(255), Buyer contact)
+    - (notes: text)
+  Foreign Keys:
+    - order_id → sales.orders.id
+    - tenant_id → sales.orders.tenant_id
+
+### sales.orders
+  Columns:
+    - (id: bigint, PK, NOT NULL)
+    - (tenant_id: integer, PK, NOT NULL)
+    - (customer_id: integer, NOT NULL)
+    - (legacy_ref: integer)
+    - (placed_at: timestamp with time zone, NOT NULL)
+  Foreign Keys:
+    - customer_id → crm.customers.id
+
+### audit.events
+  Append-only event log
+  Columns:
+    - (c01: integer, NOT NULL)
+    - (c02: integer)
+    - (c03: text, NOT NULL)
+    - (c04: integer)
+    - (c05: integer, NOT NULL)
+    - (c06: text)
+    - (c07: integer, NOT NULL)
+    - (c08: integer)
+    - (c09: text, NOT NULL)
+    - (c10: integer)
+    - (c11: integer, NOT NULL)
+    - (c12: text)
+    - (c13: integer, NOT NULL)
+    - (c14: integer)
+    - (c15: text, NOT NULL)
+    - (c16: integer)
+    - (c17: integer, NOT NULL)
+    - (c18: text)
+    - (c19: integer, NOT NULL)
+    - (c20: integer)
+    - (c21: text, NOT NULL)
+    - (c22: integer)
+    - (c23: integer, NOT NULL)
+    - (c24: text)
+    - (c25: integer, NOT NULL)
+    - (c26: integer)
+    - (c27: text, NOT NULL)
+    - (c28: integer)
+    - (c29: integer, NOT NULL)
+    - (c30: text)
+
+### GET /invoices
+  Invoices
+  Columns:
+    - (number: string, NOT NULL, Invoice number)
+    - (total: number)
+

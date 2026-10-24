@@ -141,6 +141,24 @@ public class SqlExecutionPathCoverageTests
         ["src/Beacon.Core/HostData/HostReadOnlyLoginCheck.cs"] = "the startup check of a host source's read-only login, on the resolver's connection: fixed catalog SQL, outside the gate"
     };
 
+    // Of the files that call a provider's execute method, those that do not write the statement's execution log row
+    // (ISqlExecutionAudit) before it is sent, and why. Every other one writes it.
+    private static readonly Dictionary<string, string> ExecutionLogExempt = new(StringComparer.Ordinal)
+    {
+        ["src/Beacon.Connector.BigQuery/BigQueryProvider.cs"] = "declares the row-capped read the runner calls; the runner logs it",
+        ["src/Beacon.Connector.Databricks/DatabricksProvider.cs"] = "declares the row-capped read the runner calls; the runner logs it",
+        ["src/Beacon.Core/Services/QueryCostLimit.cs"] = "the planner's estimate (EXPLAIN without ANALYZE): returns no rows",
+        ["src/Beacon.Core/Services/VirtualTableManager.cs"] = "Beacon's own in-memory join store, not a data source",
+        ["src/Beacon.Core/SavedQueries/SavedQueryToolExecutor.cs"] = "an MCP tool: the MCP audit records the call",
+        ["src/Beacon.AI/Services/Knowledge/ValueGroundingService.cs"] = "the MCP statement log records each probe before it runs",
+        ["src/Beacon.AI/Services/Eval/EvalReadOnlySqlExecutor.cs"] = "the eval harness: its run records each case",
+        ["src/Beacon.MCP/Services/QueryExecutionService.cs"] = "MCP: the MCP audit and statement log record it",
+        ["src/Beacon.MCP/Services/CrossSourceQueryService.cs"] = "MCP: the MCP audit and statement log record it",
+        ["src/Beacon.MCP/Tools/ProjectQueryTool.cs"] = "MCP: the MCP audit records the call"
+    };
+
+    private static readonly Regex ExecutionLogUse = new(@"\bexecutionAudit\.(?:StartAsync|RunAsync)\(", RegexOptions.CultureInvariant);
+
     // The production files that name the saved-query executor (an approved version's steps, run through the gate), and why.
     private static readonly Dictionary<string, string> SavedQueryExecutorUsers = new(StringComparer.Ordinal)
     {
@@ -222,6 +240,18 @@ public class SqlExecutionPathCoverageTests
         calls.Should().BeEquivalentTo(
             ExecuteCallers.ToDictionary(x => x.Key, x => x.Value.Calls, StringComparer.Ordinal),
             "every statement that reaches a data source must be the gate's output: a new call site is reviewed and listed with what it runs");
+    }
+
+    [Test]
+    public void EveryProviderExecuteCaller_WritesTheExecutionLog_OrIsExemptWithAReason()
+    {
+        var unlogged = ExecuteCallers.Keys
+            .Where(x => !ExecutionLogUse.IsMatch(Sources.Value[x]))
+            .ToList();
+
+        unlogged.Should().BeEquivalentTo(
+            ExecutionLogExempt.Keys,
+            "a statement Beacon runs on a data source for its own features is in the execution log before it is sent; a path that is not is reviewed and listed with why");
     }
 
     [Test]

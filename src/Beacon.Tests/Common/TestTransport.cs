@@ -21,7 +21,10 @@ using Microsoft.Extensions.Options;
 
 namespace Beacon.Tests.Common;
 
-/// <summary>The data-source transport policy with every connector's inspector, as a host registering them all has it.</summary>
+/// <summary>
+/// The data-source transport policy with every connector's transport and option inspector, as a host registering them
+/// all has it.
+/// </summary>
 internal static class TestTransport
 {
     public static List<IDataSourceTransportInspector> Inspectors()
@@ -40,13 +43,33 @@ internal static class TestTransport
         ];
     }
 
+    public static List<IDataSourceConnectionOptionInspector> OptionInspectors()
+    {
+        return
+        [
+            new PostgreSqlConnectionOptionInspector(),
+            new SqlServerConnectionOptionInspector(),
+            new AzureSynapseConnectionOptionInspector(),
+            new MySqlConnectionOptionInspector(),
+            new SnowflakeConnectionOptionInspector(),
+            new ApiConnectionOptionInspector(),
+            new DatabricksConnectionOptionInspector(),
+            new BigQueryConnectionOptionInspector(),
+            new CloudWatchConnectionOptionInspector()
+        ];
+    }
+
     public static IDataSourceTransportPolicy Policy(
         bool allowInsecure = false,
         bool enforceOnExisting = false,
-        ILogger<DataSourceTransportPolicy>? logger = null)
+        ILogger<DataSourceTransportPolicy>? logger = null,
+        IReadOnlyList<string>? allowedHosts = null,
+        bool allowHostCredentials = false)
     {
         return new DataSourceTransportPolicy(
             Inspectors(),
+            OptionInspectors(),
+            Options.Create(new DataSourceConnectionOptions { AllowedHosts = allowedHosts?.ToList() ?? [], AllowHostCredentials = allowHostCredentials }),
             Options.Create(new DataSourceTransportOptions { AllowInsecure = allowInsecure, EnforceOnExisting = enforceOnExisting }),
             logger ?? NullLogger<DataSourceTransportPolicy>.Instance);
     }

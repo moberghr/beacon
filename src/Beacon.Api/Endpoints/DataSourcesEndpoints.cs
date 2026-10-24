@@ -129,7 +129,16 @@ internal sealed record UpdateDataSourceBody(
     bool? MetadataLoadTableNamesOnly = null,
     List<string>? MetadataExcludeSchemas = null,
     List<string>? MetadataIncludeSchemas = null,
-    bool ConfirmTargetChange = false);
+    bool ConfirmTargetChange = false)
+{
+    // The compiler-generated ToString prints every member; the secrets are printed redacted.
+    private bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"Name = {Name}, DatabaseEngineType = {DatabaseEngineType}, ConnectionString = {Core.RedactedPrint.Of(ConnectionString)}, MetadataLoadingEnabled = {MetadataLoadingEnabled}, MetadataMaxTables = {MetadataMaxTables}, MetadataMaxColumnsPerTable = {MetadataMaxColumnsPerTable}, MetadataLoadTableNamesOnly = {MetadataLoadTableNamesOnly}, MetadataExcludeSchemas = {MetadataExcludeSchemas}, MetadataIncludeSchemas = {MetadataIncludeSchemas}, ConfirmTargetChange = {ConfirmTargetChange}");
+
+        return true;
+    }
+}
 
 /// <summary>Whether the data source is enabled: false disables it, so Beacon makes no connection with it.</summary>
 internal sealed record SetDataSourceEnabledBody(bool Enabled);

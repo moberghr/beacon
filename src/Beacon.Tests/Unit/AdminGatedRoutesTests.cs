@@ -53,6 +53,8 @@ public class AdminGatedRoutesTests
         ["GET /beacon/api/mcp/projects/{projectId:int}/settings"] = BeaconPermissions.AuditorOrSecurityAdminPolicy,
         ["GET /beacon/api/admin-settings/"] = BeaconPermissions.AuditorOrSecurityAdminPolicy,
         ["GET /beacon/api/admin-settings/llm-providers"] = BeaconPermissions.AuditorOrSecurityAdminPolicy,
+        ["GET /beacon/api/execution-log/"] = BeaconPermissions.AuditorOrSecurityAdminPolicy,
+        ["GET /beacon/api/execution-log/export"] = BeaconPermissions.AuditorOrSecurityAdminPolicy,
         ["GET /beacon/api/api-keys/admin/"] = BeaconPermissions.AuditorOrUserAdminPolicy,
         ["GET /beacon/api/users/{id:int}/owned-resources"] = BeaconPermissions.AuditorOrUserAdminPolicy,
 

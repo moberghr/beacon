@@ -1,4 +1,5 @@
 using System.Net;
+using System.Reflection;
 using System.Security.Claims;
 using System.Text;
 using Beacon.Api;
@@ -434,6 +435,35 @@ public class BeaconPermissionEndpointFilterTests
 
         body.Should().Contain("\"isAdmin\":true");
         body.Should().Contain("\"permissions\":[\"Approver\",\"Auditor\",\"SecurityAdmin\",\"UserAdmin\",\"DataSourceAdmin\",\"MigrationOperator\"]");
+    }
+
+    [Test]
+    public async Task MapBeaconApi_PermissionsEndpoint_NamesTheRunningBuild()
+    {
+        GrantPermissions(read: false, write: false);
+        await using var app = await StartBeaconApiAsync(Mock.Of<IMediator>());
+        var expected = BuildInfoResponse.From(
+            typeof(BuildInfoResponse).Assembly.GetCustomAttribute<AssemblyInformationalVersionAttribute>()?.InformationalVersion,
+            typeof(BuildInfoResponse).Assembly.GetName().Version);
+
+        var body = await (await SendAsync(app, HttpMethod.Get, "/beacon/api/auth/permissions")).Content.ReadAsStringAsync();
+
+        body.Should().Contain($"\"build\":{{\"version\":\"{expected.Version}\"");
+        expected.Commit.Should().NotBeNullOrEmpty("the SDK records the source revision in the informational version");
+        body.Should().Contain($"\"commit\":\"{expected.Commit}\"");
+    }
+
+    [TestCase("5.0.1+0ecf936b094ad56483d71341b37b0e7878113a3e", "5.0.1", "0ecf936b094ad56483d71341b37b0e7878113a3e")]
+    [TestCase("5.0.1", "5.0.1", null)]
+    [TestCase("5.0.1+", "5.0.1", null)]
+    [TestCase(null, "4.2.1", null)]
+    [TestCase("", "4.2.1", null)]
+    public void BuildInfo_SplitsTheInformationalVersionIntoVersionAndCommit(string? informational, string version, string? commit)
+    {
+        var build = BuildInfoResponse.From(informational, new Version(4, 2, 1, 7));
+
+        build.Version.Should().Be(version);
+        build.Commit.Should().Be(commit);
     }
 
     [Test]

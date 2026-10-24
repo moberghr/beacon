@@ -51,6 +51,15 @@ public class TeamsCardGoldenTests
         AssertCard(json, EmptyCard);
     }
 
+    [TestCase("not a url")]
+    [TestCase("https://user:pw@beacon.example.com")]
+    public async Task Card_WithAnUnusableBaseUrl_LeavesTheLinkOutInsteadOfThrowing(string baseUrl)
+    {
+        var json = await PostedCard(Result([], totalRecords: 0, showQuery: true), notificationId: 7, baseUrl: baseUrl);
+
+        AssertCard(json, EmptyCard);
+    }
+
     [Test]
     public async Task Card_WithALoneSurrogate_WritesTheReplacementCharacter()
     {
@@ -167,13 +176,13 @@ public class TeamsCardGoldenTests
       "id": "subtitle",
       "size": "medium",
       "weight": "bolder",
-      "text": "warehouse \"eu\": Daily <report>",
+      "text": "warehouse \"eu\": Daily \\<report>",
       "wrap": true
     },
     {
       "type": "TextBlock",
       "id": "queryText",
-      "text": "Query = SELECT * FROM t WHERE a < 3 AND b = 'x' -- š",
+      "text": "Query = SELECT \\* FROM t WHERE a \\< 3 AND b = 'x' -- š",
       "wrap": true
     },
     {
@@ -239,7 +248,7 @@ public class TeamsCardGoldenTests
               "items": [
                 {
                   "type": "TextBlock",
-                  "text": "Zagreb \"main\" <b>&</b> č",
+                  "text": "Zagreb \"main\" \\<b>&\\</b> č",
                   "wrap": true
                 }
               ]
@@ -370,7 +379,7 @@ public class TeamsCardGoldenTests
       "id": "subtitle",
       "size": "medium",
       "weight": "bolder",
-      "text": "warehouse \"eu\": Daily <report>",
+      "text": "warehouse \"eu\": Daily \\<report>",
       "wrap": true
     },
     {
@@ -579,13 +588,13 @@ public class TeamsCardGoldenTests
       "id": "subtitle",
       "size": "medium",
       "weight": "bolder",
-      "text": "warehouse \"eu\": Daily <report>",
+      "text": "warehouse \"eu\": Daily \\<report>",
       "wrap": true
     },
     {
       "type": "TextBlock",
       "id": "queryText",
-      "text": "Query = SELECT * FROM t WHERE a < 3 AND b = 'x' -- š",
+      "text": "Query = SELECT \\* FROM t WHERE a \\< 3 AND b = 'x' -- š",
       "wrap": true
     },
     {
@@ -616,7 +625,7 @@ public class TeamsCardGoldenTests
       "id": "subtitle",
       "size": "medium",
       "weight": "bolder",
-      "text": "warehouse \"eu\": Daily <report>",
+      "text": "warehouse \"eu\": Daily \\<report>",
       "wrap": true
     },
     {
@@ -662,7 +671,7 @@ public class TeamsCardGoldenTests
               "items": [
                 {
                   "type": "TextBlock",
-                  "text": "a\nb\tc\\d/e 😀 @@u2028 @@u0001 <DEL> <NBSP> @@u0085 @@u2029 @@u001f @@u000b 'q' +",
+                  "text": "a\nb\tc\\\\d/e 😀 @@u2028   <NBSP>  @@u2029   'q' +",
                   "wrap": true
                 }
               ]

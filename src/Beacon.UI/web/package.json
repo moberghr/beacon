@@ -19,7 +19,7 @@
     "@tanstack/react-query": "^5.59.0",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
-    "dompurify": "^3.4.9",
+    "dompurify": "^3.4.17",
     "lucide-react": "^1.14.0",
     "marked": "^18.0.3",
     "mermaid": "^11.14.0",
@@ -33,7 +33,7 @@
     "zod": "^4.6.7"
   },
   "devDependencies": {
-    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/jest-dom": "^7.0.1",
     "@testing-library/react": "^16.3.2",
     "@types/node": "^22.9.0",
     "@types/react": "^18.3.12",
@@ -47,6 +47,13 @@
     "typescript": "^5.6.3",
     "vite": "^5.4.10",
     "vitest": "^4.1.5"
+  },
+  "//overrides": "The monaco-editor override covers its npm dependency on dompurify only. monaco-editor also ships its own copy of DOMPurify inside esm/vs/base/browser/dompurify/ (3.2.7 in 0.55.1), which Monaco's editor imports directly and no override can replace: that copy is patched only by a monaco-editor release that vendors a newer one.",
+  "overrides": {
+    "monaco-editor": {
+      "dompurify": "$dompurify"
+    },
+    "katex": "^0.16.47"
   },
   "msw": {
     "workerDirectory": [

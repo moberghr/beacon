@@ -170,6 +170,14 @@ public record CreateProjectCommand(
     string? AccessToken = null) : IRequest<CreateProjectResult>, IProjectAuthorizedRequest
 {
     IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks => [];
+
+    // The compiler-generated ToString prints every member; the secrets are printed redacted.
+    protected virtual bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"Name = {Name}, Description = {Description}, DataSourceIds = {DataSourceIds}, RepositoryUrls = {RepositoryUrls}, AccessToken = {RedactedPrint.Of(AccessToken)}");
+
+        return true;
+    }
 }
 
 /// <summary><paramref name="RequiresMembership"/>: whether the new project is restricted to its members.</summary>

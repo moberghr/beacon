@@ -2,14 +2,18 @@ using System.Security.Claims;
 using Beacon.Api.Authentication;
 using Beacon.Core;
 using FluentAssertions;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Http;
+using Microsoft.AspNetCore.Routing;
+using Microsoft.AspNetCore.Routing.Patterns;
 using NUnit.Framework;
 
 namespace Beacon.Tests.Unit;
 
 /// <summary>
-/// The login-form redirect for a UI mounted under a base path: a signed-out browser is sent to {basePath}/login, and
-/// that page (with logout and error) must itself be let through, or the browser is redirected to it forever.
+/// The login-form redirect for a UI mounted under a base path: a signed-out browser is sent to {basePath}/login, the
+/// login page itself is let through (or the browser is redirected to it forever), and an endpoint's metadata decides the
+/// rest: an anonymous endpoint at the exact path it is mapped at, or an endpoint with an authorization requirement.
 /// </summary>
 [TestFixture]
 public class LoginFormAuthMiddlewareTests
@@ -17,15 +21,65 @@ public class LoginFormAuthMiddlewareTests
     private const string BasePath = "/beacon";
 
     [TestCase("/beacon/login")]
-    [TestCase("/beacon/logout")]
-    [TestCase("/beacon/error")]
     [TestCase("/login")]
-    public async Task AnonymousRequest_ToAnAuthLandingPage_IsLetThrough(string path)
+    public async Task AnonymousRequest_ToTheLoginPage_OrOutsideBeacon_IsLetThrough(string path)
     {
         var (context, nextCalled) = await RunAsync(path, authenticated: false);
 
         nextCalled.Should().BeTrue();
         context.Response.StatusCode.Should().Be(StatusCodes.Status200OK);
+    }
+
+    [TestCase("/beacon/logout")]
+    [TestCase("/beacon/error")]
+    [TestCase("/beacon/api/auth/providers")]
+    public async Task AnonymousRequest_ToAnAnonymousEndpoint_AtItsMappedPath_IsLetThrough(string path)
+    {
+        var (_, nextCalled) = await RunAsync(path, authenticated: false, endpoint: Route(path, new AllowAnonymousAttribute()));
+
+        nextCalled.Should().BeTrue();
+    }
+
+    [TestCase("/beacon/logout", "/beacon/LOGOUT")]
+    [TestCase("/beacon/error", "/BEACON/error")]
+    [TestCase("/beacon/error", "/beacon/error/")]
+    public async Task AnonymousRequest_ToAnAnonymousEndpoint_AtADifferentlyCasedPath_IsRedirectedToLogin(string mapped, string path)
+    {
+        var (context, nextCalled) = await RunAsync(path, authenticated: false, endpoint: Route(mapped, new AllowAnonymousAttribute()));
+
+        nextCalled.Should().BeFalse();
+        context.Response.Headers.Location.ToString().Should().Be("/beacon/login");
+    }
+
+    [Test]
+    public async Task AnonymousRequest_ToAnEndpointWithAnAuthorizationRequirement_IsLeftToIt()
+    {
+        var (_, nextCalled) = await RunAsync("/beacon/home", authenticated: false, endpoint: Route("/beacon/{**page}", new AuthorizeAttribute("BeaconUiPage")));
+
+        nextCalled.Should().BeTrue("UseAuthorization has already answered for the endpoint");
+    }
+
+    [TestCase("/beacon/logout")]
+    [TestCase("/beacon/error")]
+    [TestCase("/beacon/home")]
+    public async Task AnonymousRequest_ToAPageWithoutAuthorizationMetadata_IsRedirectedToLogin(string path)
+    {
+        var (context, nextCalled) = await RunAsync(path, authenticated: false, endpoint: Route("/beacon/{**page}"));
+
+        nextCalled.Should().BeFalse();
+        context.Response.Headers.Location.ToString().Should().Be("/beacon/login");
+    }
+
+    [TestCase(true, true)]
+    [TestCase(false, false)]
+    public async Task AnonymousRequest_ToTheSetupPage_IsLetThroughOnlyWhileBeaconManagesUsers(bool userManagement, bool letThrough)
+    {
+        var configuration = CreateConfiguration();
+        configuration.UserManagement.Enabled = userManagement;
+
+        var (_, nextCalled) = await RunAsync("/beacon/setup", authenticated: false, configuration);
+
+        nextCalled.Should().Be(letThrough);
     }
 
     [Test]
@@ -88,6 +142,42 @@ public class LoginFormAuthMiddlewareTests
         nextCalled.Should().BeFalse();
     }
 
+    [TestCase("/beacon/api/projects")]
+    [TestCase("/beacon/api/hub/negotiate")]
+    [TestCase("/beacon/_content/Beacon.UI/app.bin")]
+    public async Task AnonymousRequest_ToAnApiOrStaticSegment_IsLetThrough(string path)
+    {
+        var (_, nextCalled) = await RunAsync(path, authenticated: false);
+
+        nextCalled.Should().BeTrue();
+    }
+
+    [TestCase("/beacon/apix/projects")]
+    [TestCase("/beacon/pages/api/projects")]
+    [TestCase("/beacon/pages/_content/app.bin")]
+    public async Task AnonymousRequest_ToAPathThatOnlyContainsAnAllowedSegment_IsRedirectedToLogin(string path)
+    {
+        var (context, nextCalled) = await RunAsync(path, authenticated: false);
+
+        nextCalled.Should().BeFalse();
+        context.Response.Headers.Location.ToString().Should().Be("/beacon/login");
+    }
+
+    [Test]
+    public async Task AnonymousRequest_ToAPathThatOnlyContainsSetup_IsRedirectedToLogin()
+    {
+        var configuration = CreateConfiguration();
+        configuration.EnableUserManagement();
+
+        var (setup, setupReached) = await RunAsync("/beacon/setup", authenticated: false, configuration);
+        var (lookAlike, lookAlikeReached) = await RunAsync("/beacon/reports/setup-notes", authenticated: false, configuration);
+
+        setupReached.Should().BeTrue();
+        setup.Response.Headers.Location.ToString().Should().BeEmpty();
+        lookAlikeReached.Should().BeFalse();
+        lookAlike.Response.Headers.Location.ToString().Should().Be("/beacon/login");
+    }
+
     private static BeaconConfiguration CreateConfiguration()
     {
         var configuration = new BeaconConfiguration();
@@ -95,10 +185,16 @@ public class LoginFormAuthMiddlewareTests
         return configuration;
     }
 
+    private static RouteEndpoint Route(string pattern, params object[] metadata)
+    {
+        return new RouteEndpoint(_ => Task.CompletedTask, RoutePatternFactory.Parse(pattern), 0, new EndpointMetadataCollection(metadata), pattern);
+    }
+
     private static async Task<(HttpContext Context, bool NextCalled)> RunAsync(
         string path,
         bool authenticated,
-        BeaconConfiguration? configuration = null)
+        BeaconConfiguration? configuration = null,
+        Endpoint? endpoint = null)
     {
         var nextCalled = false;
         var middleware = new LoginFormAuthMiddleware(
@@ -112,6 +208,7 @@ public class LoginFormAuthMiddlewareTests
 
         var context = new DefaultHttpContext();
         context.Request.Path = path;
+        context.SetEndpoint(endpoint);
         context.User = authenticated
             ? new ClaimsPrincipal(new ClaimsIdentity([new Claim(ClaimTypes.Name, "user")], "Test"))
             : new ClaimsPrincipal(new ClaimsIdentity());
