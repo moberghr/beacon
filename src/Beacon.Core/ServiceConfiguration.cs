@@ -63,10 +63,44 @@ public static class ServiceConfiguration
     }
 
     /// <summary>
+    /// Adds Beacon's core services and starts the host chain: continue with the connectors (<c>.AddPostgreSqlConnector()</c>,
+    /// ...), <c>.AddAI()</c>, <c>.AddMcp()</c>, <c>.AddApi()</c> and <c>.AddCookieAuth&lt;TClaims&gt;()</c>, and end it with
+    /// the database provider (<c>.UsePostgreSql()</c> or <c>.UseSqlServer()</c>). AI is switched on by <c>.AddAI()</c>,
+    /// never by <see cref="BeaconConfiguration.UseAI"/> here: setting it in <paramref name="configure"/> throws, so a host
+    /// cannot turn AI on without registering it.
+    /// </summary>
+    public static BeaconBuilder AddBeacon(this IServiceCollection services, IConfiguration configuration, Action<BeaconConfiguration> configure)
+    {
+        ArgumentNullException.ThrowIfNull(configure);
+
+        var builder = services.AddBeaconCore(configuration, x =>
+        {
+            configure(x);
+            if (x.UseAI)
+            {
+                throw new InvalidOperationException(
+                    "AddBeacon does not take UseAI = true: call .AddAI() on the builder it returns, which registers Beacon's AI services and switches AI on.");
+            }
+        });
+        BeaconBuilder.MarkChain(services);
+
+        return builder;
+    }
+
+    /// <summary>
     /// Adds core Beacon services (without UI components).
     /// Chain with .UsePostgreSql() or .UseSqlServer() to configure the database provider.
     /// </summary>
+    /// <remarks>
+    /// The fluent chain is the preferred way to wire Beacon: <see cref="AddBeacon"/> and, in place of <c>UseAI = true</c>,
+    /// <c>.AddAI()</c> on the builder it returns. This method stays supported and becomes obsolete in a later release.
+    /// </remarks>
     public static BeaconBuilder AddBeaconServices(this IServiceCollection services, IConfiguration configuration, Action<BeaconConfiguration> beaconConfiguration)
+    {
+        return services.AddBeaconCore(configuration, beaconConfiguration);
+    }
+
+    internal static BeaconBuilder AddBeaconCore(this IServiceCollection services, IConfiguration configuration, Action<BeaconConfiguration> beaconConfiguration)
     {
         var configurationOptions = new BeaconConfiguration();
         beaconConfiguration(configurationOptions);
@@ -631,7 +665,7 @@ public static class ServiceConfiguration
         services.TryAddSingleton<IEmbedTokenService, EmbedTokenService>();
 #pragma warning restore CS0618
 
-        return new BeaconBuilder(services, configuration);
+        return new BeaconBuilder(services, configuration, configurationOptions);
     }
 
     public static void UseBeacon(IServiceProvider serviceProvider, bool createSchema = false)

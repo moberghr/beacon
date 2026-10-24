@@ -79,6 +79,20 @@ public class BeaconMcpGatewayTests
     }
 
     [Test]
+    public async Task TheEvaluationHarness_StaysOff_ItsAiOffStandInResolvesAndRefuses()
+    {
+        using var provider = Services().BuildServiceProvider();
+        using var scope = provider.CreateScope();
+
+        var eval = scope.ServiceProvider.GetRequiredService<Beacon.Core.Services.IMcpEvalService>();
+        var act = () => eval.StartRunAsync(1, 1, CancellationToken.None);
+
+        eval.GetType().Name.Should().Be("AiDisabledMcpEvalService");
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*AI-backed features are unavailable*");
+        provider.GetRequiredService<Beacon.Core.BeaconConfiguration>().UseAI.Should().BeFalse();
+    }
+
+    [Test]
     public void RetainingToolContent_LiftsOnlyTheContentLock()
     {
         using var provider = Services(x => x.RetainToolContent = true).BuildServiceProvider();

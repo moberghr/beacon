@@ -449,6 +449,49 @@ an entry that is not fails startup.
 (`app.UseHsts()` outside Development) or the proxy. Set `AllowedHosts` to your real host names as well, so the
 framework's host filtering refuses other names on every route.
 
+## The fluent chain
+
+Since 5.x the same host can be wired with one chain on the services and two calls on the app. The chain is the preferred way to wire Beacon. The calls above keep working: `AddBeaconServices`, `AddBeaconAI` and `AddBeaconMcp` stay supported and become obsolete in a later release.
+
+```csharp
+using Beacon.AI;            // AddAI
+using Beacon.Api;           // AddApi
+using Beacon.Api.Authentication;   // AddCookieAuth
+using Beacon.Gateway;       // UseBeaconPipeline, MapBeacon (package Moberg.Beacon.Gateway)
+using Beacon.MCP;           // AddMcp
+
+builder.Services.AddBeacon(builder.Configuration, options =>
+    {
+        options.AddBeaconScheduler<BeaconScheduler>();
+        options.Authentication.EnableLoginForm = true;
+        options.EnableUserManagement();
+    })
+    .AddPostgreSqlConnector()
+    .AddAI()                                   // switches AI on; never set UseAI yourself
+    .AddMcp()                                  // after AddAI
+    .AddApi()                                  // REST API, its policies, antiforgery (X-XSRF-TOKEN, .Beacon.Antiforgery)
+    .AddCookieAuth<AppClaimsTransformation>()  // Beacon.Auth cookie at /beacon + AddBeaconHostInfrastructure
+    .UsePostgreSql();                          // ends the chain: it returns IServiceCollection
+
+var app = builder.Build();
+app.UseStaticFiles();
+// Your exception handler, if any, goes here: before UseBeaconPipeline (see Error responses).
+app.UseBeaconPipeline();   // steps 6 to 15 of the pipeline table above, in that order
+app.MapBeacon();           // API, sign-in, setup, MCP with the Execute policy, discovery documents, UI
+```
+
+| Call | Does |
+|---|---|
+| `AddBeacon(configuration, options)` | `AddBeaconServices` without `UseAI`: setting `UseAI = true` there throws, so AI is on only when `.AddAI()` registered it. |
+| `.AddAI()` | Registers Beacon's AI services, sets `UseAI` and removes the AI-off stand-ins Core registered, so the real eval service and connection tester are the ones resolved. A second call throws, and so does a call beside `AddBeaconAI` or `UseAI = true`. |
+| `.AddMcp(configure?)` | `AddBeaconMcp`. Throws when `.AddAI()` has not run or `AddBeaconMcp` already did. |
+| `.AddApi(configure?)` | `AddBeaconApiServices`, `AddBeaconApiAuthorization` and antiforgery with the header the shell sends (`X-XSRF-TOKEN`) and the cookie name `.Beacon.Antiforgery`. These are the application's antiforgery options, shared with your own antiforgery. |
+| `.AddCookieAuth<TClaims>()` | `AddBeaconHostInfrastructure<TClaims>()` and `AddBeaconCookieAuthentication("/beacon")`. |
+| `app.UseBeaconPipeline()` | `UseMcpResourceMetadataChallenge` (with MCP), `UseBeaconAuthentication`, `UseAuthorization`, `LoginFormAuthMiddleware` (with `EnableLoginForm`), `FirstRunSetupMiddleware` (with user management), `UseAntiforgery` (with antiforgery registered). Call it once, in place of `UseAuthentication`/`UseAuthorization`; a second call throws. |
+| `app.MapBeacon()` | With `.AddApi()`: `MapBeaconApi`, `MapLoginEndpoints` (with `.AddCookieAuth()`, since sign-in issues the `Beacon.Auth` cookie), `MapSetupEndpoints` (with user management) and `MapBeaconUi`. With `.AddMcp()`: `MapBeaconMcp` and `MapMcpDiscovery`. `MapOpenApi` stays yours. |
+
+`UseForwardedHeaders`, `UseHttpsRedirection`, `UseStaticFiles`, your exception handler, OIDC, the bearer JWT setup and Data Protection stay host calls. Put the exception handler before `UseBeaconPipeline` (step 5 of the pipeline table): placed after it, exceptions from authentication, antiforgery and the redirects reach the client as raw 500s. Use either the chain or the older calls for AI and MCP, not both: once the chain is in use, `AddBeaconAI` and `AddBeaconMcp` throw, and `.AddAI()` or `.AddMcp()` beside them throw too. A host that embeds Beacon as an MCP gateway keeps `AddBeaconMcpGateway`, `UseBeaconMcpGateway` and `MapBeaconMcpGateway` (the gateway is a profile of the same chain with AI left off, so the evaluation harness keeps refusing); `UseBeaconPipeline` and `MapBeacon` throw on it.
+
 ## Minimal variants
 
 **No MCP, no AI.** Drop the `Moberg.Beacon.AI` and `Moberg.Beacon.MCP` packages, `UseAI`, `AddBeaconAI`, `AddBeaconMcp`, `UseMcpResourceMetadataChallenge`, `MapBeaconMcp` and `MapMcpDiscovery`.

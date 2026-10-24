@@ -11,16 +11,78 @@ using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
 
 using Beacon.AI.Services.Mcp;
+using Beacon.Core;
 
 namespace Beacon.AI;
 
 public static class ServiceConfiguration
 {
     /// <summary>
+    /// Adds Beacon's AI services and switches AI on (<see cref="Core.BeaconConfiguration.UseAI"/>): the stand-ins Core
+    /// registered while AI was off are removed, so the real implementations are the ones resolved. LLM configuration in
+    /// appsettings.json is optional — it can be configured later via Admin Settings.
+    /// </summary>
+    public static BeaconBuilder AddAI(this BeaconBuilder builder)
+    {
+        return builder.AddAIThroughChain(switchAiOn: true);
+    }
+
+    /// <summary>
+    /// The MCP gateway's AI: Beacon's AI services, with AI left off (<see cref="Core.BeaconConfiguration.UseAI"/> false) and
+    /// the AI-off stand-ins kept, so the evaluation harness and pattern replay refuse as they always have on a gateway.
+    /// </summary>
+    internal static BeaconBuilder AddAIKeepingAiOff(this BeaconBuilder builder)
+    {
+        return builder.AddAIThroughChain(switchAiOn: false);
+    }
+
+    internal static BeaconBuilder AddAIThroughChain(this BeaconBuilder builder, bool switchAiOn)
+    {
+        ArgumentNullException.ThrowIfNull(builder);
+
+        var options = builder.Options
+            ?? throw new InvalidOperationException("AddAI() needs the builder services.AddBeacon(...) returns.");
+        if (builder.AiAdded || options.UseAI || builder.Services.Any(x => x.ServiceType == typeof(LlmConfiguration)))
+        {
+            throw new InvalidOperationException(
+                "Beacon's AI services are already registered: call .AddAI() once, and not beside AddBeaconAI or UseAI = true.");
+        }
+
+        if (switchAiOn)
+        {
+            options.UseAI = true;
+            Core.Services.AiDisabled.RemoveStandIns(builder.Services);
+        }
+
+        builder.Services.AddBeaconAIServices(builder.Configuration);
+        builder.AiAdded = true;
+        BeaconBuilder.MarkChain(builder.Services);
+
+        return builder;
+    }
+
+    /// <summary>
     /// Adds AI services to the service collection.
     /// LLM configuration in appsettings.json is optional — it can be configured later via Admin Settings.
     /// </summary>
+    /// <remarks>
+    /// The fluent chain is the preferred way to wire Beacon: <see cref="AddAI"/> on the builder <c>services.AddBeacon(...)</c>
+    /// returns, which also switches AI on. This method stays supported and becomes obsolete in a later release.
+    /// </remarks>
     public static IServiceCollection AddBeaconAI(
+        this IServiceCollection services,
+        IConfiguration configuration)
+    {
+        if (BeaconBuilder.UsesChain(services))
+        {
+            throw new InvalidOperationException(
+                "This host is wired with the chain (services.AddBeacon(...), .AddAI(), .AddMcp()): add AI with .AddAI() on its builder, not AddBeaconAI.");
+        }
+
+        return services.AddBeaconAIServices(configuration);
+    }
+
+    internal static IServiceCollection AddBeaconAIServices(
         this IServiceCollection services,
         IConfiguration configuration)
     {
