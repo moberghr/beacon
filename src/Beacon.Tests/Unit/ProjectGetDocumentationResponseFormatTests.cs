@@ -42,16 +42,16 @@ public class ProjectGetDocumentationResponseFormatTests
         var auditFactory = new Mock<IDbContextFactory<BeaconContext>>();
         var auditService = new McpAuditService(auditFactory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog());
         var projectContext = new McpProjectContext { UserId = 1, ApiKeyId = 9, AllowedProjectIds = [ProjectId] };
+        var recorder = TestToolCalls.Recorder(auditService);
 
         var tool = new ProjectGetDocumentationTool(
             knowledgeGraph: null!,
             documentationService: null!,
             contextFactory: null!,
             projectContext,
-            auditService,
-            NullLogger<ProjectGetDocumentationTool>.Instance);
+            recorder);
 
-        var result = await tool.ExecuteAsync(response_format: responseFormat, cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(recorder, () => tool.ExecuteAsync(response_format: responseFormat, cancellationToken: CancellationToken.None));
 
         result.IsError.Should().BeTrue();
         result.Content.OfType<TextContentBlock>().Single().Text
@@ -198,8 +198,7 @@ public class ProjectGetDocumentationResponseFormatTests
             documentationService.Object,
             new HostDocs.DocsStore().Factory().Object,
             projectContext,
-            auditService,
-            NullLogger<ProjectGetDocumentationTool>.Instance);
+            TestToolCalls.Recorder(auditService));
 
         var result = await tool.ExecuteAsync(response_format: responseFormat, cancellationToken: CancellationToken.None);
 

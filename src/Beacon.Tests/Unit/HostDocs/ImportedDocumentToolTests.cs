@@ -153,9 +153,10 @@ public class ImportedDocumentToolTests
                 }
             ]);
 
-        var tool = new ProjectSearchTool(knowledgeGraph.Object, ProjectContext(), AuditService(), NullLogger<ProjectSearchTool>.Instance);
+        var recorder = Recorder();
+        var tool = new ProjectSearchTool(knowledgeGraph.Object, ProjectContext(), recorder);
 
-        var result = await tool.ExecuteAsync("loan", cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(recorder, () => tool.ExecuteAsync("loan", cancellationToken: CancellationToken.None));
 
         Text(result).Should().Contain("- **[IMPORTED_DOC]** `10-domains/loans.md` (Loans) -- Loans are repaid in installments.\n");
     }
@@ -267,16 +268,16 @@ public class ImportedDocumentToolTests
         knowledgeGraph
             .Setup(x => x.GetProjectDataSourcesAsync(ProjectId, It.IsAny<CancellationToken>()))
             .ReturnsAsync([]);
+        var recorder = Recorder();
         var tool = new GetContextTool(
             knowledgeGraph.Object,
             _store.Factory().Object,
             new Mock<IProjectBriefService>().Object,
             ProjectContext(),
-            AuditService(),
-            NullLogger<GetContextTool>.Instance,
+            recorder,
             tools);
 
-        var result = await tool.ExecuteAsync(cancellationToken: CancellationToken.None);
+        var result = await TestToolCalls.InvokeAsync(recorder, () => tool.ExecuteAsync(cancellationToken: CancellationToken.None));
         result.IsError.Should().NotBe(true, Text(result));
 
         return Text(result);
@@ -292,19 +293,19 @@ public class ImportedDocumentToolTests
 
     private Task<CallToolResult> ExecuteResultAsync(string? document = null, string? datasourceName = null)
     {
+        var recorder = Recorder();
         var tool = new ProjectGetDocumentationTool(
             new Mock<IKnowledgeGraphService>().Object,
             _documentation.Object,
             _store.Factory().Object,
             ProjectContext(),
-            AuditService(),
-            NullLogger<ProjectGetDocumentationTool>.Instance);
+            recorder);
 
-        return tool.ExecuteAsync(datasource_name: datasourceName, document: document, cancellationToken: CancellationToken.None);
+        return TestToolCalls.InvokeAsync(recorder, () => tool.ExecuteAsync(datasource_name: datasourceName, document: document, cancellationToken: CancellationToken.None));
     }
 
-    private McpAuditService AuditService() =>
-        new(_auditFactory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog());
+    private McpToolCallRecorder Recorder() =>
+        TestToolCalls.Recorder(new McpAuditService(_auditFactory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog()));
 
     private static McpProjectContext ProjectContext() =>
         new() { UserId = 1, ApiKeyId = 9, AllowedProjectIds = [ProjectId] };

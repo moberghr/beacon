@@ -1,7 +1,5 @@
 using System.ComponentModel;
-using System.Diagnostics;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Beacon.AI.Services.Documentation;
@@ -20,8 +18,7 @@ internal sealed class ProjectGetDocumentationTool(
     IProjectDocumentationService documentationService,
     IDbContextFactory<BeaconContext> contextFactory,
     IProjectContext projectContext,
-    McpAuditService auditService,
-    ILogger<ProjectGetDocumentationTool> logger)
+    McpToolCallRecorder recorder)
 {
     internal const int ConciseCharBudget = 8000;
     internal const int MaxListedImportedDocuments = 500;
@@ -43,7 +40,8 @@ internal sealed class ProjectGetDocumentationTool(
         string? document = null,
         CancellationToken cancellationToken = default)
     {
-        var sw = Stopwatch.StartNew();
+        // Written by McpAuditCallToolFilter after the tool returns or throws (§1.7).
+        recorder.Start("get_documentation", projectContext.UserId, datasource_name ?? table_name);
 
         string? format = null;
         if (!string.IsNullOrEmpty(response_format))
@@ -51,10 +49,8 @@ internal sealed class ProjectGetDocumentationTool(
             format = response_format.ToLowerInvariant();
             if (format != "concise" && format != "detailed")
             {
-                sw.Stop();
                 var validationError = "response_format must be 'concise' or 'detailed'.";
-                await auditService.LogToolCallAsync(projectContext.UserId, "get_documentation",
-                    datasource_name ?? table_name, null, null, (int)sw.ElapsedMilliseconds, null, validationError, ct: cancellationToken);
+                recorder.Fail(validationError);
                 return ToolHelper.Error(validationError);
             }
         }
@@ -62,114 +58,95 @@ internal sealed class ProjectGetDocumentationTool(
         var resolveError = ToolHelper.ResolveProjectId(projectContext, "get_documentation", project_id, out var projectId);
         if (resolveError != null)
         {
-            sw.Stop();
-            await auditService.LogToolCallAsync(projectContext.UserId, "get_documentation",
-                datasource_name ?? table_name, null, null, (int)sw.ElapsedMilliseconds, null, resolveError, ct: cancellationToken);
+            recorder.Fail(resolveError);
             return ToolHelper.Error(resolveError);
         }
 
+        recorder.WithProject(projectId);
+
         // No McpSignalService call here (audit-only) — see GetContextTool for the full rationale.
-        try
+        if (!string.IsNullOrWhiteSpace(document))
         {
-            if (!string.IsNullOrWhiteSpace(document))
+            if (!string.IsNullOrEmpty(datasource_name) || !string.IsNullOrEmpty(table_name))
             {
-                if (!string.IsNullOrEmpty(datasource_name) || !string.IsNullOrEmpty(table_name))
-                {
-                    const string conflict = "Pass either document or datasource_name/table_name, not both.";
-                    sw.Stop();
-                    await auditService.LogToolCallAsync(projectContext.UserId, "get_documentation",
-                        document, null, projectId, (int)sw.ElapsedMilliseconds, null, conflict, ct: cancellationToken);
-                    return ToolHelper.Error(conflict);
-                }
-
-                var (documentText, documentError) = await GetImportedDocumentAsync(projectId, document, (format ?? "detailed") == "concise", cancellationToken);
-                sw.Stop();
-                await auditService.LogToolCallAsync(projectContext.UserId, "get_documentation",
-                    document, null, projectId, (int)sw.ElapsedMilliseconds, null, documentError, ct: cancellationToken);
-                return documentError != null ? ToolHelper.Error(documentError) : ToolHelper.Success(documentText!);
+                const string conflict = "Pass either document or datasource_name/table_name, not both.";
+                recorder.WithParameters(document).Fail(conflict);
+                return ToolHelper.Error(conflict);
             }
 
-            // If no data source specified, return full project documentation
-            if (string.IsNullOrEmpty(datasource_name) && string.IsNullOrEmpty(table_name))
+            var (documentText, documentError) = await GetImportedDocumentAsync(projectId, document, (format ?? "detailed") == "concise", cancellationToken);
+            recorder.WithParameters(document);
+            if (documentError != null)
             {
-                // The full project export can be very large — concise is the project-level default.
-                var concise = (format ?? "concise") == "concise";
-                var docResult = await GetProjectDocumentationAsync(projectId, concise, cancellationToken);
-                sw.Stop();
-                await auditService.LogToolCallAsync(projectContext.UserId, "get_documentation",
-                    null, null, projectId, (int)sw.ElapsedMilliseconds, null, null, ct: cancellationToken);
-                return ToolHelper.Success(docResult);
+                recorder.Fail(documentError);
+                return ToolHelper.Error(documentError);
             }
 
-            // Resolve data source
-            int? dsId = null;
-            if (!string.IsNullOrEmpty(datasource_name))
-            {
-                var (resolvedId, nameError) = await ToolHelper.ResolveDataSourceByNameAsync(contextFactory, projectId, datasource_name, cancellationToken);
-                if (nameError != null)
-                {
-                    sw.Stop();
-                    await auditService.LogToolCallAsync(projectContext.UserId, "get_documentation",
-                        datasource_name, null, projectId, (int)sw.ElapsedMilliseconds, null, nameError, ct: cancellationToken);
-                    return ToolHelper.Error(nameError);
-                }
+            recorder.Succeed();
+            return ToolHelper.Success(documentText!);
+        }
 
-                dsId = resolvedId;
+        // If no data source specified, return full project documentation
+        if (string.IsNullOrEmpty(datasource_name) && string.IsNullOrEmpty(table_name))
+        {
+            // The full project export can be very large — concise is the project-level default.
+            var concise = (format ?? "concise") == "concise";
+            var docResult = await GetProjectDocumentationAsync(projectId, concise, cancellationToken);
+            recorder.WithParameters(null).Succeed();
+            return ToolHelper.Success(docResult);
+        }
+
+        // Resolve data source
+        int? dsId = null;
+        if (!string.IsNullOrEmpty(datasource_name))
+        {
+            var (resolvedId, nameError) = await ToolHelper.ResolveDataSourceByNameAsync(contextFactory, projectId, datasource_name, cancellationToken);
+            if (nameError != null)
+            {
+                recorder.WithParameters(datasource_name).Fail(nameError);
+                return ToolHelper.Error(nameError);
             }
 
-            // If we have a table name but no data source, try to find which data source has that table
-            if (dsId == null && !string.IsNullOrEmpty(table_name))
-            {
-                dsId = await FindDataSourceForTableAsync(projectId, table_name, schema_name, cancellationToken);
-                if (dsId == null)
-                {
-                    var tableError = $"Could not find table '{table_name}' in any data source of this project.";
-                    sw.Stop();
-                    await auditService.LogToolCallAsync(projectContext.UserId, "get_documentation",
-                        table_name, null, projectId, (int)sw.ElapsedMilliseconds, null, tableError, ct: cancellationToken);
-                    return ToolHelper.Error(tableError);
-                }
-            }
+            dsId = resolvedId;
+        }
 
+        // If we have a table name but no data source, try to find which data source has that table
+        if (dsId == null && !string.IsNullOrEmpty(table_name))
+        {
+            dsId = await FindDataSourceForTableAsync(projectId, table_name, schema_name, cancellationToken);
             if (dsId == null)
             {
-                const string unresolvedError = "Could not resolve data source.";
-                sw.Stop();
-                await auditService.LogToolCallAsync(projectContext.UserId, "get_documentation",
-                    datasource_name ?? table_name, null, projectId, (int)sw.ElapsedMilliseconds, null, unresolvedError, ct: cancellationToken);
-                return ToolHelper.Error(unresolvedError);
+                var tableError = $"Could not find table '{table_name}' in any data source of this project.";
+                recorder.WithParameters(table_name).Fail(tableError);
+                return ToolHelper.Error(tableError);
             }
-
-            // Table- and data-source-level docs are bounded — detailed is the default there.
-            var includeDetailSections = (format ?? "detailed") == "detailed";
-
-            string result;
-            if (!string.IsNullOrEmpty(table_name))
-            {
-                var (resolvedSchema, isApi) = await ResolveSchemaAndTypeAsync(dsId.Value, cancellationToken);
-                if (string.IsNullOrEmpty(schema_name))
-                    schema_name = resolvedSchema;
-                result = await GetTableDocumentationAsync(dsId.Value, projectId, schema_name, table_name, isApi, includeDetailSections, cancellationToken);
-            }
-            else
-            {
-                result = await GetDataSourceDocumentationAsync(dsId.Value, projectId, includeDetailSections, cancellationToken);
-            }
-
-            sw.Stop();
-            await auditService.LogToolCallAsync(projectContext.UserId, "get_documentation",
-                datasource_name ?? table_name, dsId, projectId, (int)sw.ElapsedMilliseconds, null, null, ct: cancellationToken);
-            return ToolHelper.Success(result);
         }
-        catch (Exception ex)
+
+        if (dsId == null)
         {
-            sw.Stop();
-            await auditService.LogToolCallAsync(projectContext.UserId, "get_documentation",
-                datasource_name ?? table_name, null, projectId == 0 ? null : projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, ct: CancellationToken.None);
-            // §1.11 — ex.Message can quote user input; type only here, full detail is in the audit log.
-            logger.LogError("MCP tool {Tool} failed with {ExceptionType} (detail in MCP audit log)", "get_documentation", ex.GetType().Name);
-            return ToolHelper.Error(ToolHelper.CallerSafeMessage(ex, "get_documentation"));
+            const string unresolvedError = "Could not resolve data source.";
+            recorder.Fail(unresolvedError);
+            return ToolHelper.Error(unresolvedError);
         }
+
+        // Table- and data-source-level docs are bounded — detailed is the default there.
+        var includeDetailSections = (format ?? "detailed") == "detailed";
+
+        string result;
+        if (!string.IsNullOrEmpty(table_name))
+        {
+            var (resolvedSchema, isApi) = await ResolveSchemaAndTypeAsync(dsId.Value, cancellationToken);
+            if (string.IsNullOrEmpty(schema_name))
+                schema_name = resolvedSchema;
+            result = await GetTableDocumentationAsync(dsId.Value, projectId, schema_name, table_name, isApi, includeDetailSections, cancellationToken);
+        }
+        else
+        {
+            result = await GetDataSourceDocumentationAsync(dsId.Value, projectId, includeDetailSections, cancellationToken);
+        }
+
+        recorder.WithDataSource(dsId).Succeed();
+        return ToolHelper.Success(result);
     }
 
     private async Task<int?> FindDataSourceForTableAsync(int projectId, string tableName, string? schemaName, CancellationToken ct)
