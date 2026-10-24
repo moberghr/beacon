@@ -197,6 +197,6 @@ public static partial class PromptData
             or '\u276E' or '\u2770' or '\u29FC' or '\u02C2' or '\u1438' or '\u227A';
     }
 
-    [GeneratedRegex("^[a-z]+( [a-z]+)*$", RegexOptions.CultureInvariant)]
+    [GeneratedRegex("^[a-z]+( [a-z]+)*$", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 1000)]
     private static partial Regex LabelPattern();
 }

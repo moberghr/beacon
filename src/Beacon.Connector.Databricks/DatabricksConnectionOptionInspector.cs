@@ -35,6 +35,6 @@ public sealed partial class DatabricksConnectionOptionInspector : IDataSourceCon
                 DataSourceConnectionOptionRisk.Unsafe);
     }
 
-    [GeneratedRegex(@"^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$")]
+    [GeneratedRegex(@"^(?=.{1,253}$)[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?(?:\.[A-Za-z0-9](?:[A-Za-z0-9-]{0,61}[A-Za-z0-9])?)+$", RegexOptions.None, matchTimeoutMilliseconds: 1000)]
     private static partial Regex HostName();
 }
