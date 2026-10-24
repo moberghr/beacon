@@ -13,8 +13,10 @@ namespace Beacon.Core.BackgroundTasks;
 /// <see cref="IBackgroundTaskService"/> over the <c>BackgroundTasks</c> table. Each step of a task's life (queued, handed
 /// over, running, finished) is its own short write, outside the unit of work of whoever calls it: the job runs elsewhere
 /// and later, so its state cannot commit with the request. A step writes only from the state it expects (queued to running,
-/// running to finished), so a task given up as abandoned is never written back as running or finished. Off a request, the
-/// run acts as the user who started the task (<see cref="IRunAsScope"/>), never as the system; a task started by a caller
+/// running to finished), so a task given up as abandoned is never written back as running; one given up while its work
+/// still ran records that work's own outcome when it ends. Off a request, the
+/// run acts as the user who started the task (<see cref="IRunAsScope"/>, checked to resolve to the same <c>Users.Id</c>), never
+/// as the system; a task started by a caller
 /// without a stored user (a host without Beacon user management, where such an owner runs as the system anyway) keeps the
 /// job's system scope.
 /// </summary>
@@ -36,10 +38,18 @@ internal sealed class BackgroundTaskService(
     /// </summary>
     internal static readonly TimeSpan LostAfter = TimeSpan.FromMinutes(5);
 
+    public Task<BackgroundTaskTicket?> StartAsync(
+        BackgroundTaskKind kind,
+        int subjectId,
+        Func<int, SecurityAuditEntry>? auditEvent,
+        CancellationToken cancellationToken)
+        => StartAsync(kind, subjectId, auditEvent, null, cancellationToken);
+
     public async Task<BackgroundTaskTicket?> StartAsync(
         BackgroundTaskKind kind,
         int subjectId,
         Func<int, SecurityAuditEntry>? auditEvent,
+        BackgroundTaskGrant? grant,
         CancellationToken cancellationToken)
     {
         var executor = ExecutorOf(kind)
@@ -53,7 +63,9 @@ internal sealed class BackgroundTaskService(
             SubjectId = subjectId,
             RequestedByUserId = (await actorAccessor.GetCurrentAsync(cancellationToken)).BeaconUserId,
             State = BackgroundTaskState.Queued,
-            CreatedTime = now
+            CreatedTime = now,
+            PermissionSource = grant?.Source,
+            RequesterStampHash = grant?.RequesterStampHash
         };
         if (!await TryAddAsync(task, auditEvent, cancellationToken))
         {
@@ -146,11 +158,24 @@ internal sealed class BackgroundTaskService(
                     taskId,
                     kind,
                     task.RequestedByUserId);
-                await FinishAsync(taskId, BackgroundTaskState.Running, BackgroundTaskState.Skipped, BackgroundTaskFailureCodes.Forbidden, null);
+                await SkipAsync(executor, task, BackgroundTaskFailureCodes.Forbidden);
                 return;
             }
 
             runAs.RunAs(requestedByExternalId);
+
+            // The run resolves its owner by external id; it must be the very user who started the task (by Users.Id), never
+            // another stored user that carries the same external id now.
+            if ((await actorAccessor.GetCurrentAsync(cancellationToken)).BeaconUserId != task.RequestedByUserId)
+            {
+                logger.LogWarning(
+                    "Background task {TaskId} ({Kind}) skipped: the user who started it ({UserId}) no longer resolves to itself.",
+                    taskId,
+                    kind,
+                    task.RequestedByUserId);
+                await SkipAsync(executor, task, BackgroundTaskFailureCodes.Forbidden);
+                return;
+            }
         }
 
         BackgroundTaskOutcome outcome;
@@ -169,7 +194,7 @@ internal sealed class BackgroundTaskService(
         if (outcome.SkippedCode != null)
         {
             logger.LogInformation("Background task {TaskId} ({Kind}) skipped: {FailureCode}.", taskId, kind, outcome.SkippedCode);
-            await FinishAsync(taskId, BackgroundTaskState.Running, BackgroundTaskState.Skipped, outcome.SkippedCode, null);
+            await SkipAsync(executor, task, outcome.SkippedCode);
             return;
         }
 
@@ -224,7 +249,7 @@ internal sealed class BackgroundTaskService(
             .Where(x => x.Kind == kind)
             .Where(x => x.SubjectId == subjectId)
             .Where(x => x.State == BackgroundTaskState.Queued || x.State == BackgroundTaskState.Running)
-            .Where(x => (x.StartedTime ?? x.CreatedTime) < abandonedBefore
+            .Where(x => (x.HeartbeatTime ?? x.StartedTime ?? x.CreatedTime) < abandonedBefore
                 || (x.State == BackgroundTaskState.Queued && x.JobId == null && x.CreatedTime < lostBefore))
             .ExecuteUpdateAsync(
                 x => x
@@ -259,10 +284,11 @@ internal sealed class BackgroundTaskService(
                 new
                 {
                     x.Id,
-                    x.StartedTime
+                    x.StartedTime,
+                    x.HeartbeatTime
                 })
             .FirstOrDefaultAsync(cancellationToken);
-        if (running == null || !await executor.HasEndedAsync(subjectId, running.StartedTime!.Value, cancellationToken))
+        if (running == null || !await executor.HasEndedAsync(subjectId, running.StartedTime!.Value, running.HeartbeatTime, cancellationToken))
         {
             return;
         }
@@ -342,14 +368,30 @@ internal sealed class BackgroundTaskService(
         return claimed == 1;
     }
 
-    // Written whether or not the caller was cancelled: a task must not stay running because its run was.
+    // Records a task that ran nothing, and its kind's security event for that (ids and codes only).
+    private async Task SkipAsync(IBackgroundTaskExecutor executor, BackgroundTaskContext task, string code)
+    {
+        await FinishAsync(task.TaskId, BackgroundTaskState.Running, BackgroundTaskState.Skipped, code, null);
+
+        var skipped = executor.SkippedEvent(task, code);
+        if (skipped != null)
+        {
+            await securityAudit.RecordAsync(skipped, CancellationToken.None);
+        }
+    }
+
+    // Written whether or not the caller was cancelled: a task must not stay running because its run was. A running task's
+    // own outcome also replaces an abandoned verdict given while it still ran (a stalled write, a reconciliation that came
+    // too early): what the work did is what the task reads.
     private async Task FinishAsync(int taskId, BackgroundTaskState from, BackgroundTaskState to, string? failureCode, int? warningCount)
     {
         var now = timeProvider.GetUtcNow().UtcDateTime;
+        var overridesAbandoned = from == BackgroundTaskState.Running;
         await using var context = await contextFactory.CreateDbContextAsync(CancellationToken.None);
         await context.BackgroundTasks
             .Where(x => x.Id == taskId)
-            .Where(x => x.State == from)
+            .Where(x => x.State == from
+                || (overridesAbandoned && x.State == BackgroundTaskState.Failed && x.FailureCode == BackgroundTaskFailureCodes.Abandoned))
             .ExecuteUpdateAsync(
                 x => x
                     .SetProperty(y => y.State, to)

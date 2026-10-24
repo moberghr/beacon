@@ -786,6 +786,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("finished_time");
 
+                    b.Property<DateTime?>("HeartbeatTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("heartbeat_time");
+
                     b.Property<string>("JobId")
                         .HasMaxLength(64)
                         .HasColumnType("character varying(64)")
@@ -795,9 +799,19 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("kind");
 
+                    b.Property<string>("PermissionSource")
+                        .HasMaxLength(16)
+                        .HasColumnType("character varying(16)")
+                        .HasColumnName("permission_source");
+
                     b.Property<int?>("RequestedByUserId")
                         .HasColumnType("integer")
                         .HasColumnName("requested_by_user_id");
+
+                    b.Property<string>("RequesterStampHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("requester_stamp_hash");
 
                     b.Property<DateTime?>("StartedTime")
                         .HasColumnType("timestamp with time zone")

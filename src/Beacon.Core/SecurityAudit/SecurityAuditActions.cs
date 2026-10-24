@@ -136,6 +136,7 @@ public static class SecurityAuditActions
     public const string DataSourceUnlinked = "access.data_source_unlinked";
     public const string RepositoryTokenChanged = "access.repository_token_changed";
     public const string RepositoryScanRequested = "access.repository_scan_requested";
+    public const string RepositoryScanRan = "access.repository_scan_ran";
 
     // Data sources
     public const string DataSourceCreated = "data_sources.data_source_created";
@@ -216,6 +217,7 @@ public static class SecurityAuditActions
     // Data migrations
     public const string MigrationJobCreated = "migrations.job_created";
     public const string MigrationJobDeleted = "migrations.job_deleted";
+    public const string MigrationJobRunRequested = "migrations.job_run_requested";
     public const string MigrationJobStarted = "migrations.job_started";
     public const string MigrationJobRunEnded = "migrations.job_run_ended";
 

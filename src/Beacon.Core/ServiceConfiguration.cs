@@ -388,6 +388,7 @@ public static class ServiceConfiguration
         services.TryAddEnumerable(ServiceDescriptor.Transient<BackgroundTasks.IBackgroundTaskExecutor, Services.Metadata.MetadataRefreshTaskExecutor>());
         services.TryAddEnumerable(ServiceDescriptor.Transient<BackgroundTasks.IBackgroundTaskExecutor, Handlers.DataMigration.MigrationRunTaskExecutor>());
         services.TryAddScoped<BackgroundTasks.BackgroundTaskRequesterPermissions>();
+        services.TryAddTransient<BackgroundTasks.IBackgroundTaskHeartbeat, BackgroundTasks.BackgroundTaskHeartbeat>();
 
         // The stored sample values a metadata response carries: an Admin's only.
         services.TryAddTransient<Handlers.DataSources.MetadataSampleView>();

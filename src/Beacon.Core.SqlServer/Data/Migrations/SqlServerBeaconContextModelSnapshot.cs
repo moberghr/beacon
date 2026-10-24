@@ -617,6 +617,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<DateTime?>("FinishedTime")
                         .HasColumnType("datetime2");
 
+                    b.Property<DateTime?>("HeartbeatTime")
+                        .HasColumnType("datetime2");
+
                     b.Property<string>("JobId")
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
@@ -624,8 +627,16 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<int>("Kind")
                         .HasColumnType("int");
 
+                    b.Property<string>("PermissionSource")
+                        .HasMaxLength(16)
+                        .HasColumnType("nvarchar(16)");
+
                     b.Property<int?>("RequestedByUserId")
                         .HasColumnType("int");
+
+                    b.Property<string>("RequesterStampHash")
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
 
                     b.Property<DateTime?>("StartedTime")
                         .HasColumnType("datetime2");

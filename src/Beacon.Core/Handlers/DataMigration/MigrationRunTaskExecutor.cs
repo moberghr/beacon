@@ -4,6 +4,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models;
 using Beacon.Core.Models.DataMigration;
+using Beacon.Core.SecurityAudit;
 using Beacon.Core.Services;
 using Microsoft.EntityFrameworkCore;
 
@@ -11,9 +12,11 @@ namespace Beacon.Core.Handlers.DataMigration;
 
 /// <summary>
 /// Runs a <see cref="BackgroundTaskKind.MigrationRun"/> task: a manual run of one migration job, as the user who started it.
-/// Right before the run it checks again that the user still holds the MigrationOperator permission and meets the job's
-/// demands (<see cref="MigrationJobAccess"/>), and skips the task (<see cref="BackgroundTaskFailureCodes.Forbidden"/>) when
-/// not; the write policy is checked again too. The run is <see cref="IMigrationService.ExecuteMigrationJob"/>, unchanged:
+/// Right before the run it checks again that the user still holds the MigrationOperator permission (a stored role live; a
+/// permission the identity provider granted at the start only shortly after it, <see cref="BackgroundTaskRequesterPermissions"/>)
+/// and meets the job's demands (<see cref="MigrationJobAccess"/>), and skips the task
+/// (<see cref="BackgroundTaskFailureCodes.Forbidden"/>, on record as a refused <c>migrations.job_run_ended</c>) when not; the
+/// write policy is checked again too, and a task given up as abandoned meanwhile does not start the run. The run is <see cref="IMigrationService.ExecuteMigrationJob"/>, unchanged:
 /// it claims the job (one run at a time), holds the destination lock, stops at the job's timeout, never cancels its commit
 /// and always closes its history row. A run refused because another is in progress skips the task
 /// (<see cref="BackgroundTaskFailureCodes.Busy"/>); a run that failed fails it (<see cref="BackgroundTaskFailureCodes.RunFailed"/>,
@@ -26,12 +29,13 @@ internal sealed class MigrationRunTaskExecutor(
     MigrationJobAccess access,
     MigrationWritePolicy writePolicy,
     BackgroundTaskRequesterPermissions permissions,
+    IBackgroundTaskHeartbeat heartbeat,
     IDbContextFactory<BeaconContext> contextFactory,
     TimeProvider timeProvider) : IReconcilingBackgroundTaskExecutor
 {
     /// <summary>
-    /// How long a running task may go without a history row of its run: its checks before the run claims the job take
-    /// seconds, so a task with none after this never reached the run.
+    /// How long a running task may go without reaching its run, and without a history row of its run once it reached it: its
+    /// checks before the run claims the job take seconds, so a task with none after this never reached the run.
     /// </summary>
     internal static readonly TimeSpan ClaimGrace = TimeSpan.FromMinutes(5);
 
@@ -50,7 +54,7 @@ internal sealed class MigrationRunTaskExecutor(
     {
         writePolicy.DemandEnabled();
 
-        if (!await permissions.HoldsAsync(BeaconPermissions.MigrationOperator, cancellationToken))
+        if (!await permissions.HoldsAsync(BeaconPermissions.MigrationOperator, task.TaskId, cancellationToken))
         {
             return BackgroundTaskOutcome.Skipped(BackgroundTaskFailureCodes.Forbidden);
         }
@@ -65,6 +69,13 @@ internal sealed class MigrationRunTaskExecutor(
         }
 
         await writePolicy.DemandTargetsForJobAsync(task.SubjectId, cancellationToken);
+
+        // Marks the moment the task reaches its run (reconciliation counts only runs from here) and stops a task that was
+        // given up meanwhile from starting one.
+        if (!await heartbeat.BeatAsync(task.TaskId, cancellationToken))
+        {
+            return BackgroundTaskOutcome.Skipped(BackgroundTaskFailureCodes.Abandoned);
+        }
 
         var response = await migrationService.ExecuteMigrationJob(
             new ExecuteMigrationJobRequest(task.SubjectId, IsManualExecution: true, ExecutionContext: ExecutionContext),
@@ -85,11 +96,12 @@ internal sealed class MigrationRunTaskExecutor(
     }
 
     /// <summary>
-    /// The task's run has ended by the job's run history: every run of the job started since the task started is closed
-    /// (a minute ago or more) or was left running past the job's timeout and margin (abandoned), or none started within
-    /// <see cref="ClaimGrace"/> of the task; also when the job no longer exists.
+    /// The task's run has ended by the job's run history: the task never reached its run within <see cref="ClaimGrace"/> of
+    /// its start, or every run of the job started since it reached it (its heartbeat; runs started before are another
+    /// trigger's) is closed (a minute ago or more) or was left running past the job's timeout and margin (abandoned), or none
+    /// started within <see cref="ClaimGrace"/> of it; also when the job no longer exists.
     /// </summary>
-    public async Task<bool> HasEndedAsync(int subjectId, DateTime startedTime, CancellationToken cancellationToken)
+    public async Task<bool> HasEndedAsync(int subjectId, DateTime startedTime, DateTime? heartbeatTime, CancellationToken cancellationToken)
     {
         var now = timeProvider.GetUtcNow().UtcDateTime;
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
@@ -103,10 +115,15 @@ internal sealed class MigrationRunTaskExecutor(
             return true;
         }
 
+        if (heartbeatTime == null)
+        {
+            return startedTime < now - ClaimGrace;
+        }
+
         var runs = await context.MigrationExecutions
             .AsNoTracking()
             .Where(x => x.MigrationJobId == subjectId)
-            .Where(x => x.StartedAt >= startedTime)
+            .Where(x => x.StartedAt >= heartbeatTime.Value)
             .Select(x =>
                 new
                 {
@@ -117,7 +134,7 @@ internal sealed class MigrationRunTaskExecutor(
             .ToListAsync(cancellationToken);
         if (runs.Count == 0)
         {
-            return startedTime < now - ClaimGrace;
+            return heartbeatTime.Value < now - ClaimGrace;
         }
 
         var inProgressSince = now - MigrationJobSettings.RunInProgressWindow(timeoutMinutes.Value);
@@ -130,4 +147,18 @@ internal sealed class MigrationRunTaskExecutor(
             .Where(x => x.Status != MigrationStatus.Running)
             .All(x => x.CompletedAt == null || x.CompletedAt < now - FinishGrace);
     }
+
+    /// <summary>
+    /// A run the task refused before it started, on record as a refused <c>migrations.job_run_ended</c> with the task and the
+    /// reason; none for <see cref="BackgroundTaskFailureCodes.Busy"/>, which the migration service records itself.
+    /// </summary>
+    public SecurityAuditEntry? SkippedEvent(BackgroundTaskContext task, string code)
+        => code == BackgroundTaskFailureCodes.Busy
+            ? null
+            : new SecurityAuditEntry(SecurityAuditActions.MigrationJobRunEnded)
+                .On(SecurityAuditResources.MigrationJob, task.SubjectId)
+                .Ending(SecurityAuditOutcomes.Refused)
+                .With(new SecurityAuditDetails()
+                    .Add("taskId", task.TaskId)
+                    .AddCode("reason", code));
 }

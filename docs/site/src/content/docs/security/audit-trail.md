@@ -111,7 +111,9 @@ Every action belongs to one category, the part of its name before the dot.
 **Project access** (`access`): `access.project_created`, `access.member_added`, `access.member_role_changed`,
 `access.member_removed`, `access.access_mode_changed` (a project opened or restricted), `access.data_sources_linked`,
 `access.data_source_unlinked`, `access.repository_token_changed` (whether a token is now set, never the token),
-`access.repository_scan_requested`. Events recorded before dashboards were removed keep their
+`access.repository_scan_requested`, `access.repository_scan_ran` (a background scan ended: its task, the ids of the
+repositories it scanned and how many failed, were partial or were not scanned; `refused` with the reason when the task
+was skipped). Events recorded before dashboards were removed keep their
 `access.dashboard_shared` and `access.dashboard_share_revoked` actions and the `dashboard` resource type, and the page
 still filters by them. The project-access log events (`ProjectAccessEvents`, 7101 onwards) are still written
 as before; refused and hidden reads of a project (7108, 7109) and skipped scheduled work (7111) stay on the log only, for
@@ -167,10 +169,13 @@ nothing.
 `data_quality.contract_archived` and `data_quality.contract_evaluated` (an evaluation someone started; scheduled
 evaluations are not recorded).
 
-**Data migrations** (`migrations`): `migrations.job_created`, `migrations.job_deleted`, `migrations.job_started` (a run
+**Data migrations** (`migrations`): `migrations.job_created`, `migrations.job_deleted`, `migrations.job_run_requested`
+(a run started as a background task, with its task id and where the caller's MigrationOperator permission came from:
+`role` or `idp`), `migrations.job_started` (a run
 began (by the caller, or the `system` actor for a scheduled run), recorded before it touches a data source, with the
 execution id and the source and destination data sources) and `migrations.job_run_ended` (`success`, `failure` with the
-row counts, or `refused` before it started, with the reason: `not_approved`, `write_target_refused`).
+row counts, or `refused` before it started, with the reason: `not_approved`, `write_target_refused`, `run_in_progress`,
+or for a background run task, with its task id, `forbidden` or `abandoned`).
 
 **The audit itself** (`audit`): `audit.read` (every read of the trail, with the filters' shape and the page),
 `audit.verified` (every verification, with its counts; outcome `failure` when an event failed, `empty` when nothing was

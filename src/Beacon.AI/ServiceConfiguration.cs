@@ -97,7 +97,12 @@ public static class ServiceConfiguration
         services.TryAddScoped<Core.Services.IAiActorService>(sp => sp.GetRequiredService<AiActorService>());
 
         // GitHub Scanner
-        services.AddOptions<GitHubScanOptions>().Bind(configuration.GetSection(GitHubScanOptions.SectionName));
+        services.AddOptions<GitHubScanOptions>()
+            .Bind(configuration.GetSection(GitHubScanOptions.SectionName))
+            .Validate(
+                x => x.TaskDeadline > TimeSpan.Zero && x.TaskDeadline <= TimeSpan.FromHours(GitHubScanOptions.MaxTaskDeadlineHours),
+                $"{GitHubScanOptions.SectionName}:TaskDeadline must be more than zero and at most {GitHubScanOptions.MaxTaskDeadlineHours} hours.")
+            .ValidateOnStart();
         services.TryAddTransient<GitHubApiClient>();
         services.AddTransient<ICodeAnalyzer, CSharpCodeAnalyzer>();
         services.TryAddTransient<IGitHubScannerService, GitHubScannerService>();

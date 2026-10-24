@@ -44,8 +44,11 @@ public interface IBeaconScheduler
 
 `EnqueueBackgroundTask` is optional too. Beacon records long work a user starts from the UI (a forced metadata
 refresh, a manual migration run, a scan of a project's repositories) as a background task and hands its id to this method; your job calls `IBackgroundTaskService.ExecuteAsync(taskId, ct)`
-in a scope marked as system work; Beacon then runs it as the user who started it and re-checks their access first (a
-task they may no longer run is recorded as skipped, and the job succeeds). Return the job id (the UI follows
+in a scope marked as system work; Beacon then runs it as the stored user who started it (by `Users.Id`) and re-checks
+their access first (a task they may no longer run is recorded as skipped, and the job succeeds). It runs with the
+user's own access, not the credential's: a start made with an API key is not capped by the key's scope or projects in
+the job, and revoking or narrowing the key after the start does not stop it (disabling the user, or removing its
+access, does). Return the job id (the UI follows
 `JobStatusChanged` for it, sent to `notifyUserId`: the id the SignalR hub addresses the caller by, a signed-in
 session's external id, or `null` for an API key or an MCP caller), or `null` (the default): Beacon then runs the task in
 the request that started it, as before.

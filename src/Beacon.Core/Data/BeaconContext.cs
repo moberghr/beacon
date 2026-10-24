@@ -1740,6 +1740,8 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
             entity.HasKey(e => e.Id);
             entity.Property(e => e.JobId).HasMaxLength(64);
             entity.Property(e => e.FailureCode).HasMaxLength(64);
+            entity.Property(e => e.PermissionSource).HasMaxLength(16);
+            entity.Property(e => e.RequesterStampHash).HasMaxLength(64);
 
             entity.HasIndex(e => new { e.Kind, e.SubjectId })
                 .IsUnique()

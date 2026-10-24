@@ -23,12 +23,15 @@ namespace Beacon.Tests.Unit.BackgroundTasks;
 /// background tasks table with a unique index on kind and subject that holds only queued and running tasks, so a second
 /// task of a kind on the same subject cannot start alongside the first. It runs no SQL and touches no other table. Up is
 /// exactly the difference between the model before it and its target model, and Down is exactly the way back. Its target
-/// model is the snapshot, the model has no pending changes, and it sorts last.
+/// model differs from the next migration's only by that migration, which adds three nullable columns (where the start's
+/// permission came from, a hash of the requester's security stamp, and the heartbeat) and is the snapshot; the model has no
+/// pending changes, and they sort last, in that order.
 /// </summary>
 [TestFixture]
 public class BackgroundTasksMigrationTests
 {
     private const string Suffix = "_AddBackgroundTasks";
+    private const string NextSuffix = "_AddBackgroundTaskGrantAndHeartbeat";
 
     [TestCase(false)]
     [TestCase(true)]
@@ -57,13 +60,46 @@ public class BackgroundTasksMigrationTests
             .Should().BeEquivalentTo(Signatures(differ.GetDifferences(before, target)), "Up is exactly the difference from the model before");
         Signatures(migration.DownOperations)
             .Should().BeEquivalentTo(Signatures(differ.GetDifferences(target, before)), "Down removes exactly what Up adds");
-        differ.GetDifferences(target, Initialized(migrations.ModelSnapshot!.Model, initializer).GetRelationalModel())
-            .Should().BeEmpty("the migration's target model is the snapshot");
+        var next = MigrationNamed(context, migrations, NextSuffix);
+        Signatures(differ.GetDifferences(target, Initialized(next.TargetModel!, initializer).GetRelationalModel()))
+            .Should().BeEquivalentTo(Signatures(next.UpOperations), "this migration's target model differs from the next one's only by the next migration");
         context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
         migrations.Migrations.Keys
             .Order(StringComparer.Ordinal)
-            .Last()
-            .Should().EndWith(Suffix, "it sorts after every earlier migration");
+            .TakeLast(2)
+            .Should().SatisfyRespectively(
+                x => x.Should().EndWith(Suffix, "it sorts after every earlier migration"),
+                x => x.Should().EndWith(NextSuffix));
+    }
+
+    [TestCase(false, "character varying(16)", "character varying(64)")]
+    [TestCase(true, "nvarchar(16)", "nvarchar(64)")]
+    public void TheNextMigration_AddsTheGrantAndHeartbeatColumns_AndIsTheSnapshot(bool sqlServer, string sourceType, string hashType)
+    {
+        using var provider = BuildProvider(sqlServer);
+        using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
+        var migrations = context.GetService<IMigrationsAssembly>();
+        var initializer = context.GetService<IModelRuntimeInitializer>();
+        var differ = context.GetService<IMigrationsModelDiffer>();
+
+        var migration = MigrationNamed(context, migrations, NextSuffix);
+        var before = Initialized(MigrationNamed(context, migrations, Suffix).TargetModel!, initializer).GetRelationalModel();
+        var target = Initialized(migration.TargetModel!, initializer).GetRelationalModel();
+
+        migration.UpOperations.Should().NotContain(x => x is SqlOperation, "nothing rewrites or backfills a stored row");
+        var added = migration.UpOperations.OfType<AddColumnOperation>().ToDictionary(x => x.Name);
+        migration.UpOperations.Should().HaveCount(3);
+        added.Keys.Should().BeEquivalentTo(new[] { "permission_source", "requester_stamp_hash", "heartbeat_time" }.Select(x => Named(sqlServer, x)));
+        added.Values.Should().OnlyContain(x => x.IsNullable && x.Table == Named(sqlServer, "background_tasks") && x.Schema == "beacon");
+        added[Named(sqlServer, "permission_source")].ColumnType.Should().Be(sourceType);
+        added[Named(sqlServer, "requester_stamp_hash")].ColumnType.Should().Be(hashType);
+        migration.DownOperations.Should().HaveCount(3).And.AllBeOfType<DropColumnOperation>();
+        Signatures(migration.UpOperations)
+            .Should().BeEquivalentTo(Signatures(differ.GetDifferences(before, target)), "Up is exactly the difference from the model before");
+        Signatures(migration.DownOperations)
+            .Should().BeEquivalentTo(Signatures(differ.GetDifferences(target, before)), "Down removes exactly what Up adds");
+        differ.GetDifferences(target, Initialized(migrations.ModelSnapshot!.Model, initializer).GetRelationalModel())
+            .Should().BeEmpty("the migration's target model is the snapshot");
     }
 
     [TestCase(false, "integer", "character varying(64)")]

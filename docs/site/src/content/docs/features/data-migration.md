@@ -235,13 +235,21 @@ counts and error).
   queued, `1` running, `2` succeeded, `3` failed, `4` skipped; `warningCount` is the rows that failed in a run that
   finished; `failureCode` is `run_failed` for a run that failed, whose history row says why). The job runs as the user
   who started it and checks again, right before the run, that they still hold MigrationOperator and meet the job's
-  access rules: if not, it is skipped (`forbidden`) and nothing runs. A job has one run task queued or running at a time
+  access rules: if not, it is skipped (`forbidden`, on record as a `refused` `migrations.job_run_ended`) and nothing
+  runs. A MigrationOperator role stored in Beacon is checked live. A permission only an identity-provider app role grants
+  (`Beacon:Authorization:IdpRoles`) lives on the sign-in, which the job does not have: the start records that it came
+  from there (`migrations.job_run_requested` carries `permissionSource`), and the job relies on it only within 15
+  minutes of the start (or the claim lifetime, if shorter), while the user is still enabled and its security stamp
+  unchanged (a role change, a disable or "sign out everywhere" changes it); a run task that waits longer is skipped
+  (`forbidden`). A job has one run task queued or running at a time
   (a second start answers `409`); a run task that finds a run of the job already in progress (started another way) is
   skipped (`busy`). The run itself is the same as in the request: the one-run-at-a-time claim, the destination lock, the
   job's timeout, the commit that is never cancelled and the history row that is always closed all apply. A run task left
   running by a host that stopped is given up (`abandoned`) when the next one starts or its progress is read, once the
-  job's run history shows its run ended (closed, or left running past the job's timeout plus 10 minutes) or no run of it
-  began within five minutes; at the latest after the longest timeout (1,440 minutes) plus 10 minutes. The job runs through your host's [`IBeaconScheduler.EnqueueBackgroundTask`](/integrate/background-jobs/);
+  job's run history shows its run ended (closed, or left running past the job's timeout plus 10 minutes) or it did not
+  reach its run, or no run of it began, within five minutes; runs started another way before the task reached its own
+  are not counted. At the latest it is given up after the longest timeout (1,440 minutes) plus 10 minutes. A task given
+  up before its run does not start one, and a task that still ends records its own outcome over `abandoned`. The job runs through your host's [`IBeaconScheduler.EnqueueBackgroundTask`](/integrate/background-jobs/);
   a host that does not implement it runs the migration in the request, and the `202` then carries the state it finished in.
 - **In the request** (kept for API callers of Beacon 5.0): `POST /beacon/api/migrations/jobs/{id}/run` answers with the
   run's counts once it has ended, which holds the request open for as long as the run takes.

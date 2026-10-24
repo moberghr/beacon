@@ -12,6 +12,8 @@ using Beacon.Tests.Common;
 using FluentAssertions;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Options;
+using Microsoft.Extensions.Time.Testing;
 using Moq;
 using NUnit.Framework;
 
@@ -33,6 +35,9 @@ public class RepositoryScanTaskTests
     private ProjectAccessWorld _world = null!;
     private List<GitHubRepository> _repositories = null!;
     private Mock<IGitHubScannerService> _scanner = null!;
+    private Mock<IBackgroundTaskHeartbeat> _heartbeat = null!;
+    private FakeTimeProvider _time = null!;
+    private RecordingSecurityAudit _audit = null!;
 
     [SetUp]
     public void SetUp()
@@ -52,6 +57,10 @@ public class RepositoryScanTaskTests
         ];
         _world.Serve(_repositories);
         _scanner = new Mock<IGitHubScannerService>();
+        _heartbeat = new Mock<IBackgroundTaskHeartbeat>();
+        _heartbeat.Setup(x => x.BeatAsync(It.IsAny<int>(), It.IsAny<CancellationToken>())).ReturnsAsync(true);
+        _time = new FakeTimeProvider(new DateTimeOffset(2026, 10, 24, 12, 0, 0, TimeSpan.Zero));
+        _audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(3, "ext-editor"));
     }
 
     [Test]
@@ -117,12 +126,69 @@ public class RepositoryScanTaskTests
     }
 
     [Test]
-    public void TheTask_IsTheRepositoryScanKind()
+    public void TheTask_IsTheRepositoryScanKind_GivenUpOnlyPastItsDeadlineAndOneRepositorysTimeout()
     {
-        var executor = new RepositoryScanTaskExecutor(_world.Factory(), _scanner.Object, null!, NullLogger<RepositoryScanTaskExecutor>.Instance);
+        var options = new GitHubScanOptions { TaskDeadline = TimeSpan.FromHours(2), ScanTimeout = TimeSpan.FromMinutes(10) };
+
+        var executor = Executor(null!, options);
 
         executor.Kind.Should().Be(BackgroundTaskKind.RepositoryScan);
-        executor.AbandonAfter.Should().Be(TimeSpan.FromHours(4));
+        executor.AbandonAfter.Should().Be(TimeSpan.FromHours(2) + TimeSpan.FromMinutes(10) + RepositoryScanTaskExecutor.AbandonMargin);
+        new GitHubScanOptions().TaskDeadline.Should().Be(TimeSpan.FromHours(3));
+    }
+
+    [Test]
+    public async Task TheTask_StartsNoRepositorysScanPastItsDeadline_AndCountsTheRestAsNotScanned()
+    {
+        _scanner
+            .Setup(x => x.ScanRepositoryAsync(ProjectId, 9, It.IsAny<CancellationToken>()))
+            .Callback(() => _time.Advance(TimeSpan.FromHours(4)))
+            .Returns(Task.CompletedTask);
+
+        var outcome = await ExecuteAsRequesterAsync("ext-editor");
+
+        outcome.WarningCount.Should().Be(1, "the second repository was not scanned");
+        _scanner.Verify(x => x.ScanRepositoryAsync(ProjectId, 12, It.IsAny<CancellationToken>()), Times.Never);
+        _audit.Of(SecurityAuditActions.RepositoryScanRan).Should().ContainSingle()
+            .Which.DetailsJson.Should().Be("{\"taskId\":51,\"repositoryIds\":[9],\"failedCount\":0,\"partialCount\":0,\"notScannedCount\":1}");
+    }
+
+    [Test]
+    public async Task TheTask_ShowsItIsGoingBeforeEachRepository_AndStopsOnceItWasGivenUp()
+    {
+        _heartbeat.SetupSequence(x => x.BeatAsync(51, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(true)
+            .ReturnsAsync(false);
+
+        var outcome = await ExecuteAsRequesterAsync("ext-editor");
+
+        outcome.WarningCount.Should().Be(1);
+        _heartbeat.Verify(x => x.BeatAsync(51, It.IsAny<CancellationToken>()), Times.Exactly(2));
+        _scanner.Verify(x => x.ScanRepositoryAsync(ProjectId, 9, It.IsAny<CancellationToken>()), Times.Once);
+        _scanner.Verify(x => x.ScanRepositoryAsync(ProjectId, 12, It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [Test]
+    public async Task TheTask_IsOnRecordWithTheRepositoriesItScannedWhenItRan()
+    {
+        _repositories.Add(new() { Id = 15, ProjectId = ProjectId, RepositoryUrl = "https://github.com/org/added-after-the-start" });
+
+        await ExecuteAsRequesterAsync("ext-editor");
+
+        _audit.Single("ext-editor", "github.com", "added-after-the-start").Should().BeEquivalentTo(
+            new { Action = SecurityAuditActions.RepositoryScanRan, ActorUserId = (int?)3, ProjectId = (int?)ProjectId, ResourceId = "4", DetailsJson = "{\"taskId\":51,\"repositoryIds\":[9,12,15],\"failedCount\":0,\"partialCount\":0,\"notScannedCount\":0}" },
+            x => x.ExcludingMissingMembers());
+    }
+
+    [Test]
+    public void ARefusedTask_IsOnRecordAsARefusedScan()
+    {
+        var refused = Executor(null!, new GitHubScanOptions()).SkippedEvent(new BackgroundTaskContext(51, ProjectId, 3), BackgroundTaskFailureCodes.Forbidden);
+
+        refused!.Action.Should().Be(SecurityAuditActions.RepositoryScanRan);
+        refused.Outcome.Should().Be(SecurityAuditOutcomes.Refused);
+        refused.ProjectId.Should().Be(ProjectId);
+        refused.Details!.ToJson().Should().Be("{\"taskId\":51,\"reason\":\"forbidden\"}");
     }
 
     [Test]
@@ -173,12 +239,19 @@ public class RepositoryScanTaskTests
         await using var provider = services.BuildServiceProvider();
         await using var scope = provider.CreateAsyncScope();
         scope.ServiceProvider.GetRequiredService<IRunAsScope>().RunAs(externalId);
-        var executor = new RepositoryScanTaskExecutor(
-            _world.Factory(),
-            _scanner.Object,
-            scope.ServiceProvider.GetRequiredService<ProjectRequestAuthorizer>(),
-            NullLogger<RepositoryScanTaskExecutor>.Instance);
+        var executor = Executor(scope.ServiceProvider.GetRequiredService<ProjectRequestAuthorizer>(), new GitHubScanOptions());
 
         return await executor.ExecuteAsync(new BackgroundTaskContext(51, ProjectId, 3), CancellationToken.None);
     }
+
+    private RepositoryScanTaskExecutor Executor(ProjectRequestAuthorizer authorizer, GitHubScanOptions options)
+        => new(
+            _world.Factory(),
+            _scanner.Object,
+            authorizer,
+            _heartbeat.Object,
+            _audit,
+            Options.Create(options),
+            _time,
+            NullLogger<RepositoryScanTaskExecutor>.Instance);
 }
