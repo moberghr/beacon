@@ -338,10 +338,19 @@ This is enforced **after execution**: the underlying query has already run by th
 result, and the audit and signal writes are never skipped. The guarantee is *no unaudited data leaves Beacon*, not
 *no unaudited execution*.
 
+The audit row itself is written synchronously, before the filter answers, never through a queue: a tool keeps its
+call on the request's `McpToolCallRecorder` (tool, caller, input, project, data source, rows or error, tables, and
+for `ask`, `query` and `dry_run` only, the learning signal), and the filter writes the row and then the signal after
+the tool returned or threw. A tool that throws after starting its record is recorded as failed and answers the same
+caller-safe error the tools' own error handling gives. A tool that writes its own row is never given a second one,
+and a tool that throws before any row was written still gets one (tool, caller and the error), its exception
+unchanged.
+
 The Playground and the "run tool" REST path (`POST /beacon/api/mcp/tools/run`, `RunMcpToolHandler` →
-`McpPlaygroundService`) call tools directly, not through the SDK's request pipeline, so they apply the same decision
-(`McpAuditCallToolFilter.ShouldWithhold`) against their own request scope: with `Required = true` they return the same
-withheld error, and log the same 9101 event, under the same conditions.
+`McpPlaygroundService`) call tools directly, not through the SDK's request pipeline, so they run them through the same
+audit path (`McpAuditCallToolFilter.InvokeAsync`) against their own request scope: the same rows, and with
+`Required = true` the same withheld error and 9101 event under the same conditions. A playground call refused before
+any tool ran is recorded through the same recorder.
 
 ## Keeping audit content: the RequireContent lock
 

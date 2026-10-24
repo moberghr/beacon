@@ -475,6 +475,10 @@ public class McpPlaygroundServiceTests
         services.AddSingleton(deploymentOptions);
         services.AddScoped<McpAuditOutcome>();
         services.AddScoped(x => new McpAuditService(auditFactory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), deploymentOptions, NullLogger<McpAuditService>.Instance, x.GetRequiredService<McpAuditOutcome>(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog()));
+        // The scope's call record, as ServiceConfiguration registers it: the playground's refusals are written from it.
+        services.AddSingleton(typeof(Microsoft.Extensions.Logging.ILogger<>), typeof(Microsoft.Extensions.Logging.Abstractions.NullLogger<>));
+        services.AddScoped(_ => new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance));
+        services.AddScoped<McpToolCallRecorder>();
 
         services.AddScoped(x => new DryRunTool(
             factory.Object,

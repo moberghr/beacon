@@ -73,7 +73,9 @@ internal sealed class McpPlaygroundService(IServiceProvider serviceProvider, Bea
 
         try
         {
-            var result = toolName switch
+            // The same audit path as the transport's call-tool filter: the call the tool recorded is written after it ran,
+            // and the fail-closed decision (Beacon:Mcp:Audit:Required) is taken against this scope's audit outcome.
+            var result = await McpAuditCallToolFilter.InvokeAsync(sp, toolName, async _ => toolName switch
             {
                 "get_context" => await sp.GetRequiredService<GetContextTool>().ExecuteAsync(
                     project_id: projectId,
@@ -134,14 +136,7 @@ internal sealed class McpPlaygroundService(IServiceProvider serviceProvider, Bea
                     cancellationToken: ct),
 
                 _ => ToolHelper.Error($"Unknown tool: {toolName}")
-            };
-
-            // Fail-closed audit (Beacon:Mcp:Audit:Required) — this path bypasses the SDK call-tool filter, so it
-            // applies the same decision against this scope's audit outcome, after the tool (and its audit) ran.
-            if (McpAuditCallToolFilter.ShouldWithhold(sp, result.IsError == true, toolName))
-            {
-                return new McpPlaygroundResult(McpAuditCallToolFilter.WithheldMessage, true);
-            }
+            }, ct);
 
             var text = string.Join("\n", result.Content.OfType<TextContentBlock>().Select(x => x.Text));
 
@@ -155,25 +150,18 @@ internal sealed class McpPlaygroundService(IServiceProvider serviceProvider, Bea
     }
 
     // A playground call refused before any tool ran is a tool invocation all the same: one audit row with the tool name,
-    // the caller's Beacon user and the refusal, as the transport's scope filter records one.
+    // the caller's Beacon user and the refusal, written from the scope's call record as the tools' calls are.
     private static async Task AuditRefusalAsync(IServiceProvider sp, string toolName, int? userId, string refusal, CancellationToken ct)
     {
-        var audit = sp.GetService<McpAuditService>();
-        if (audit == null)
+        var recorder = sp.GetService<McpToolCallRecorder>();
+        if (recorder == null)
         {
             return;
         }
 
-        await audit.LogToolCallAsync(
-            userId: userId,
-            tool: toolName,
-            parameters: null,
-            dataSourceId: null,
-            projectId: null,
-            executionTimeMs: 0,
-            resultRowCount: null,
-            errorMessage: refusal,
-            ct: ct);
+        recorder.Start(toolName, userId);
+        recorder.Fail(refusal);
+        await recorder.WriteAsync(ct);
     }
 
     // HTTP playground callers arrive via System.Text.Json, so argument values are JsonElement,
