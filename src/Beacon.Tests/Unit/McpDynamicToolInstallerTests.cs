@@ -1,38 +1,49 @@
 using System.Text.Json;
 using FluentAssertions;
+using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
+using Microsoft.AspNetCore.TestHost;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol;
+using ModelContextProtocol.Client;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Moq;
 using NUnit.Framework;
+using Beacon.Core.Mcp;
+using Beacon.Core.SavedQueries;
 using Beacon.MCP.DynamicTools;
+using Beacon.MCP.HostEndpoints;
 using Beacon.MCP.SavedQueries;
 using Beacon.MCP.Services;
+using Beacon.Tests.Common;
 using Beacon.Tests.Unit.HostEndpoints;
 
 namespace Beacon.Tests.Unit;
 
 /// <summary>
-/// The one installer behind the saved-query and host endpoint tools: source order in <c>tools/list</c>, call routing
+/// The installer behind the saved-query and host endpoint tools: each source chained where it registers, call routing
 /// with fall-through to the handler installed before, a tool list that fails rather than shortens, idempotent
-/// registration, and the startup check that refuses a tool name claimed twice.
+/// registration, a startup failure for a name two sources claim, and a warning (not a failure) for an attribute tool
+/// with a name a source claims.
 /// </summary>
 [TestFixture]
 public class McpDynamicToolInstallerTests
 {
     private const string PreviousToolName = "previous_tool";
+    private const string AttributeAnswer = "attribute tool answered";
 
     [Test]
-    public async Task ListTools_ListsThePreviousHandlersTools_ThenEachSourceInOrder()
+    public async Task ListTools_ListsThePreviousHandlersTools_ThenEachSourceInRegistrationOrder()
     {
         using var provider = Provider(new FakeScript());
 
         var result = await ListAsync(provider);
 
-        result.Tools.Select(x => x.Name).Should().Equal(PreviousToolName, "beta_one", "alpha_one");
+        result.Tools.Select(x => x.Name).Should().Equal(PreviousToolName, "alpha_one", "beta_one");
     }
 
     [Test]
@@ -65,7 +76,7 @@ public class McpDynamicToolInstallerTests
     public async Task ListTools_Fails_WhenASourceMarksTheProjectAccessUndetermined()
     {
         var script = new FakeScript();
-        script.Lists["beta_"] = x =>
+        script.Lists["alpha_"] = x =>
         {
             x.GetRequiredService<McpProjectContext>().AccessUndetermined = true;
 
@@ -76,7 +87,7 @@ public class McpDynamicToolInstallerTests
         var act = async () => await ListAsync(provider);
 
         (await act.Should().ThrowAsync<McpProtocolException>()).Which.Message.Should().Be(ProjectContextFactory.AccessUndeterminedMessage);
-        script.Listed.Should().Equal(["beta_"], "the list fails at once rather than going on to a shorter answer");
+        script.Listed.Should().Equal(["alpha_"], "the list fails at once rather than going on to a shorter answer");
     }
 
     [Test]
@@ -92,7 +103,7 @@ public class McpDynamicToolInstallerTests
     }
 
     [Test]
-    public async Task AddingASourceTwice_InstallsTheHandlersAndTheNameCheckOnce()
+    public async Task AddingASourceTwice_InstallsItsHandlersAndTheNameCheckOnce()
     {
         var services = new ServiceCollection();
         services.AddOptions();
@@ -103,23 +114,22 @@ public class McpDynamicToolInstallerTests
         services.AddMcpDynamicToolSource<BetaSource>();
 
         services.Count(x => x.ServiceType == typeof(IMcpDynamicToolSource)).Should().Be(2);
-        services.Count(x => x.ImplementationType == typeof(McpDynamicToolHandlers)).Should().Be(1);
+        services.Count(x => x.ImplementationType == typeof(McpDynamicToolHandlers<AlphaSource>)).Should().Be(1);
+        services.Count(x => x.ImplementationType == typeof(McpDynamicToolHandlers<BetaSource>)).Should().Be(1);
         services.Count(x => x.ImplementationType == typeof(McpDynamicToolNameCheck)).Should().Be(1);
 
         using var provider = services.BuildServiceProvider();
         var result = await ListAsync(provider);
 
-        result.Tools.Select(x => x.Name).Should().Equal("beta_one", "alpha_one");
+        result.Tools.Select(x => x.Name).Should().Equal("alpha_one", "beta_one");
     }
 
     [Test]
     public void SavedQueryAndHostEndpointNames_DoNotClash()
     {
-        var hostEndpoints = new McpDynamicToolNames("the host endpoint tools", ["search_api", "call_api", "api_thing_by_id"], ["api_"]);
+        var hostEndpoints = new McpDynamicToolNames("the host endpoint tools", ["api_thing_by_id"], []);
 
-        var act = () => McpDynamicToolInstaller.EnsureNoNameClash(
-            [new SavedQueryDynamicToolSource().ClaimedNames(), hostEndpoints],
-            ["get_context", "ask", "query", "get_documentation", "search", "feedback", "dry_run", "get_query_context"]);
+        var act = () => McpDynamicToolInstaller.EnsureNoNameClash([SavedQueryClaims(sourceRegistered: true), hostEndpoints]);
 
         act.Should().NotThrow();
     }
@@ -130,7 +140,7 @@ public class McpDynamicToolInstallerTests
     {
         var other = new McpDynamicToolNames("a host source", [claimedName], ["host_"]);
 
-        var act = () => McpDynamicToolInstaller.EnsureNoNameClash([new SavedQueryDynamicToolSource().ClaimedNames(), other], []);
+        var act = () => McpDynamicToolInstaller.EnsureNoNameClash([SavedQueryClaims(sourceRegistered: true), other]);
 
         act.Should().Throw<InvalidOperationException>()
             .WithMessage($"*'{claimedName}'*the saved-query tools*a host source*");
@@ -142,17 +152,27 @@ public class McpDynamicToolInstallerTests
         var first = new McpDynamicToolNames("first", [], ["api_"]);
         var second = new McpDynamicToolNames("second", [], ["api_v2_"]);
 
-        var act = () => McpDynamicToolInstaller.EnsureNoNameClash([first, second], []);
+        var act = () => McpDynamicToolInstaller.EnsureNoNameClash([first, second]);
 
         act.Should().Throw<InvalidOperationException>().WithMessage("*'api_v2_*'*first*second*");
     }
 
     [Test]
-    public void AnAttributeToolInASourcesNamespace_Fails()
+    public void SavedQueryTools_ClaimNothing_WithoutCoresSavedQuerySource()
     {
-        var act = () => McpDynamicToolInstaller.EnsureNoNameClash([new SavedQueryDynamicToolSource().ClaimedNames()], ["get_context", "q_custom"]);
+        var claims = SavedQueryClaims(sourceRegistered: false);
 
-        act.Should().Throw<InvalidOperationException>().WithMessage("*'q_custom'*attribute tools*saved-query tools*");
+        claims.Names.Should().BeEmpty();
+        claims.Prefixes.Should().BeEmpty();
+        McpDynamicToolInstaller.AttributeToolsClaimedBySources([claims], ["q_custom", "search_saved_queries"]).Should().BeEmpty();
+    }
+
+    [Test]
+    public void AnAttributeToolWithAClaimedName_IsReportedWithItsSource()
+    {
+        var shadowed = McpDynamicToolInstaller.AttributeToolsClaimedBySources([SavedQueryClaims(sourceRegistered: true)], ["get_context", "q_custom"]);
+
+        shadowed.Should().Equal([("q_custom", "the saved-query tools")]);
     }
 
     [Test]
@@ -178,8 +198,117 @@ public class McpDynamicToolInstallerTests
         await using var host = await HostEndpointTestHost.StartAsync(withMcpServer: true);
 
         host.App.Services.GetServices<IMcpDynamicToolSource>().Select(x => x.GetType())
-            .Should().BeEquivalentTo([typeof(SavedQueryDynamicToolSource), typeof(Beacon.MCP.HostEndpoints.HostEndpointDynamicToolSource)]);
+            .Should().BeEquivalentTo([typeof(SavedQueryDynamicToolSource), typeof(HostEndpointDynamicToolSource)]);
         host.App.Services.GetServices<IStartupFilter>().OfType<McpDynamicToolNameCheck>().Should().ContainSingle();
+    }
+
+    [Test]
+    public async Task AnAttributeTool_InTheSavedQueryPrefix_WithNoSavedQueries_StartsWarnsAndAnswers()
+    {
+        var logs = new LogRecorder();
+        await using var host = await StartWithAttributeToolAsync("q_custom", logs, savedQueries: true);
+        await using var client = await ConnectAsync(host);
+
+        var result = await client.CallToolAsync("q_custom", new Dictionary<string, object?>());
+
+        HostEndpointDispatchTests.Text(result).Should().Be(AttributeAnswer);
+        logs.Entries.Should().ContainSingle(x => x.Level == LogLevel.Warning && x.Message.Contains("q_custom") && x.Message.Contains("the saved-query tools"));
+    }
+
+    [Test]
+    public async Task AnAttributeTool_InTheEndpointPrefix_WithNoEndpointTools_StartsQuietlyAndAnswers()
+    {
+        var logs = new LogRecorder();
+        await using var host = await StartWithAttributeToolAsync("api_custom", logs, controllers: [], mapDefaultMinimalApis: false);
+        await using var client = await ConnectAsync(host);
+
+        var result = await client.CallToolAsync("api_custom", new Dictionary<string, object?>());
+
+        host.Registry.Tools.Should().BeEmpty();
+        HostEndpointDispatchTests.Text(result).Should().Be(AttributeAnswer);
+        logs.Entries.Should().NotContain(x => x.Level == LogLevel.Warning && x.Category == typeof(McpDynamicToolNameCheck).FullName);
+    }
+
+    [Test]
+    public async Task AnAttributeTool_InTheEndpointPrefix_InCatalogMode_IsAnsweredByTheAttributeTool()
+    {
+        var logs = new LogRecorder();
+        await using var host = await StartWithAttributeToolAsync("api_custom", logs, configure: x => x.NamedToolLimit = 1);
+        await using var client = await ConnectAsync(host);
+
+        var tools = await client.ListToolsAsync();
+        var result = await client.CallToolAsync("api_custom", new Dictionary<string, object?>());
+
+        host.Registry.IsCatalogMode.Should().BeTrue();
+        tools.Select(x => x.Name).Should().Contain(["search_api", "call_api", "api_custom"]);
+        HostEndpointDispatchTests.Text(result).Should().Be(AttributeAnswer);
+        logs.Entries.Should().NotContain(x => x.Level == LogLevel.Warning && x.Category == typeof(McpDynamicToolNameCheck).FullName);
+    }
+
+    private static Task<HostEndpointTestHost> StartWithAttributeToolAsync(
+        string toolName,
+        LogRecorder logs,
+        bool savedQueries = false,
+        Type[]? controllers = null,
+        bool mapDefaultMinimalApis = true,
+        Action<HostEndpointToolOptions>? configure = null)
+    {
+        var caller = HostEndpointTestHost.SystemCaller(HostEndpointTestClaims.Permission(HostEndpointTestHost.ViewThings));
+
+        return HostEndpointTestHost.StartAsync(
+            controllers,
+            configure: configure,
+            mapDefaultMinimalApis: mapDefaultMinimalApis,
+            withMcpServer: true,
+            services: x =>
+            {
+                x.AddSingleton<ILoggerProvider>(logs);
+                x.AddSingleton(McpServerTool.Create(() => AttributeAnswer, new McpServerToolCreateOptions { Name = toolName }));
+                if (savedQueries)
+                {
+                    var source = new Mock<ISavedQueryToolSource>();
+                    source
+                        .Setup(y => y.GetToolsAsync(It.IsAny<IReadOnlyCollection<int>>(), It.IsAny<CancellationToken>()))
+                        .ReturnsAsync([]);
+                    x.AddSingleton(source.Object);
+                    x.AddSingleton(Mock.Of<ISavedQueryToolExecutor>());
+                }
+            },
+            beforeMcp: x => x.Use(async (context, next) =>
+            {
+                context.User = HostEndpointTestHost.McpPrincipal(caller);
+                context.Items[typeof(McpCaller)] = caller;
+                await next(context);
+            }));
+    }
+
+    private static async Task<McpClient> ConnectAsync(HostEndpointTestHost host)
+    {
+        var httpClient = host.App.GetTestClient();
+        var transport = new HttpClientTransport(
+            new HttpClientTransportOptions
+            {
+                Endpoint = new Uri(httpClient.BaseAddress!, McpDiscoveryPaths.McpPath),
+                TransportMode = HttpTransportMode.StreamableHttp
+            },
+            httpClient,
+            NullLoggerFactory.Instance,
+            ownsHttpClient: true);
+
+        return await McpClient.CreateAsync(transport);
+    }
+
+    private static McpDynamicToolNames SavedQueryClaims(bool sourceRegistered)
+    {
+        var services = new ServiceCollection();
+        if (sourceRegistered)
+        {
+            services.AddSingleton(Mock.Of<ISavedQueryToolSource>());
+        }
+
+        using var provider = services.BuildServiceProvider();
+
+        return new SavedQueryDynamicToolSource().ClaimedNames(provider);
     }
 
     private static ServiceProvider Provider(FakeScript script, bool withPreviousHandler = true)
@@ -239,11 +368,9 @@ public class McpDynamicToolInstallerTests
         public List<string> Calls { get; } = [];
     }
 
-    internal abstract class FakeSource(FakeScript script, string prefix, int order) : IMcpDynamicToolSource
+    internal abstract class FakeSource(FakeScript script, string prefix) : IMcpDynamicToolSource
     {
-        public int Order => order;
-
-        public virtual McpDynamicToolNames ClaimedNames() => new(prefix + " source", [], [prefix]);
+        public virtual McpDynamicToolNames ClaimedNames(IServiceProvider services) => new(prefix + " source", [], [prefix]);
 
         public bool Handles(IServiceProvider requestServices, string toolName) =>
             toolName.StartsWith(prefix, StringComparison.Ordinal);
@@ -266,12 +393,12 @@ public class McpDynamicToolInstallerTests
         }
     }
 
-    internal sealed class AlphaSource(FakeScript script) : FakeSource(script, "alpha_", 2);
+    internal sealed class AlphaSource(FakeScript script) : FakeSource(script, "alpha_");
 
-    internal sealed class BetaSource(FakeScript script) : FakeSource(script, "beta_", 1);
+    internal sealed class BetaSource(FakeScript script) : FakeSource(script, "beta_");
 
-    internal sealed class ApiNamedSource(FakeScript script) : FakeSource(script, "custom_", 3)
+    internal sealed class ApiNamedSource(FakeScript script) : FakeSource(script, "custom_")
     {
-        public override McpDynamicToolNames ClaimedNames() => new("a custom source", ["api_thing_by_id"], ["custom_"]);
+        public override McpDynamicToolNames ClaimedNames(IServiceProvider services) => new("a custom source", ["api_thing_by_id"], ["custom_"]);
     }
 }

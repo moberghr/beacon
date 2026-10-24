@@ -393,15 +393,19 @@ internal sealed class SavedQueryToolService(
 }
 
 /// <summary>
-/// The saved-query tools as a dynamic tool source, listed first. They need Core's <see cref="ISavedQueryToolSource"/>;
-/// a host without it simply gets none, and their names fall through to the next handler.
+/// The saved-query tools as a dynamic tool source (registered by <c>AddBeaconMcp</c>, so listed before the host
+/// endpoint tools). They need Core's <see cref="ISavedQueryToolSource"/>; a host without it gets none, claims no name,
+/// and their names fall through to the next handler. The tools come from the database, so with the source registered
+/// the whole <c>q_</c> prefix and both catalog names are claimed.
 /// </summary>
 internal sealed class SavedQueryDynamicToolSource : IMcpDynamicToolSource
 {
-    public int Order => 100;
+    private const string SourceName = "the saved-query tools";
 
-    public McpDynamicToolNames ClaimedNames() =>
-        new("the saved-query tools", [SavedQueryToolService.SearchToolName, SavedQueryToolService.RunToolName], [SavedQueryToolRules.ToolNamePrefix]);
+    public McpDynamicToolNames ClaimedNames(IServiceProvider services) =>
+        services.GetService<IServiceProviderIsService>()?.IsService(typeof(ISavedQueryToolSource)) == true
+            ? new(SourceName, [SavedQueryToolService.SearchToolName, SavedQueryToolService.RunToolName], [SavedQueryToolRules.ToolNamePrefix])
+            : McpDynamicToolNames.None(SourceName);
 
     public bool Handles(IServiceProvider requestServices, string toolName) =>
         SavedQueryToolService.Handles(toolName) && requestServices.GetService<ISavedQueryToolSource>() != null;

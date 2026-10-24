@@ -2,6 +2,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using ModelContextProtocol;
 using ModelContextProtocol.Protocol;
@@ -11,9 +12,11 @@ using Beacon.MCP.Services;
 namespace Beacon.MCP.DynamicTools;
 
 /// <summary>
-/// Serves every registered <see cref="IMcpDynamicToolSource"/> through one pair of SDK list/call handlers. Both entry
-/// points (<c>AddBeaconMcp</c> for the saved-query tools, <c>AddHostEndpointTools</c>) call it; the handlers and the
-/// startup name check are installed once however many sources register.
+/// Serves an <see cref="IMcpDynamicToolSource"/> through the SDK's list/call handlers. Both entry points
+/// (<c>AddBeaconMcp</c> for the saved-query tools, <c>AddHostEndpointTools</c>) call it. Each source's handlers are
+/// installed once, at the point of its first registration, chaining the handlers installed before it: the source
+/// registered later lists its tools after the earlier ones and sees a call first, and a host's own handler keeps its
+/// place between them. The startup name check is installed once.
 /// </summary>
 internal static class McpDynamicToolInstaller
 {
@@ -21,17 +24,17 @@ internal static class McpDynamicToolInstaller
         where TSource : class, IMcpDynamicToolSource
     {
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IMcpDynamicToolSource, TSource>());
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<IConfigureOptions<McpServerOptions>, McpDynamicToolHandlers>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IConfigureOptions<McpServerOptions>, McpDynamicToolHandlers<TSource>>());
         services.TryAddEnumerable(ServiceDescriptor.Transient<IStartupFilter, McpDynamicToolNameCheck>());
 
         return services;
     }
 
     /// <summary>
-    /// Fails when a tool name is claimed twice: by two sources, or by a source and an attribute tool. Without the check
-    /// one of them would silently win the name.
+    /// Fails when two sources claim the same tool name or overlapping name prefixes: one of them would otherwise
+    /// silently win the name.
     /// </summary>
-    internal static void EnsureNoNameClash(IReadOnlyList<McpDynamicToolNames> claims, IReadOnlyCollection<string> attributeToolNames)
+    internal static void EnsureNoNameClash(IReadOnlyList<McpDynamicToolNames> claims)
     {
         for (var i = 0; i < claims.Count; i++)
         {
@@ -40,7 +43,18 @@ internal static class McpDynamicToolInstaller
                 EnsureDisjoint(claims[i], claims[j]);
             }
         }
+    }
 
+    /// <summary>
+    /// The attribute tools whose names a source also claims, with that source. The SDK answers such a name with the
+    /// attribute tool (it looks the name up in its tool collection before any handler runs), as it did before the
+    /// sources shared one installer, so these are reported, not refused.
+    /// </summary>
+    internal static IReadOnlyList<(string ToolName, string Source)> AttributeToolsClaimedBySources(
+        IReadOnlyList<McpDynamicToolNames> claims,
+        IReadOnlyCollection<string> attributeToolNames)
+    {
+        var shadowed = new List<(string, string)>();
         foreach (var name in attributeToolNames)
         {
             var claim = claims
@@ -48,9 +62,11 @@ internal static class McpDynamicToolInstaller
                 .FirstOrDefault();
             if (claim != null)
             {
-                throw Clash(name, "the attribute tools", claim.Source);
+                shadowed.Add((name, claim.Source));
             }
         }
+
+        return shadowed;
     }
 
     private static void EnsureDisjoint(McpDynamicToolNames first, McpDynamicToolNames second)
@@ -81,15 +97,15 @@ internal static class McpDynamicToolInstaller
 }
 
 /// <summary>
-/// The list/call handlers: the sources' tools are listed after the tools of any handler installed before, in source
-/// order; a call goes to the first source that serves the name, else to the handler installed before.
+/// One source's list/call handlers: its tools are listed after those of the handlers installed before, and a call it
+/// serves goes to it, any other to the handler installed before.
 /// </summary>
-internal sealed class McpDynamicToolHandlers(IEnumerable<IMcpDynamicToolSource> sources) : IConfigureOptions<McpServerOptions>
+internal sealed class McpDynamicToolHandlers<TSource>(IEnumerable<IMcpDynamicToolSource> sources) : IConfigureOptions<McpServerOptions>
+    where TSource : class, IMcpDynamicToolSource
 {
-    private readonly IReadOnlyList<IMcpDynamicToolSource> _sources = sources
-        .OrderBy(x => x.Order)
-        .ThenBy(x => x.GetType().FullName, StringComparer.Ordinal)
-        .ToList();
+    private readonly IMcpDynamicToolSource _source = sources
+        .OfType<TSource>()
+        .First();
 
     public void Configure(McpServerOptions options)
     {
@@ -108,13 +124,8 @@ internal sealed class McpDynamicToolHandlers(IEnumerable<IMcpDynamicToolSource> 
                 return result;
             }
 
-            var tools = new List<Tool>();
-            foreach (var source in _sources)
-            {
-                ThrowIfAccessUndetermined(services);
-                tools.AddRange(await source.ListToolsAsync(services, cancellationToken));
-            }
-
+            ThrowIfAccessUndetermined(services);
+            var tools = await _source.ListToolsAsync(services, cancellationToken);
             ThrowIfAccessUndetermined(services);
             if (tools.Count > 0)
             {
@@ -128,15 +139,9 @@ internal sealed class McpDynamicToolHandlers(IEnumerable<IMcpDynamicToolSource> 
         {
             var name = request.Params?.Name;
             var services = request.Services;
-            if (services != null && !string.IsNullOrEmpty(name))
+            if (services != null && !string.IsNullOrEmpty(name) && _source.Handles(services, name))
             {
-                var source = _sources
-                    .Where(x => x.Handles(services, name))
-                    .FirstOrDefault();
-                if (source != null)
-                {
-                    return await source.CallAsync(services, name, request.Params?.Arguments, cancellationToken);
-                }
+                return await _source.CallAsync(services, name, request.Params?.Arguments, cancellationToken);
             }
 
             if (previousCall != null)
@@ -148,7 +153,7 @@ internal sealed class McpDynamicToolHandlers(IEnumerable<IMcpDynamicToolSource> 
         };
     }
 
-    // A tool list never comes back shorter because access was undetermined: it fails (§1.13).
+    // Access that could not be determined fails the tool list rather than leaving this source's tools out (§1.13).
     private static void ThrowIfAccessUndetermined(IServiceProvider services)
     {
         if (services.GetService<McpProjectContext>()?.AccessUndetermined == true)
@@ -158,7 +163,10 @@ internal sealed class McpDynamicToolHandlers(IEnumerable<IMcpDynamicToolSource> 
     }
 }
 
-/// <summary>Checks the claimed tool names once the app's pipeline (and so the host's endpoint tools) is built.</summary>
+/// <summary>
+/// Checks the claimed tool names once the app's pipeline (and so the host's endpoint tools) is built: two sources
+/// claiming one name fail startup; an attribute tool a source also claims is logged as a warning.
+/// </summary>
 internal sealed class McpDynamicToolNameCheck(IEnumerable<IMcpDynamicToolSource> sources) : IStartupFilter
 {
     public Action<IApplicationBuilder> Configure(Action<IApplicationBuilder> next) =>
@@ -166,13 +174,28 @@ internal sealed class McpDynamicToolNameCheck(IEnumerable<IMcpDynamicToolSource>
         {
             next(app);
 
-            var attributeToolNames = app.ApplicationServices.GetService<IOptions<McpServerOptions>>()?.Value.ToolCollection?
+            var services = app.ApplicationServices;
+            var claims = sources
+                .Select(x => x.ClaimedNames(services))
+                .ToList();
+            McpDynamicToolInstaller.EnsureNoNameClash(claims);
+
+            var attributeToolNames = services.GetService<IOptions<McpServerOptions>>()?.Value.ToolCollection?
                 .Select(x => x.ProtocolTool.Name)
                 .ToList() ?? [];
-            var claims = sources
-                .Select(x => x.ClaimedNames())
-                .ToList();
+            var shadowed = McpDynamicToolInstaller.AttributeToolsClaimedBySources(claims, attributeToolNames);
+            if (shadowed.Count == 0)
+            {
+                return;
+            }
 
-            McpDynamicToolInstaller.EnsureNoNameClash(claims, attributeToolNames);
+            var logger = services.GetService<ILoggerFactory>()?.CreateLogger<McpDynamicToolNameCheck>();
+            foreach (var (toolName, source) in shadowed)
+            {
+                logger?.LogWarning(
+                    "The MCP attribute tool {ToolName} has a name {Source} also claim; calls to it reach the attribute tool. Rename it to keep the names apart.",
+                    toolName,
+                    source);
+            }
         };
 }

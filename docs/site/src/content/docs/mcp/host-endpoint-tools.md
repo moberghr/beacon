@@ -107,10 +107,11 @@ MFA or partner scheme.
   [Write tools](#write-tools)). So do bad or duplicate names, `Destructive = true` on a read-only tool, file-upload parameters,
   `[AsParameters]`, an endpoint with no authorization at all, and an endpoint whose policy names an authentication
   scheme that is not in `TrustedAuthenticationSchemes` (see above).
-- Each tool name has one owner. The saved-query tools (`q_<name>`, `search_saved_queries`, `run_saved_query`), the
-  endpoint tools (`api_<name>`, `search_api`, `call_api`) and the attribute tools (the built-in tools and any the host
-  adds) are checked once the pipeline is built: a name two of them claim **fails startup**, naming it. In `tools/list`
-  the saved-query tools come before the endpoint tools.
+- Each tool name has one owner, checked once the pipeline is built. A name the saved-query tools (`q_<name>`,
+  `search_saved_queries`, `run_saved_query`, while saved-query tools are served) and the endpoint tools (the `api_<name>`
+  tools discovered, or `search_api` / `call_api` in catalog mode) both claim **fails startup**, naming it. An attribute
+  tool the host adds with such a name only logs a warning: calls to that name reach the attribute tool. In `tools/list`
+  the saved-query tools come before the endpoint tools (`AddBeaconMcp()` first, then `AddHostEndpointTools`).
 - Endpoints are discovered when the host's pipeline is built (they do not exist at DI time), from the
   `EndpointDataSource`. Parameters come from **ApiExplorer** when it describes the endpoint (`[ApiController]`
   controllers, or `AddEndpointsApiExplorer()` for minimal APIs), otherwise from the action's parameters and binding

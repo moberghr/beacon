@@ -513,18 +513,26 @@ internal sealed class HostEndpointToolService(
 }
 
 /// <summary>
-/// The host endpoint tools as a dynamic tool source, listed after the saved-query tools. Its names are known once the
-/// host's endpoints are discovered, so the startup name check covers each <c>api_</c> tool.
+/// The host endpoint tools as a dynamic tool source (registered by <c>AddHostEndpointTools</c>, after
+/// <c>AddBeaconMcp</c>, so listed after the saved-query tools). Its names are known once the host's endpoints are
+/// discovered: it claims exactly the names it serves, its <c>api_</c> tools or, in catalog mode, <c>search_api</c> and
+/// <c>call_api</c>, and nothing when no endpoint is marked.
 /// </summary>
 internal sealed class HostEndpointDynamicToolSource(HostEndpointToolRegistry registry) : IMcpDynamicToolSource
 {
-    public int Order => 200;
+    private const string SourceName = "the host endpoint tools";
 
-    public McpDynamicToolNames ClaimedNames() =>
-        new(
-            "the host endpoint tools",
-            [HostEndpointToolService.SearchToolName, HostEndpointToolService.CallToolName, .. registry.Tools.Select(x => x.ToolName)],
-            [HostEndpointToolDescriptor.ToolNamePrefix]);
+    public McpDynamicToolNames ClaimedNames(IServiceProvider services)
+    {
+        if (registry.Tools.Count == 0)
+        {
+            return McpDynamicToolNames.None(SourceName);
+        }
+
+        return registry.IsCatalogMode
+            ? new(SourceName, [HostEndpointToolService.SearchToolName, HostEndpointToolService.CallToolName], [])
+            : new(SourceName, registry.Tools.Select(x => x.ToolName).ToList(), []);
+    }
 
     public bool Handles(IServiceProvider requestServices, string toolName) =>
         requestServices.GetService<HostEndpointToolService>()?.Handles(toolName) == true;

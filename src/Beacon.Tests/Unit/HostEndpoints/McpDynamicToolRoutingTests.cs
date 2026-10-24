@@ -97,6 +97,43 @@ public class McpDynamicToolRoutingTests
     }
 
     [Test]
+    public async Task AHostHandlerChainedBetweenAddBeaconMcpAndAddHostEndpointTools_SitsBetweenTheTwoSources()
+    {
+        var fixture = new SavedQueryFixture();
+        var seen = new List<string>();
+        await using var host = await StartAsync(ExecuteCaller(), fixture, x => x.Configure<McpServerOptions>(y =>
+        {
+            var previousList = y.Handlers.ListToolsHandler;
+            var previousCall = y.Handlers.CallToolHandler;
+            y.Handlers.ListToolsHandler = async (request, cancellationToken) =>
+            {
+                var result = await previousList!(request, cancellationToken);
+                result.Tools = [.. result.Tools, new Tool { Name = CustomToolName }];
+
+                return result;
+            };
+            y.Handlers.CallToolHandler = (request, cancellationToken) =>
+            {
+                seen.Add(request.Params!.Name);
+
+                return previousCall!(request, cancellationToken);
+            };
+        }));
+        await using var client = await ConnectAsync(host);
+
+        var names = (await client.ListToolsAsync())
+            .Select(x => x.Name)
+            .ToList();
+        await client.CallToolAsync("q_loan_book_by_month", new Dictionary<string, object?> { ["from"] = "2026-01-01" });
+        await client.CallToolAsync("api_thing_by_id", new Dictionary<string, object?> { ["id"] = 3 });
+
+        var custom = names.IndexOf(CustomToolName);
+        custom.Should().BeGreaterThan(names.FindLastIndex(x => x.StartsWith("q_", StringComparison.Ordinal)));
+        custom.Should().BeLessThan(names.FindIndex(x => x.StartsWith("api_", StringComparison.Ordinal)));
+        seen.Should().Equal(["q_loan_book_by_month"], "the endpoint tools are served outside the host's handler, the saved-query tools inside it");
+    }
+
+    [Test]
     public async Task ToolsList_Fails_WhenTheCallersProjectAccessIsUndetermined()
     {
         var fixture = new SavedQueryFixture();

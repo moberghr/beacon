@@ -11,22 +11,21 @@ namespace Beacon.MCP.DynamicTools;
 /// </summary>
 internal interface IMcpDynamicToolSource
 {
-    /// <summary>The source's place in <c>tools/list</c> and in call routing: lower first.</summary>
-    int Order { get; }
-
     /// <summary>
     /// The tool names the source can answer, as far as they are known once the app's pipeline is built: its fixed
-    /// names, the prefixes of the names it generates and the generated names it already knows. Two sources (or a source
-    /// and an attribute tool) claiming the same name fail startup.
+    /// names, the prefixes of the names it generates and the generated names it already knows. A source that serves
+    /// nothing in this host claims nothing. Two sources claiming the same name fail startup; an attribute tool with a
+    /// claimed name is logged as a warning (the SDK answers that name with the attribute tool).
     /// </summary>
-    McpDynamicToolNames ClaimedNames();
+    McpDynamicToolNames ClaimedNames(IServiceProvider services);
 
     /// <summary>Whether the source serves <paramref name="toolName"/> for this request.</summary>
     bool Handles(IServiceProvider requestServices, string toolName);
 
     /// <summary>
-    /// The tools the caller sees. A source that cannot determine the caller's access throws, or marks the request's
-    /// project context undetermined; it never answers with fewer tools (§1.13).
+    /// The tools the caller sees: none when the source refuses the caller (for example a caller it does not map, or
+    /// one without access to its project). Access that could not be determined is not a refusal: the source throws,
+    /// or marks the request's project context undetermined, and the tool list fails (§1.13).
     /// </summary>
     Task<IReadOnlyList<Tool>> ListToolsAsync(IServiceProvider requestServices, CancellationToken cancellationToken);
 
@@ -37,6 +36,8 @@ internal interface IMcpDynamicToolSource
 /// <summary>The tool names a <see cref="IMcpDynamicToolSource"/> claims: exact names and name prefixes.</summary>
 internal sealed record McpDynamicToolNames(string Source, IReadOnlyCollection<string> Names, IReadOnlyCollection<string> Prefixes)
 {
+    public static McpDynamicToolNames None(string source) => new(source, [], []);
+
     public bool Claims(string toolName) =>
         Names.Contains(toolName, StringComparer.Ordinal)
         || Prefixes.Any(x => toolName.StartsWith(x, StringComparison.Ordinal));
