@@ -57,7 +57,7 @@ internal sealed class RecordingBeaconContext(
 
     /// <summary>
     /// An async-capable set over <paramref name="rows"/>; <c>Add</c> records into <paramref name="saved"/>.
-    /// <c>ExecuteUpdateAsync</c> writes onto the matching rows, and <c>ExecuteDeleteAsync</c> and <c>Remove</c> take them
+    /// <c>ExecuteUpdateAsync</c> writes onto the matching rows, and <c>ExecuteDeleteAsync</c>, <c>Remove</c> and <c>RemoveRange</c> take them
     /// out of <paramref name="rows"/>, as the database would. <c>FindAsync</c> finds a row by its <c>Id</c>. With
     /// <paramref name="reads"/>, queries (and the rows a bulk write matches) read through it instead: a view over
     /// <paramref name="rows"/> for a test that acts between two reads.
@@ -85,6 +85,13 @@ internal sealed class RecordingBeaconContext(
         set.As<IQueryable<T>>().Setup(x => x.GetEnumerator()).Returns(() => data.GetEnumerator());
         set.Setup(x => x.Add(It.IsAny<T>())).Callback<T>(saved.Add);
         set.Setup(x => x.Remove(It.IsAny<T>())).Callback<T>(x => rows.Remove(x));
+        set.Setup(x => x.RemoveRange(It.IsAny<IEnumerable<T>>())).Callback<IEnumerable<T>>(x =>
+        {
+            foreach (var row in x.ToList())
+            {
+                rows.Remove(row);
+            }
+        });
 
         // As EF's own set: a query started with AsQueryable() is the set itself.
         set.Setup(x => x.AsQueryable()).Returns(() => set.Object);

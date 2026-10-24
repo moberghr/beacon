@@ -9,6 +9,8 @@ namespace Beacon.AI.Services.Mcp;
 
 internal sealed class DataSourceRouter(ILogger<DataSourceRouter> logger) : IDataSourceRouter
 {
+    private static readonly JsonSerializerOptions RoutingJson = new() { PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower };
+
     public async Task<RoutingResult> RouteAsync(
         ILlmProvider llmProvider,
         List<DataSourceKnowledge> dataSources,
@@ -82,10 +84,7 @@ internal sealed class DataSourceRouter(ILogger<DataSourceRouter> logger) : IData
 
         try
         {
-            var parsed = JsonSerializer.Deserialize<RoutingResponse>(json, new JsonSerializerOptions
-            {
-                PropertyNamingPolicy = JsonNamingPolicy.SnakeCaseLower
-            });
+            var parsed = JsonSerializer.Deserialize<RoutingResponse>(json, RoutingJson);
 
             if (parsed?.Sources == null || parsed.Sources.Count == 0)
             {

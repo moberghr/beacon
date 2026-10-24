@@ -6,7 +6,6 @@ import {
   type InputHTMLAttributes,
   type ButtonHTMLAttributes,
 } from 'react';
-import { BuildBadge } from '@/components/beacon';
 
 const NODES: Array<[number, number]> = [
   [120, 140], [280, 90], [420, 180], [500, 320],
@@ -143,7 +142,6 @@ export function AuthLayout({
 
           <div className="flex items-center gap-2 text-xs text-text-muted">
             <span>© {now.getFullYear()} Beacon</span>
-            <BuildBadge />
           </div>
         </div>
       </aside>

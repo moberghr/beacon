@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore;
 using System.Linq.Expressions;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
+using Beacon.Core.ChangeApprovals;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
@@ -16,7 +17,10 @@ internal sealed class GetDataSourcesHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IProjectAccessEvaluator projectAccess,
     IDataSourceProviderFactory providers,
-    DataSourceTransportStatus transportStatus)
+    DataSourceTransportStatus transportStatus,
+    IBeaconPermissionAccessor permissionAccessor,
+    IBeaconActorAccessor actorAccessor,
+    BeaconConfiguration configuration)
     : IRequestHandler<GetDataSourcesQuery, PagedList<DataSourceEntry>>
 {
     public async Task<PagedList<DataSourceEntry>> Handle(GetDataSourcesQuery request, CancellationToken cancellationToken)
@@ -26,6 +30,8 @@ internal sealed class GetDataSourcesHandler(
         var shownProject = DataSourceProjects.Shown(readable);
         var otherProject = DataSourceProjects.Other(readable);
         var countsMigrationJobs = scope.IsUnrestricted;
+        var visibleRequest = await DataSourceProjects.VisibleApprovalAsync(configuration, permissionAccessor, actorAccessor, cancellationToken);
+        var coversConnections = configuration.ApprovalWorkflow.Covers(ChangeApprovalKind.DataSourceConnection);
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         var readableStep = DataSourceProjects.ReadableStep(context, readable);
 
@@ -72,7 +78,27 @@ internal sealed class GetDataSourcesHandler(
                         .ToList(),
                     OtherProjectCount = context.Projects
                         .Where(y => y.DataSources.Any(z => z.DataSourceId == x.Id))
-                        .Count(otherProject)
+                        .Count(otherProject),
+                    AwaitsFirstApproval = coversConnections
+                        ? x.ApprovedTargetHash == DataSourceApprovalDefinition.Held
+                        : false,
+                    Approval = visibleRequest != null
+                        ? context.ChangeApprovalRequests
+                            .Where(y => y.Kind == ChangeApprovalKind.DataSourceConnection)
+                            .Where(y => y.Status == ApprovalStatus.Pending)
+                            .Where(y => y.ResourceId == x.Id)
+                            .Where(visibleRequest)
+                            .OrderByDescending(y => y.Id)
+                            .Select(y =>
+                                new DataSourceApproval
+                                {
+                                    RequestId = y.Id,
+                                    Kind = y.Kind,
+                                    RequestedTime = y.CreatedTime,
+                                    AwaitsFirstApproval = x.ApprovedTargetHash == DataSourceApprovalDefinition.Held
+                                })
+                            .FirstOrDefault()
+                        : null
                 })
             .ToPagedListAsync(request, cancellationToken, defaultSort: "name");
 
@@ -162,6 +188,39 @@ public record DataSourceEntry
     /// edited, disabled or deleted here). Set by the by-id read only; null in the list. Never the connection.
     /// </summary>
     public DataSourceEditSettings? EditSettings { get; init; }
+
+    /// <summary>
+    /// The change of the source's connection that waits for a second person's approval, while the change approval workflow
+    /// covers data-source connections: shown to an Approver, and to the person who submitted it; null for everyone else and
+    /// when nothing waits. While it waits, the source connects to nothing.
+    /// </summary>
+    public DataSourceApproval? Approval { get; init; }
+
+    /// <summary>
+    /// True while the change approval workflow covers data-source connections and the source was created under it and never
+    /// approved, a request waiting or not (a rejected or withdrawn first request leaves none): it connects to nothing until
+    /// its connection is saved again and approved. Shown to everyone who reads the source; false otherwise.
+    /// </summary>
+    public bool AwaitsFirstApproval { get; init; }
+}
+
+/// <summary>A data source's pending connection change, as its badge and banner show it.</summary>
+public record DataSourceApproval
+{
+    /// <summary>The pending change request, which an Approver opens to review it.</summary>
+    public int RequestId { get; init; }
+
+    public ChangeApprovalKind Kind { get; init; }
+
+    /// <summary>When the change was submitted.</summary>
+    public DateTime RequestedTime { get; init; }
+
+    /// <summary>
+    /// True for a source created under the workflow that was never approved: it has never connected. False for a change
+    /// of a source that was approved before: it connects again once the change is approved, or once its approved connection
+    /// is saved back.
+    /// </summary>
+    public bool AwaitsFirstApproval { get; init; }
 }
 
 /// <summary>A data source's stored metadata-loading options, and whether the host application manages it.</summary>
@@ -216,6 +275,37 @@ internal static class DataSourceProjects
             context,
             readable,
             x => x.Query.Steps.Select(y => y.DataSourceId));
+    }
+
+    /// <summary>
+    /// The pending connection changes the caller is shown (<see cref="DataSourceEntry.Approval"/>): every one to an Approver
+    /// (an Admin holds the permission), otherwise only those the caller submitted. Null, so none is read, while the workflow
+    /// does not cover data-source connections and for a caller who is neither an Approver nor has an id.
+    /// </summary>
+    public static async Task<Expression<Func<ChangeApprovalRequest, bool>>?> VisibleApprovalAsync(
+        BeaconConfiguration configuration,
+        IBeaconPermissionAccessor permissionAccessor,
+        IBeaconActorAccessor actorAccessor,
+        CancellationToken cancellationToken)
+    {
+        if (!configuration.ApprovalWorkflow.Covers(ChangeApprovalKind.DataSourceConnection))
+        {
+            return null;
+        }
+
+        if ((await permissionAccessor.GetCurrentAsync(cancellationToken)).Holds(BeaconPermissions.Approver))
+        {
+            return x => true;
+        }
+
+        var requesterId = (await actorAccessor.GetCurrentAsync(cancellationToken)).UserId;
+
+        if (requesterId == null)
+        {
+            return null;
+        }
+
+        return x => x.RequestedByUserId == requesterId;
     }
 
     public static Expression<Func<ProjectDataSource, bool>> Shown(ProjectSet readable)

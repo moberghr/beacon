@@ -40,15 +40,16 @@ curl -s -X POST $BEACON/beacon/api/setup/superadmin \
   -H "Content-Type: application/json" \
   -d '{"setupToken":"<token>","userName":"admin","displayName":"Admin","email":"admin@example.com","password":"<password>","confirmPassword":"<password>"}'
 
-# Sign in (no antiforgery token needed for login); keep the cookie jar for later calls.
-curl -s -c jar.txt -X POST $BEACON/beacon/api/auth/login \
-  -H "Content-Type: application/json" \
+# Sign in with an antiforgery token (login needs one too); keep the cookie jar for later calls.
+TOKEN=$(curl -s -c jar.txt $BEACON/beacon/api/csrf | jq -r .token)
+curl -s -b jar.txt -c jar.txt -X POST $BEACON/beacon/api/auth/login \
+  -H "Content-Type: application/json" -H "X-XSRF-TOKEN: $TOKEN" \
   -d '{"username":"admin","password":"<password>","rememberMe":false}'
 
 curl -s -b jar.txt $BEACON/beacon/api/auth/me
 ```
 
-State-changing calls with the cookie need an antiforgery token: `GET /beacon/api/csrf` returns `{"token":"…"}` and sets a cookie; send the token as `X-XSRF-TOKEN` **with the same cookie jar**:
+State-changing calls with the cookie need an antiforgery token: `GET /beacon/api/csrf` returns `{"token":"…"}` and sets a cookie; send the token as `X-XSRF-TOKEN` **with the same cookie jar**. The token is bound to the signed-in user, so fetch a new one after login:
 
 ```bash
 TOKEN=$(curl -s -b jar.txt -c jar.txt $BEACON/beacon/api/csrf | jq -r .token)
@@ -70,9 +71,9 @@ The full request shapes are in the OpenAPI document (`/openapi/v1.json`), once s
 
 ### Passwords
 
-Passwords are hashed with PBKDF2-SHA256 (100,000 iterations, 32-byte salt). Policy is code-configured: `MinimumPasswordLength` (default 8) and `RequirePasswordComplexity` (default `true`). A password an administrator sets must be changed at first sign-in. Users change their own password under **Settings**; there is no REST route that sets another user's password.
+Passwords are hashed with PBKDF2-SHA256 (600,000 iterations stored in the hash, 32-byte salt; older hashes are upgraded at the next successful sign-in, see [Password hashes](/security/user-management/#password-hashes)). Policy is code-configured: `MinimumPasswordLength` (default 8) and `RequirePasswordComplexity` (default `true`). A password an administrator sets must be changed at first sign-in. Users change their own password under **Settings**; there is no REST route that sets another user's password.
 
-Password sign-in is throttled to **10 attempts per 60 seconds per client IP** (429 with `Retry-After`). Behind a proxy that only works if your host runs `UseForwardedHeaders` with the proxy listed. See [Production checklist](/integrate/production/#reverse-proxy).
+Password sign-in is throttled to **10 attempts per 60 seconds per client IP** (429 with `Retry-After`), and an internal user is locked out for 15 minutes after 5 wrong passwords (the same generic answer, whatever password is sent; break-glass accounts are never locked, and `Beacon:RateLimits:Lockout:Enabled` `false` turns the lockout off). IPv6 clients are limited per `/64` block. Behind a proxy the per-IP limit only works if your host runs `UseForwardedHeaders` with the proxy listed. See [Production checklist](/integrate/production/#reverse-proxy) and [Request limits](/getting-started/configuration/#request-limits).
 
 ### Turning password sign-in off (break-glass)
 
@@ -153,18 +154,18 @@ builder.Services.AddBeaconJwtAuthentication(jwt =>
     jwt.Validation.ValidAudiences = [ "api://<beacon-app-id>", "<beacon-app-id>" ];
 });
 // …
-app.UseBeaconJwtBearerAuthentication();   // in the pipeline, after ApiKeyAuthMiddleware
+app.UseBeaconAuthentication();   // judges the bearer token, the API key or the cookie, whichever is presented
 ```
 
 | Option | Default | Notes |
 |---|---|---|
 | `EnableBearerAuthentication` | `false` | Turns the middleware on. |
-| `Validation.JwksEndpoint` or `Validation.SigningKey` | Required | One is required. |
+| `Validation.JwksEndpoint` or `Validation.SigningKey` | Required | One is required. The JWKS endpoint is an `https` URL (`http` to a loopback host in Development only); a signing key is at least 32 bytes. |
 | `Validation.ValidIssuer(s)`, `ValidAudience(s)` | Required | At least one of each; issuer, audience and lifetime validation must stay on. |
 | `Validation.ClockSkew` | 5 min | At most 5 minutes. |
 | `AccessTokenClaim` | None | For non-Entra providers: a claim that proves the token is an access token (ID-token claims such as `sub` or `nonce` are refused). |
 | `ClaimsMapping` | `sub`, `preferred_username`, `email`, `roles`, `name` | Which claims carry the user id, user name, email, roles and display name. |
-| `ExternalLoginEndpoint` | None | Let the login form validate credentials against your own token endpoint. |
+| `ExternalLoginEndpoint` | None | Let the login form validate credentials against your own token endpoint (an `https` URL). Internal users still sign in first. |
 
 A token must prove it is an **access** token (Entra: `azp`/`appid` plus `scp` or `roles`; others: `typ: at+jwt` or `AccessTokenClaim`) and must bind to an existing, enabled Beacon user, so bearer tokens on the REST API need Beacon's user management. On `/beacon/mcp`, tokens go through the **MCP caller mapping** instead (`Beacon:Mcp:Callers`). See [Connect AI clients](/mcp/connect/#option-b-entra-id-callers).
 
@@ -187,8 +188,9 @@ Send it as `Authorization: Bearer sk-sem_…`. Details: [API keys](/security/api
 |---|---|---|
 | `Beacon:Authentication:Session:RevalidateMinutes` | `5` | How often a session is re-checked against the user store (user enabled, not archived, unchanged security stamp; roles reloaded). `0` checks every request. |
 | `Beacon:Authentication:Session:AbsoluteLifetimeHours` | `12` | A session ends this long after sign-in, however often it is renewed. "Remember me" cannot extend it. |
+| `Beacon:Authentication:Session:PersistSsoCookie` | `false` | A single sign-on session gets a browser-session cookie, dropped when the browser closes. `true` keeps the cookie until it expires (still within `AbsoluteLifetimeHours`). Password sign-in follows "remember me". |
 
-The `Beacon.Auth` cookie is HttpOnly, SameSite=Lax and Secure on HTTPS. Changing a user's roles, password, enabled state or archiving them renews their **security stamp**, which ends every session they have. Users can sign out everywhere themselves; a UserAdmin can do it for them (`POST /beacon/api/users/{id}/sign-out-everywhere`). Realtime connections close when the session ends.
+The `Beacon.Auth` cookie is HttpOnly, SameSite=Lax and Secure on HTTPS. Changing a user's roles, password, enabled state or archiving them renews their **security stamp**, which ends every session they have. Users can sign out everywhere themselves; a UserAdmin can do it for them (`POST /beacon/api/users/{id}/sign-out-everywhere`). Realtime connections close when the session ends, and the UI stops its connection and drops its cached data when it signs out or gets a `401`.
 
 ## Your app owns sign-in
 

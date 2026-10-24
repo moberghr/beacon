@@ -255,12 +255,12 @@ public sealed partial class SecurityAuditDetails
         return key;
     }
 
-    [GeneratedRegex(@"^[a-z][A-Za-z0-9]{0,39}\z")]
+    [GeneratedRegex(@"^[a-z][A-Za-z0-9]{0,39}\z", RegexOptions.None, matchTimeoutMilliseconds: 250)]
     private static partial Regex KeyPattern();
 
-    [GeneratedRegex(@"^[A-Za-z0-9_.:\-]{1,64}\z")]
+    [GeneratedRegex(@"^[A-Za-z0-9_.:\-]{1,64}\z", RegexOptions.None, matchTimeoutMilliseconds: 250)]
     private static partial Regex CodePattern();
 
-    [GeneratedRegex(@"^[0-9a-f]{16,64}\z")]
+    [GeneratedRegex(@"^[0-9a-f]{16,64}\z", RegexOptions.None, matchTimeoutMilliseconds: 250)]
     private static partial Regex DigestPattern();
 }

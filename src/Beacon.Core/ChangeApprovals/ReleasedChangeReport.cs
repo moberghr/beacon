@@ -9,7 +9,9 @@ namespace Beacon.Core.ChangeApprovals;
 /// What a change approval switch that is off releases, counted once at startup for the log (counts only): the resources
 /// of a kind the workflow governed that hold a definition nobody approved — created and never approved, changed, or whose
 /// change was rejected — and the pending change requests of that kind. While the workflow does not cover the kind, they
-/// run, are evaluated or receive deliveries as they are.
+/// run, are evaluated, receive deliveries or connect as they are. For data sources only those created and never approved
+/// (held) are counted, by their stored state alone: telling a changed connection apart would decrypt every one. The LLM
+/// connection's change is staged, never applied unapproved, so only its pending requests are counted.
 /// </summary>
 internal static class ReleasedChangeReport
 {
@@ -27,6 +29,9 @@ internal static class ReleasedChangeReport
             ChangeApprovalKind.MigrationJob => await UnapprovedJobsAsync(context, cancellationToken),
             ChangeApprovalKind.CustomSqlRules => await UnapprovedRulesAsync(context, cancellationToken),
             ChangeApprovalKind.RecipientDestination => await UnapprovedRecipientsAsync(context, protector, hasher, cancellationToken),
+            ChangeApprovalKind.DataSourceConnection => await context.DataSources
+                .Where(x => x.ApprovedTargetHash == DataSourceApprovalDefinition.Held)
+                .CountAsync(cancellationToken),
             _ => 0
         };
         var pending = await context.ChangeApprovalRequests

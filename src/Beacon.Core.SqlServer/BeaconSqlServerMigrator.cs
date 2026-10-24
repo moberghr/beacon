@@ -1,6 +1,5 @@
+using System.ComponentModel;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.EntityFrameworkCore.Migrations;
 using Beacon.Core.Data;
 using Beacon.Core.SqlServer.Data;
 
@@ -14,23 +13,31 @@ namespace Beacon.Core.SqlServer;
 /// </summary>
 public static class BeaconSqlServerMigrator
 {
-    public static async Task MigrateAsync(
-        string connectionString,
-        string schema = BeaconDatabaseConfiguration.DefaultSchema,
-        CancellationToken cancellationToken = default)
+    public static async Task MigrateAsync(string connectionString, CancellationToken cancellationToken = default)
+    {
+        ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
+
+        await using var context = new SqlServerBeaconContext(ContextOptions(connectionString));
+        await BeaconSchema.MigrateAsync(context, createSchema: true, cancellationToken);
+    }
+
+    /// <summary>Beacon's schema is fixed to <c>beacon</c>: the argument is checked and otherwise ignored.</summary>
+    [Obsolete("Beacon's schema is fixed to 'beacon'; use MigrateAsync(connectionString, cancellationToken). This overload is removed in 6.0.")]
+    [EditorBrowsable(EditorBrowsableState.Never)]
+    public static async Task MigrateAsync(string connectionString, string schema, CancellationToken cancellationToken = default)
     {
         ArgumentException.ThrowIfNullOrWhiteSpace(connectionString);
         BeaconDatabaseConfiguration.RequireSupportedSchema(schema);
 
-        // The model options the web application's context uses (UseSqlServer), without its save-time interceptors.
-        var options = new DbContextOptionsBuilder<SqlServerBeaconContext>();
-        options
-            .UseSqlServer(connectionString, x => x.MigrationsHistoryTable("__EFMigrationsHistory", schema))
-            .UseBeaconSchema(schema)
-            .ReplaceService<IMigrationsSqlGenerator, SchemaAwareMigrationsSqlGenerator>()
-            .ReplaceService<IModelCacheKeyFactory, BeaconSchemaModelCacheKeyFactory>();
+        await MigrateAsync(connectionString, cancellationToken);
+    }
 
-        await using var context = new SqlServerBeaconContext(options.Options);
-        await BeaconSchema.MigrateAsync(context, createSchema: true, cancellationToken);
+    // The model options the web application's context uses (UseSqlServer), without its save-time interceptors.
+    internal static DbContextOptions<SqlServerBeaconContext> ContextOptions(string connectionString)
+    {
+        var builder = new DbContextOptionsBuilder<SqlServerBeaconContext>();
+        builder.UseBeaconSqlServerModel(connectionString);
+
+        return builder.Options;
     }
 }

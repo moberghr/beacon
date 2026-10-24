@@ -73,7 +73,7 @@ public static class GroundingText
         return builder.ToString();
     }
 
-    private static bool IsHidden(Rune rune)
+    internal static bool IsHidden(Rune rune)
     {
         var value = rune.Value;
 

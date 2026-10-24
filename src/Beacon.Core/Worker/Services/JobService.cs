@@ -95,6 +95,18 @@ internal class JobService(
 
             throw new BeaconConflictException(NotificationFailureReasons.DataSourceDisabled);
         }
+        catch (DataSourceAwaitingApprovalException ex)
+        {
+            // Nothing ran (or nothing more did): the connection of a source the run reads waits for approval. Recorded as
+            // failed with a generic reason and the data sources the run would have read; a run a request asks for answers 409.
+            await RecordRunNotMadeAsync(context, subscriptionId, ex.DataSourceIds, NotificationStatus.Failed, NotificationFailureReasons.DataSourceAwaitingApproval, cancellationToken);
+            if (isScheduledRun)
+            {
+                return;
+            }
+
+            throw new BeaconConflictException(NotificationFailureReasons.DataSourceAwaitingApproval);
+        }
         catch (QueryNotReviewedException ex)
         {
             // With the approval workflow on, the stored SQL is not the reviewed version: nothing ran. Recorded for a run a

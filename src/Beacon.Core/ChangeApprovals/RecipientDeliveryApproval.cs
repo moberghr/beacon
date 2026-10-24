@@ -167,4 +167,13 @@ internal sealed class RecipientDeliveryApproval(
 }
 
 /// <summary>What a delivery loaded of a recipient and will send: its id, type, and stored (encrypted) destination and headers.</summary>
-internal sealed record RecipientCopy(int RecipientId, NotificationType Type, string StoredDestination, string? StoredHeadersJson);
+internal sealed record RecipientCopy(int RecipientId, NotificationType Type, string StoredDestination, string? StoredHeadersJson)
+{
+    // The compiler-generated ToString prints every member; the secrets are printed redacted.
+    private bool PrintMembers(System.Text.StringBuilder builder)
+    {
+        builder.Append($"RecipientId = {RecipientId}, Type = {Type}, StoredDestination = {RedactedPrint.Of(StoredDestination)}, StoredHeadersJson = {RedactedPrint.Of(StoredHeadersJson)}");
+
+        return true;
+    }
+}

@@ -1,8 +1,6 @@
 using System.ComponentModel;
-using System.Diagnostics;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
 using Beacon.Core.Authorization;
@@ -18,11 +16,12 @@ namespace Beacon.MCP.Tools;
 internal sealed class FeedbackTool(
     IDbContextFactory<BeaconContext> contextFactory,
     IProjectContext projectContext,
-    McpAuditService auditService,
+    McpToolCallRecorder recorder,
     IMediator mediator,
-    IProjectAccessEvaluator projectAccess,
-    ILogger<FeedbackTool> logger)
+    IProjectAccessEvaluator projectAccess)
 {
+    private const string CallerCancelledMessage = "Cancelled by the caller.";
+
     [McpServerTool(Name = "feedback", Title = "Record Answer Feedback", ReadOnly = false, Idempotent = true, Destructive = false, OpenWorld = false)]
     [Description("Record whether a previous `ask` answer was correct. Pass the signal_id from that ask response. An 'incorrect' verdict keeps the answer out of the common-query and join patterns Beacon learns; a 'correct' one lists it for an Admin, who may promote it to a verified example for future answers. Corrected SQL is kept only when it passes Beacon's SQL check; the answer says when it was not kept. Only include a note when the user explicitly asked to record one.")]
     public async Task<CallToolResult> ExecuteAsync(
@@ -32,17 +31,38 @@ internal sealed class FeedbackTool(
         [Description("Optional: a short note — only when the user explicitly requested it; never a summary of the conversation.")] string? note = null,
         CancellationToken cancellationToken = default)
     {
-        var sw = Stopwatch.StartNew();
-
         // §1.11 — audit parameters carry IDENTIFIERS ONLY. corrected_sql / note are user-supplied and may
         // contain PII; the command may persist them, but they must NEVER reach audit parameters or logs.
-        var auditParameters = $"signal_id={signal_id};verdict={verdict}";
+        // Written by McpAuditCallToolFilter after the tool returns or throws (§1.7); audit-only, no signal (§9.5).
+        recorder
+            .Start("feedback", projectContext.UserId, $"signal_id={signal_id};verdict={verdict}")
+            .WithProject(projectContext.ActiveProjectId);
 
+        try
+        {
+            return await RateAsync(signal_id, verdict, corrected_sql, note, cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            // The caller's own cancellation stays a cancellation; the call is still audited (§1.7).
+            recorder.FailCancelled(CallerCancelledMessage);
+
+            throw;
+        }
+    }
+
+    private async Task<CallToolResult> RateAsync(
+        int signalId,
+        string verdict,
+        string? correctedSql,
+        string? note,
+        CancellationToken cancellationToken)
+    {
         // The audit row is attributed to the project of the signal being rated (the transport path carries no
         // active project); null when the signal doesn't exist.
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         var projectId = await context.McpQuerySignals
-            .Where(x => x.Id == signal_id)
+            .Where(x => x.Id == signalId)
             .Select(x => x.ProjectId)
             .FirstOrDefaultAsync(cancellationToken);
 
@@ -51,41 +71,25 @@ internal sealed class FeedbackTool(
         // "not found", so a caller cannot probe other projects' signals, and is attributed to the pinned project.
         if (!await IsRateableAsync(projectId, cancellationToken))
         {
-            sw.Stop();
-            var notFound = $"Query signal {signal_id} not found.";
-            await auditService.LogToolCallAsync(projectContext.UserId, "feedback",
-                auditParameters, null, projectContext.ActiveProjectId, (int)sw.ElapsedMilliseconds, null, notFound, ct: cancellationToken);
+            var notFound = $"Query signal {signalId} not found.";
+            recorder.Fail(notFound);
             return ToolHelper.Error(notFound);
         }
 
+        recorder.WithProject(projectId);
+
         if (!TryParseVerdict(verdict, out var parsedVerdict))
         {
-            sw.Stop();
             var validationError = "verdict must be 'correct' or 'incorrect'.";
-            await auditService.LogToolCallAsync(projectContext.UserId, "feedback",
-                auditParameters, null, projectId, (int)sw.ElapsedMilliseconds, null, validationError, ct: cancellationToken);
+            recorder.Fail(validationError);
             return ToolHelper.Error(validationError);
         }
 
-        try
-        {
-            var result = await mediator.Send(new RecordQueryFeedbackCommand(signal_id, parsedVerdict, corrected_sql, note), cancellationToken);
-            sw.Stop();
-            await auditService.LogToolCallAsync(projectContext.UserId, "feedback",
-                auditParameters, null, projectId, (int)sw.ElapsedMilliseconds, null, null, ct: cancellationToken);
-            return ToolHelper.Success(Answer(signal_id, parsedVerdict, result));
-        }
-        catch (Exception ex) when (ex is InvalidOperationException or BeaconException)
-        {
-            sw.Stop();
-            // §1.11 — log identifiers only; corrected_sql / note never reach the logger. ex.Message here is the
-            // handler's "signal not found" or refusal text, or the SQL check's reason (audited as the query tool audits a
-            // gate refusal), passed to the audit error slot only.
-            logger.LogWarning("Feedback recording failed for signal {SignalId}", signal_id);
-            await auditService.LogToolCallAsync(projectContext.UserId, "feedback",
-                auditParameters, null, projectId, (int)sw.ElapsedMilliseconds, null, ex.Message, ct: CancellationToken.None);
-            return ToolHelper.Error(ex.Message);
-        }
+        // A refusal the handler throws (signal not found, the SQL check's reason) is recorded by the audit filter, which
+        // answers its message as the error, as the query tool answers a gate refusal.
+        var result = await mediator.Send(new RecordQueryFeedbackCommand(signalId, parsedVerdict, correctedSql, note), cancellationToken);
+        recorder.Succeed();
+        return ToolHelper.Success(Answer(signalId, parsedVerdict, result));
     }
 
     private async Task<bool> IsRateableAsync(int? signalProjectId, CancellationToken cancellationToken)
