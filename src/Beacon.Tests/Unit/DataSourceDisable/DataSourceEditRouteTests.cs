@@ -100,6 +100,22 @@ public class DataSourceEditRouteTests
             x => x.ExcludingMissingMembers());
     }
 
+    // The handler never confirms a change of target on the caller's behalf: a new host sent without the confirmation is refused.
+    [Test]
+    public async Task TheEditHandler_LeavesTheTargetChangeUnconfirmed_WhenTheCallerDidNotConfirmIt()
+    {
+        var source = StoredSource();
+        var stored = source.EncryptedConnectionData;
+        var service = Service([source], storedConnection: "Host=old.internal;Database=sales;Password=old-pass;SSL Mode=VerifyFull");
+
+        var act = () => new UpdateDataSourceHandler(service).Handle(
+            new UpdateDataSourceCommand(12, "warehouse", DatabaseEngineType.PostgreSQL, "Host=new.internal;Database=sales;Password=new-pass;SSL Mode=VerifyFull", null, null, null, null, null, null),
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconConflictException>().WithMessage(DataSourceService.TargetChangeUnconfirmedMessage);
+        source.EncryptedConnectionData.Should().Be(stored);
+    }
+
     [TestCase("")]
     [TestCase("   ")]
     public async Task TheEditHandler_RefusesABlankName_BeforeTheService(string name)

@@ -65,8 +65,9 @@ public class CleanSqlResponseTests
     }
 
     [TestCaseSource(nameof(Fixtures))]
-    public void CrossSourceJoin_KeepsItsOutputWithoutRefusing(string content, string expected, bool found)
+    public void TheCleaner_KeepsItsOutputWithoutRefusing(string content, string expected, bool found)
     {
-        SqlResponseCleaner.Clean(content, out _).Should().Be(expected);
+        SqlResponseCleaner.Clean(content, out var foundSql).Should().Be(expected);
+        foundSql.Should().Be(found);
     }
 }
