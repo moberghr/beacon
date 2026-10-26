@@ -6,6 +6,7 @@ using Beacon.Core.Data.Entities.Metadata;
 using Beacon.Core.Handlers.McpSettings;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Metadata;
+using Beacon.Core.RowSecurity;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Metadata;
 using Beacon.Core.Services.Providers;
@@ -200,7 +201,9 @@ public class ForbidRowDataToLlmLockTests
         world.Serve(new List<McpDocumentationPatch>());
         var settings = new McpSettingsProvider(world.Factory(), new MemoryCache(new MemoryCacheOptions()), Options.Create(Lock), NullLogger<McpSettingsProvider>.Instance);
         var shared = new SharedSourceSettings(world.Factory(), settings);
-        var sampler = new Mock<IColumnValueSampler>(MockBehavior.Strict);
+        // The sampler's reads: a sample would resolve the table's row security, then ask for its provider.
+        var rowSecurity = new Mock<IRowSecurityResolver>();
+        var providers = new Mock<IDataSourceProviderFactory>();
         var extractor = new Mock<IDatabaseMetadataExtractor>();
         extractor.SetupGet(x => x.SupportedEngineType).Returns(Beacon.Core.Data.Enums.DatabaseEngineType.PostgreSQL);
         extractor
@@ -212,7 +215,7 @@ public class ForbidRowDataToLlmLockTests
             world.Factory(),
             TestTransport.Resolver(encryption.Object),
             [extractor.Object],
-            sampler.Object,
+            TestMetadataServices.Sampler(providers.Object, rowSecurity.Object),
             shared,
             new MemoryCache(new MemoryCacheOptions()),
             Mock.Of<ISchemaGraphService>(),
@@ -223,7 +226,8 @@ public class ForbidRowDataToLlmLockTests
         var snapshot = await service.RefreshMetadataAsync(DataSourceId, forceRefresh: true);
 
         withoutLock.EnableSampleValueCollection.Should().BeTrue("without the lock the stored settings would sample");
-        sampler.VerifyNoOtherCalls();
+        rowSecurity.VerifyNoOtherCalls();
+        providers.VerifyNoOtherCalls();
         snapshot.Tables.Single().Columns.Single().SampleValues.Should().BeNull();
     }
 

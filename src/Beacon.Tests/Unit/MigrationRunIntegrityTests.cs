@@ -50,7 +50,7 @@ public class MigrationRunIntegrityTests
 
     private ProjectAccessWorld _world = null!;
     private List<MigrationExecutionHistory> _executions = null!;
-    private Mock<IQueryExecutionPreviewService> _preview = null!;
+    private RecordingStoredQueryPreview _storedPreview = null!;
     private RecordingMigrationWriter _writer = null!;
     private FakeTimeProvider _time = null!;
     private RecordingSecurityAudit _audit = null!;
@@ -65,10 +65,7 @@ public class MigrationRunIntegrityTests
         _executions = [];
         _world.Serve(_executions);
 
-        _preview = new Mock<IQueryExecutionPreviewService>();
-        _preview
-            .Setup(x => x.ExecuteTemporaryQueryPreview(It.IsAny<QueryData>(), It.IsAny<List<ParameterValue>?>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new QueryExecutionResult { Success = true, FinalResult = Rows(1) });
+        _storedPreview = new RecordingStoredQueryPreview { TemporaryAnswer = _ => Task.FromResult(new QueryExecutionResult { Success = true, FinalResult = Rows(1) }) };
 
         _writer = new RecordingMigrationWriter(DatabaseEngineType.PostgreSQL);
         _audit = new RecordingSecurityAudit();
@@ -102,9 +99,7 @@ public class MigrationRunIntegrityTests
         result.Status.Should().Be(MigrationStatus.Failed);
         result.ExecutionId.Should().Be(0);
         result.ErrorMessage.Should().Be(MigrationService.RunInProgressMessage);
-        _preview.Verify(
-            x => x.ExecuteTemporaryQueryPreview(It.IsAny<QueryData>(), It.IsAny<List<ParameterValue>?>(), It.IsAny<int>(), It.IsAny<CancellationToken>()),
-            Times.Never);
+        _storedPreview.TemporaryRuns.Should().BeEmpty();
         _world.Saved.OfType<MigrationExecutionHistory>().Should().BeEmpty("a refused run adds no run row");
         _connectionsOpened.Should().Be(0);
         var refused = _audit.Events.Should().ContainSingle().Which;
@@ -214,14 +209,12 @@ public class MigrationRunIntegrityTests
     {
         Job(timeoutMinutes: 2);
         var reading = new TaskCompletionSource();
-        _preview
-            .Setup(x => x.ExecuteTemporaryQueryPreview(It.IsAny<QueryData>(), It.IsAny<List<ParameterValue>?>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .Returns(async (QueryData _, List<ParameterValue>? _, int _, CancellationToken token) =>
-            {
-                reading.SetResult();
-                await Task.Delay(Timeout.Infinite, token);
-                return null;
-            });
+        _storedPreview.TemporaryAnswer = async token =>
+        {
+            reading.SetResult();
+            await Task.Delay(Timeout.Infinite, token);
+            return null!;
+        };
 
         var run = Service().ExecuteMigrationJob(Run(), CancellationToken.None);
         await reading.Task;
@@ -434,7 +427,7 @@ public class MigrationRunIntegrityTests
             _world.Factory(),
             TestTransport.Resolver(encryption.Object),
             Mock.Of<IQueryService>(),
-            _preview.Object,
+            new QueryExecutionPreviewService(_storedPreview, TestProjectAccess.Authorizer(TestProjectAccess.Unrestricted)),
             Mock.Of<IBeaconUserContext>(),
             writers ?? MigrationTestWriters.Of(_writer),
             NullLogger<MigrationService>.Instance,

@@ -272,15 +272,20 @@ public static class ServiceConfiguration
         services.TryAddTransient<IQueryService, QueryService>();
         services.TryAddTransient<IStoredQueryPreview, QueryService>();
         services.TryAddTransient<IQueryProposalCheck, QueryService>();
-        services.TryAddTransient<IQueryExecutionPreviewService, QueryExecutionPreviewService>();
+        services.TryAddTransient<QueryExecutionPreviewService>();
         services.TryAddTransient<ISubscriptionService, SubscriptionService>();
         services.TryAddTransient<IRecipientService, RecipientService>();
         services.TryAddTransient<ITaskService, TaskService>();
         services.TryAddTransient<ControlTowerService>();
         services.TryAddTransient<IMigrationService, MigrationService>();
         services.TryAddSingleton<DataMigration.MigrationBulkWriters>();
-        services.TryAddTransient<IDatabaseMetadataService, DatabaseMetadataService>();
-        services.TryAddTransient<Services.Metadata.IColumnValueSampler, Services.Metadata.ColumnValueSampler>();
+        services.TryAddTransient<DatabaseMetadataService>();
+        services.TryAddTransient(x =>
+            new Services.Metadata.ColumnValueSampler(
+                x.GetRequiredService<Services.Security.IQueryGuardrailService>(),
+                x.GetRequiredService<GatedSqlRunner>(),
+                x.GetRequiredService<RowSecurity.IRowSecurityResolver>(),
+                x.GetRequiredService<Microsoft.Extensions.Logging.ILogger<Services.Metadata.ColumnValueSampler>>()));
         services.TryAddTransient<Services.Metadata.ISchemaRelationshipSyncService, Services.Metadata.SchemaRelationshipSyncService>();
         services.TryAddTransient<Services.Metadata.ISchemaGraphService, Services.Metadata.SchemaGraphService>();
         // The stored catalog the ask path reads, cached per data source and project; every catalog write invalidates it.

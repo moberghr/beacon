@@ -75,7 +75,7 @@ public partial class AiActorService : Core.Services.IAiActorService
 
     private readonly IDbContextFactory<BeaconContext> _contextFactory;
     private readonly ILlmProvider _llmProvider;
-    private readonly IDatabaseMetadataService _metadataService;
+    private readonly DatabaseMetadataService _metadataService;
     private readonly IQueryService _queryService;
     private readonly ISubscriptionService _subscriptionService;
     private readonly IBeaconScheduler _beaconScheduler;
@@ -104,7 +104,7 @@ public partial class AiActorService : Core.Services.IAiActorService
     public AiActorService(
         IDbContextFactory<BeaconContext> contextFactory,
         ILlmProvider llmProvider,
-        IDatabaseMetadataService metadataService,
+        DatabaseMetadataService metadataService,
         IQueryService queryService,
         ISubscriptionService subscriptionService,
         IBeaconScheduler beaconScheduler,
@@ -141,7 +141,7 @@ public partial class AiActorService : Core.Services.IAiActorService
     public AiActorService(
         IDbContextFactory<BeaconContext> contextFactory,
         ILlmProvider llmProvider,
-        IDatabaseMetadataService metadataService,
+        DatabaseMetadataService metadataService,
         IQueryService queryService,
         ISubscriptionService subscriptionService,
         IBeaconScheduler beaconScheduler,

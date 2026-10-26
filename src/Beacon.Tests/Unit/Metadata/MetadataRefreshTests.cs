@@ -41,22 +41,22 @@ public class MetadataRefreshTests
     [Test]
     public async Task ForcedRefresh_WithinTheCooldown_IsRefusedWithoutScanning()
     {
-        var metadata = new Mock<IDatabaseMetadataService>();
-        var handler = RefreshHandler(metadata, cooldownMinutes: 15);
+        var world = new MetadataWorld();
+        var handler = RefreshHandler(world, cooldownMinutes: 15);
 
         await handler.Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
         var again = () => handler.Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
 
         await again.Should().ThrowAsync<BeaconRateLimitedException>().WithMessage("*less than 15 minutes ago*");
-        metadata.Verify(x => x.RefreshMetadataAsync(DataSourceId, true, It.IsAny<CancellationToken>()), Times.Once);
+        world.Scans.Should().Be(1);
     }
 
     [Test]
     public async Task AForcedRefresh_IsRecorded_WithWhetherItSkippedTheCooldown_AndARefusedOneIsNot()
     {
         var audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(4, "ext-dsa"));
-        var metadata = new Mock<IDatabaseMetadataService>();
-        var handler = RefreshHandler(metadata, cooldownMinutes: 15, audit: audit);
+        var world = new MetadataWorld();
+        var handler = RefreshHandler(world, cooldownMinutes: 15, audit: audit);
 
         await handler.Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
         var again = () => handler.Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
@@ -70,7 +70,7 @@ public class MetadataRefreshTests
         audit.Ways.Should().Equal("recorded");
 
         var exempt = new RecordingSecurityAudit();
-        await RefreshHandler(new Mock<IDatabaseMetadataService>(), permissions: TestPermissions.Holding(BeaconPermissions.DataSourceAdmin), audit: exempt)
+        await RefreshHandler(new MetadataWorld(), permissions: TestPermissions.Holding(BeaconPermissions.DataSourceAdmin), audit: exempt)
             .Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
         exempt.Single().DetailsJson.Should().Be("{\"forced\":true,\"cooldownExempt\":true}");
     }
@@ -79,11 +79,9 @@ public class MetadataRefreshTests
     public async Task AFailedForcedRefresh_IsNotRecorded()
     {
         var audit = new RecordingSecurityAudit();
-        var metadata = new Mock<IDatabaseMetadataService>();
-        var handler = RefreshHandler(metadata, audit: audit);
-        metadata
-            .Setup(x => x.RefreshMetadataAsync(DataSourceId, true, It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new InvalidOperationException("scan failed"));
+        var world = new MetadataWorld();
+        var handler = RefreshHandler(world, audit: audit);
+        world.BeforeExtract = () => throw new InvalidOperationException("scan failed");
 
         var act = () => handler.Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
 
@@ -94,120 +92,122 @@ public class MetadataRefreshTests
     [Test]
     public async Task ForcedRefresh_CooldownIsPerDataSource()
     {
-        var metadata = new Mock<IDatabaseMetadataService>();
-        var handler = RefreshHandler(metadata, cooldownMinutes: 15);
+        var world = new MetadataWorld();
+        world.DataSources.Add(new DataSource
+        {
+            Id = DataSourceId + 1,
+            Name = "lake",
+            DataSourceType = DataSourceType.Database,
+            EncryptedConnectionData = "encrypted",
+            DatabaseEngineType = DatabaseEngineType.PostgreSQL
+        });
+        var handler = RefreshHandler(world, cooldownMinutes: 15);
 
         await handler.Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
         await handler.Handle(new RefreshDataSourceMetadataCommand(DataSourceId + 1), CancellationToken.None);
 
-        metadata.Verify(x => x.RefreshMetadataAsync(It.IsAny<int>(), true, It.IsAny<CancellationToken>()), Times.Exactly(2));
+        world.Scans.Should().Be(2);
     }
 
     [Test]
     public async Task ForcedRefresh_CooldownZero_IsNotLimited()
     {
-        var metadata = new Mock<IDatabaseMetadataService>();
-        var handler = RefreshHandler(metadata, cooldownMinutes: 0);
+        var world = new MetadataWorld();
+        var handler = RefreshHandler(world, cooldownMinutes: 0);
 
         await handler.Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
         await handler.Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
 
-        metadata.Verify(x => x.RefreshMetadataAsync(DataSourceId, true, It.IsAny<CancellationToken>()), Times.Exactly(2));
+        world.Scans.Should().Be(2);
     }
 
     [Test]
     public async Task ForcedRefresh_ThatFailed_DoesNotHoldBackTheRetry()
     {
-        var metadata = new Mock<IDatabaseMetadataService>();
-        var handler = RefreshHandler(metadata, cooldownMinutes: 15);
-        metadata
-            .SetupSequence(x => x.RefreshMetadataAsync(DataSourceId, true, It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new InvalidOperationException("The data source could not be reached."))
-            .ReturnsAsync(Snapshot());
+        var world = new MetadataWorld();
+        var handler = RefreshHandler(world, cooldownMinutes: 15);
+        var failures = 1;
+        world.BeforeExtract = () => failures-- > 0 ? throw new InvalidOperationException("The data source could not be reached.") : Task.CompletedTask;
 
         var failed = () => handler.Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
         await failed.Should().ThrowAsync<InvalidOperationException>();
         await handler.Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
 
-        metadata.Verify(x => x.RefreshMetadataAsync(DataSourceId, true, It.IsAny<CancellationToken>()), Times.Exactly(2));
+        world.Scans.Should().Be(2);
     }
 
     [Test]
     public async Task ForcedRefresh_AfterTheCooldownSinceTheLastSuccess_IsAccepted()
     {
-        var metadata = new Mock<IDatabaseMetadataService>();
+        var world = new MetadataWorld();
         var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
-        var handler = RefreshHandler(metadata, cooldownMinutes: 15, time: time);
+        var handler = RefreshHandler(world, cooldownMinutes: 15, time: time);
 
         await handler.Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
         time.Advance(TimeSpan.FromMinutes(16));
         await handler.Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
 
-        metadata.Verify(x => x.RefreshMetadataAsync(DataSourceId, true, It.IsAny<CancellationToken>()), Times.Exactly(2));
+        world.Scans.Should().Be(2);
     }
 
     [Test]
     public async Task ForcedRefresh_ALoweredCooldown_AppliesToTheNextRequest()
     {
-        var metadata = new Mock<IDatabaseMetadataService>();
+        var world = new MetadataWorld();
         var time = new FakeTimeProvider(DateTimeOffset.UtcNow);
         var settings = new RefreshSettings { CurrentValue = new MetadataRefreshOptions { ForcedRefreshCooldownMinutes = 60 } };
-        var handler = RefreshHandler(metadata, settings: settings, time: time);
+        var handler = RefreshHandler(world, settings: settings, time: time);
 
         await handler.Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
         time.Advance(TimeSpan.FromMinutes(6));
         settings.CurrentValue = new MetadataRefreshOptions { ForcedRefreshCooldownMinutes = 5 };
         await handler.Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
 
-        metadata.Verify(x => x.RefreshMetadataAsync(DataSourceId, true, It.IsAny<CancellationToken>()), Times.Exactly(2));
+        world.Scans.Should().Be(2);
     }
 
     [Test]
     public async Task ForcedRefresh_WhileOneOfTheSameSourceRuns_IsRefused()
     {
-        var metadata = new Mock<IDatabaseMetadataService>();
-        var handler = RefreshHandler(metadata, cooldownMinutes: 15);
-        var release = new TaskCompletionSource<DatabaseMetadataSnapshot>();
-        metadata
-            .Setup(x => x.RefreshMetadataAsync(DataSourceId, true, It.IsAny<CancellationToken>()))
-            .Returns(release.Task);
+        var world = new MetadataWorld();
+        var handler = RefreshHandler(world, cooldownMinutes: 15);
+        var release = new TaskCompletionSource();
+        world.BeforeExtract = () => release.Task;
 
         var running = handler.Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
         var second = () => handler.Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
 
         await second.Should().ThrowAsync<BeaconRateLimitedException>().WithMessage(ForcedMetadataRefreshCooldown.AlreadyRunningMessage);
-        release.SetResult(Snapshot());
+        release.SetResult();
         await running;
-        metadata.Verify(x => x.RefreshMetadataAsync(DataSourceId, true, It.IsAny<CancellationToken>()), Times.Once);
+        world.Scans.Should().Be(1);
     }
 
     [Test]
     public async Task ADataSourceAdmin_IsNotHeldToTheCooldown()
     {
-        var metadata = new Mock<IDatabaseMetadataService>();
-        var handler = RefreshHandler(metadata, cooldownMinutes: 15, permissions: TestPermissions.Holding(BeaconPermissions.DataSourceAdmin));
+        var world = new MetadataWorld();
+        var handler = RefreshHandler(world, cooldownMinutes: 15, permissions: TestPermissions.Holding(BeaconPermissions.DataSourceAdmin));
 
         await handler.Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
         await handler.Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
 
-        metadata.Verify(x => x.RefreshMetadataAsync(DataSourceId, true, It.IsAny<CancellationToken>()), Times.Exactly(2));
+        world.Scans.Should().Be(2);
     }
 
     [Test]
     public async Task ADataSourceAdmin_StillWaitsForARefreshOfTheSameSourceThatRuns()
     {
-        var metadata = new Mock<IDatabaseMetadataService>();
-        var handler = RefreshHandler(metadata, cooldownMinutes: 15, permissions: TestPermissions.Holding(BeaconPermissions.DataSourceAdmin));
-        var release = new TaskCompletionSource<DatabaseMetadataSnapshot>();
-        metadata
-            .Setup(x => x.RefreshMetadataAsync(DataSourceId, true, It.IsAny<CancellationToken>()))
-            .Returns(release.Task);
+        var world = new MetadataWorld();
+        var handler = RefreshHandler(world, cooldownMinutes: 15, permissions: TestPermissions.Holding(BeaconPermissions.DataSourceAdmin));
+        var release = new TaskCompletionSource();
+        world.BeforeExtract = () => release.Task;
 
         var running = handler.Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
         var second = () => handler.Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
 
         await second.Should().ThrowAsync<BeaconRateLimitedException>().WithMessage(ForcedMetadataRefreshCooldown.AlreadyRunningMessage);
-        release.SetResult(Snapshot());
+        release.SetResult();
         await running;
     }
 
@@ -215,8 +215,7 @@ public class MetadataRefreshTests
     public async Task ChangingADataSource_LetsItsMetadataBeRefreshedAgainAtOnce()
     {
         var world = new MetadataWorld();
-        var metadata = new Mock<IDatabaseMetadataService>();
-        var handler = RefreshHandler(metadata, cooldownMinutes: 15, cache: world.Cache);
+        var handler = RefreshHandler(world, cooldownMinutes: 15, cache: world.Cache);
 
         await handler.Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
         await world.DataSourceService().UpdateDataSource(
@@ -231,7 +230,7 @@ public class MetadataRefreshTests
             CancellationToken.None);
         await handler.Handle(new RefreshDataSourceMetadataCommand(DataSourceId), CancellationToken.None);
 
-        metadata.Verify(x => x.RefreshMetadataAsync(DataSourceId, true, It.IsAny<CancellationToken>()), Times.Exactly(2));
+        world.Scans.Should().Be(2);
     }
 
     [TestCase(-1, false)]
@@ -623,7 +622,7 @@ public class MetadataRefreshTests
     }
 
     private static RefreshDataSourceMetadataHandler RefreshHandler(
-        Mock<IDatabaseMetadataService> metadata,
+        MetadataWorld world,
         int cooldownMinutes = 15,
         RefreshSettings? settings = null,
         MemoryCache? cache = null,
@@ -631,12 +630,8 @@ public class MetadataRefreshTests
         IBeaconPermissionAccessor? permissions = null,
         ISecurityAuditRecorder? audit = null)
     {
-        metadata
-            .Setup(x => x.RefreshMetadataAsync(It.IsAny<int>(), true, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(Snapshot());
-
         return new RefreshDataSourceMetadataHandler(
-            new ForcedMetadataRefresh(metadata.Object, Mock.Of<ISchemaRelationshipSyncService>(), NullLogger<ForcedMetadataRefresh>.Instance),
+            new ForcedMetadataRefresh(world.Service(), Mock.Of<ISchemaRelationshipSyncService>(), NullLogger<ForcedMetadataRefresh>.Instance),
             new ForcedMetadataRefreshCooldown(cache ?? new MemoryCache(new MemoryCacheOptions()), time ?? TimeProvider.System),
             settings ?? new RefreshSettings { CurrentValue = new MetadataRefreshOptions { ForcedRefreshCooldownMinutes = cooldownMinutes } },
             permissions ?? TestPermissions.None,
@@ -734,6 +729,9 @@ public class MetadataRefreshTests
 
         public List<object> Saved { get; } = [];
 
+        /// <summary>How many catalog scans its services ran.</summary>
+        public int Scans { get; private set; }
+
         public MemoryCache Cache { get; } = new(new MemoryCacheOptions());
 
         public Mock<ISchemaGraphService> Graph { get; } = new();
@@ -742,7 +740,7 @@ public class MetadataRefreshTests
 
         public DatabaseMetadataService Service(
             ILogger<DatabaseMetadataService>? logger = null,
-            IColumnValueSampler? sampler = null,
+            ColumnValueSampler? sampler = null,
             McpSettingsData? settings = null,
             BeaconConfiguration? configuration = null)
         {
@@ -752,6 +750,7 @@ public class MetadataRefreshTests
                 .Setup(x => x.ExtractMetadataAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
                 .Returns(async () =>
                 {
+                    Scans++;
                     if (BeforeExtract != null)
                     {
                         await BeforeExtract();
@@ -764,7 +763,7 @@ public class MetadataRefreshTests
                 Factory(),
                 TestTransport.Resolver(Encryption(), configuration: configuration),
                 [extractor.Object],
-                sampler ?? Mock.Of<IColumnValueSampler>(),
+                sampler ?? TestMetadataServices.Sampler(),
                 SettingsProviderMock.Unshared(SettingsProviderMock.Create(settings ?? new McpSettingsData { EnableSampleValueCollection = false }).Object),
                 Cache,
                 Graph.Object,

@@ -261,7 +261,7 @@ public class AiActorExecutorGuardTests
         return new AiActorService(
             factory.Object,
             Mock.Of<ILlmProvider>(MockBehavior.Strict),
-            Mock.Of<IDatabaseMetadataService>(MockBehavior.Strict),
+            TestMetadataServices.Unused(),
             _queryService.Object,
             _subscriptionService.Object,
             Mock.Of<IBeaconScheduler>(MockBehavior.Strict),

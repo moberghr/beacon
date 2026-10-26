@@ -218,7 +218,7 @@ public class QueryHotPathTests
         new AiActorService(
             capture.Factory(),
             Mock.Of<ILlmProvider>(),
-            Mock.Of<IDatabaseMetadataService>(),
+            TestMetadataServices.Unused(),
             Mock.Of<IQueryService>(),
             Mock.Of<ISubscriptionService>(),
             Mock.Of<Beacon.Core.Worker.IBeaconScheduler>(),

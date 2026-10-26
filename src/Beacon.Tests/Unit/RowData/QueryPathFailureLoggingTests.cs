@@ -6,6 +6,7 @@ using Beacon.Connector.Api.Services;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Handlers.Queries;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Queries;
@@ -40,14 +41,28 @@ public class QueryPathFailureLoggingTests
     {
         var log = new LogRecorder();
         var stored = new RecordingStoredQueryPreview { Answer = () => throw new InvalidOperationException($"value '{SecretLooking}' is not an integer") };
-        var service = new QueryExecutionPreviewService(
+        var authorizer = TestProjectAccess.Authorizer(TestProjectAccess.Unrestricted);
+
+        var query = await ExecuteQueryPreviewHandler.RunAsync(
             Mock.Of<IQueryService>(),
             stored,
-            TestProjectAccess.Authorizer(TestProjectAccess.Unrestricted),
-            log.For<QueryExecutionPreviewService>());
-
-        var query = await service.ExecuteQueryPreview(5, null, FirstPage, CancellationToken.None);
-        var step = await service.ExecuteStepPreview(5, 1, [], null, FirstPage, CancellationToken.None);
+            authorizer,
+            log.For<ExecuteQueryPreviewHandler>(),
+            5,
+            null,
+            FirstPage,
+            CancellationToken.None);
+        var step = await ExecuteStepPreviewHandler.RunAsync(
+            Mock.Of<IQueryService>(),
+            stored,
+            authorizer,
+            log.For<ExecuteStepPreviewHandler>(),
+            5,
+            1,
+            [],
+            null,
+            FirstPage,
+            CancellationToken.None);
 
         query!.Success.Should().BeFalse();
         step!.Success.Should().BeFalse();

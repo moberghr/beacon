@@ -29,7 +29,7 @@ internal sealed class ExecuteQueryPreviewHandler(
 
     /// <summary>
     /// One page of a query's result (the saved query, or the draft when given); a failure comes back as the result,
-    /// with its cause, a cancellation as null. Shared with the obsolete service forwarder.
+    /// with its cause, a cancellation as null.
     /// </summary>
     internal static async Task<QueryPreviewResult?> RunAsync(
         IQueryService queryService,

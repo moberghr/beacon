@@ -163,7 +163,7 @@ public class StoredConnectionPathTests
             world.Factory(),
             Resolver($"Host={Host};Password={Secret};SSL Mode=Require", TestTransport.Policy(enforceOnExisting: true)),
             [extractor.Object],
-            Mock.Of<IColumnValueSampler>(),
+            TestMetadataServices.Sampler(),
             Mock.Of<ISharedSourceSettings>(),
             new MemoryCache(new MemoryCacheOptions()),
             Mock.Of<ISchemaGraphService>(),

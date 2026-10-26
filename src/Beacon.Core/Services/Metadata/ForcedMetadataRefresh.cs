@@ -9,7 +9,7 @@ namespace Beacon.Core.Services.Metadata;
 /// The cooldown and the audit event stay with the caller.
 /// </summary>
 internal sealed class ForcedMetadataRefresh(
-    IDatabaseMetadataService metadataService,
+    DatabaseMetadataService metadataService,
     ISchemaRelationshipSyncService relationshipSyncService,
     ILogger<ForcedMetadataRefresh> logger)
 {

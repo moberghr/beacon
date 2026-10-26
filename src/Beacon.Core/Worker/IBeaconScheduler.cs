@@ -28,7 +28,7 @@ public interface IBeaconScheduler
     Task<string> EnqueueMcpEval(int runId)
         => throw new NotImplementedException("Background enqueue not implemented in this host");
 
-    // Fire-and-forget re-scan of a data source's metadata (IDatabaseMetadataService.RefreshMetadataAsync, forced), enqueued
+    // Fire-and-forget re-scan of a data source's metadata (DatabaseMetadataService.RefreshMetadataAsync, forced), enqueued
     // after its connection was pointed at another target. Returns the job id, or null when this host runs no such job (the
     // caller logs that the old target's schema stays until a refresh).
     Task<string?> EnqueueMetadataRefresh(int dataSourceId)

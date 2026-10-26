@@ -418,7 +418,7 @@ public class ChangeGovernanceTranslationTests
         new(
             capture.Factory(),
             Mock.Of<ILlmProvider>(MockBehavior.Strict),
-            Mock.Of<IDatabaseMetadataService>(MockBehavior.Strict),
+            TestMetadataServices.Unused(),
             Mock.Of<IQueryService>(MockBehavior.Strict),
             Mock.Of<ISubscriptionService>(MockBehavior.Strict),
             Mock.Of<IBeaconScheduler>(MockBehavior.Strict),

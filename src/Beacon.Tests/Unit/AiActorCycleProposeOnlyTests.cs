@@ -1203,15 +1203,12 @@ public partial class AiActorCycleProposeOnlyTests
                     });
             });
 
-        var metadata = new Mock<IDatabaseMetadataService>(MockBehavior.Strict);
-        metadata
-            .Setup(x => x.GetMetadataAsync(DataSourceId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new DatabaseMetadataSnapshot(DataSourceId, DatabaseEngineType.PostgreSQL, [], DateTime.UtcNow));
+        var metadata = TestMetadataServices.Serving(new DatabaseMetadataSnapshot(DataSourceId, DatabaseEngineType.PostgreSQL, [], DateTime.UtcNow));
 
         return new AiActorService(
             factory.Object,
             llm.Object,
-            metadata.Object,
+            metadata,
             _queryService.Object,
             _subscriptionService.Object,
             Mock.Of<IBeaconScheduler>(MockBehavior.Strict),

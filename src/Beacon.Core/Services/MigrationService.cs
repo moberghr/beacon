@@ -44,7 +44,7 @@ internal partial class MigrationService(
     IDbContextFactory<BeaconContext> contextFactory,
     IDataSourceConnectionResolver connectionResolver,
     IQueryService queryService,
-    IQueryExecutionPreviewService previewService,
+    QueryExecutionPreviewService previewService,
     IBeaconUserContext userContext,
     DataMigration.MigrationBulkWriters writers,
     ILogger<MigrationService> logger,

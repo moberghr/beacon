@@ -148,7 +148,7 @@ public class HistoryVisibilityTranslationTests
             capture.Factory(),
             TestTransport.Resolver(encryption.Object),
             Mock.Of<IQueryService>(),
-            Mock.Of<IQueryExecutionPreviewService>(),
+            new QueryExecutionPreviewService(new RecordingStoredQueryPreview(), TestProjectAccess.Authorizer(TestProjectAccess.Unrestricted)),
             Mock.Of<IBeaconUserContext>(),
             MigrationTestWriters.All(),
             NullLogger<MigrationService>.Instance,

@@ -41,7 +41,7 @@ public class MigrationServiceWriterTests
     private const string PrimaryKeyLookup = "pg_index";
 
     private ProjectAccessWorld _world = null!;
-    private Mock<IQueryExecutionPreviewService> _preview = null!;
+    private RecordingStoredQueryPreview _storedPreview = null!;
     private RecordingMigrationWriter _writer = null!;
     private Mock<IEncryptionService> _encryption = null!;
     private RecordingDbConnection _destination = null!;
@@ -55,7 +55,7 @@ public class MigrationServiceWriterTests
         _world.Source(WriteTarget).AllowMigrationWrites = true;
         _world.Serve(new List<MigrationExecutionHistory>());
 
-        _preview = new Mock<IQueryExecutionPreviewService>();
+        _storedPreview = new RecordingStoredQueryPreview();
         SourceRows(Row(1, "a"), Row(2, "b"));
 
         _writer = new RecordingMigrationWriter(DatabaseEngineType.PostgreSQL);
@@ -671,9 +671,7 @@ public class MigrationServiceWriterTests
                 .Select(x => (IDictionary<string, object?>)x)
                 .ToList()
         };
-        _preview
-            .Setup(x => x.ExecuteTemporaryQueryPreview(It.IsAny<QueryData>(), It.IsAny<List<ParameterValue>?>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new QueryExecutionResult { Success = true, FinalResult = result });
+        _storedPreview.TemporaryAnswer = _ => Task.FromResult(new QueryExecutionResult { Success = true, FinalResult = result });
     }
 
     private static Dictionary<string, object?> Row(int id, string name) => new() { ["id"] = id, ["name"] = name };
@@ -684,7 +682,7 @@ public class MigrationServiceWriterTests
             _world.Factory(),
             TestTransport.Resolver(_encryption.Object),
             Mock.Of<IQueryService>(),
-            _preview.Object,
+            new QueryExecutionPreviewService(_storedPreview, TestProjectAccess.Authorizer(TestProjectAccess.Unrestricted)),
             Mock.Of<IBeaconUserContext>(),
             writers ?? MigrationTestWriters.Of(_writer),
             NullLogger<MigrationService>.Instance,

@@ -6,7 +6,7 @@ using Beacon.Core.Authorization;
 namespace Beacon.Core.Handlers.DataSources;
 
 internal sealed class GetDataSourceMetadataHandler(
-    IDatabaseMetadataService metadataService,
+    DatabaseMetadataService metadataService,
     MetadataSampleView sampleView)
     : IRequestHandler<GetDataSourceMetadataQuery, DatabaseMetadataSnapshot>
 {

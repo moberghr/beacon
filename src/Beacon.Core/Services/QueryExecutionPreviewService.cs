@@ -1,74 +1,32 @@
-using Beacon.Core.Handlers.Queries;
-using Beacon.Core.Helpers;
-using Microsoft.Extensions.Logging;
-using Beacon.Core.Models;
 using Beacon.Core.Models.Queries;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
 
 namespace Beacon.Core.Services;
 
-public interface IQueryExecutionPreviewService
+internal sealed class QueryExecutionPreviewService
 {
-    /// <summary>
-    /// One page of a query's result (the saved query, or <paramref name="draft"/> when given); a failure comes
-    /// back as the result, with its cause.
-    /// </summary>
-    [Obsolete("Send ExecuteQueryPreviewCommand through IMediator instead; removed in 6.0.")]
-    Task<QueryPreviewResult?> ExecuteQueryPreview(int queryId, QueryDraft? draft, ListRequest paging, CancellationToken cancellationToken);
-    /// <summary>One page of a single step's result, run on its own; from <paramref name="draft"/> when given.</summary>
-    [Obsolete("Send ExecuteStepPreviewCommand through IMediator instead; removed in 6.0.")]
-    Task<QueryPreviewResult?> ExecuteStepPreview(int queryId, int stepOrder, List<ParameterValue>? parameters, QueryDraft? draft, ListRequest paging, CancellationToken cancellationToken);
-    /// <summary>Runs <paramref name="queryData"/>'s steps once, in-process; no query is stored to run them.</summary>
-    Task<QueryExecutionResult?> ExecuteTemporaryQueryPreview(QueryData queryData, CancellationToken cancellationToken, List<ParameterValue>? parameters = null);
-
-    /// <summary>
-    /// Runs <paramref name="queryData"/>'s steps once, in-process (a migration's read), storing no query;
-    /// <paramref name="maxRows"/> replaces <c>Beacon:Query:MaxExecutionRows</c> as the most rows a statement may return.
-    /// </summary>
-    Task<QueryExecutionResult?> ExecuteTemporaryQueryPreview(QueryData queryData, List<ParameterValue>? parameters, int maxRows, CancellationToken cancellationToken);
-}
-
-internal sealed class QueryExecutionPreviewService : IQueryExecutionPreviewService
-{
-    private readonly IQueryService _queryService;
     private readonly IStoredQueryPreview _storedPreview;
     private readonly ProjectRequestAuthorizer _authorizer;
-    private readonly ILogger<QueryExecutionPreviewService> _logger;
 
     public QueryExecutionPreviewService(
-        IQueryService queryService,
         IStoredQueryPreview storedPreview,
-        ProjectRequestAuthorizer authorizer,
-        ILogger<QueryExecutionPreviewService> logger)
+        ProjectRequestAuthorizer authorizer)
     {
-        _queryService = queryService;
         _storedPreview = storedPreview;
         _authorizer = authorizer;
-        _logger = logger;
     }
 
-    public Task<QueryPreviewResult?> ExecuteQueryPreview(int queryId, QueryDraft? draft, ListRequest paging, CancellationToken cancellationToken)
-    {
-        return ExecuteQueryPreviewHandler.RunAsync(_queryService, _storedPreview, _authorizer, _logger, queryId, draft, paging, cancellationToken);
-    }
-
-    public Task<QueryPreviewResult?> ExecuteStepPreview(
-        int queryId,
-        int stepOrder,
-        List<ParameterValue>? parameters,
-        QueryDraft? draft,
-        ListRequest paging,
-        CancellationToken cancellationToken)
-    {
-        return ExecuteStepPreviewHandler.RunAsync(_queryService, _storedPreview, _authorizer, _logger, queryId, stepOrder, parameters, draft, paging, cancellationToken);
-    }
-
+    /// <summary>Runs <paramref name="queryData"/>'s steps once, in-process; no query is stored to run them.</summary>
     public Task<QueryExecutionResult?> ExecuteTemporaryQueryPreview(QueryData queryData, CancellationToken cancellationToken, List<ParameterValue>? parameters = null)
     {
         return ExecuteTemporaryQueryPreviewCore(queryData, parameters, null, cancellationToken);
     }
 
+    /// <summary>
+    /// Runs <paramref name="queryData"/>'s steps once, in-process (a migration's read), storing no query;
+    /// <paramref name="maxRows"/> replaces <c>Beacon:Query:MaxExecutionRows</c> as the most rows a statement may return.
+    /// </summary>
     public Task<QueryExecutionResult?> ExecuteTemporaryQueryPreview(QueryData queryData, List<ParameterValue>? parameters, int maxRows, CancellationToken cancellationToken)
     {
         return ExecuteTemporaryQueryPreviewCore(queryData, parameters, maxRows, cancellationToken);

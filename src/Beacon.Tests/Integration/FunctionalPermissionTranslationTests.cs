@@ -296,7 +296,7 @@ public class FunctionalPermissionTranslationTests
             capture.Factory(),
             Mock.Of<IDataSourceConnectionResolver>(),
             Mock.Of<IQueryService>(),
-            Mock.Of<IQueryExecutionPreviewService>(),
+            new QueryExecutionPreviewService(new RecordingStoredQueryPreview(), TestProjectAccess.Authorizer(TestProjectAccess.Unrestricted)),
             Mock.Of<IBeaconUserContext>(),
             MigrationTestWriters.All(),
             NullLogger<MigrationService>.Instance,

@@ -315,7 +315,7 @@ public class GovernanceEventTests
             store.Factory(),
             Mock.Of<IDataSourceConnectionResolver>(),
             Mock.Of<IQueryService>(MockBehavior.Strict),
-            Mock.Of<IQueryExecutionPreviewService>(MockBehavior.Strict),
+            new QueryExecutionPreviewService(new RecordingStoredQueryPreview { TemporaryAnswer = _ => throw new InvalidOperationException("The test reads no migration source.") }, TestProjectAccess.Authorizer(TestProjectAccess.Unrestricted)),
             Mock.Of<IBeaconUserContext>(),
             MigrationTestWriters.All(),
             NullLogger<MigrationService>.Instance,
