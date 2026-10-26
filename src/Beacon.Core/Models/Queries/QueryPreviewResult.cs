@@ -45,13 +45,13 @@ public sealed class QueryPreviewStep
     /// The first rows of an intermediate step. The step feeds the final query in full, but only these
     /// travel to the client.
     /// </summary>
-    public List<IDictionary<string, object?>> PreviewRows { get; init; } = [];
+    public IReadOnlyList<IDictionary<string, object?>> PreviewRows { get; init; } = [];
 }
 
 /// <summary>One page of a raw result, ordered by <see cref="Sort"/> when the SQL shape allowed it.</summary>
 public sealed class QueryResultPage
 {
-    public List<IDictionary<string, object?>> Rows { get; init; } = [];
+    public IReadOnlyList<IDictionary<string, object?>> Rows { get; init; } = [];
 
     public int TotalCount { get; init; }
 

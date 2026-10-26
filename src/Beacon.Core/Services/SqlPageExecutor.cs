@@ -7,7 +7,7 @@ namespace Beacon.Core.Services;
 
 /// <summary>One page of a raw SQL result, with the total row count of the whole result.</summary>
 /// <param name="SortApplied">False when the requested sort could not be applied to this SQL shape.</param>
-public sealed record SqlResultPage(List<IDictionary<string, object?>> Rows, int TotalCount, bool SortApplied);
+public sealed record SqlResultPage(IReadOnlyList<IDictionary<string, object?>> Rows, int TotalCount, bool SortApplied);
 
 /// <summary>
 /// Fetches one page of a user's query and counts its rows, keeping only that page in memory. Runs the

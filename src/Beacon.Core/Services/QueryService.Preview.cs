@@ -359,9 +359,7 @@ internal partial class QueryService : IStoredQueryPreview
             var count = countRun.Rows.FirstOrDefault()?.Values.FirstOrDefault();
 
             return new SqlResultPage(
-                pageRun.Rows
-                    .Select(x => (IDictionary<string, object?>)x)
-                    .ToList(),
+                pageRun.Rows,
                 (int)Math.Min(Convert.ToInt64(count ?? 0L), int.MaxValue),
                 plan.SortApplied);
         }
@@ -381,7 +379,6 @@ internal partial class QueryService : IStoredQueryPreview
             run.Rows
                 .Skip(offset)
                 .Take(limit)
-                .Select(x => (IDictionary<string, object?>)x)
                 .ToList(),
             run.Rows.Count,
             false);
@@ -393,7 +390,7 @@ internal partial class QueryService : IStoredQueryPreview
         string? errorMessage,
         double executionTimeMs,
         int totalRows,
-        List<IDictionary<string, object?>> previewRows) =>
+        IReadOnlyList<IDictionary<string, object?>> previewRows) =>
         new()
         {
             StepOrder = step.StepOrder,
@@ -407,7 +404,7 @@ internal partial class QueryService : IStoredQueryPreview
             PreviewRows = previewRows,
         };
 
-    private static QueryPreviewStep ToSummary(QueryStepResult result, List<IDictionary<string, object?>> previewRows) =>
+    private static QueryPreviewStep ToSummary(QueryStepResult result, IReadOnlyList<IDictionary<string, object?>> previewRows) =>
         new()
         {
             StepOrder = result.StepOrder,

@@ -287,7 +287,7 @@ internal sealed class CrossSourceQueryService(
                 }
 
                 var tableName = $"result{i + 1}";
-                await memDb.CreateTableFromResults(tableName, rows.Cast<IDictionary<string, object?>>().ToList(), new ProjectInfo
+                await memDb.CreateTableFromResults(tableName, rows, new ProjectInfo
                 {
                     Name = source.DataSourceName,
                     DatabaseEngine = dataSource.DatabaseEngineType?.ToString() ?? "Unknown",

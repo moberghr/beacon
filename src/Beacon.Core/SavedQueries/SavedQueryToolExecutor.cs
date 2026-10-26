@@ -289,9 +289,7 @@ internal sealed class SavedQueryToolExecutor(
         {
             await memDb.CreateTableFromResults(
                 $"result{stepOrder}",
-                rows
-                    .Select(x => (IDictionary<string, object?>)x)
-                    .ToList(),
+                rows,
                 new ProjectInfo
                 {
                     Name = dataSource.Name,
