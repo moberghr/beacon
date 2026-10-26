@@ -65,7 +65,7 @@ public class AiActorOwnershipTests
         // The service reads the plan the plan view shows, or the plans (each context its own copy, as each reads the
         // database afresh), through contexts of its own: whether a handler reached it is told apart from the handler's reads.
         _service = new TestAiActorService(_actors, () => _viewedPlan != null ? [_viewedPlan] : Plans());
-        _service.DataSources.Add(new DataSource { Id = 1, Name = "warehouse", DataSourceType = DataSourceType.Database, EncryptedConnectionData = string.Empty });
+        _service.DataSources.Add(new DataSource { Id = 1, Name = "warehouse", DataSourceType = DataSourceType.Database, DatabaseEngineType = DatabaseEngineType.PostgreSQL, MetadataLoadingEnabled = false, EncryptedConnectionData = string.Empty });
     }
 
     [Test]

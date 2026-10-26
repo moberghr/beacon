@@ -73,6 +73,24 @@ internal static class TestMetadataServices
     }
 
     /// <summary>
+    /// A metadata service over <paramref name="dataSources"/>, read as the test fills them, that never scans: a source
+    /// with metadata loading off serves an empty catalog.
+    /// </summary>
+    public static DatabaseMetadataService Reading(List<DataSource> dataSources)
+    {
+        return new DatabaseMetadataService(
+            Contexts(dataSources),
+            Mock.Of<IDataSourceConnectionResolver>(MockBehavior.Strict),
+            [],
+            Sampler(),
+            Mock.Of<ISharedSourceSettings>(MockBehavior.Strict),
+            new MemoryCache(new MemoryCacheOptions()),
+            Mock.Of<ISchemaGraphService>(),
+            NullLogger<DatabaseMetadataService>.Instance,
+            Mock.Of<ICatalogSnapshotCache>());
+    }
+
+    /// <summary>
     /// A metadata service whose catalog scan of <paramref name="dataSource"/>, the one data source it knows, returns
     /// what <paramref name="extract"/> does (which may count, wait or throw); sample collection is off.
     /// </summary>

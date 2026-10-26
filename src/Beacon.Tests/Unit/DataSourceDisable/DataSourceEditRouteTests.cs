@@ -116,7 +116,7 @@ public class DataSourceEditRouteTests
 
     [TestCase(true)]
     [TestCase(false)]
-    public async Task TheEnableHandler_HandsTheStateAndTheCallersUserIdToTheService(bool enabled)
+    public async Task TheEnableHandler_SetsTheState_AndRecordsWhoDisabledIt(bool enabled)
     {
         var source = StoredSource();
         source.DisabledTime = enabled ? DateTime.UtcNow : null;

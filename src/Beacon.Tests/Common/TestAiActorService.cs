@@ -104,11 +104,6 @@ internal sealed class TestAiActorService
                 return Task.FromResult(new LlmResponse { Content = LlmContent, Model = "stub" });
             });
 
-        var metadata = new Mock<IDatabaseMetadataService>(MockBehavior.Strict);
-        metadata
-            .Setup(x => x.GetMetadataAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync((int dataSourceId, CancellationToken _) => new DatabaseMetadataSnapshot(dataSourceId, DatabaseEngineType.PostgreSQL, [], DateTime.UtcNow));
-
         var executionAccess = new Mock<IExecutionAccessCheck>();
         executionAccess
             .Setup(x => x.AllowsAsync(It.IsAny<ProjectAction>(), It.IsAny<IReadOnlyCollection<int>>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
@@ -127,7 +122,7 @@ internal sealed class TestAiActorService
         return new AiActorService(
             factory.Object,
             llm.Object,
-            metadata.Object,
+            TestMetadataServices.Reading(DataSources),
             Mock.Of<IQueryService>(MockBehavior.Strict),
             Mock.Of<ISubscriptionService>(MockBehavior.Strict),
             Mock.Of<IBeaconScheduler>(MockBehavior.Strict),
