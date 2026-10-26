@@ -245,7 +245,7 @@ public static class ServiceConfiguration
             services.AddSingleton<IAdapter, EmailAdapter>();
         }
         services.TryAddSingleton<IJiraRestClientFactory, JiraRestClientFactory>();
-        services.TryAddSingleton<IJiraApiAdapter, JiraApiAdapter>();
+        services.TryAddSingleton<JiraApiAdapter>();
         services.AddSingleton<IAdapter, JiraAdapter>();
         services.AddSingleton<IAdapter, WebhookAdapter>();
         services.TryAddSingleton<AdapterFactory>();
@@ -267,7 +267,7 @@ public static class ServiceConfiguration
         // Domain services
         services.TryAddTransient<IJobService, JobService>();
         services.TryAddTransient<INotificationService, NotificationService>();
-        services.TryAddTransient<IDataSourceService, DataSourceService>();
+        services.TryAddTransient<DataSourceService>();
         services.TryAddTransient<IHeldDataSourceProbe, DataSourceService>();
         services.TryAddTransient<IQueryService, QueryService>();
         services.TryAddTransient<IStoredQueryPreview, QueryService>();
@@ -276,7 +276,7 @@ public static class ServiceConfiguration
         services.TryAddTransient<ISubscriptionService, SubscriptionService>();
         services.TryAddTransient<IRecipientService, RecipientService>();
         services.TryAddTransient<ITaskService, TaskService>();
-        services.TryAddTransient<IControlTowerService, ControlTowerService>();
+        services.TryAddTransient<ControlTowerService>();
         services.TryAddTransient<IMigrationService, MigrationService>();
         services.TryAddSingleton<DataMigration.MigrationBulkWriters>();
         services.TryAddTransient<IDatabaseMetadataService, DatabaseMetadataService>();

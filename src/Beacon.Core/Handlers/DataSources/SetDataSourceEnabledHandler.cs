@@ -4,7 +4,7 @@ using MediatR;
 
 namespace Beacon.Core.Handlers.DataSources;
 
-internal sealed class SetDataSourceEnabledHandler(IDataSourceService dataSourceService, IBeaconActorAccessor actorAccessor)
+internal sealed class SetDataSourceEnabledHandler(DataSourceService dataSourceService, IBeaconActorAccessor actorAccessor)
     : IRequestHandler<SetDataSourceEnabledCommand>
 {
     public async Task Handle(SetDataSourceEnabledCommand request, CancellationToken cancellationToken)

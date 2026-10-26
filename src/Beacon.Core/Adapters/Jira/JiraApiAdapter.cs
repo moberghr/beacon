@@ -5,26 +5,6 @@ using Beacon.Core.Notifications;
 
 namespace Beacon.Core.Adapters.Jira;
 
-public interface IJiraApiAdapter
-{
-    Task<CreateWorkItemResult> CreateWorkItem(
-        JiraCredentials credentials,
-        string sessionId,
-        string title,
-        AdfDocument description,
-        string issueType,
-        CancellationToken cancellationToken,
-        string? label = null,
-        string? priorityName = null,
-        string? parentKey = null);
-
-    Task<List<JiraTicketSearchDto>> SearchTickets(JiraCredentials credentials, string jql, int maxResults, CancellationToken cancellationToken);
-
-    Task AddCommentToTicket(JiraCredentials credentials, string ticketId, AdfDocument comment, CancellationToken cancellationToken);
-
-    Task TransitionIssue(JiraCredentials credentials, string issueKey, string transitionName, CancellationToken cancellationToken);
-}
-
 public record CreateWorkItemResult(
     string TicketKey,
     string TicketUrl,
@@ -40,10 +20,9 @@ public record JiraTicketSearchDto(
     DateTime Updated,
     IReadOnlyList<string>? Labels = null);
 
-public class JiraApiAdapter(
+internal sealed class JiraApiAdapter(
     IJiraRestClientFactory clientFactory,
     ILogger<JiraApiAdapter> logger)
-    : IJiraApiAdapter
 {
     public async Task<CreateWorkItemResult> CreateWorkItem(
         JiraCredentials credentials,

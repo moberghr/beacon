@@ -67,10 +67,6 @@ public class CleanSqlResponseTests
     [TestCaseSource(nameof(Fixtures))]
     public void CrossSourceJoin_KeepsItsOutputWithoutRefusing(string content, string expected, bool found)
     {
-        var type = typeof(Beacon.MCP.Services.CrossSourceQueryService).Assembly.GetType("Beacon.MCP.Services.SqlParsingHelper");
-        var method = type!.GetMethod("CleanSqlResponse", BindingFlags.Static | BindingFlags.NonPublic);
-        method.Should().NotBeNull();
-
-        method!.Invoke(null, [content]).Should().Be(expected);
+        SqlResponseCleaner.Clean(content, out _).Should().Be(expected);
     }
 }

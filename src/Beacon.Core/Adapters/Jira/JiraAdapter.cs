@@ -4,7 +4,7 @@ using Beacon.Core.Data.Enums;
 namespace Beacon.Core.Adapters.Jira;
 
 internal class JiraAdapter(
-    IJiraApiAdapter jiraApiAdapter,
+    JiraApiAdapter jiraApiAdapter,
     ILogger<JiraAdapter> logger) : IAdapter
 {
     public NotificationType NotificationType => NotificationType.Jira;

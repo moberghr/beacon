@@ -19,17 +19,21 @@ public class JiraIssueReuseTests
     private const string Subscription = "Failed payments";
     private const string Recipient = "acme;SEC;svc@acme.eu;token";
 
-    private Mock<IJiraApiAdapter> _jira = null!;
+    private Mock<IJiraRestClient> _jira = null!;
 
     [SetUp]
     public void SetUp()
     {
-        _jira = new Mock<IJiraApiAdapter>();
+        _jira = new Mock<IJiraRestClient>();
         _jira
-            .Setup(x => x.CreateWorkItem(
-                It.IsAny<JiraCredentials>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<AdfDocument>(), It.IsAny<string>(),
-                It.IsAny<CancellationToken>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>()))
-            .ReturnsAsync(new CreateWorkItemResult("SEC-99", "https://acme.atlassian.net/browse/SEC-99", true));
+            .Setup(x => x.SearchAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Found());
+        _jira
+            .Setup(x => x.CreateIssueAsync(It.IsAny<JiraCreateIssueRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new JiraCreateIssueResponse("99", "SEC-99", "self"));
+        _jira
+            .Setup(x => x.GetTransitionsAsync(It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new JiraTransitionsResponse([new JiraTransition("31", "Done", null)]));
     }
 
     [Test]
@@ -38,7 +42,7 @@ public class JiraIssueReuseTests
         await Adapter().SendNotificationAsync(Delivery(totalRecords: 3), lastNotificationResultCount: null);
 
         VerifyCreated(Times.Once());
-        _jira.Verify(x => x.AddCommentToTicket(It.IsAny<JiraCredentials>(), "SEC-99", It.IsAny<AdfDocument>(), It.IsAny<CancellationToken>()), Times.Once);
+        VerifyCommented("SEC-99", Times.Once());
     }
 
     [Test]
@@ -49,7 +53,7 @@ public class JiraIssueReuseTests
         await Adapter().SendNotificationAsync(Delivery(totalRecords: 3), lastNotificationResultCount: 1);
 
         VerifyCreated(Times.Never());
-        _jira.Verify(x => x.AddCommentToTicket(It.IsAny<JiraCredentials>(), "SEC-1", It.IsAny<AdfDocument>(), It.IsAny<CancellationToken>()), Times.Once);
+        VerifyCommented("SEC-1", Times.Once());
     }
 
     [Test]
@@ -59,9 +63,9 @@ public class JiraIssueReuseTests
 
         await Adapter().SendNotificationAsync(Delivery(totalRecords: 0), lastNotificationResultCount: 2);
 
-        _jira.Verify(x => x.TransitionIssue(It.IsAny<JiraCredentials>(), "SEC-1", "Done", It.IsAny<CancellationToken>()), Times.Once);
+        _jira.Verify(x => x.TransitionIssueAsync("SEC-1", It.Is<JiraTransitionRequest>(y => y.Transition.Id == "31"), It.IsAny<CancellationToken>()), Times.Once);
         VerifyCreated(Times.Never());
-        _jira.Verify(x => x.AddCommentToTicket(It.IsAny<JiraCredentials>(), It.IsAny<string>(), It.IsAny<AdfDocument>(), It.IsAny<CancellationToken>()), Times.Never);
+        _jira.Verify(x => x.AddCommentAsync(It.IsAny<string>(), It.IsAny<JiraAddCommentRequest>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     [Test]
@@ -72,21 +76,21 @@ public class JiraIssueReuseTests
         await Adapter().SendNotificationAsync(Delivery(totalRecords: 0), lastNotificationResultCount: 2);
         await Adapter().SendNotificationAsync(Delivery(totalRecords: 3), lastNotificationResultCount: 2);
 
-        _jira.Verify(x => x.TransitionIssue(It.IsAny<JiraCredentials>(), "OTHER-7", It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
-        _jira.Verify(x => x.AddCommentToTicket(It.IsAny<JiraCredentials>(), "OTHER-7", It.IsAny<AdfDocument>(), It.IsAny<CancellationToken>()), Times.Never);
+        _jira.Verify(x => x.TransitionIssueAsync("OTHER-7", It.IsAny<JiraTransitionRequest>(), It.IsAny<CancellationToken>()), Times.Never);
+        VerifyCommented("OTHER-7", Times.Never());
         VerifyCreated(Times.Once());
     }
 
     // The ticket an issue search answers with: only the legacy (text) search finds it unless labelled is set.
     private void Existing(Ticket ticket, bool labelled = false)
     {
-        var found = new JiraTicketSearchDto(ticket.Key, ticket.Summary, "", "Open", null, DateTime.UtcNow, DateTime.UtcNow);
+        var found = Found(ticket);
         _jira
-            .Setup(x => x.SearchTickets(It.IsAny<JiraCredentials>(), It.Is<string>(y => y.Contains("labels =") == labelled), It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync([found]);
+            .Setup(x => x.SearchAsync(It.Is<string>(y => y.Contains("labels =") == labelled), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(found);
         _jira
-            .Setup(x => x.SearchTickets(It.IsAny<JiraCredentials>(), It.Is<string>(y => y.Contains("labels =") != labelled), It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync([]);
+            .Setup(x => x.SearchAsync(It.Is<string>(y => y.Contains("labels =") != labelled), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Found());
     }
 
     [Test]
@@ -95,9 +99,9 @@ public class JiraIssueReuseTests
         await Adapter().SendNotificationAsync(Delivery(totalRecords: 3), lastNotificationResultCount: null);
 
         _jira.Verify(
-            x => x.CreateWorkItem(
-                It.IsAny<JiraCredentials>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<AdfDocument>(), "Task",
-                It.IsAny<CancellationToken>(), "Beacon beacon-sub-1-rcpt-7", It.IsAny<string?>(), It.IsAny<string?>()),
+            x => x.CreateIssueAsync(
+                It.Is<JiraCreateIssueRequest>(y => y.Fields.IssueType.Name == "Task" && y.Fields.Labels!.SequenceEqual(new[] { "Beacon", "beacon-sub-1-rcpt-7" })),
+                It.IsAny<CancellationToken>()),
             Times.Once);
     }
 
@@ -109,17 +113,24 @@ public class JiraIssueReuseTests
         await Adapter().SendNotificationAsync(Delivery(totalRecords: 3), lastNotificationResultCount: 1);
 
         VerifyCreated(Times.Never());
-        _jira.Verify(x => x.AddCommentToTicket(It.IsAny<JiraCredentials>(), "SEC-5", It.IsAny<AdfDocument>(), It.IsAny<CancellationToken>()), Times.Once);
+        VerifyCommented("SEC-5", Times.Once());
     }
 
     [Test]
     public async Task LaterDelivery_SearchesOnlyTheRecipientsProjectForOpenIssues()
     {
+        // The ticket searches (they ask for the description); the search a create makes for its own issue is not one.
         var queries = new List<string>();
         _jira
-            .Setup(x => x.SearchTickets(It.IsAny<JiraCredentials>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .Callback<JiraCredentials, string, int, CancellationToken>((_, jql, _, _) => queries.Add(jql))
-            .ReturnsAsync([]);
+            .Setup(x => x.SearchAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .Callback<string, int, int, string?, CancellationToken>((jql, _, _, fields, _) =>
+            {
+                if (fields!.Contains("description"))
+                {
+                    queries.Add(jql);
+                }
+            })
+            .ReturnsAsync(Found());
 
         await Adapter().SendNotificationAsync(Delivery(totalRecords: 3), lastNotificationResultCount: 1);
 
@@ -131,13 +142,34 @@ public class JiraIssueReuseTests
     private void VerifyCreated(Times times)
     {
         _jira.Verify(
-            x => x.CreateWorkItem(
-                It.IsAny<JiraCredentials>(), Subscription, $"BEACON: {Subscription}", It.IsAny<AdfDocument>(), "Task",
-                It.IsAny<CancellationToken>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>()),
+            x => x.CreateIssueAsync(
+                It.Is<JiraCreateIssueRequest>(y => y.Fields.Project.Key == "SEC" && y.Fields.Summary == $"BEACON: {Subscription}" && y.Fields.IssueType.Name == "Task"),
+                It.IsAny<CancellationToken>()),
             times);
     }
 
-    private IAdapter Adapter() => new JiraAdapter(_jira.Object, NullLogger<JiraAdapter>.Instance);
+    private void VerifyCommented(string key, Times times)
+    {
+        _jira.Verify(x => x.AddCommentAsync(key, It.IsAny<JiraAddCommentRequest>(), It.IsAny<CancellationToken>()), times);
+    }
+
+    private static JiraSearchResponse Found(params Ticket[] tickets)
+    {
+        var issues = tickets
+            .Select(x =>
+                new JiraIssueResponse(x.Key, x.Key, "self", new JiraIssueFields(x.Summary, "", new JiraStatus("1", "Open", null), null, null, null, null, null, null)))
+            .ToArray();
+
+        return new JiraSearchResponse(0, 50, issues.Length, issues);
+    }
+
+    private IAdapter Adapter()
+    {
+        var factory = new Mock<IJiraRestClientFactory>();
+        factory.Setup(x => x.CreateClient(It.IsAny<JiraCredentials>())).Returns(_jira.Object);
+
+        return new JiraAdapter(new JiraApiAdapter(factory.Object, NullLogger<JiraApiAdapter>.Instance), NullLogger<JiraAdapter>.Instance);
+    }
 
     private static RecipientQueryResult Delivery(int totalRecords)
     {

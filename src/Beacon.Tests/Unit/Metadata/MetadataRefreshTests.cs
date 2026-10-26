@@ -772,7 +772,7 @@ public class MetadataRefreshTests
                 Snapshots.Object);
         }
 
-        public IDataSourceService DataSourceService()
+        public DataSourceService DataSourceService()
         {
             return new DataSourceService(
                 Factory(),

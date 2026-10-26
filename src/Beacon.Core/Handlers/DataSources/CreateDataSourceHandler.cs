@@ -11,7 +11,7 @@ using Microsoft.Extensions.Logging;
 namespace Beacon.Core.Handlers.DataSources;
 
 internal sealed class CreateDataSourceHandler(
-    IDataSourceService dataSourceService,
+    DataSourceService dataSourceService,
     IDbContextFactory<BeaconContext> contextFactory,
     IProjectAccessEvaluator projectAccess,
     IBeaconActorAccessor actorAccessor,

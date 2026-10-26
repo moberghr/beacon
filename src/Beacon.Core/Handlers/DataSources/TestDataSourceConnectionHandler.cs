@@ -6,7 +6,7 @@ using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.DataSources;
 
-internal sealed class TestDataSourceConnectionHandler(IDataSourceService dataSourceService)
+internal sealed class TestDataSourceConnectionHandler(DataSourceService dataSourceService)
     : IRequestHandler<TestDataSourceConnectionCommand, TestDataSourceConnectionResult>
 {
     public async Task<TestDataSourceConnectionResult> Handle(TestDataSourceConnectionCommand request, CancellationToken cancellationToken)

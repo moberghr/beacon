@@ -6,7 +6,7 @@ using MediatR;
 
 namespace Beacon.Core.Handlers.DataSources;
 
-internal sealed class UpdateDataSourceHandler(IDataSourceService dataSourceService)
+internal sealed class UpdateDataSourceHandler(DataSourceService dataSourceService)
     : IRequestHandler<UpdateDataSourceCommand>
 {
     public async Task Handle(UpdateDataSourceCommand request, CancellationToken cancellationToken)
