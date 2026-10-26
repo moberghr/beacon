@@ -1,7 +1,7 @@
 using System.Security.Claims;
 using Beacon.AI.Handlers.AiActors;
 using Beacon.AI.Services.Ai.AiActor;
-using Beacon.AI.Services.Ai.AiActor.Models;
+using Beacon.AI.Services.LlmProviders;
 using Beacon.Core.Authorization;
 using Beacon.Core.BackgroundTasks;
 using Beacon.Core.Data;
@@ -32,18 +32,17 @@ public class AiActorThinkTaskTests
 
     private static readonly BackgroundTaskTicket Ticket = new(31, "job-1", BackgroundTaskState.Queued);
 
-    private Mock<IAiActorServiceExtended> _service = null!;
+    private TestAiActorService _service = null!;
     private List<AiActor> _actors = null!;
     private List<BeaconUser> _users = null!;
+    private List<AiActorPlan> _plans = null!;
 
     [SetUp]
     public void SetUp()
     {
-        _service = new Mock<IAiActorServiceExtended>();
-        _service
-            .Setup(x => x.ExecuteThinkCycleAsync(ActorId, null, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new AiActorThinkResult { Success = true });
         _actors = [new AiActor { Id = ActorId, Name = "watcher", Instructions = "watch", DataSourceId = 1, CreatedByUserId = "ext-ana", Status = AiActorStatus.Active }];
+        _plans = [];
+        _service = new TestAiActorService(_actors, () => _plans);
         _users =
         [
             new BeaconUser { Id = 1, ExternalId = "ext-ana", UserName = "ana", IsEnabled = true },
@@ -61,7 +60,7 @@ public class AiActorThinkTaskTests
         var ticket = await StartHandler(tasks.Object, Interactive("ext-ana")).Handle(new StartAiActorThinkCommand { ActorId = ActorId }, CancellationToken.None);
 
         ticket.Should().Be(Ticket);
-        _service.Verify(x => x.ExecuteThinkCycleAsync(It.IsAny<int>(), It.IsAny<int?>(), It.IsAny<CancellationToken>()), Times.Never, "the task thinks, not the request");
+        _service.ContextsOpened.Should().Be(0, "the task thinks, not the request");
         var started = audit.Single("ext-ana");
         started.Should().BeEquivalentTo(
             new { Action = SecurityAuditActions.AiActorThinkStarted, ResourceType = SecurityAuditResources.AiActor, ResourceId = "9" },
@@ -108,7 +107,7 @@ public class AiActorThinkTaskTests
         var outcome = await Executor(Interactive("ext-ana")).ExecuteAsync(new BackgroundTaskContext(1, ActorId, 1), CancellationToken.None);
 
         outcome.SkippedCode.Should().BeNull();
-        _service.Verify(x => x.ExecuteThinkCycleAsync(ActorId, null, It.IsAny<CancellationToken>()), Times.Once);
+        AssertOneCycleOfTheActor();
     }
 
     [Test]
@@ -117,7 +116,7 @@ public class AiActorThinkTaskTests
         var outcome = await Executor(Interactive("ext-ben", RoleService.RoleNames.Editor)).ExecuteAsync(new BackgroundTaskContext(1, ActorId, 2), CancellationToken.None);
 
         outcome.SkippedCode.Should().Be(BackgroundTaskFailureCodes.Forbidden);
-        _service.Verify(x => x.ExecuteThinkCycleAsync(It.IsAny<int>(), It.IsAny<int?>(), It.IsAny<CancellationToken>()), Times.Never);
+        AssertNoCycle();
     }
 
     [Test]
@@ -135,7 +134,7 @@ public class AiActorThinkTaskTests
         var outcome = await ExecutorFor(runAsAdmin).ExecuteAsync(new BackgroundTaskContext(1, ActorId, 5), CancellationToken.None);
 
         outcome.SkippedCode.Should().BeNull();
-        _service.Verify(x => x.ExecuteThinkCycleAsync(ActorId, null, It.IsAny<CancellationToken>()), Times.Once);
+        AssertOneCycleOfTheActor();
     }
 
     [Test]
@@ -153,7 +152,7 @@ public class AiActorThinkTaskTests
         var outcome = await ExecutorFor(runAsFormerAdmin).ExecuteAsync(new BackgroundTaskContext(1, ActorId, 5), CancellationToken.None);
 
         outcome.SkippedCode.Should().Be(BackgroundTaskFailureCodes.Forbidden);
-        _service.Verify(x => x.ExecuteThinkCycleAsync(It.IsAny<int>(), It.IsAny<int?>(), It.IsAny<CancellationToken>()), Times.Never);
+        AssertNoCycle();
     }
 
     [TestCase(AiActorStatus.Paused)]
@@ -165,7 +164,7 @@ public class AiActorThinkTaskTests
         var outcome = await Executor(Interactive("ext-ana")).ExecuteAsync(new BackgroundTaskContext(1, ActorId, 1), CancellationToken.None);
 
         outcome.SkippedCode.Should().Be(BackgroundTaskFailureCodes.Inactive);
-        _service.Verify(x => x.ExecuteThinkCycleAsync(It.IsAny<int>(), It.IsAny<int?>(), It.IsAny<CancellationToken>()), Times.Never);
+        AssertNoCycle();
     }
 
     [Test]
@@ -174,34 +173,47 @@ public class AiActorThinkTaskTests
         var outcome = await Executor(Interactive("ext-admin", RoleService.RoleNames.Admin)).ExecuteAsync(new BackgroundTaskContext(1, 404, 5), CancellationToken.None);
 
         outcome.SkippedCode.Should().Be(BackgroundTaskFailureCodes.NotFound);
-        _service.Verify(x => x.ExecuteThinkCycleAsync(It.IsAny<int>(), It.IsAny<int?>(), It.IsAny<CancellationToken>()), Times.Never);
+        AssertNoCycle();
     }
 
-    [TestCase(AiActorService.ThinkCooldownMessage + " Try again in 3 minute(s).", AiActorExecutionPhase.Failed, BackgroundTaskFailureCodes.Cooldown)]
-    [TestCase(AiActorService.ActorUnavailableMessage, AiActorExecutionPhase.Failed, BackgroundTaskFailureCodes.NotFound)]
-    [TestCase(AiActorService.OwnerNotAuthorizedMessage, AiActorExecutionPhase.Skipped, BackgroundTaskFailureCodes.Forbidden)]
-    [TestCase("Skipped: a plan is waiting for a decision.", AiActorExecutionPhase.Skipped, BackgroundTaskFailureCodes.PlanPending)]
-    public async Task TheTask_WhenTheCycleDoesNotRun_IsSkippedWithTheReasonsCode(string message, AiActorExecutionPhase phase, string code)
+    [TestCase(CycleNotRun.Cooldown, BackgroundTaskFailureCodes.Cooldown)]
+    [TestCase(CycleNotRun.ActorUnavailable, BackgroundTaskFailureCodes.NotFound)]
+    [TestCase(CycleNotRun.OwnerNotAuthorized, BackgroundTaskFailureCodes.Forbidden)]
+    [TestCase(CycleNotRun.PlanPending, BackgroundTaskFailureCodes.PlanPending)]
+    public async Task TheTask_WhenTheCycleDoesNotRun_IsSkippedWithTheReasonsCode(CycleNotRun reason, string code)
     {
-        _service
-            .Setup(x => x.ExecuteThinkCycleAsync(ActorId, null, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new AiActorThinkResult { Success = false, ErrorMessage = message, Phase = phase });
+        switch (reason)
+        {
+            case CycleNotRun.Cooldown:
+                _actors[0].LastThinkTime = DateTime.UtcNow.AddMinutes(-12);
+                break;
+            case CycleNotRun.ActorUnavailable:
+                _service.ThinkClaim = ThinkClaimResult.Missing;
+                break;
+            case CycleNotRun.OwnerNotAuthorized:
+                _service.RunsAsOwner = true;
+                _service.ExecutionAllowed = false;
+                break;
+            case CycleNotRun.PlanPending:
+                _plans.Add(new AiActorPlan { Id = 40, AiActorId = ActorId, AiActor = _actors[0], Analysis = "a", ActionsJson = "[]" });
+                break;
+        }
 
         var outcome = await Executor(Interactive("ext-ana")).ExecuteAsync(new BackgroundTaskContext(1, ActorId, 1), CancellationToken.None);
 
         outcome.SkippedCode.Should().Be(code);
+        _service.LlmRequests.Should().BeEmpty("a cycle that does not run asks the model nothing");
     }
 
     [Test]
     public async Task TheTask_WhenTheCycleFails_Throws_SoTheTaskIsRecordedFailed_WithoutTheMessage()
     {
-        _service
-            .Setup(x => x.ExecuteThinkCycleAsync(ActorId, null, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new AiActorThinkResult { Success = false, ErrorMessage = "provider said: secret detail", Phase = AiActorExecutionPhase.Failed });
+        _service.LlmFailure = new InvalidOperationException("provider said: secret detail");
 
         var run = () => Executor(Interactive("ext-ana")).ExecuteAsync(new BackgroundTaskContext(1, ActorId, 1), CancellationToken.None);
 
         var thrown = await run.Should().ThrowAsync<InvalidOperationException>();
+        _service.Added.OfType<AiActorExecution>().Should().ContainSingle().Which.ErrorMessage.Should().Be("provider said: secret detail", "the cycle failed, with its reason on its execution");
         thrown.Which.Message.Should().NotContain("secret detail");
         BackgroundTaskFailureCodes.Of(thrown.Which).Should().Be(BackgroundTaskFailureCodes.Failed);
     }
@@ -252,7 +264,7 @@ public class AiActorThinkTaskTests
         => new(tasks, Actor(caller), Factory(), NullLogger<StartAiActorThinkHandler>.Instance);
 
     private AiActorThinkTaskExecutor Executor(ClaimsPrincipal caller)
-        => new(_service.Object, Actor(caller), Factory(), NullLogger<AiActorThinkTaskExecutor>.Instance);
+        => new(_service.Service, Actor(caller), Factory(), NullLogger<AiActorThinkTaskExecutor>.Instance);
 
     private AiActorThinkTaskExecutor ExecutorFor(BeaconActor caller)
     {
@@ -261,7 +273,23 @@ public class AiActorThinkTaskTests
             .Setup(x => x.GetCurrentAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(caller);
 
-        return new(_service.Object, accessor.Object, Factory(), NullLogger<AiActorThinkTaskExecutor>.Instance);
+        return new(_service.Service, accessor.Object, Factory(), NullLogger<AiActorThinkTaskExecutor>.Instance);
+    }
+
+    // The service never started a think cycle: it opened no context and asked the model nothing.
+    private void AssertNoCycle()
+    {
+        _service.ContextsOpened.Should().Be(0);
+        _service.LlmRequests.Should().BeEmpty();
+    }
+
+    // The service ran one think cycle of the actor, asked for on demand (no triggering subscription), to completion.
+    private void AssertOneCycleOfTheActor()
+    {
+        _service.LlmRequests.Should().ContainSingle().Which.Operation.Should().Be(LlmOperations.ActorThink);
+        _service.Added.OfType<AiActorExecution>().Should().ContainSingle()
+            .Which.Should().BeEquivalentTo(new { AiActorId = ActorId, TriggeringSubscriptionId = (int?)null, Phase = AiActorExecutionPhase.Completed }, x => x.ExcludingMissingMembers());
+        _actors[0].ThinkCount.Should().Be(1);
     }
 
     private BeaconActorAccessor Actor(ClaimsPrincipal caller)
@@ -292,5 +320,13 @@ public class AiActorThinkTaskTests
         }
 
         return new ClaimsPrincipal(new ClaimsIdentity(claims, "Cookies"));
+    }
+
+    public enum CycleNotRun
+    {
+        Cooldown,
+        ActorUnavailable,
+        OwnerNotAuthorized,
+        PlanPending
     }
 }

@@ -608,11 +608,9 @@ public partial class AiActorCycleProposeOnlyTests
     public async Task GetAiActorPlan_SaysWhenThePlanExpires(int proposedDaysAgo, bool expired)
     {
         var actor = SeedActor();
-        var plan = SeedPlan(actor, 40, Now.AddDays(proposedDaysAgo));
-        var service = new Mock<IAiActorServiceExtended>();
-        service.Setup(x => x.GetPlanAsync(40, It.IsAny<CancellationToken>())).ReturnsAsync(plan);
+        SeedPlan(actor, 40, Now.AddDays(proposedDaysAgo));
         var handler = new GetAiActorPlanHandler(
-            service.Object,
+            BuildService(PlanJson, time: new FixedTimeProvider(Now)),
             Mock.Of<IOptionsMonitor<AiActorOptions>>(x => x.CurrentValue == new AiActorOptions()),
             new FixedTimeProvider(Now),
             Mock.Of<IBeaconActorAccessor>(x => x.GetCurrentAsync(It.IsAny<CancellationToken>()) == Task.FromResult(BeaconActor.Nobody)),

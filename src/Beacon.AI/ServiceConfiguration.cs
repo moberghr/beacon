@@ -155,7 +155,6 @@ public static class ServiceConfiguration
         services.TryAddSingleton(TimeProvider.System);
         services.TryAddTransient<IAiActorThinkClaim, EfAiActorThinkClaim>();
         services.TryAddScoped<AiActorService>();
-        services.TryAddScoped<IAiActorServiceExtended>(sp => sp.GetRequiredService<AiActorService>());
         services.TryAddScoped<Core.Services.IAiActorService>(sp => sp.GetRequiredService<AiActorService>());
         services.TryAddEnumerable(ServiceDescriptor.Transient<Core.BackgroundTasks.IBackgroundTaskExecutor, AiActorThinkTaskExecutor>());
 

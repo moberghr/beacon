@@ -11,7 +11,7 @@ using Beacon.Core.Handlers.AiActors;
 namespace Beacon.AI.Handlers.AiActors;
 
 internal sealed class ApproveAiActorPlanHandler(
-    IAiActorServiceExtended aiActorService,
+    AiActorService aiActorService,
     ILogger<ApproveAiActorPlanHandler> logger,
     IBeaconActorAccessor actorAccessor,
     IBeaconPermissionAccessor permissionAccessor,

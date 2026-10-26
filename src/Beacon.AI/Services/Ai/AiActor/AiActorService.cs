@@ -31,7 +31,7 @@ namespace Beacon.AI.Services.Ai.AiActor;
 /// (<see cref="IRunAsScope"/>) and is skipped, recorded on its execution, when the creator may not; a cycle a request
 /// asks for runs as the request's caller.
 /// </summary>
-public partial class AiActorService : IAiActorServiceExtended
+public partial class AiActorService : Core.Services.IAiActorService
 {
     /// <summary>Recorded on a background think cycle skipped because the actor's creator may no longer run it.</summary>
     public const string OwnerNotAuthorizedMessage = "Skipped: owner not authorized.";
@@ -485,6 +485,7 @@ public partial class AiActorService : IAiActorServiceExtended
         return ExecuteThinkCycleBackgroundAsync(actorId, triggeringSubscriptionId, CancellationToken.None);
     }
 
+    /// <summary>The same background cycle, stopping with <paramref name="cancellationToken"/>.</summary>
     public async Task ExecuteThinkCycleBackgroundAsync(
         int actorId,
         int? triggeringSubscriptionId,

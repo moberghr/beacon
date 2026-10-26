@@ -19,7 +19,7 @@ namespace Beacon.AI.Services.Ai.AiActor;
 /// request queue like any other.
 /// </summary>
 internal sealed class AiActorThinkTaskExecutor(
-    IAiActorServiceExtended aiActorService,
+    AiActorService aiActorService,
     IBeaconActorAccessor actorAccessor,
     IDbContextFactory<BeaconContext> contextFactory,
     ILogger<AiActorThinkTaskExecutor> logger) : IBackgroundTaskExecutor

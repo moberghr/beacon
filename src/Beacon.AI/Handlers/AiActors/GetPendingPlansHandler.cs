@@ -5,7 +5,7 @@ using Beacon.Core.Handlers.AiActors;
 
 namespace Beacon.AI.Handlers.AiActors;
 
-internal sealed class GetPendingPlansHandler(IAiActorServiceExtended aiActorService)
+internal sealed class GetPendingPlansHandler(AiActorService aiActorService)
     : IRequestHandler<GetPendingPlansQuery, GetPendingPlansResult>
 {
     public async Task<GetPendingPlansResult> Handle(

@@ -10,13 +10,13 @@ namespace Beacon.AI.Handlers.AiActors;
 
 internal sealed class ArchiveAiActorHandler : IRequestHandler<ArchiveAiActorCommand, ArchiveAiActorResult>
 {
-    private readonly IAiActorServiceExtended _aiActorService;
+    private readonly AiActorService _aiActorService;
     private readonly ILogger<ArchiveAiActorHandler> _logger;
     private readonly IBeaconActorAccessor _actorAccessor;
     private readonly IDbContextFactory<BeaconContext> _contextFactory;
 
     public ArchiveAiActorHandler(
-        IAiActorServiceExtended aiActorService,
+        AiActorService aiActorService,
         ILogger<ArchiveAiActorHandler> logger,
         IBeaconActorAccessor actorAccessor,
         IDbContextFactory<BeaconContext> contextFactory)

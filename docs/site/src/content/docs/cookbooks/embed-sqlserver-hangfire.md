@@ -160,7 +160,7 @@ public sealed class HangfireBeaconScheduler(IRecurringJobManager recurring, IBac
 }
 ```
 
-Hangfire's ASP.NET Core integration creates one DI scope per job and builds `BeaconHangfireJobs` in it, so the `ISystemWorkScope` the wrapper marks is the one `IJobService` reads. Hangfire fills the `CancellationToken` argument with its shutdown token at run time. The Hangfire calls above (`AddOrUpdate<T>`, `RemoveIfExists`, `Enqueue<T>`, `[AutomaticRetry]`) come from Hangfire, not from Beacon: check them against the Hangfire version you install. For AI documentation and AI actors, add wrapper methods that call `IProjectDocumentationService.GenerateDocumentationAsync(projectId, userId, ct)` and `IAiActorServiceExtended.ExecuteThinkCycleBackgroundAsync(actorId, subscriptionId)` ([Background jobs](/integrate/background-jobs/#reference-implementation-moberg-warp) names their namespaces).
+Hangfire's ASP.NET Core integration creates one DI scope per job and builds `BeaconHangfireJobs` in it, so the `ISystemWorkScope` the wrapper marks is the one `IJobService` reads. Hangfire fills the `CancellationToken` argument with its shutdown token at run time. The Hangfire calls above (`AddOrUpdate<T>`, `RemoveIfExists`, `Enqueue<T>`, `[AutomaticRetry]`) come from Hangfire, not from Beacon: check them against the Hangfire version you install. For AI documentation and AI actors, add wrapper methods that call `IProjectDocumentationService.GenerateDocumentationAsync(projectId, userId, ct)` and `AiActorService.ExecuteThinkCycleBackgroundAsync(actorId, subscriptionId)` ([Background jobs](/integrate/background-jobs/#reference-implementation-moberg-warp) names their namespaces).
 
 ## 4. Register the maintenance jobs
 

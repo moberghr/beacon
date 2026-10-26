@@ -10,13 +10,13 @@ namespace Beacon.AI.Handlers.AiActors;
 
 internal sealed class ResumeAiActorHandler : IRequestHandler<ResumeAiActorCommand, ResumeAiActorResult>
 {
-    private readonly IAiActorServiceExtended _aiActorService;
+    private readonly AiActorService _aiActorService;
     private readonly ILogger<ResumeAiActorHandler> _logger;
     private readonly IBeaconActorAccessor _actorAccessor;
     private readonly IDbContextFactory<BeaconContext> _contextFactory;
 
     public ResumeAiActorHandler(
-        IAiActorServiceExtended aiActorService,
+        AiActorService aiActorService,
         ILogger<ResumeAiActorHandler> logger,
         IBeaconActorAccessor actorAccessor,
         IDbContextFactory<BeaconContext> contextFactory)

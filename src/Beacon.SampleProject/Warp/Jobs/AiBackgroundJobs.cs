@@ -31,7 +31,7 @@ public sealed class AiActorThinkCycleJob : IJob
     public int SubscriptionId { get; init; }
 }
 
-public sealed class AiActorThinkCycleJobHandler(IAiActorServiceExtended aiActorService)
+public sealed class AiActorThinkCycleJobHandler(AiActorService aiActorService)
     : IJobHandler<AiActorThinkCycleJob>
 {
     public Task HandleAsync(AiActorThinkCycleJob message, CancellationToken cancellationToken)

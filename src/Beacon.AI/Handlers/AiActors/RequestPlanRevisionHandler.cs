@@ -10,7 +10,7 @@ using Beacon.Core.Handlers.AiActors;
 namespace Beacon.AI.Handlers.AiActors;
 
 internal sealed class RequestPlanRevisionHandler(
-    IAiActorServiceExtended aiActorService,
+    AiActorService aiActorService,
     ILogger<RequestPlanRevisionHandler> logger,
     IBeaconActorAccessor actorAccessor,
     IDbContextFactory<BeaconContext> contextFactory)

@@ -15,7 +15,7 @@ using Beacon.Core.Handlers.AiActors;
 namespace Beacon.AI.Handlers.AiActors;
 
 internal sealed class GetAiActorPlanHandler(
-    IAiActorServiceExtended aiActorService,
+    AiActorService aiActorService,
     IOptionsMonitor<AiActorOptions> options,
     TimeProvider timeProvider,
     IBeaconActorAccessor actorAccessor,
