@@ -31,7 +31,7 @@ namespace Beacon.AI.Services.Ai.AiActor;
 /// (<see cref="IRunAsScope"/>) and is skipped, recorded on its execution, when the creator may not; a cycle a request
 /// asks for runs as the request's caller.
 /// </summary>
-public partial class AiActorService : IAiActorServiceExtended
+public partial class AiActorService : Core.Services.IAiActorService
 {
     /// <summary>Recorded on a background think cycle skipped because the actor's creator may no longer run it.</summary>
     public const string OwnerNotAuthorizedMessage = "Skipped: owner not authorized.";
@@ -75,7 +75,7 @@ public partial class AiActorService : IAiActorServiceExtended
 
     private readonly IDbContextFactory<BeaconContext> _contextFactory;
     private readonly ILlmProvider _llmProvider;
-    private readonly IDatabaseMetadataService _metadataService;
+    private readonly DatabaseMetadataService _metadataService;
     private readonly IQueryService _queryService;
     private readonly ISubscriptionService _subscriptionService;
     private readonly IBeaconScheduler _beaconScheduler;
@@ -104,7 +104,7 @@ public partial class AiActorService : IAiActorServiceExtended
     public AiActorService(
         IDbContextFactory<BeaconContext> contextFactory,
         ILlmProvider llmProvider,
-        IDatabaseMetadataService metadataService,
+        DatabaseMetadataService metadataService,
         IQueryService queryService,
         ISubscriptionService subscriptionService,
         IBeaconScheduler beaconScheduler,
@@ -141,7 +141,7 @@ public partial class AiActorService : IAiActorServiceExtended
     public AiActorService(
         IDbContextFactory<BeaconContext> contextFactory,
         ILlmProvider llmProvider,
-        IDatabaseMetadataService metadataService,
+        DatabaseMetadataService metadataService,
         IQueryService queryService,
         ISubscriptionService subscriptionService,
         IBeaconScheduler beaconScheduler,
@@ -485,6 +485,7 @@ public partial class AiActorService : IAiActorServiceExtended
         return ExecuteThinkCycleBackgroundAsync(actorId, triggeringSubscriptionId, CancellationToken.None);
     }
 
+    /// <summary>The same background cycle, stopping with <paramref name="cancellationToken"/>.</summary>
     public async Task ExecuteThinkCycleBackgroundAsync(
         int actorId,
         int? triggeringSubscriptionId,

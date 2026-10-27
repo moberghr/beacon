@@ -4,7 +4,7 @@ using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.DataSources;
 
-internal sealed class DeleteDataSourceHandler(IDataSourceService dataSourceService)
+internal sealed class DeleteDataSourceHandler(DataSourceService dataSourceService)
     : IRequestHandler<DeleteDataSourceCommand>
 {
     public async Task Handle(DeleteDataSourceCommand request, CancellationToken cancellationToken)

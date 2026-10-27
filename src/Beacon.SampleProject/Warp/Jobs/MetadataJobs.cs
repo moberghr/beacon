@@ -13,7 +13,7 @@ public sealed class RefreshDataSourceMetadataJob : IJob
     public int DataSourceId { get; init; }
 }
 
-public sealed class RefreshDataSourceMetadataJobHandler(IDatabaseMetadataService metadataService)
+public sealed class RefreshDataSourceMetadataJobHandler(DatabaseMetadataService metadataService)
     : IJobHandler<RefreshDataSourceMetadataJob>
 {
     public Task HandleAsync(RefreshDataSourceMetadataJob message, CancellationToken cancellationToken)

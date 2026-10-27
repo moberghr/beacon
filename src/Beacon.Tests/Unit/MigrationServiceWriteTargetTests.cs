@@ -43,7 +43,7 @@ public class MigrationServiceWriteTargetTests
     private const int OrdinarySource = 30;
 
     private ProjectAccessWorld _world = null!;
-    private Mock<IQueryExecutionPreviewService> _preview = null!;
+    private RecordingStoredQueryPreview _storedPreview = null!;
     private RecordingDbConnection _destination = null!;
     private int _connectionsOpened;
 
@@ -56,10 +56,7 @@ public class MigrationServiceWriteTargetTests
         _world.Source(OrdinarySource);
         _world.Serve(new List<MigrationExecutionHistory>());
 
-        _preview = new Mock<IQueryExecutionPreviewService>();
-        _preview
-            .Setup(x => x.ExecuteTemporaryQueryPreview(It.IsAny<QueryData>(), It.IsAny<List<ParameterValue>?>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new QueryExecutionResult { Success = true, FinalResult = NoRows() });
+        _storedPreview = new RecordingStoredQueryPreview { TemporaryAnswer = _ => Task.FromResult(new QueryExecutionResult { Success = true, FinalResult = NoRows() }) };
 
         // The destination's table exists; every statement the writer sends is recorded.
         _destination = new RecordingDbConnection { Scalar = x => x.Contains("current_schemas", StringComparison.Ordinal) ? "public" : true };
@@ -238,9 +235,7 @@ public class MigrationServiceWriteTargetTests
 
         await Service(maxRows: 250_000).ExecuteMigrationJob(Run(), CancellationToken.None);
 
-        _preview.Verify(
-            x => x.ExecuteTemporaryQueryPreview(It.IsAny<QueryData>(), It.IsAny<List<ParameterValue>?>(), 250_000, It.IsAny<CancellationToken>()),
-            Times.Once);
+        _storedPreview.TemporaryRuns.Should().ContainSingle().Which.MaxRows.Should().Be(250_000);
     }
 
     // The job form sends plain SQL with the source in DataSourceId: the run reads it from that source, the data source its
@@ -249,16 +244,12 @@ public class MigrationServiceWriteTargetTests
     public async Task APlainSqlJob_RunsItsSqlOnTheJobsSource()
     {
         Job(ReadSource, WriteTarget, "SELECT id FROM accounts");
-        QueryData? read = null;
-        _preview
-            .Setup(x => x.ExecuteTemporaryQueryPreview(It.IsAny<QueryData>(), It.IsAny<List<ParameterValue>?>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .Callback<QueryData, List<ParameterValue>?, int, CancellationToken>((x, _, _, _) => read = x)
-            .ReturnsAsync(new QueryExecutionResult { Success = true, FinalResult = NoRows() });
 
         var result = await Service().ExecuteMigrationJob(Run(), CancellationToken.None);
+        var read = _storedPreview.TemporaryRuns.Last().Query;
 
         result.Status.Should().Be(MigrationStatus.Completed, result.ErrorMessage);
-        read!.Steps.Should().ContainSingle().Which.Should().Match<QueryStepData>(
+        read.Steps.Should().ContainSingle().Which.Should().Match<QueryStepData>(
             x => x.DataSourceId == ReadSource && x.SqlValue == "SELECT id FROM accounts");
     }
 
@@ -266,16 +257,12 @@ public class MigrationServiceWriteTargetTests
     public async Task AJsonStepsJob_RunsEachStepOnItsOwnDataSource()
     {
         Job(ReadSource, WriteTarget, StepsOn(ReadSource, OrdinarySource));
-        QueryData? read = null;
-        _preview
-            .Setup(x => x.ExecuteTemporaryQueryPreview(It.IsAny<QueryData>(), It.IsAny<List<ParameterValue>?>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .Callback<QueryData, List<ParameterValue>?, int, CancellationToken>((x, _, _, _) => read = x)
-            .ReturnsAsync(new QueryExecutionResult { Success = true, FinalResult = NoRows() });
 
         var result = await Service().ExecuteMigrationJob(Run(), CancellationToken.None);
+        var read = _storedPreview.TemporaryRuns.Last().Query;
 
         result.Status.Should().Be(MigrationStatus.Completed, result.ErrorMessage);
-        read!.Steps.Select(x => x.DataSourceId).Should().Equal(ReadSource, OrdinarySource);
+        read.Steps.Select(x => x.DataSourceId).Should().Equal(ReadSource, OrdinarySource);
     }
 
     // A plain-SQL job whose source is a write target is refused like a step that reads one: the run reads nothing.
@@ -299,9 +286,7 @@ public class MigrationServiceWriteTargetTests
         Job(ReadSource, WriteTarget);
         var timedOut = NoRows();
         timedOut.TimedOut = true;
-        _preview
-            .Setup(x => x.ExecuteTemporaryQueryPreview(It.IsAny<QueryData>(), It.IsAny<List<ParameterValue>?>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new QueryExecutionResult { Success = true, FinalResult = timedOut });
+        _storedPreview.TemporaryAnswer = _ => Task.FromResult(new QueryExecutionResult { Success = true, FinalResult = timedOut });
 
         var result = await Service().ExecuteMigrationJob(Run(), CancellationToken.None);
 
@@ -315,9 +300,7 @@ public class MigrationServiceWriteTargetTests
     public async Task ASourceReadThatFailed_InTheFinalQueryOrAStep_WritesNothing_AndTheRunIsRecordedFailed()
     {
         Job(ReadSource, WriteTarget);
-        _preview
-            .Setup(x => x.ExecuteTemporaryQueryPreview(It.IsAny<QueryData>(), It.IsAny<List<ParameterValue>?>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new BeaconException("The final query timed out."));
+        _storedPreview.TemporaryAnswer = _ => throw new BeaconException("The final query timed out.");
 
         var thrown = await Service().ExecuteMigrationJob(Run(), CancellationToken.None);
 
@@ -326,14 +309,12 @@ public class MigrationServiceWriteTargetTests
         NothingWritten();
 
         _world.Saved.Clear();
-        _preview
-            .Setup(x => x.ExecuteTemporaryQueryPreview(It.IsAny<QueryData>(), It.IsAny<List<ParameterValue>?>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new QueryExecutionResult
-            {
-                Success = true,
-                FinalResult = NoRows(),
-                StepResults = [new QueryStepResult { StepOrder = 1, Success = false, ErrorMessage = "Step execution timed out" }]
-            });
+        _storedPreview.TemporaryAnswer = _ => Task.FromResult(new QueryExecutionResult
+        {
+            Success = true,
+            FinalResult = NoRows(),
+            StepResults = [new QueryStepResult { StepOrder = 1, Success = false, ErrorMessage = "Step execution timed out" }]
+        });
 
         var failedStep = await Service().ExecuteMigrationJob(Run(), CancellationToken.None);
 
@@ -368,9 +349,7 @@ public class MigrationServiceWriteTargetTests
 
     private void NothingReadOrWritten()
     {
-        _preview.Verify(
-            x => x.ExecuteTemporaryQueryPreview(It.IsAny<QueryData>(), It.IsAny<List<ParameterValue>?>(), It.IsAny<int>(), It.IsAny<CancellationToken>()),
-            Times.Never);
+        _storedPreview.TemporaryRuns.Should().BeEmpty();
         _connectionsOpened.Should().Be(0, "no connection is made with a destination's credentials");
         _destination.ExecutedCommands.Should().BeEmpty();
     }
@@ -392,7 +371,7 @@ public class MigrationServiceWriteTargetTests
             _world.Factory(),
             TestTransport.Resolver(encryption.Object, transport),
             Mock.Of<IQueryService>(),
-            _preview.Object,
+            new QueryExecutionPreviewService(_storedPreview, TestProjectAccess.Authorizer(TestProjectAccess.Unrestricted)),
             Mock.Of<IBeaconUserContext>(),
             MigrationTestWriters.All(),
             NullLogger<MigrationService>.Instance,

@@ -4,6 +4,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Handlers.Queries;
 using Beacon.Core.Helpers;
 using Beacon.Core.HostData;
 using Beacon.Core.Models;
@@ -48,9 +49,9 @@ public class StoredQueryPreviewAuthorizationTests
         var world = new World();
         var connections = new Mock<IDataSourceConnectionResolver>(MockBehavior.Strict);
         var guard = new Mock<IHostDataSourceGuard>(MockBehavior.Strict);
-        var service = world.PreviewService(connections.Object, guard.Object, ProjectResourceKind.Query, movedTo);
+        var previews = world.Previews(connections.Object, guard.Object, ProjectResourceKind.Query, movedTo);
 
-        var act = () => Preview(service, singleStep);
+        var act = () => Preview(previews, singleStep);
 
         (await act.Should().ThrowAsync<BeaconException>()).Which.Should().BeOfType(refusal);
         world.Resolved.Should().Equal(
@@ -71,9 +72,9 @@ public class StoredQueryPreviewAuthorizationTests
             .Setup(x => x.GetConnectionString(It.IsAny<DataSource>()))
             .Callback<DataSource>(x => asked.Add(x.Id))
             .Throws(new ExecutionReachedException());
-        var service = world.PreviewService(connections.Object, new HostDataSourceGuard(new TestHostDataSources()), ProjectResourceKind.DataSources, UnreadableSource);
+        var previews = world.Previews(connections.Object, new HostDataSourceGuard(new TestHostDataSources()), ProjectResourceKind.DataSources, UnreadableSource);
 
-        var result = await Preview(service, singleStep);
+        var result = await Preview(previews, singleStep);
 
         result!.Success.Should().BeFalse("the run stops at the connection lookup");
         result.ErrorMessage.Should().Be(ExecutionReachedException.Text);
@@ -83,11 +84,12 @@ public class StoredQueryPreviewAuthorizationTests
         asked.Should().Equal([OpenSource], "the step that runs is the snapshot's, not the one saved after the check");
     }
 
-    private static Task<QueryPreviewResult?> Preview(IQueryExecutionPreviewService service, bool singleStep)
+    // The preview as its handler runs it: the whole query, or its first step on its own.
+    private static Task<QueryPreviewResult?> Preview(PreviewServices previews, bool singleStep)
     {
         return singleStep
-            ? service.ExecuteStepPreview(QueryId, 1, null, null, new Paging(), CancellationToken.None)
-            : service.ExecuteQueryPreview(QueryId, null, new Paging(), CancellationToken.None);
+            ? ExecuteStepPreviewHandler.RunAsync(previews.Queries, previews.Queries, previews.Authorizer, NullLogger.Instance, QueryId, 1, null, null, new Paging(), CancellationToken.None)
+            : ExecuteQueryPreviewHandler.RunAsync(previews.Queries, previews.Queries, previews.Authorizer, NullLogger.Instance, QueryId, null, new Paging(), CancellationToken.None);
     }
 
     /// <summary>
@@ -111,6 +113,8 @@ public class StoredQueryPreviewAuthorizationTests
     }
 
     private sealed record Paging : ListRequest;
+
+    private sealed record PreviewServices(QueryService Queries, ProjectRequestAuthorizer Authorizer);
 
     // Shaped like a value-free database error (a syntax error), which the caller's redacted error keeps as it is.
     private sealed class ExecutionReachedException() : Exception(Text)
@@ -150,10 +154,10 @@ public class StoredQueryPreviewAuthorizationTests
         public List<string> Resolved { get; } = [];
 
         /// <summary>
-        /// The preview service over the real query service and authorizer; once the authorizer has resolved a resource
-        /// of kind <paramref name="moveAfter"/>, the query's step is saved again on <paramref name="moveTo"/>.
+        /// The real query service and authorizer the preview runs on; once the authorizer has resolved a resource of kind
+        /// <paramref name="moveAfter"/>, the query's step is saved again on <paramref name="moveTo"/>.
         /// </summary>
-        public QueryExecutionPreviewService PreviewService(
+        public PreviewServices Previews(
             IDataSourceConnectionResolver connections,
             IHostDataSourceGuard guard,
             ProjectResourceKind moveAfter,
@@ -163,11 +167,7 @@ public class StoredQueryPreviewAuthorizationTests
             var queryService = TestQueryServices.QueryService(factory, connections, guard, new ConfiguredDatabaseResolver(connections, NullLogger<ConfiguredDatabaseResolver>.Instance));
             var resolver = new MovingResolver(this, moveAfter, () => _query.Steps = [Step(moveTo)]);
 
-            return new QueryExecutionPreviewService(
-                queryService,
-                queryService,
-                TestProjectAccess.Authorizer(CallerScope(), resolver, factory),
-                NullLogger<QueryExecutionPreviewService>.Instance);
+            return new PreviewServices(queryService, TestProjectAccess.Authorizer(CallerScope(), resolver, factory));
         }
 
         // A new row, as a save writes it: the step read into an earlier snapshot keeps its source.

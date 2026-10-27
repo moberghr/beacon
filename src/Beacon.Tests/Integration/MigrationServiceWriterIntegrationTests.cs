@@ -43,7 +43,7 @@ public class MigrationServiceWriterIntegrationTests
     private const int WriteTarget = 20;
 
     private ProjectAccessWorld _world = null!;
-    private Mock<IQueryExecutionPreviewService> _preview = null!;
+    private RecordingStoredQueryPreview _storedPreview = null!;
 
     [SetUp]
     public void SetUp()
@@ -57,7 +57,7 @@ public class MigrationServiceWriterIntegrationTests
         _world.Source(ReadSource);
         _world.Source(WriteTarget).AllowMigrationWrites = true;
         _world.Serve(new List<MigrationExecutionHistory>());
-        _preview = new Mock<IQueryExecutionPreviewService>();
+        _storedPreview = new RecordingStoredQueryPreview();
     }
 
     [Test]
@@ -209,9 +209,7 @@ public class MigrationServiceWriterIntegrationTests
                 .Select(x => (IDictionary<string, object?>)x)
                 .ToList()
         };
-        _preview
-            .Setup(x => x.ExecuteTemporaryQueryPreview(It.IsAny<QueryData>(), It.IsAny<List<ParameterValue>?>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new QueryExecutionResult { Success = true, FinalResult = result });
+        _storedPreview.TemporaryAnswer = _ => Task.FromResult(new QueryExecutionResult { Success = true, FinalResult = result });
     }
 
     private MigrationService Service(string connectionString, IMigrationBulkWriter writer)
@@ -223,7 +221,7 @@ public class MigrationServiceWriterIntegrationTests
             _world.Factory(),
             TestTransport.Resolver(encryption.Object),
             Mock.Of<IQueryService>(),
-            _preview.Object,
+            new QueryExecutionPreviewService(_storedPreview, TestProjectAccess.Authorizer(TestProjectAccess.Unrestricted)),
             Mock.Of<IBeaconUserContext>(),
             MigrationTestWriters.Of(writer),
             NullLogger<MigrationService>.Instance,

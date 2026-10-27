@@ -287,7 +287,7 @@ internal sealed class CrossSourceQueryService(
                 }
 
                 var tableName = $"result{i + 1}";
-                await memDb.CreateTableFromResults(tableName, rows.Cast<IDictionary<string, object?>>().ToList(), new ProjectInfo
+                await memDb.CreateTableFromResults(tableName, rows, new ProjectInfo
                 {
                     Name = source.DataSourceName,
                     DatabaseEngine = dataSource.DatabaseEngineType?.ToString() ?? "Unknown",
@@ -334,7 +334,8 @@ internal sealed class CrossSourceQueryService(
 
         llmBudget?.Consume();
         var joinResponse = await llmProvider.CompleteAsync(joinRequest, ct);
-        var joinSql = SqlParsingHelper.CleanSqlResponse(joinResponse.Content);
+        // Keeps the text when it holds no SQL: the SQL gate refuses it, the caller does not throw here.
+        var joinSql = SqlResponseCleaner.Clean(joinResponse.Content, out _);
         var translatedSql = memDb.TranslateFinalQuery(joinSql);
 
         text += $"\n### Join Query\n```sql\n{translatedSql}\n```\n\n";

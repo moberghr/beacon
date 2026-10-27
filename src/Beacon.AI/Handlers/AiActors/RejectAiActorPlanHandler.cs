@@ -10,7 +10,7 @@ using Beacon.Core.Handlers.AiActors;
 namespace Beacon.AI.Handlers.AiActors;
 
 internal sealed class RejectAiActorPlanHandler(
-    IAiActorServiceExtended aiActorService,
+    AiActorService aiActorService,
     ILogger<RejectAiActorPlanHandler> logger,
     IBeaconActorAccessor actorAccessor,
     IDbContextFactory<BeaconContext> contextFactory)

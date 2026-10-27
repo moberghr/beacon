@@ -547,7 +547,7 @@ public class ScheduledWorkRunAsTests
         var service = new AiActorService(
             sp.GetRequiredService<IDbContextFactory<BeaconContext>>(),
             llm,
-            Mock.Of<IDatabaseMetadataService>(),
+            TestMetadataServices.Unused(),
             Mock.Of<IQueryService>(MockBehavior.Strict),
             Mock.Of<ISubscriptionService>(MockBehavior.Strict),
             Mock.Of<IBeaconScheduler>(MockBehavior.Strict),

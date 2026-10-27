@@ -65,7 +65,7 @@ public class AiActorArchiveTests
         return new AiActorService(
             factory.Object,
             Mock.Of<ILlmProvider>(MockBehavior.Strict),
-            Mock.Of<IDatabaseMetadataService>(MockBehavior.Strict),
+            TestMetadataServices.Unused(),
             Mock.Of<IQueryService>(MockBehavior.Strict),
             Mock.Of<ISubscriptionService>(MockBehavior.Strict),
             Mock.Of<IBeaconScheduler>(MockBehavior.Strict),

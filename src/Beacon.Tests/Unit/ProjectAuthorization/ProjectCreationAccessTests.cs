@@ -293,30 +293,50 @@ public class ProjectCreationAccessTests
     [Test]
     public async Task CreateDataSource_LinksOnlyIntoLiveProjectsTheCallerManages()
     {
-        var service = new Mock<IDataSourceService>();
-        service
-            .Setup(x => x.CreateDataSource(It.IsAny<DataSourceData>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new BaseResponse { Success = true });
+        var saved = new List<object>();
+        var service = DataSources(saved);
         var projects = Factory([], projects: [new Project { Id = OpenProject, Name = "open" }]);
         var editor = TestProjectAccess.Scope(new Dictionary<int, ProjectRole> { [OpenProject] = ProjectRole.Editor }, includesOpen: true, notOpen: []);
 
-        var missing = () => CreateDataSource(service.Object, projects, TestProjectAccess.Unrestricted).Handle(Command([9]), CancellationToken.None);
-        var notManaged = () => CreateDataSource(service.Object, projects, editor).Handle(Command([OpenProject]), CancellationToken.None);
-        await CreateDataSource(service.Object, projects, TestProjectAccess.Unrestricted).Handle(Command([OpenProject, OpenProject]), CancellationToken.None);
+        var missing = () => CreateDataSource(service, projects, TestProjectAccess.Unrestricted).Handle(Command([9]), CancellationToken.None);
+        var notManaged = () => CreateDataSource(service, projects, editor).Handle(Command([OpenProject]), CancellationToken.None);
+        await CreateDataSource(service, projects, TestProjectAccess.Unrestricted).Handle(Command([OpenProject, OpenProject]), CancellationToken.None);
 
         await missing.Should().ThrowAsync<BeaconNotFoundException>();
         await notManaged.Should().ThrowAsync<BeaconForbiddenException>();
-        service.Verify(
-            x => x.CreateDataSource(It.Is<DataSourceData>(y => y.ProjectIds.SequenceEqual(new[] { OpenProject }) && y.LinkedByUserId == 3), It.IsAny<CancellationToken>()),
-            Times.Once);
+        saved.OfType<DataSource>().Should().ContainSingle();
+        saved.OfType<ProjectDataSource>().Should().ContainSingle()
+            .Which.Should().BeEquivalentTo(new { ProjectId = OpenProject, LinkedByUserId = (int?)3 }, x => x.ExcludingMissingMembers());
+    }
+
+    private static DataSourceService DataSources(List<object> saved)
+    {
+        var factory = new Mock<IDbContextFactory<BeaconContext>>();
+        factory
+            .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new RecordingBeaconContext(new Dictionary<Type, object>(), saved));
+        var encryption = new Mock<IEncryptionService>();
+        encryption.Setup(x => x.Encrypt(It.IsAny<string>())).Returns("enc");
+        return new DataSourceService(
+            factory.Object,
+            encryption.Object,
+            TestProviderFactory.Accepting(),
+            new MemoryCache(new MemoryCacheOptions()),
+            Mock.Of<Beacon.Core.Services.Metadata.ISchemaGraphService>(),
+            new RecordingSecurityAudit(),
+            TestTransport.Policy(),
+            TestEngineVerifier.Passing,
+            TestChangeApprovals.Submitter(),
+            TestTransport.Hasher(),
+            NullLogger<DataSourceService>.Instance);
     }
 
     private static CreateDataSourceCommand Command(List<int> projectIds)
     {
-        return new CreateDataSourceCommand("warehouse", DataSourceType.Database, DatabaseEngineType.PostgreSQL, "Host=x", true, 0, 0, false, null, null, projectIds);
+        return new CreateDataSourceCommand("warehouse", DataSourceType.Database, DatabaseEngineType.PostgreSQL, "Host=x;Password=reader;SSL Mode=VerifyFull", true, 0, 0, false, null, null, projectIds);
     }
 
-    private static CreateDataSourceHandler CreateDataSource(IDataSourceService service, IDbContextFactory<BeaconContext> factory, ProjectAccessScope scope)
+    private static CreateDataSourceHandler CreateDataSource(DataSourceService service, IDbContextFactory<BeaconContext> factory, ProjectAccessScope scope)
     {
         return new CreateDataSourceHandler(
             service,

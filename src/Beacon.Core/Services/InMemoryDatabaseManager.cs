@@ -87,7 +87,7 @@ public class InMemoryDatabaseManager : IDisposable
     /// </summary>
     internal long MaxResultBytes { get; init; } = Constants.Query.MaxResultBytes;
 
-    public async Task CreateTableFromResults(string tableName, List<IDictionary<string, object?>> data, ProjectInfo sourceProject)
+    public async Task CreateTableFromResults(string tableName, IReadOnlyList<IDictionary<string, object?>> data, ProjectInfo sourceProject)
     {
         if (_readOnly)
         {
@@ -129,7 +129,7 @@ public class InMemoryDatabaseManager : IDisposable
     private async Task BulkInsertData(
         string quotedTableName,
         List<string> columnNames,
-        List<IDictionary<string, object?>> data,
+        IReadOnlyList<IDictionary<string, object?>> data,
         SqliteTransaction transaction)
     {
         var quotedColumns = string.Join(", ", columnNames.Select(QuoteIdentifier));

@@ -615,7 +615,7 @@ public class AiActorRefinementTests
         new(
             store.Factory(),
             Mock.Of<ILlmProvider>(MockBehavior.Strict),
-            Mock.Of<IDatabaseMetadataService>(MockBehavior.Strict),
+            TestMetadataServices.Unused(),
             _queries.Object,
             Mock.Of<ISubscriptionService>(MockBehavior.Strict),
             Mock.Of<IBeaconScheduler>(MockBehavior.Strict),

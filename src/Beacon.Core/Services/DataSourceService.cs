@@ -22,25 +22,6 @@ using Microsoft.Extensions.Logging;
 
 namespace Beacon.Core.Services;
 
-public interface IDataSourceService
-{
-    Task<BaseResponse> CreateDataSource(DataSourceData dataSourceData, CancellationToken cancellationToken);
-
-    Task UpdateDataSource(DataSourceData dataSourceData, CancellationToken cancellationToken);
-
-    /// <summary>
-    /// Disables a data source (no connection is made with it from then on) or enables it again; recorded as who disabled it
-    /// and when, with a security event. Setting the state it already has changes nothing and records nothing.
-    /// </summary>
-    Task SetDataSourceEnabled(int dataSourceId, bool enabled, int? actorUserId, CancellationToken cancellationToken);
-
-    Task DeleteDataSource(int dataSourceId, CancellationToken cancellationToken);
-
-    Task<BaseResponse> TestConnection(string connectionString, Data.Enums.DatabaseEngineType databaseEngineType, CancellationToken cancellationToken);
-
-    Task<BaseResponse> TestConnectionAsync(DataSourceData dataSourceData, CancellationToken cancellationToken);
-}
-
 /// <summary>
 /// Probes the server of a governed data source's stored connection before its connection is approved: a source held for
 /// approval connects to nothing, so the engine check its save skipped runs once here; and, once the approval is committed,
@@ -85,7 +66,7 @@ internal interface IHeldDataSourceProbe
 /// workflow off, a save that changes a governed source's definition makes it ungoverned again and supersedes its pending
 /// requests. Deleting a source supersedes its pending requests in the same save.
 /// </summary>
-internal class DataSourceService(
+internal sealed class DataSourceService(
     IDbContextFactory<BeaconContext> contextFactory,
     IEncryptionService encryptionService,
     IDataSourceProviderFactory providerFactory,
@@ -98,7 +79,7 @@ internal class DataSourceService(
     ConnectionDefinitionHasher definitionHasher,
     ILogger<DataSourceService> logger,
     IBeaconScheduler? scheduler = null,
-    ICatalogSnapshotCache? catalogSnapshots = null) : IDataSourceService, IHeldDataSourceProbe
+    ICatalogSnapshotCache? catalogSnapshots = null) : IHeldDataSourceProbe
 {
     /// <summary>What a caller is told when a change of target is not confirmed (HTTP 409).</summary>
     public const string TargetChangeUnconfirmedMessage =
@@ -468,6 +449,10 @@ internal class DataSourceService(
         }
     }
 
+    /// <summary>
+    /// Disables a data source (no connection is made with it from then on) or enables it again; recorded as who disabled it
+    /// and when, with a security event. Setting the state it already has changes nothing and records nothing.
+    /// </summary>
     public async Task SetDataSourceEnabled(int dataSourceId, bool enabled, int? actorUserId, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);

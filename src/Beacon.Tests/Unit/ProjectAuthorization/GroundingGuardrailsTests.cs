@@ -214,17 +214,14 @@ public class GroundingGuardrailsTests
                     null)
             ],
             DateTime.UtcNow);
-        var metadata = new Mock<IDatabaseMetadataService>();
-        metadata
-            .Setup(x => x.GetMetadataAsync(DataSourceId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(snapshot);
+        var metadata = TestMetadataServices.Serving(snapshot);
         var settings = Shared(new McpSettingsData { EnableValueGrounding = true, EnableSampleValueCollection = true });
 
-        var asAdmin = await new GetDataSourceMetadataHandler(metadata.Object, new MetadataSampleView(TestPermissions.Admin, settings.SharedSources(DataSourceId), new QueryGuardrailService()))
+        var asAdmin = await new GetDataSourceMetadataHandler(metadata, new MetadataSampleView(TestPermissions.Admin, settings.SharedSources(DataSourceId), new QueryGuardrailService()))
             .Handle(new GetDataSourceMetadataQuery(DataSourceId), CancellationToken.None);
-        var asViewer = await new GetDataSourceMetadataHandler(metadata.Object, new MetadataSampleView(TestPermissions.None, settings.SharedSources(DataSourceId), new QueryGuardrailService()))
+        var asViewer = await new GetDataSourceMetadataHandler(metadata, new MetadataSampleView(TestPermissions.None, settings.SharedSources(DataSourceId), new QueryGuardrailService()))
             .Handle(new GetDataSourceMetadataQuery(DataSourceId), CancellationToken.None);
-        var asDataSourceAdmin = await new GetDataSourceMetadataHandler(metadata.Object, new MetadataSampleView(TestPermissions.Holding(Beacon.Core.Authorization.BeaconPermissions.DataSourceAdmin), settings.SharedSources(DataSourceId), new QueryGuardrailService()))
+        var asDataSourceAdmin = await new GetDataSourceMetadataHandler(metadata, new MetadataSampleView(TestPermissions.Holding(Beacon.Core.Authorization.BeaconPermissions.DataSourceAdmin), settings.SharedSources(DataSourceId), new QueryGuardrailService()))
             .Handle(new GetDataSourceMetadataQuery(DataSourceId), CancellationToken.None);
 
         asAdmin.Tables.Single().Columns.Single().SampleValues.Should().Equal("PAID");
@@ -256,13 +253,10 @@ public class GroundingGuardrailsTests
                     null)
             ],
             DateTime.UtcNow);
-        var metadata = new Mock<IDatabaseMetadataService>();
-        metadata
-            .Setup(x => x.GetMetadataAsync(DataSourceId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(snapshot);
+        var metadata = TestMetadataServices.Serving(snapshot);
         var settings = Shared(new McpSettingsData { EnableValueGrounding = true, EnableSampleValueCollection = true, CustomPiiPatterns = ["^REFUND"] });
         var handler = new GetDataSourceMetadataHandler(
-            metadata.Object,
+            metadata,
             new MetadataSampleView(TestPermissions.Admin, settings.SharedSources(DataSourceId), new QueryGuardrailService()));
 
         var read = await handler.Handle(new GetDataSourceMetadataQuery(DataSourceId), CancellationToken.None);

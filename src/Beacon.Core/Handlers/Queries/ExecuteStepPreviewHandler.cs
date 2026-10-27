@@ -40,7 +40,7 @@ internal sealed class ExecuteStepPreviewHandler(
 
     /// <summary>
     /// One page of a single step's result, run on its own; from the draft when given. A failure comes back as the
-    /// result, a cancellation as null. Shared with the obsolete service forwarder.
+    /// result, a cancellation as null.
     /// </summary>
     internal static async Task<QueryPreviewResult?> RunAsync(
         IQueryService queryService,

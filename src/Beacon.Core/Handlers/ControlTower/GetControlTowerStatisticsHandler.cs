@@ -6,7 +6,7 @@ using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.ControlTower;
 
-internal sealed class GetControlTowerStatisticsHandler(IControlTowerService controlTowerService, IProjectAccessEvaluator projectAccess)
+internal sealed class GetControlTowerStatisticsHandler(ControlTowerService controlTowerService, IProjectAccessEvaluator projectAccess)
     : IRequestHandler<GetControlTowerStatisticsQuery, GetControlTowerStatisticsResult>
 {
     public async Task<GetControlTowerStatisticsResult> Handle(

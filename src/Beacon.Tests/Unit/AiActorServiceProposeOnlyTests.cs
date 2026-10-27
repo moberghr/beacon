@@ -33,7 +33,7 @@ public class AiActorServiceProposeOnlyTests
         _service = new AiActorService(
             _contextFactory.Object,
             Mock.Of<ILlmProvider>(MockBehavior.Strict),
-            Mock.Of<IDatabaseMetadataService>(MockBehavior.Strict),
+            TestMetadataServices.Unused(),
             _queryService.Object,
             _subscriptionService.Object,
             Mock.Of<IBeaconScheduler>(MockBehavior.Strict),

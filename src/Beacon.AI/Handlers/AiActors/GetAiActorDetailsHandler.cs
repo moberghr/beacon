@@ -11,11 +11,11 @@ namespace Beacon.AI.Handlers.AiActors;
 
 internal sealed class GetAiActorDetailsHandler : IRequestHandler<GetAiActorDetailsQuery, GetAiActorDetailsResult?>
 {
-    private readonly IAiActorServiceExtended _aiActorService;
+    private readonly AiActorService _aiActorService;
     private readonly IDbContextFactory<BeaconContext> _contextFactory;
 
     public GetAiActorDetailsHandler(
-        IAiActorServiceExtended aiActorService,
+        AiActorService aiActorService,
         IDbContextFactory<BeaconContext> contextFactory)
     {
         _aiActorService = aiActorService;

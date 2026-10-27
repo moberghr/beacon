@@ -200,22 +200,18 @@ public class ScheduledWorkVisibilityTests
 
     private static GetAiActorDetailsHandler ActorDetails(BeaconUser user, string? createdByUserId)
     {
-        var actors = new Mock<IAiActorServiceExtended>();
-        actors
-            .Setup(x => x.GetActorAsync(9, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new ActorEntity { Id = 9, Name = "Watcher", Instructions = "Watch.", DataSourceId = 1, CreatedByUserId = createdByUserId });
-        actors
-            .Setup(x => x.GetActorQueriesAsync(9, It.IsAny<CancellationToken>()))
-            .ReturnsAsync([]);
-        actors
-            .Setup(x => x.GetActorSubscriptionsAsync(9, It.IsAny<CancellationToken>()))
-            .ReturnsAsync([]);
-        actors
-            .Setup(x => x.GetExecutionHistoryAsync(9, It.IsAny<int?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync([]);
-        actors
-            .Setup(x => x.GetPendingPlansAsync(9, It.IsAny<CancellationToken>()))
-            .ReturnsAsync([]);
+        var actors = new TestAiActorService(
+        [
+            new ActorEntity
+            {
+                Id = 9,
+                Name = "Watcher",
+                Instructions = "Watch.",
+                DataSourceId = 1,
+                DataSource = new DataSource { Id = 1, Name = "warehouse", DataSourceType = DataSourceType.Database, EncryptedConnectionData = string.Empty },
+                CreatedByUserId = createdByUserId
+            }
+        ]);
         var saved = new List<object>();
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
@@ -224,6 +220,6 @@ public class ScheduledWorkVisibilityTests
                 new Dictionary<Type, object> { [typeof(BeaconUser)] = RecordingBeaconContext.MemorySet([user], saved) },
                 saved));
 
-        return new GetAiActorDetailsHandler(actors.Object, factory.Object);
+        return new GetAiActorDetailsHandler(actors.Service, factory.Object);
     }
 }

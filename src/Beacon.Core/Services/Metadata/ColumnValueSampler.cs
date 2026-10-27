@@ -10,40 +10,11 @@ using Beacon.Core.Services.Security;
 
 namespace Beacon.Core.Services.Metadata;
 
-public interface IColumnValueSampler
+public sealed class ColumnValueSampler
 {
-    /// <summary>
-    /// Samples up to <see cref="MaxValuesPerColumn"/> representative values per column for each table
-    /// (one query per table) and returns the tables with enriched <c>SampleValues</c>. Also probes up
-    /// to 8 short string columns per table for their complete value domain (bounded DISTINCT); a domain
-    /// of <see cref="MaxCompleteDomainValues"/> or fewer values replaces the sample and is marked
-    /// <c>SampleValuesComplete</c>. Every sampling statement passes the shared execution gate and runs through the
-    /// provider's read-only path (<see cref="IDataSourceProvider.ExecuteReadOnlyQueryAsync"/>) on the data source's own
-    /// connection, with a row cap and a statement timeout. Sampling failures are logged and never fail the metadata refresh.
-    /// A column whose name <see cref="ColumnValueExclusions"/> leaves out (PII, secret-like, a person's name, a financial
-    /// amount), or a binary column, is not read at all (the row sample names the other columns, a table with none is not
-    /// queried); one of whose values looks like PII or a credential — screened whole, before a sample is cut to
-    /// <see cref="MaxValueLength"/> — is returned with no samples, so the refresh that stores the result clears any it held
-    /// before. Each refresh logs how many columns it left out by name, for a PII-shaped value and for a credential-shaped
-    /// value (counts only).
-    /// </summary>
-    Task<IReadOnlyList<TableMetadataDto>> EnrichWithSampleValuesAsync(
-        DataSource dataSource,
-        IReadOnlyList<TableMetadataDto> tables,
-        IReadOnlyList<string>? customPiiPatterns,
-        CancellationToken cancellationToken = default);
-
-    const int MaxValuesPerColumn = 5;
-    const int MaxValueLength = 50;
-    const int MaxCompleteDomainValues = 12;
-}
-
-internal sealed class ColumnValueSampler(
-    IQueryGuardrailService guardrailService,
-    GatedSqlRunner sqlRunner,
-    IRowSecurityResolver rowSecurityResolver,
-    ILogger<ColumnValueSampler> logger) : IColumnValueSampler
-{
+    public const int MaxValuesPerColumn = 5;
+    public const int MaxValueLength = 50;
+    public const int MaxCompleteDomainValues = 12;
     private const int SampleRowCount = 5;
     private static readonly TimeSpan StatementTimeout = TimeSpan.FromSeconds(30);
     private const int MaxCandidateColumnsPerTable = 8;
@@ -67,6 +38,39 @@ internal sealed class ColumnValueSampler(
         "char", "varchar", "nvarchar", "nchar", "text", "character varying", "enum", "name", "bpchar", "string"
     ];
 
+    private readonly IQueryGuardrailService _guardrailService;
+    private readonly GatedSqlRunner _sqlRunner;
+    private readonly IRowSecurityResolver _rowSecurityResolver;
+    private readonly ILogger<ColumnValueSampler> _logger;
+
+    // Internal because GatedSqlRunner is: ServiceConfiguration registers the sampler through a factory.
+    internal ColumnValueSampler(
+        IQueryGuardrailService guardrailService,
+        GatedSqlRunner sqlRunner,
+        IRowSecurityResolver rowSecurityResolver,
+        ILogger<ColumnValueSampler> logger)
+    {
+        _guardrailService = guardrailService;
+        _sqlRunner = sqlRunner;
+        _rowSecurityResolver = rowSecurityResolver;
+        _logger = logger;
+    }
+
+    /// <summary>
+    /// Samples up to <see cref="MaxValuesPerColumn"/> representative values per column for each table
+    /// (one query per table) and returns the tables with enriched <c>SampleValues</c>. Also probes up
+    /// to 8 short string columns per table for their complete value domain (bounded DISTINCT); a domain
+    /// of <see cref="MaxCompleteDomainValues"/> or fewer values replaces the sample and is marked
+    /// <c>SampleValuesComplete</c>. Every sampling statement passes the shared execution gate and runs through the
+    /// provider's read-only path (<see cref="IDataSourceProvider.ExecuteReadOnlyQueryAsync"/>) on the data source's own
+    /// connection, with a row cap and a statement timeout. Sampling failures are logged and never fail the metadata refresh.
+    /// A column whose name <see cref="ColumnValueExclusions"/> leaves out (PII, secret-like, a person's name, a financial
+    /// amount), or a binary column, is not read at all (the row sample names the other columns, a table with none is not
+    /// queried); one of whose values looks like PII or a credential — screened whole, before a sample is cut to
+    /// <see cref="MaxValueLength"/> — is returned with no samples, so the refresh that stores the result clears any it held
+    /// before. Each refresh logs how many columns it left out by name, for a PII-shaped value and for a credential-shaped
+    /// value (counts only).
+    /// </summary>
     public async Task<IReadOnlyList<TableMetadataDto>> EnrichWithSampleValuesAsync(
         DataSource dataSource,
         IReadOnlyList<TableMetadataDto> tables,
@@ -106,7 +110,7 @@ internal sealed class ColumnValueSampler(
             catch (Exception ex)
             {
                 // The table and why, never the exception's message, which can quote row values (§1.11).
-                logger.LogWarning(
+                _logger.LogWarning(
                     "Sample-value collection skipped table {Table} of data source {DataSourceId} ({Reason}); its samples are left empty",
                     SqlIdentifierGuard.ForLog($"{table.SchemaName}.{table.TableName}"),
                     dataSource.Id,
@@ -115,7 +119,7 @@ internal sealed class ColumnValueSampler(
             }
         }
 
-        logger.LogInformation(
+        _logger.LogInformation(
             "Sample-value collection of data source {DataSourceId}: {SampledCount} of {TableCount} tables sampled; columns left out by name {ByName}, for a PII-shaped value {ByPiiValue}, for a credential-shaped value {ByCredentialValue}",
             dataSource.Id,
             sampled,
@@ -166,7 +170,7 @@ internal sealed class ColumnValueSampler(
                 }
 
                 var text = Cut(fullText);
-                if (values.Count < IColumnValueSampler.MaxValuesPerColumn && !values.Contains(text, StringComparer.Ordinal))
+                if (values.Count < MaxValuesPerColumn && !values.Contains(text, StringComparer.Ordinal))
                 {
                     values.Add(text);
                 }
@@ -190,11 +194,11 @@ internal sealed class ColumnValueSampler(
         int statementBound,
         CancellationToken cancellationToken)
     {
-        var rowSecurity = await rowSecurityResolver.ResolveAsync(dataSource.Id, cancellationToken);
+        var rowSecurity = await _rowSecurityResolver.ResolveAsync(dataSource.Id, cancellationToken);
         GatedSqlRun run;
         try
         {
-            run = await sqlRunner.RunAsync(
+            run = await _sqlRunner.RunAsync(
                 new GatedSqlRequest(dataSource, sql, new Dictionary<string, object?>(), statementBound + 1, rowSecurity, Timeout: StatementTimeout, ExecutionContext: SqlExecutionContexts.ColumnValueSample),
                 cancellationToken);
         }
@@ -254,7 +258,7 @@ internal sealed class ColumnValueSampler(
             }
             catch (Exception ex)
             {
-                logger.LogWarning(
+                _logger.LogWarning(
                     "Domain probe skipped column {Column} of data source {DataSourceId} ({Reason}); keeping its row sample",
                     SqlIdentifierGuard.ForLog($"{table.SchemaName}.{table.TableName}.{column.ColumnName}"),
                     dataSource.Id,
@@ -268,13 +272,13 @@ internal sealed class ColumnValueSampler(
     /// <summary>
     /// TEST-3: the count→complete decision the bounded DISTINCT domain probe relies on, extracted so it
     /// is directly unit-testable without a database. The probe is capped one above
-    /// <see cref="IColumnValueSampler.MaxCompleteDomainValues"/> (spec item 4), so returning that many
+    /// <see cref="MaxCompleteDomainValues"/> (spec item 4), so returning that many
     /// rows back means the true domain is larger than the cap — NOT complete. Zero rows back is treated
     /// the same as "not complete" (nothing to persist; the existing row sample is kept).
     /// </summary>
     internal static bool IsCompleteDomain(IReadOnlyList<string> values)
     {
-        return values.Count > 0 && values.Count <= IColumnValueSampler.MaxCompleteDomainValues;
+        return values.Count > 0 && values.Count <= MaxCompleteDomainValues;
     }
 
     private async Task<List<string>> ProbeDomainAsync(
@@ -285,7 +289,7 @@ internal sealed class ColumnValueSampler(
         CancellationToken cancellationToken)
     {
         var sql = BuildDistinctProbeQuery(engineType, table.SchemaName, table.TableName, column.ColumnName);
-        var rows = await ReadAsync(dataSource, sql, IColumnValueSampler.MaxCompleteDomainValues + 1, cancellationToken);
+        var rows = await ReadAsync(dataSource, sql, MaxCompleteDomainValues + 1, cancellationToken);
         var values = new List<string>();
 
         foreach (var row in rows)
@@ -328,7 +332,7 @@ internal sealed class ColumnValueSampler(
             return WithoutSamples(column);
         }
 
-        if (ColumnValueExclusions.IsExcludedColumn(guardrailService, column.ColumnName, customPiiPatterns))
+        if (ColumnValueExclusions.IsExcludedColumn(_guardrailService, column.ColumnName, customPiiPatterns))
         {
             tally?.Count(SampleExclusion.Name);
             return WithoutSamples(column);
@@ -398,7 +402,7 @@ internal sealed class ColumnValueSampler(
             return true;
         }
 
-        return ColumnValueExclusions.IsExcludedColumn(guardrailService, column.ColumnName, customPiiPatterns);
+        return ColumnValueExclusions.IsExcludedColumn(_guardrailService, column.ColumnName, customPiiPatterns);
     }
 
     // A column left unsampled carries no samples, whatever the extracted metadata held: the refresh that stores the result
@@ -435,7 +439,7 @@ internal sealed class ColumnValueSampler(
     /// <summary>
     /// Bounded DISTINCT probe for a candidate column's full value domain: an inner scan of at most
     /// <see cref="DomainProbeInnerScanRowCount"/> rows, then DISTINCT capped one above
-    /// <see cref="IColumnValueSampler.MaxCompleteDomainValues"/> so the caller can tell "complete"
+    /// <see cref="MaxCompleteDomainValues"/> so the caller can tell "complete"
     /// (≤ 12 rows back) from "more values exist" (13 rows back) with a single round trip.
     /// </summary>
     internal static string BuildDistinctProbeQuery(DatabaseEngineType engineType, string schemaName, string tableName, string columnName)
@@ -443,7 +447,7 @@ internal sealed class ColumnValueSampler(
         var schema = SqlIdentifierGuard.Validate(schemaName, "schema");
         var table = SqlIdentifierGuard.Validate(tableName, "table");
         var column = SqlIdentifierGuard.Validate(columnName, "column");
-        var probeLimit = IColumnValueSampler.MaxCompleteDomainValues + 1;
+        var probeLimit = MaxCompleteDomainValues + 1;
 
         if (engineType is DatabaseEngineType.MSSQL or DatabaseEngineType.AzureSynapse)
         {
@@ -494,8 +498,8 @@ internal sealed class ColumnValueSampler(
 
     private static string Cut(string text)
     {
-        return text.Length > IColumnValueSampler.MaxValueLength
-            ? text[..IColumnValueSampler.MaxValueLength]
+        return text.Length > MaxValueLength
+            ? text[..MaxValueLength]
             : text;
     }
 

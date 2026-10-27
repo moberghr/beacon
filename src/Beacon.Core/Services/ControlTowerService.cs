@@ -10,9 +10,9 @@ using Beacon.Core.Notifications;
 
 namespace Beacon.Core.Services;
 
-internal class ControlTowerService(
+internal sealed class ControlTowerService(
     IDbContextFactory<BeaconContext> contextFactory,
-    IMemoryCache memoryCache) : IControlTowerService
+    IMemoryCache memoryCache)
 {
     private static readonly string StatisticsCacheKeyPrefix = BeaconCacheEntries.Key("control-tower-statistics");
     private static readonly TimeSpan CacheDuration = TimeSpan.FromSeconds(30);
@@ -222,6 +222,10 @@ internal class ControlTowerService(
         return statistics;
     }
 
+    /// <summary>
+    /// The subscription's health detail; its recent runs are those readable within <paramref name="runScope"/>, each
+    /// with its displayable failure reason.
+    /// </summary>
     public async Task<ControlTowerSubscriptionDetail?> GetSubscriptionDetail(
         int subscriptionId,
         int timeRangeDays,
@@ -548,25 +552,4 @@ internal class ControlTowerService(
         public int UnresolvedTaskCount { get; init; }
         public int TotalTaskCount { get; init; }
     }
-}
-
-public interface IControlTowerService
-{
-    Task<PagedList<ControlTowerSubscriptionHealthData>> GetSubscriptionHealthOverview(
-        GetControlTowerDataRequest request,
-        CancellationToken cancellationToken);
-
-    Task<ControlTowerStatistics> GetControlTowerStatistics(
-        GetControlTowerDataRequest request,
-        CancellationToken cancellationToken);
-
-    /// <summary>
-    /// The subscription's health detail; its recent runs are those readable within <paramref name="runScope"/>, each
-    /// with its displayable failure reason.
-    /// </summary>
-    Task<ControlTowerSubscriptionDetail?> GetSubscriptionDetail(
-        int subscriptionId,
-        int timeRangeDays,
-        StoredRunScope runScope,
-        CancellationToken cancellationToken);
 }

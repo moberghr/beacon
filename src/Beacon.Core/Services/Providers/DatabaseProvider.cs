@@ -151,7 +151,7 @@ internal class DatabaseProvider(
         // Database metadata is handled by DatabaseMetadataService
         // This provider method is for future extensibility
         throw new NotImplementedException(
-            "Database metadata should be retrieved via IDatabaseMetadataService");
+            "Database metadata should be retrieved via DatabaseMetadataService");
     }
 
     public async Task<QueryValidationResult> ValidateQueryAsync(

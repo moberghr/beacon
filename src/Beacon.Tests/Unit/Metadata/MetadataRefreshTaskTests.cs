@@ -1,6 +1,7 @@
 using Beacon.Core.Authorization;
 using Beacon.Core.BackgroundTasks;
 using Beacon.Core.Configuration;
+using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.DataSources;
 using Beacon.Core.Models;
@@ -40,7 +41,7 @@ public class MetadataRefreshTaskTests
 
         ticket.Should().Be(Ticket);
         tasks.Verify(x => x.StartAsync(BackgroundTaskKind.MetadataRefresh, DataSourceId, It.IsNotNull<Func<int, SecurityAuditEntry>?>(), It.IsAny<CancellationToken>()), Times.Once);
-        world.Metadata.Verify(x => x.RefreshMetadataAsync(It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never, "the task scans, not the request");
+        world.Scans.Should().Be(0, "the task scans, not the request");
     }
 
     [Test]
@@ -125,7 +126,7 @@ public class MetadataRefreshTaskTests
         var outcome = await world.Executor().ExecuteAsync(new BackgroundTaskContext(1, DataSourceId, 4), CancellationToken.None);
 
         outcome.WarningCount.Should().Be(2);
-        world.Metadata.Verify(x => x.RefreshMetadataAsync(DataSourceId, true, It.IsAny<CancellationToken>()), Times.Once);
+        world.Scans.Should().Be(1);
         world.RelationshipSync.Verify(x => x.SyncAsync(DataSourceId, It.IsAny<CancellationToken>()), Times.Once);
         world.Cooldown.Refusal(DataSourceId, 15, ignoreCooldown: false).Should().Contain("less than 15 minutes ago");
         world.Cooldown.Refusal(DataSourceId, 15, ignoreCooldown: true).Should().BeNull("the refresh no longer runs");
@@ -140,7 +141,7 @@ public class MetadataRefreshTaskTests
         var outcome = await world.Executor().ExecuteAsync(new BackgroundTaskContext(1, DataSourceId, null), CancellationToken.None);
 
         outcome.SkippedCode.Should().Be(BackgroundTaskFailureCodes.Busy);
-        world.Metadata.Verify(x => x.RefreshMetadataAsync(It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
+        world.Scans.Should().Be(0);
     }
 
     [Test]
@@ -154,7 +155,7 @@ public class MetadataRefreshTaskTests
         world.AccessCheck.Verify(
             x => x.AllowsAsync(ProjectAction.Manage, It.Is<IReadOnlyCollection<int>>(y => y.SequenceEqual(new[] { DataSourceId })), It.IsAny<string>(), 1, It.IsAny<CancellationToken>()),
             Times.Once);
-        world.Metadata.Verify(x => x.RefreshMetadataAsync(It.IsAny<int>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
+        world.Scans.Should().Be(0);
         world.Cooldown.Refusal(DataSourceId, 15, ignoreCooldown: true).Should().BeNull("a skipped task holds no refresh slot");
     }
 
@@ -162,9 +163,7 @@ public class MetadataRefreshTaskTests
     public async Task TheTask_ThatFails_DoesNotStartTheCooldown_AndFreesTheSource()
     {
         var world = new World();
-        world.Metadata
-            .Setup(x => x.RefreshMetadataAsync(DataSourceId, true, It.IsAny<CancellationToken>()))
-            .ThrowsAsync(new DataSourceDisabledException(DataSourceId));
+        world.Source.DisabledTime = DateTime.UtcNow;
 
         var run = () => world.Executor().ExecuteAsync(new BackgroundTaskContext(1, DataSourceId, null), CancellationToken.None);
 
@@ -232,14 +231,17 @@ public class MetadataRefreshTaskTests
 
     private sealed class World
     {
-        public World()
+        public DataSource Source { get; } = new()
         {
-            Metadata
-                .Setup(x => x.RefreshMetadataAsync(It.IsAny<int>(), true, It.IsAny<CancellationToken>()))
-                .ReturnsAsync(() => new DatabaseMetadataSnapshot(DataSourceId, DatabaseEngineType.PostgreSQL, [], DateTime.UtcNow) { SkippedNameCount = SkippedNames });
-        }
+            Id = DataSourceId,
+            Name = "warehouse",
+            DataSourceType = DataSourceType.Database,
+            EncryptedConnectionData = "encrypted",
+            DatabaseEngineType = DatabaseEngineType.PostgreSQL
+        };
 
-        public Mock<IDatabaseMetadataService> Metadata { get; } = new();
+        /// <summary>How many catalog scans the metadata service ran.</summary>
+        public int Scans { get; private set; }
 
         public Mock<ISchemaRelationshipSyncService> RelationshipSync { get; } = new();
 
@@ -266,10 +268,20 @@ public class MetadataRefreshTaskTests
                 .ReturnsAsync(MayManage);
 
             return new MetadataRefreshTaskExecutor(
-                new ForcedMetadataRefresh(Metadata.Object, RelationshipSync.Object, NullLogger<ForcedMetadataRefresh>.Instance),
+                new ForcedMetadataRefresh(TestMetadataServices.Scanning(Source, Scan), RelationshipSync.Object, NullLogger<ForcedMetadataRefresh>.Instance),
                 Cooldown,
                 Options,
                 AccessCheck.Object);
+        }
+
+        // The catalog the scan reads: one table whose name the refresh leaves out per skipped name.
+        private Task<IReadOnlyList<TableMetadataDto>> Scan()
+        {
+            Scans++;
+
+            return Task.FromResult<IReadOnlyList<TableMetadataDto>>(Enumerable.Range(1, SkippedNames)
+                .Select(x => new TableMetadataDto("public", $"orders;{x}", [], [], null))
+                .ToList());
         }
     }
 }

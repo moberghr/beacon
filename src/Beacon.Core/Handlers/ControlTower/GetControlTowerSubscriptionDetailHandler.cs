@@ -7,7 +7,7 @@ using MediatR;
 namespace Beacon.Core.Handlers.ControlTower;
 
 internal sealed class GetControlTowerSubscriptionDetailHandler(
-    IControlTowerService controlTowerService,
+    ControlTowerService controlTowerService,
     IProjectAccessEvaluator projectAccess)
     : IRequestHandler<GetControlTowerSubscriptionDetailQuery, GetControlTowerSubscriptionDetailResult>
 {

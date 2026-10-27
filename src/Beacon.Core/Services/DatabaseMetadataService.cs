@@ -20,13 +20,12 @@ public class DatabaseMetadataService(
     IDbContextFactory<BeaconContext> contextFactory,
     IDataSourceConnectionResolver connectionResolver,
     IEnumerable<IDatabaseMetadataExtractor> metadataExtractors,
-    IColumnValueSampler columnValueSampler,
+    ColumnValueSampler columnValueSampler,
     ISharedSourceSettings sharedSourceSettings,
     IMemoryCache cache,
     ISchemaGraphService schemaGraphService,
     ILogger<DatabaseMetadataService> logger,
     ICatalogSnapshotCache catalogSnapshots)
-    : IDatabaseMetadataService
 {
     /// <summary>A service whose refreshes leave the ask path's catalog snapshots to expire on their own.</summary>
     [Obsolete("Pass the ICatalogSnapshotCache so a refresh invalidates the catalog snapshots the ask path reads.")]
@@ -34,7 +33,7 @@ public class DatabaseMetadataService(
         IDbContextFactory<BeaconContext> contextFactory,
         IDataSourceConnectionResolver connectionResolver,
         IEnumerable<IDatabaseMetadataExtractor> metadataExtractors,
-        IColumnValueSampler columnValueSampler,
+        ColumnValueSampler columnValueSampler,
         ISharedSourceSettings sharedSourceSettings,
         IMemoryCache cache,
         ISchemaGraphService schemaGraphService,
@@ -50,6 +49,11 @@ public class DatabaseMetadataService(
     // Lock per data source to prevent concurrent refresh operations; an entry lives only while someone holds or waits for it
     private static readonly KeyedRefreshLocks _refreshLocks = new();
 
+    /// <summary>
+    /// Refreshes metadata for a data source by querying the target database and storing the results.
+    /// When <paramref name="forceRefresh"/> is true, a warm cache is ignored and the source is
+    /// re-scanned — used by the explicit "Refresh metadata" user action.
+    /// </summary>
     public async Task<DatabaseMetadataSnapshot> RefreshMetadataAsync(int dataSourceId, bool forceRefresh = false, CancellationToken cancellationToken = default)
     {
         // Try to acquire the lock for this specific data source - if already locked, wait
@@ -164,6 +168,9 @@ public class DatabaseMetadataService(
         }
     }
 
+    /// <summary>
+    /// Gets cached metadata for a data source. If no cached data exists, it will refresh from the database.
+    /// </summary>
     public async Task<DatabaseMetadataSnapshot> GetMetadataAsync(int dataSourceId, CancellationToken cancellationToken = default)
     {
         // A migration write target has no catalog in Beacon (it is never read, so neither its stored tables nor a scan are

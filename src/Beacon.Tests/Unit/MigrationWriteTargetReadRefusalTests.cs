@@ -92,7 +92,7 @@ public class MigrationWriteTargetReadRefusalTests
             world.Factory(),
             TestTransport.Resolver(Encryption()),
             [extractor.Object],
-            Mock.Of<IColumnValueSampler>(),
+            TestMetadataServices.Sampler(),
             Mock.Of<ISharedSourceSettings>(),
             new MemoryCache(new MemoryCacheOptions()),
             Mock.Of<ISchemaGraphService>(),

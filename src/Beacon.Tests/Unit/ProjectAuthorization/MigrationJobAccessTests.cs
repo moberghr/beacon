@@ -310,7 +310,6 @@ public class MigrationJobAccessTests
     [Test]
     public async Task ATemporaryPreview_ForACallerOutsideSystemWork_NeedsQueryOnEachStepsSource()
     {
-        var queries = new Mock<IQueryService>();
         var steps = new QueryData
         {
             Name = "copy",
@@ -323,22 +322,20 @@ public class MigrationJobAccessTests
 
         var stored = new RecordingStoredQueryPreview();
 
-        var preview = () => SendAsync("ext-op", sp => Preview(sp, queries.Object, stored).ExecuteTemporaryQueryPreview(steps, CancellationToken.None));
+        var preview = () => SendAsync("ext-op", sp => Preview(sp, stored).ExecuteTemporaryQueryPreview(steps, CancellationToken.None));
 
         await preview.Should().ThrowAsync<BeaconNotFoundException>();
         stored.TemporaryRuns.Should().BeEmpty("nothing runs on a source the caller may not query");
-        queries.Verify(x => x.CreateQuery(It.IsAny<QueryData>(), It.IsAny<CancellationToken>()), Times.Never);
     }
 
     // The legacy single-step form (the SQL and data source on the query, no steps) is the step that is checked and run.
     [Test]
     public async Task ATemporaryPreview_InTheLegacySingleStepForm_NeedsQueryOnItsSource()
     {
-        var queries = new Mock<IQueryService>();
         var legacy = new QueryData { Name = "copy", SqlValue = "SELECT 1", DataSourceId = HiddenSource };
         var stored = new RecordingStoredQueryPreview();
 
-        var preview = () => SendAsync("ext-op", sp => Preview(sp, queries.Object, stored).ExecuteTemporaryQueryPreview(legacy, CancellationToken.None));
+        var preview = () => SendAsync("ext-op", sp => Preview(sp, stored).ExecuteTemporaryQueryPreview(legacy, CancellationToken.None));
 
         await preview.Should().ThrowAsync<BeaconNotFoundException>();
         stored.TemporaryRuns.Should().BeEmpty("nothing runs on a source the caller may not query");
@@ -349,7 +346,7 @@ public class MigrationJobAccessTests
     {
         var stored = new RecordingStoredQueryPreview();
 
-        var preview = () => SendAsync("ext-op", sp => Preview(sp, Mock.Of<IQueryService>(), stored).ExecuteTemporaryQueryPreview(new QueryData { Name = "copy" }, CancellationToken.None));
+        var preview = () => SendAsync("ext-op", sp => Preview(sp, stored).ExecuteTemporaryQueryPreview(new QueryData { Name = "copy" }, CancellationToken.None));
 
         await preview.Should().ThrowAsync<BeaconNotFoundException>();
         stored.TemporaryRuns.Should().BeEmpty();
@@ -366,7 +363,7 @@ public class MigrationJobAccessTests
         };
         var stored = new RecordingStoredQueryPreview();
 
-        await SendAsync("ext-op", sp => Preview(sp, Mock.Of<IQueryService>(), stored).ExecuteTemporaryQueryPreview(steps, CancellationToken.None));
+        await SendAsync("ext-op", sp => Preview(sp, stored).ExecuteTemporaryQueryPreview(steps, CancellationToken.None));
 
         var ran = stored.TemporaryRuns.Should().ContainSingle().Which.Query;
         ran.Should().NotBeSameAs(steps);
@@ -492,13 +489,9 @@ public class MigrationJobAccessTests
         return execution;
     }
 
-    private static QueryExecutionPreviewService Preview(IServiceProvider services, IQueryService queries, RecordingStoredQueryPreview? stored = null)
+    private static QueryExecutionPreviewService Preview(IServiceProvider services, RecordingStoredQueryPreview stored)
     {
-        return new QueryExecutionPreviewService(
-            queries,
-            stored ?? new RecordingStoredQueryPreview(),
-            services.GetRequiredService<ProjectRequestAuthorizer>(),
-            NullLogger<QueryExecutionPreviewService>.Instance);
+        return new QueryExecutionPreviewService(stored, services.GetRequiredService<ProjectRequestAuthorizer>());
     }
 
     private async Task<RunMigrationJobResult> RunAsync(string externalId, int jobId)

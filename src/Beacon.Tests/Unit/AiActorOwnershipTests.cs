@@ -9,7 +9,7 @@ using Moq;
 using NUnit.Framework;
 using Beacon.AI.Handlers.AiActors;
 using Beacon.AI.Services.Ai.AiActor;
-using Beacon.AI.Services.Ai.AiActor.Models;
+using Beacon.AI.Services.LlmProviders;
 using Beacon.Core;
 using Beacon.Core.Authorization;
 using Beacon.Core.Configuration;
@@ -22,6 +22,7 @@ using Beacon.Core.Services;
 using Beacon.Core.Worker;
 using Beacon.Tests.Common;
 using Beacon.Core.Models;
+using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Tests.Unit;
 
@@ -38,28 +39,19 @@ public class AiActorOwnershipTests
     private const int ActorSubscriptionId = 41;
     private const int PlainSubscriptionId = 42;
 
-    private Mock<IAiActorServiceExtended> _service = null!;
+    private TestAiActorService _service = null!;
     private List<AiActor> _actors = null!;
     private List<BeaconUser> _users = null!;
     private string? _revisionRequester;
+    private AiActorPlan? _viewedPlan;
+    private List<AiActorStatus> _statusesAfter = null!;
 
     [SetUp]
     public void SetUp()
     {
         _revisionRequester = null;
-        _service = new Mock<IAiActorServiceExtended>();
-        _service
-            .Setup(x => x.ExecuteThinkCycleAsync(It.IsAny<int>(), It.IsAny<int?>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new AiActorThinkResult { Success = true });
-        _service
-            .Setup(x => x.RefineActorAsync(It.IsAny<int>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new AiActorThinkResult { Success = true });
-        _service
-            .Setup(x => x.ApprovePlanAsync(It.IsAny<ApprovePlanOptions>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new AiActorThinkResult { Success = true });
-        _service
-            .Setup(x => x.RequestPlanRevisionAsync(It.IsAny<RequestRevisionOptions>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync(AiActorPlanResult.CreateFailure("not needed"));
+        _viewedPlan = null;
+        _statusesAfter = [];
         _actors = [new AiActor { Id = ActorId, Name = "watcher", Instructions = "watch", DataSourceId = 1, CreatedByUserId = "ext-ana" }];
         _users =
         [
@@ -69,25 +61,25 @@ public class AiActorOwnershipTests
             new BeaconUser { Id = 5, ExternalId = "ext-admin", UserName = "admin", IsEnabled = true },
             new BeaconUser { Id = 6, ExternalId = "ext-ula", UserName = "ula", IsEnabled = true }
         ];
+
+        // The service reads the plan the plan view shows, or the plans (each context its own copy, as each reads the
+        // database afresh), through contexts of its own: whether a handler reached it is told apart from the handler's reads.
+        _service = new TestAiActorService(_actors, () => _viewedPlan != null ? [_viewedPlan] : Plans());
+        _service.DataSources.Add(new DataSource { Id = 1, Name = "warehouse", DataSourceType = DataSourceType.Database, DatabaseEngineType = DatabaseEngineType.PostgreSQL, MetadataLoadingEnabled = false, EncryptedConnectionData = string.Empty });
     }
 
     [Test]
     public async Task Create_TheCreatorIsTheSignedInCaller_NotAValueFromTheBody()
     {
-        CreateAiActorOptions? created = null;
-        _service
-            .Setup(x => x.CreateActorAsync(It.IsAny<CreateAiActorOptions>(), It.IsAny<CancellationToken>()))
-            .Callback<CreateAiActorOptions, CancellationToken>((options, _) => created = options)
-            .ReturnsAsync(new AiActor { Id = ActorId, Name = "watcher", Instructions = "watch", DataSourceId = 1 });
         var command = JsonSerializer.Deserialize<CreateAiActorCommand>(
             """{"name":"watcher","instructions":"watch","dataSourceId":1,"createdByUserId":"someone-else"}""",
             new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
-        var handler = new CreateAiActorHandler(_service.Object, NullLogger<CreateAiActorHandler>.Instance, Actor(Interactive("ext-ben")), new BeaconConfiguration());
+        var handler = new CreateAiActorHandler(_service.Service, NullLogger<CreateAiActorHandler>.Instance, Actor(Interactive("ext-ben")), new BeaconConfiguration());
 
         await handler.Handle(command, CancellationToken.None);
 
-        created.Should().NotBeNull();
-        created!.CreatedByUserId.Should().Be("ext-ben");
+        var created = _service.Added.OfType<AiActor>().Should().ContainSingle().Subject;
+        created.CreatedByUserId.Should().Be("ext-ben");
     }
 
     // Whether the actor's changes wait for approval comes from the body, and is on when the body does not say; only an
@@ -97,20 +89,15 @@ public class AiActorOwnershipTests
     [TestCase(",\"requiresApproval\":false", "ext-admin", RoleService.RoleNames.Admin, false)]
     public async Task Create_RequiresApproval_RoundTripsThroughTheHandler(string field, string caller, string? role, bool expected)
     {
-        CreateAiActorOptions? created = null;
-        _service
-            .Setup(x => x.CreateActorAsync(It.IsAny<CreateAiActorOptions>(), It.IsAny<CancellationToken>()))
-            .Callback<CreateAiActorOptions, CancellationToken>((options, _) => created = options)
-            .ReturnsAsync((CreateAiActorOptions options, CancellationToken _) =>
-                new AiActor { Id = ActorId, Name = options.Name, Instructions = options.Instructions, DataSourceId = 1, RequiresApproval = options.RequiresApproval });
         var command = JsonSerializer.Deserialize<CreateAiActorCommand>(
             $$"""{"name":"watcher","instructions":"watch","dataSourceId":1{{field}}}""",
             new JsonSerializerOptions(JsonSerializerDefaults.Web))!;
-        var handler = new CreateAiActorHandler(_service.Object, NullLogger<CreateAiActorHandler>.Instance, Actor(Interactive(caller, role)), new BeaconConfiguration());
+        var handler = new CreateAiActorHandler(_service.Service, NullLogger<CreateAiActorHandler>.Instance, Actor(Interactive(caller, role)), new BeaconConfiguration());
 
         var result = await handler.Handle(command, CancellationToken.None);
 
-        created!.RequiresApproval.Should().Be(expected);
+        var created = _service.Added.OfType<AiActor>().Should().ContainSingle().Subject;
+        created.RequiresApproval.Should().Be(expected);
         result.RequiresApproval.Should().Be(expected);
     }
 
@@ -120,23 +107,23 @@ public class AiActorOwnershipTests
     public async Task Create_WithApprovalOff_ByACallerWhoIsNotAnAdmin_IsForbidden()
     {
         var command = new CreateAiActorCommand { Name = "watcher", Instructions = "watch", DataSourceId = 1, RequiresApproval = false };
-        var handler = new CreateAiActorHandler(_service.Object, NullLogger<CreateAiActorHandler>.Instance, Actor(Interactive("ext-ben")), new BeaconConfiguration());
+        var handler = new CreateAiActorHandler(_service.Service, NullLogger<CreateAiActorHandler>.Instance, Actor(Interactive("ext-ben")), new BeaconConfiguration());
 
         var act = () => handler.Handle(command, CancellationToken.None);
 
         await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(CreateAiActorHandler.ApprovalOffRefusal);
-        _service.Verify(x => x.CreateActorAsync(It.IsAny<CreateAiActorOptions>(), It.IsAny<CancellationToken>()), Times.Never);
+        AssertServiceNotReached();
     }
 
     [Test]
     public async Task Create_ByACallerWithoutAResolvableUser_IsRefused_AndNoActorIsStoredWithoutACreator()
     {
-        var handler = new CreateAiActorHandler(_service.Object, NullLogger<CreateAiActorHandler>.Instance, Actor(Interactive("ext-cid")), new BeaconConfiguration());
+        var handler = new CreateAiActorHandler(_service.Service, NullLogger<CreateAiActorHandler>.Instance, Actor(Interactive("ext-cid")), new BeaconConfiguration());
 
         var act = () => handler.Handle(new CreateAiActorCommand { Name = "watcher", Instructions = "watch", DataSourceId = 1 }, CancellationToken.None);
 
         await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(ScheduledWorkOwner.OwnerRequiredMessage);
-        _service.Verify(x => x.CreateActorAsync(It.IsAny<CreateAiActorOptions>(), It.IsAny<CancellationToken>()), Times.Never);
+        AssertServiceNotReached();
     }
 
     [Test]
@@ -147,11 +134,14 @@ public class AiActorOwnershipTests
             await call.Should().NotThrowAsync();
         }
 
-        _service.Verify(x => x.PauseActorAsync(ActorId, It.IsAny<CancellationToken>()), Times.Once);
-        _service.Verify(x => x.ResumeActorAsync(ActorId, It.IsAny<CancellationToken>()), Times.Once);
-        _service.Verify(x => x.ArchiveActorAsync(ActorId, It.IsAny<CancellationToken>()), Times.Once);
-        _service.Verify(x => x.RefineActorAsync(ActorId, "more", It.IsAny<CancellationToken>()), Times.Once);
-        _service.Verify(x => x.ExecuteThinkCycleAsync(ActorId, null, It.IsAny<CancellationToken>()), Times.Once);
+        // Paused, resumed and archived in turn, refined with the feedback, then one think cycle asked for on demand.
+        _statusesAfter.Take(3).Should().Equal(AiActorStatus.Paused, AiActorStatus.Active, AiActorStatus.Archived);
+        AssertArchivedOnce();
+        _service.LlmRequests.Select(x => x.Operation).Should().Equal(LlmOperations.ActorRefine, LlmOperations.ActorThink);
+        _service.Added.OfType<AiActorConversation>().Should().ContainSingle(x => x.Role == ConversationRole.User)
+            .Which.Should().BeEquivalentTo(new { AiActorId = ActorId, MessageContent = "more" }, x => x.ExcludingMissingMembers());
+        _service.Added.OfType<AiActorExecution>().Should().OnlyContain(x => x.AiActorId == ActorId && x.TriggeringSubscriptionId == null);
+        _actors[0].ThinkCount.Should().Be(1);
     }
 
     [Test]
@@ -162,7 +152,8 @@ public class AiActorOwnershipTests
             await call.Should().NotThrowAsync();
         }
 
-        _service.Verify(x => x.ArchiveActorAsync(ActorId, It.IsAny<CancellationToken>()), Times.Once);
+        _statusesAfter[2].Should().Be(AiActorStatus.Archived);
+        AssertArchivedOnce();
     }
 
     [TestCase("ext-ana")]
@@ -176,7 +167,7 @@ public class AiActorOwnershipTests
             await call.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("*creator or an Admin*");
         }
 
-        _service.VerifyNoOtherCalls();
+        AssertServiceNotReached();
     }
 
     [Test]
@@ -189,7 +180,7 @@ public class AiActorOwnershipTests
             await call.Should().ThrowAsync<BeaconForbiddenException>();
         }
 
-        _service.VerifyNoOtherCalls();
+        AssertServiceNotReached();
     }
 
     [Test]
@@ -223,31 +214,31 @@ public class AiActorOwnershipTests
     [TestCase("ext-ben", RoleService.RoleNames.Editor, false)]
     public async Task RequestPlanRevision_IsTheCreatorsOrAnAdmins(string caller, string? role, bool allowed)
     {
-        var handler = new RequestPlanRevisionHandler(_service.Object, NullLogger<RequestPlanRevisionHandler>.Instance, Actor(Interactive(caller, role)), Factory());
+        var handler = new RequestPlanRevisionHandler(_service.Service, NullLogger<RequestPlanRevisionHandler>.Instance, Actor(Interactive(caller, role)), Factory());
 
         var act = () => handler.Handle(new RequestPlanRevisionCommand { PlanId = PlanId, Feedback = "narrower" }, CancellationToken.None);
 
         if (allowed)
         {
             await act.Should().NotThrowAsync();
-            _service.Verify(x => x.RequestPlanRevisionAsync(It.Is<RequestRevisionOptions>(y => y.PlanId == PlanId), It.IsAny<CancellationToken>()), Times.Once);
+            AssertDecided(AiActorPlanStatus.RevisionRequested, caller);
         }
         else
         {
             await act.Should().ThrowAsync<BeaconForbiddenException>();
-            _service.VerifyNoOtherCalls();
+            AssertServiceNotReached();
         }
     }
 
     [Test]
     public async Task RequestPlanRevision_ForAMissingPlan_IsRefusedToAnEditor()
     {
-        var handler = new RequestPlanRevisionHandler(_service.Object, NullLogger<RequestPlanRevisionHandler>.Instance, Actor(Interactive("ext-ben", RoleService.RoleNames.Editor)), Factory());
+        var handler = new RequestPlanRevisionHandler(_service.Service, NullLogger<RequestPlanRevisionHandler>.Instance, Actor(Interactive("ext-ben", RoleService.RoleNames.Editor)), Factory());
 
         var act = () => handler.Handle(new RequestPlanRevisionCommand { PlanId = 404, Feedback = "narrower" }, CancellationToken.None);
 
         await act.Should().ThrowAsync<BeaconForbiddenException>();
-        _service.VerifyNoOtherCalls();
+        AssertServiceNotReached();
     }
 
     [TestCase("ext-ana", null, true)]
@@ -260,12 +251,12 @@ public class AiActorOwnershipTests
         if (allowed)
         {
             await act.Should().NotThrowAsync();
-            _service.Verify(x => x.ApprovePlanAsync(It.Is<ApprovePlanOptions>(y => y.PlanId == PlanId), It.IsAny<CancellationToken>()), Times.Once);
+            AssertDecided(AiActorPlanStatus.Executed, caller);
         }
         else
         {
             await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("*creator or an Admin*");
-            _service.VerifyNoOtherCalls();
+            AssertServiceNotReached();
         }
     }
 
@@ -285,12 +276,12 @@ public class AiActorOwnershipTests
         if (allowed)
         {
             await act.Should().NotThrowAsync();
-            _service.Verify(x => x.ApprovePlanAsync(It.Is<ApprovePlanOptions>(y => y.PlanId == PlanId), It.IsAny<CancellationToken>()), Times.Once);
+            AssertDecided(AiActorPlanStatus.Executed, caller);
         }
         else
         {
             await act.Should().ThrowAsync<BeaconForbiddenException>();
-            _service.VerifyNoOtherCalls();
+            AssertServiceNotReached();
         }
     }
 
@@ -309,12 +300,12 @@ public class AiActorOwnershipTests
         if (allowed)
         {
             await act.Should().NotThrowAsync();
-            _service.Verify(x => x.ApprovePlanAsync(It.Is<ApprovePlanOptions>(y => y.PlanId == PlanId), It.IsAny<CancellationToken>()), Times.Once);
+            AssertDecided(AiActorPlanStatus.Executed, caller);
             return;
         }
 
         await act.Should().ThrowAsync<BeaconForbiddenException>();
-        _service.VerifyNoOtherCalls();
+        AssertServiceNotReached();
     }
 
     // The creator is the creator however they present themselves: a creator recorded by an earlier version as an API key's
@@ -330,7 +321,7 @@ public class AiActorOwnershipTests
         var act = () => PlanApproval(FixedActor(creator)).Handle(new ApproveAiActorPlanCommand { PlanId = PlanId }, CancellationToken.None);
 
         await act.Should().ThrowAsync<BeaconForbiddenException>();
-        _service.VerifyNoOtherCalls();
+        AssertServiceNotReached();
     }
 
     // A caller Beacon cannot name could be the creator: holding the Approver permission does not let it approve a plan.
@@ -340,7 +331,7 @@ public class AiActorOwnershipTests
         var act = () => PlanApproval(FixedActor(BeaconActor.Nobody)).Handle(new ApproveAiActorPlanCommand { PlanId = PlanId }, CancellationToken.None);
 
         await act.Should().ThrowAsync<BeaconForbiddenException>();
-        _service.VerifyNoOtherCalls();
+        AssertServiceNotReached();
     }
 
     [Test]
@@ -361,12 +352,12 @@ public class AiActorOwnershipTests
     {
         await ApproveHandler(Interactive("ext-ana")).Handle(new ApproveAiActorPlanCommand { PlanId = PlanId, UserId = "someone-else" }, CancellationToken.None);
         await RejectHandler(Interactive("ext-ana")).Handle(new RejectAiActorPlanCommand { PlanId = PlanId, UserId = "someone-else", Reason = "no" }, CancellationToken.None);
-        await new RequestPlanRevisionHandler(_service.Object, NullLogger<RequestPlanRevisionHandler>.Instance, Actor(Interactive("ext-ana")), Factory())
+        await new RequestPlanRevisionHandler(_service.Service, NullLogger<RequestPlanRevisionHandler>.Instance, Actor(Interactive("ext-ana")), Factory())
             .Handle(new RequestPlanRevisionCommand { PlanId = PlanId, UserId = "someone-else", Feedback = "narrower" }, CancellationToken.None);
 
-        _service.Verify(x => x.ApprovePlanAsync(It.Is<ApprovePlanOptions>(y => y.UserId == "ext-ana"), It.IsAny<CancellationToken>()), Times.Once);
-        _service.Verify(x => x.RejectPlanAsync(It.Is<RejectPlanOptions>(y => y.UserId == "ext-ana"), It.IsAny<CancellationToken>()), Times.Once);
-        _service.Verify(x => x.RequestPlanRevisionAsync(It.Is<RequestRevisionOptions>(y => y.UserId == "ext-ana"), It.IsAny<CancellationToken>()), Times.Once);
+        AssertDecided(AiActorPlanStatus.Executed, "ext-ana");
+        AssertDecided(AiActorPlanStatus.Rejected, "ext-ana");
+        AssertDecided(AiActorPlanStatus.RevisionRequested, "ext-ana");
     }
 
     [Test]
@@ -377,7 +368,7 @@ public class AiActorOwnershipTests
         var act = () => ApproveHandler(Interactive("ext-ana", "Approver"), selfApproval).Handle(new ApproveAiActorPlanCommand { PlanId = PlanId, UserId = "ext-ana" }, CancellationToken.None);
 
         await act.Should().NotThrowAsync();
-        _service.Verify(x => x.ApprovePlanAsync(It.Is<ApprovePlanOptions>(y => y.PlanId == PlanId), It.IsAny<CancellationToken>()), Times.Once);
+        AssertDecided(AiActorPlanStatus.Executed, "ext-ana");
     }
 
     [TestCase("ext-ana", null, true)]
@@ -390,12 +381,12 @@ public class AiActorOwnershipTests
         if (allowed)
         {
             await act.Should().NotThrowAsync();
-            _service.Verify(x => x.RejectPlanAsync(It.Is<RejectPlanOptions>(y => y.PlanId == PlanId), It.IsAny<CancellationToken>()), Times.Once);
+            AssertDecided(AiActorPlanStatus.Rejected, caller);
         }
         else
         {
             await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("*creator or an Admin*");
-            _service.VerifyNoOtherCalls();
+            AssertServiceNotReached();
         }
     }
 
@@ -411,8 +402,8 @@ public class AiActorOwnershipTests
         await approve.Should().ThrowAsync<BeaconForbiddenException>();
         await reject.Should().ThrowAsync<BeaconForbiddenException>();
         await adminApprove.Should().NotThrowAsync();
-        _service.Verify(x => x.ApprovePlanAsync(It.IsAny<ApprovePlanOptions>(), It.IsAny<CancellationToken>()), Times.Once);
-        _service.Verify(x => x.RejectPlanAsync(It.IsAny<RejectPlanOptions>(), It.IsAny<CancellationToken>()), Times.Never);
+        AssertDecided(AiActorPlanStatus.Executed, "ext-admin");
+        _service.ServedPlans.Should().NotContain(x => x.Status == AiActorPlanStatus.Rejected);
     }
 
     [Test]
@@ -425,7 +416,7 @@ public class AiActorOwnershipTests
         await editorApprove.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("*creator or an Admin*");
         await editorReject.Should().ThrowAsync<BeaconForbiddenException>().WithMessage("*creator or an Admin*");
         await adminApprove.Should().ThrowAsync<InvalidOperationException>().WithMessage("AI actor plan 404 not found.");
-        _service.VerifyNoOtherCalls();
+        AssertServiceNotReached();
     }
 
     [Test]
@@ -599,21 +590,33 @@ public class AiActorOwnershipTests
         result.ApproveBlockedReason.Should().BeNull();
     }
 
+    // Each change or run starts from a status the service accepts it from and records the status it leaves the actor in;
+    // the refinement and the cycle are of an actor whose changes run as decided, so the pending plan does not hold them.
     private IEnumerable<Func<Task>> ChangesAndRuns(IBeaconActorAccessor caller)
     {
         var factory = Factory();
 
-        yield return () => new PauseAiActorHandler(_service.Object, NullLogger<PauseAiActorHandler>.Instance, caller, factory).Handle(new PauseAiActorCommand { ActorId = ActorId }, CancellationToken.None);
-        yield return () => new ResumeAiActorHandler(_service.Object, NullLogger<ResumeAiActorHandler>.Instance, caller, factory).Handle(new ResumeAiActorCommand { ActorId = ActorId }, CancellationToken.None);
-        yield return () => new ArchiveAiActorHandler(_service.Object, NullLogger<ArchiveAiActorHandler>.Instance, caller, factory).Handle(new ArchiveAiActorCommand { ActorId = ActorId }, CancellationToken.None);
-        yield return () => new RefineAiActorHandler(_service.Object, NullLogger<RefineAiActorHandler>.Instance, caller, factory).Handle(new RefineAiActorCommand { ActorId = ActorId, Feedback = "more" }, CancellationToken.None);
-        yield return () => new ExecuteAiActorThinkCycleHandler(_service.Object, NullLogger<ExecuteAiActorThinkCycleHandler>.Instance, caller, factory).Handle(new ExecuteAiActorThinkCycleCommand { ActorId = ActorId }, CancellationToken.None);
+        yield return () => Run(AiActorStatus.Active, () => new PauseAiActorHandler(_service.Service, NullLogger<PauseAiActorHandler>.Instance, caller, factory).Handle(new PauseAiActorCommand { ActorId = ActorId }, CancellationToken.None));
+        yield return () => Run(AiActorStatus.Paused, () => new ResumeAiActorHandler(_service.Service, NullLogger<ResumeAiActorHandler>.Instance, caller, factory).Handle(new ResumeAiActorCommand { ActorId = ActorId }, CancellationToken.None));
+        yield return () => Run(AiActorStatus.Active, () => new ArchiveAiActorHandler(_service.Service, NullLogger<ArchiveAiActorHandler>.Instance, caller, factory).Handle(new ArchiveAiActorCommand { ActorId = ActorId }, CancellationToken.None));
+        yield return () => Run(AiActorStatus.Active, () => new RefineAiActorHandler(_service.Service, NullLogger<RefineAiActorHandler>.Instance, caller, factory).Handle(new RefineAiActorCommand { ActorId = ActorId, Feedback = "more" }, CancellationToken.None), false);
+        yield return () => Run(AiActorStatus.Active, () => new ExecuteAiActorThinkCycleHandler(_service.Service, NullLogger<ExecuteAiActorThinkCycleHandler>.Instance, caller, factory).Handle(new ExecuteAiActorThinkCycleCommand { ActorId = ActorId }, CancellationToken.None), false);
+    }
+
+    private async Task Run(AiActorStatus from, Func<Task> call, bool requiresApproval = true)
+    {
+        _actors[0].Status = from;
+        _actors[0].RequiresApproval = requiresApproval;
+
+        await call();
+
+        _statusesAfter.Add(_actors[0].Status);
     }
 
     private ApproveAiActorPlanHandler ApproveHandler(ClaimsPrincipal caller, BeaconConfiguration? configuration = null)
     {
         return new ApproveAiActorPlanHandler(
-            _service.Object,
+            _service.Service,
             NullLogger<ApproveAiActorPlanHandler>.Instance,
             Actor(caller),
             TestPermissions.ForPrincipal(caller),
@@ -625,7 +628,7 @@ public class AiActorOwnershipTests
     private ApproveAiActorPlanHandler PlanApproval(IBeaconActorAccessor caller)
     {
         return new ApproveAiActorPlanHandler(
-            _service.Object,
+            _service.Service,
             NullLogger<ApproveAiActorPlanHandler>.Instance,
             caller,
             TestPermissions.Holding(BeaconPermissions.Approver),
@@ -636,18 +639,10 @@ public class AiActorOwnershipTests
     // The plan view of the pending plan (or of <paramref name="plan"/>) for a caller with <paramref name="scope"/> (default: everything).
     private GetAiActorPlanHandler PlanView(ClaimsPrincipal caller, BeaconConfiguration? configuration = null, ProjectAccessScope? scope = null, AiActorPlan? plan = null)
     {
-        var pending = plan ?? Plans()[^1];
-        if (plan == null)
-        {
-            pending.ProposedAt = DateTime.UtcNow;
-        }
-
-        _service
-            .Setup(x => x.GetPlanAsync(PlanId, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(pending);
+        _viewedPlan = plan;
 
         return new GetAiActorPlanHandler(
-            _service.Object,
+            _service.Service,
             Mock.Of<IOptionsMonitor<AiActorOptions>>(x => x.CurrentValue == new AiActorOptions()),
             TimeProvider.System,
             Actor(caller),
@@ -659,12 +654,34 @@ public class AiActorOwnershipTests
 
     private RejectAiActorPlanHandler RejectHandler(ClaimsPrincipal caller)
     {
-        return new RejectAiActorPlanHandler(_service.Object, NullLogger<RejectAiActorPlanHandler>.Instance, Actor(caller), Factory());
+        return new RejectAiActorPlanHandler(_service.Service, NullLogger<RejectAiActorPlanHandler>.Instance, Actor(caller), Factory());
     }
 
     private SetAiActorOwnerHandler SetOwnerHandler(ClaimsPrincipal caller)
     {
         return new SetAiActorOwnerHandler(Factory(), Actor(caller), TestPermissions.ForPrincipal(caller), TestProjectAccess.Authorizer(TestProjectAccess.Unrestricted, actors: Actor(caller)), new RecordingSecurityAudit(), NullLogger<SetAiActorOwnerHandler>.Instance);
+    }
+
+    // The handler never reached the service: it opened no context and asked the model nothing.
+    private void AssertServiceNotReached()
+    {
+        _service.ContextsOpened.Should().Be(0);
+        _service.LlmRequests.Should().BeEmpty();
+    }
+
+    // The service decided the plan once, recording the caller as Beacon names them as its reviewer.
+    private void AssertDecided(AiActorPlanStatus status, string reviewer)
+    {
+        _service.ServedPlans
+            .Where(x => x.Id == PlanId)
+            .Where(x => x.Status == status)
+            .Should().ContainSingle()
+            .Which.ReviewedByUserId.Should().Be(reviewer);
+    }
+
+    private void AssertArchivedOnce()
+    {
+        _service.Audit.Of(SecurityAuditActions.AiActorArchived).Should().ContainSingle().Which.ResourceId.Should().Be(ActorId.ToString());
     }
 
     private BeaconActorAccessor Actor(ClaimsPrincipal caller)

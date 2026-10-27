@@ -11,13 +11,13 @@ namespace Beacon.AI.Handlers.AiActors;
 
 internal sealed class RefineAiActorHandler : IRequestHandler<RefineAiActorCommand, RefineAiActorResult>
 {
-    private readonly IAiActorServiceExtended _aiActorService;
+    private readonly AiActorService _aiActorService;
     private readonly ILogger<RefineAiActorHandler> _logger;
     private readonly IBeaconActorAccessor _actorAccessor;
     private readonly IDbContextFactory<BeaconContext> _contextFactory;
 
     public RefineAiActorHandler(
-        IAiActorServiceExtended aiActorService,
+        AiActorService aiActorService,
         ILogger<RefineAiActorHandler> logger,
         IBeaconActorAccessor actorAccessor,
         IDbContextFactory<BeaconContext> contextFactory)

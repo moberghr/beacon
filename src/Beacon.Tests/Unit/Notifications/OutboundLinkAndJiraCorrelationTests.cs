@@ -47,39 +47,38 @@ public class OutboundLinkAndJiraCorrelationTests
     [Test]
     public async Task LegacyFallback_IgnoresAnIssueLabelledForAnotherRecipient()
     {
-        var jira = new Mock<IJiraApiAdapter>();
-        jira
-            .Setup(x => x.SearchTickets(It.IsAny<JiraCredentials>(), It.Is<string>(y => y.Contains("labels =")), It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync([]);
-        jira
-            .Setup(x => x.SearchTickets(It.IsAny<JiraCredentials>(), It.Is<string>(y => !y.Contains("labels =")), It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync([Ticket("SEC-1", ["Beacon", "beacon-sub-1-rcpt-6"])]);
-        jira
-            .Setup(x => x.CreateWorkItem(
-                It.IsAny<JiraCredentials>(), It.IsAny<string>(), It.IsAny<string>(), It.IsAny<AdfDocument>(), It.IsAny<string>(),
-                It.IsAny<CancellationToken>(), It.IsAny<string?>(), It.IsAny<string?>(), It.IsAny<string?>()))
-            .ReturnsAsync(new CreateWorkItemResult("SEC-9", "https://acme.atlassian.net/browse/SEC-9", true));
-        var adapter = new JiraAdapter(jira.Object, NullLogger<JiraAdapter>.Instance);
+        var client = new Mock<IJiraRestClient>();
+        client
+            .Setup(x => x.SearchAsync(It.Is<string>(y => y.Contains("labels =")), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Found());
+        client
+            .Setup(x => x.SearchAsync(It.Is<string>(y => !y.Contains("labels =")), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Found(("SEC-1", ["Beacon", "beacon-sub-1-rcpt-6"])));
+        client
+            .Setup(x => x.CreateIssueAsync(It.IsAny<JiraCreateIssueRequest>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new JiraCreateIssueResponse("9", "SEC-9", "self"));
+        var adapter = new JiraAdapter(Adapter(client), NullLogger<JiraAdapter>.Instance);
 
         await adapter.SendNotificationAsync(Delivery(), lastNotificationResultCount: 1);
 
-        jira.Verify(x => x.AddCommentToTicket(It.IsAny<JiraCredentials>(), "SEC-1", It.IsAny<AdfDocument>(), It.IsAny<CancellationToken>()), Times.Never);
-        jira.Verify(x => x.TransitionIssue(It.IsAny<JiraCredentials>(), "SEC-1", It.IsAny<string>(), It.IsAny<CancellationToken>()), Times.Never);
-        jira.Verify(x => x.AddCommentToTicket(It.IsAny<JiraCredentials>(), "SEC-9", It.IsAny<AdfDocument>(), It.IsAny<CancellationToken>()), Times.Once);
+        client.Verify(x => x.AddCommentAsync("SEC-1", It.IsAny<JiraAddCommentRequest>(), It.IsAny<CancellationToken>()), Times.Never);
+        client.Verify(x => x.GetTransitionsAsync("SEC-1", It.IsAny<CancellationToken>()), Times.Never);
+        client.Verify(x => x.TransitionIssueAsync("SEC-1", It.IsAny<JiraTransitionRequest>(), It.IsAny<CancellationToken>()), Times.Never);
+        client.Verify(x => x.AddCommentAsync("SEC-9", It.IsAny<JiraAddCommentRequest>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Test]
     public async Task LegacyFallback_StillMatchesAnIssueWithNoCorrelationLabel()
     {
-        var jira = new Mock<IJiraApiAdapter>();
-        jira
-            .Setup(x => x.SearchTickets(It.IsAny<JiraCredentials>(), It.IsAny<string>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
-            .ReturnsAsync([Ticket("SEC-2", ["Beacon"])]);
-        var adapter = new JiraAdapter(jira.Object, NullLogger<JiraAdapter>.Instance);
+        var client = new Mock<IJiraRestClient>();
+        client
+            .Setup(x => x.SearchAsync(It.IsAny<string>(), It.IsAny<int>(), It.IsAny<int>(), It.IsAny<string?>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(Found(("SEC-2", ["Beacon"])));
+        var adapter = new JiraAdapter(Adapter(client), NullLogger<JiraAdapter>.Instance);
 
         await adapter.SendNotificationAsync(Delivery(), lastNotificationResultCount: 1);
 
-        jira.Verify(x => x.AddCommentToTicket(It.IsAny<JiraCredentials>(), "SEC-2", It.IsAny<AdfDocument>(), It.IsAny<CancellationToken>()), Times.Once);
+        client.Verify(x => x.AddCommentAsync("SEC-2", It.IsAny<JiraAddCommentRequest>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Test]
@@ -150,9 +149,14 @@ public class OutboundLinkAndJiraCorrelationTests
 
     private static JiraCredentials Credentials() => new("acme;SEC;svc@acme.eu;token");
 
-    private static JiraTicketSearchDto Ticket(string key, string[] labels)
+    private static JiraSearchResponse Found(params (string Key, string[] Labels)[] tickets)
     {
-        return new JiraTicketSearchDto(key, $"BEACON: {Subscription}", "", "Open", null, DateTime.UtcNow, DateTime.UtcNow, labels);
+        var issues = tickets
+            .Select(x =>
+                new JiraIssueResponse(x.Key, x.Key, "self", new JiraIssueFields($"BEACON: {Subscription}", "", new JiraStatus("1", "Open", null), null, null, null, null, null, null, x.Labels)))
+            .ToArray();
+
+        return new JiraSearchResponse(0, 50, issues.Length, issues);
     }
 
     private static RecipientQueryResult Delivery()

@@ -1,3 +1,5 @@
+using Beacon.Core.Authorization.ProjectAccess;
+using Beacon.Core.Handlers.Queries;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Queries;
@@ -21,15 +23,15 @@ public class QueryExecutionPreviewServiceTests
 
     private static readonly ListRequest SecondPage = new Paging { Page = 1, PageSize = 20, Sort = "-name" };
 
-    // Given steps run once, in-process, through the preview seam: nothing is stored, listed or deleted to run them.
+    // Given steps run once, in-process, through the preview seam: nothing is stored, listed or deleted to run them (the
+    // service has no query service to do so with).
     [Test]
     public async Task ATemporaryPreview_RunsTheGivenStepsInProcess_AndStoresNothing()
     {
-        var queryService = new Mock<IQueryService>(MockBehavior.Strict);
         var stored = new RecordingStoredQueryPreview();
         var draft = new QueryData { Name = "draft", Steps = [new QueryStepData { StepOrder = 1, DataSourceId = 3, SqlValue = "SELECT 1" }] };
 
-        var result = await CreateService(queryService, stored).ExecuteTemporaryQueryPreview(draft, null, 250, CancellationToken.None);
+        var result = await CreateService(stored).ExecuteTemporaryQueryPreview(draft, null, 250, CancellationToken.None);
 
         result!.Success.Should().BeTrue();
         stored.TemporaryRuns.Should().ContainSingle().Which.Should().Match<(QueryData Query, int? MaxRows)>(
@@ -41,7 +43,7 @@ public class QueryExecutionPreviewServiceTests
     {
         var stored = new RecordingStoredQueryPreview { Answer = () => throw new BeaconException(Cause) };
 
-        var result = await CreateService(new Mock<IQueryService>(), stored).ExecuteQueryPreview(5, null, SecondPage, CancellationToken.None);
+        var result = await QueryPreview(new Mock<IQueryService>(), stored, null);
 
         result.Should().NotBeNull();
         result!.Success.Should().BeFalse();
@@ -53,7 +55,17 @@ public class QueryExecutionPreviewServiceTests
     {
         var stored = new RecordingStoredQueryPreview { Answer = () => throw new BeaconException(Cause) };
 
-        var result = await CreateService(new Mock<IQueryService>(), stored).ExecuteStepPreview(5, 2, [], null, SecondPage, CancellationToken.None);
+        var result = await ExecuteStepPreviewHandler.RunAsync(
+            new Mock<IQueryService>().Object,
+            stored,
+            Authorizer(),
+            NullLogger.Instance,
+            5,
+            2,
+            [],
+            null,
+            SecondPage,
+            CancellationToken.None);
 
         result.Should().NotBeNull();
         result!.Success.Should().BeFalse();
@@ -72,7 +84,7 @@ public class QueryExecutionPreviewServiceTests
             .ReturnsAsync(new QueryPreviewResult { Success = true });
         var stored = new RecordingStoredQueryPreview();
 
-        var result = await CreateService(queryService, stored).ExecuteQueryPreview(5, draft, SecondPage, CancellationToken.None);
+        var result = await QueryPreview(queryService, stored, draft);
 
         result!.Success.Should().BeTrue();
         queryService.Verify(x => x.PreviewQuery(5, draft, SecondPage, It.IsAny<CancellationToken>()), Times.Once);
@@ -84,17 +96,19 @@ public class QueryExecutionPreviewServiceTests
     {
         var stored = new RecordingStoredQueryPreview { Answer = () => throw new OperationCanceledException() };
 
-        var result = await CreateService(new Mock<IQueryService>(), stored).ExecuteQueryPreview(5, null, SecondPage, CancellationToken.None);
+        var result = await QueryPreview(new Mock<IQueryService>(), stored, null);
 
         result.Should().BeNull("a cancelled preview is not a failure to report");
     }
 
-    private static IQueryExecutionPreviewService CreateService(Mock<IQueryService> queryService, RecordingStoredQueryPreview stored) =>
-        new QueryExecutionPreviewService(
-            queryService.Object,
-            stored,
-            TestProjectAccess.Authorizer(TestProjectAccess.Unrestricted),
-            NullLogger<QueryExecutionPreviewService>.Instance);
+    private static QueryExecutionPreviewService CreateService(RecordingStoredQueryPreview stored) =>
+        new(stored, Authorizer());
+
+    // The saved query 5 (or the draft), the second page, as the preview handler runs it.
+    private static Task<QueryPreviewResult?> QueryPreview(Mock<IQueryService> queryService, RecordingStoredQueryPreview stored, QueryDraft? draft) =>
+        ExecuteQueryPreviewHandler.RunAsync(queryService.Object, stored, Authorizer(), NullLogger.Instance, 5, draft, SecondPage, CancellationToken.None);
+
+    private static ProjectRequestAuthorizer Authorizer() => TestProjectAccess.Authorizer(TestProjectAccess.Unrestricted);
 
     private sealed record Paging : ListRequest;
 }

@@ -293,7 +293,7 @@ public class AskSqlPipelineTests
     public void BeaconAi_DoesNotReferenceBeaconMcp()
     {
         // §2.4 / R2: the pipeline returns a structured AskSqlOutcome specifically so Beacon.AI never needs
-        // an McpSignalBuilder / SqlParsingHelper / ToolHelper dependency — proving the assembly graph never
+        // an McpSignalBuilder / ToolHelper dependency — proving the assembly graph never
         // grew a Beacon.MCP edge is what makes the eval harness safe to run without MCP in the picture.
         var referenced = typeof(AskSqlPipeline).Assembly.GetReferencedAssemblies();
 

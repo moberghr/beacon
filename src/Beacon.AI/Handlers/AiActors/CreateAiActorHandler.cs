@@ -11,13 +11,13 @@ namespace Beacon.AI.Handlers.AiActors;
 
 internal sealed class CreateAiActorHandler : IRequestHandler<CreateAiActorCommand, CreateAiActorResult>
 {
-    private readonly IAiActorServiceExtended _aiActorService;
+    private readonly AiActorService _aiActorService;
     private readonly ILogger<CreateAiActorHandler> _logger;
     private readonly IBeaconActorAccessor _actorAccessor;
     private readonly BeaconConfiguration _configuration;
 
     public CreateAiActorHandler(
-        IAiActorServiceExtended aiActorService,
+        AiActorService aiActorService,
         ILogger<CreateAiActorHandler> logger,
         IBeaconActorAccessor actorAccessor,
         BeaconConfiguration configuration)

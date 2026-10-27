@@ -7,7 +7,7 @@ using Beacon.Core.Authorization;
 
 namespace Beacon.Core.Handlers.ControlTower;
 
-internal sealed class GetControlTowerHealthHandler(IControlTowerService controlTowerService, IProjectAccessEvaluator projectAccess)
+internal sealed class GetControlTowerHealthHandler(ControlTowerService controlTowerService, IProjectAccessEvaluator projectAccess)
     : IRequestHandler<GetControlTowerHealthQuery, PagedList<ControlTowerSubscriptionHealthData>>
 {
     public async Task<PagedList<ControlTowerSubscriptionHealthData>> Handle(

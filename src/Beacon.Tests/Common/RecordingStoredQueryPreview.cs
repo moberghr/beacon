@@ -13,7 +13,8 @@ internal sealed class RecordingStoredQueryPreview : IStoredQueryPreview
 {
     public Func<QueryPreviewResult> Answer { get; init; } = () => new QueryPreviewResult { Success = true };
 
-    public Func<QueryExecutionResult> TemporaryAnswer { get; init; } = () => new QueryExecutionResult { Success = true };
+    /// <summary>The answer to a run of given steps (which may throw or wait, as a failed or slow run does); settable mid-test.</summary>
+    public Func<CancellationToken, Task<QueryExecutionResult>> TemporaryAnswer { get; set; } = _ => Task.FromResult(new QueryExecutionResult { Success = true });
 
     public List<int> Loads { get; } = [];
 
@@ -23,7 +24,7 @@ internal sealed class RecordingStoredQueryPreview : IStoredQueryPreview
     /// <summary>The given steps it ran in-process, with the row limit of each run.</summary>
     public List<(QueryData Query, int? MaxRows)> TemporaryRuns { get; } = [];
 
-    public Task<QueryExecutionResult> ExecuteTemporaryQuery(
+    public async Task<QueryExecutionResult> ExecuteTemporaryQuery(
         QueryData queryData,
         List<ParameterValue>? parameters,
         int? maxRows,
@@ -31,7 +32,7 @@ internal sealed class RecordingStoredQueryPreview : IStoredQueryPreview
     {
         TemporaryRuns.Add((queryData, maxRows));
 
-        return Task.FromResult(TemporaryAnswer());
+        return await TemporaryAnswer(cancellationToken);
     }
 
     public Task<StoredQuerySnapshot> LoadSnapshot(int queryId, CancellationToken cancellationToken)

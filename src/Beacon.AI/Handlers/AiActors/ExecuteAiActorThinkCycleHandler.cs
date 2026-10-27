@@ -12,13 +12,13 @@ namespace Beacon.AI.Handlers.AiActors;
 
 internal sealed class ExecuteAiActorThinkCycleHandler : IRequestHandler<ExecuteAiActorThinkCycleCommand, ExecuteAiActorThinkCycleResult>
 {
-    private readonly IAiActorServiceExtended _aiActorService;
+    private readonly AiActorService _aiActorService;
     private readonly ILogger<ExecuteAiActorThinkCycleHandler> _logger;
     private readonly IBeaconActorAccessor _actorAccessor;
     private readonly IDbContextFactory<BeaconContext> _contextFactory;
 
     public ExecuteAiActorThinkCycleHandler(
-        IAiActorServiceExtended aiActorService,
+        AiActorService aiActorService,
         ILogger<ExecuteAiActorThinkCycleHandler> logger,
         IBeaconActorAccessor actorAccessor,
         IDbContextFactory<BeaconContext> contextFactory)

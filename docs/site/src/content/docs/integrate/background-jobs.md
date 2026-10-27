@@ -70,7 +70,7 @@ Each job opens a **new DI scope**, marks it as system work, and calls one Beacon
 | Subscription run | `IJobService.ExecuteQuery(subscriptionId, ct)` | `AddOrUpdate` / `Remove` |
 | Data contract evaluation | `IJobService.EvaluateDataContract(contractId, ct)` | `AddOrUpdateDataQualityJob` / `RemoveDataQualityJob` |
 | Project documentation (5.0 route and job) | `IProjectDocumentationService.GenerateDocumentationAsync(projectId, userId, ct)` (Beacon.AI) | `EnqueueProjectDocumentation` |
-| AI actor think cycle | `IAiActorServiceExtended.ExecuteThinkCycleBackgroundAsync(actorId, subscriptionId)` (Beacon.AI) | `EnqueueAiActorThinkCycle` |
+| AI actor think cycle | `AiActorService.ExecuteThinkCycleBackgroundAsync(actorId, subscriptionId)` (Beacon.AI) | `EnqueueAiActorThinkCycle` |
 | MCP evaluation run | `IJobService.RunMcpEval(runId, ct)` | `EnqueueMcpEval` |
 | Background task (metadata refresh, AI actor think-now, migration run, repository scan, documentation generation) | `IBackgroundTaskService.ExecuteAsync(taskId, ct)` | `EnqueueBackgroundTask` |
 
@@ -284,7 +284,7 @@ public sealed class VerifySecurityAuditEventsJobHandler(ISecurityAuditVerificati
 With AI enabled (`UseAI = true`), add the two AI jobs too:
 
 ```csharp
-using Beacon.AI.Services.Ai.AiActor;          // IAiActorServiceExtended
+using Beacon.AI.Services.Ai.AiActor;          // AiActorService
 using Beacon.AI.Services.Documentation;       // IProjectDocumentationService
 using Warp.Core.Handlers;
 
@@ -296,7 +296,7 @@ public sealed class GenerateProjectDocumentationJobHandler(IProjectDocumentation
 }
 
 public sealed class AiActorThinkCycleJob : IJob { public int ActorId { get; init; } public int SubscriptionId { get; init; } }
-public sealed class AiActorThinkCycleJobHandler(IAiActorServiceExtended actors) : IJobHandler<AiActorThinkCycleJob>
+public sealed class AiActorThinkCycleJobHandler(AiActorService actors) : IJobHandler<AiActorThinkCycleJob>
 {
     public Task HandleAsync(AiActorThinkCycleJob message, CancellationToken cancellationToken)
         => actors.ExecuteThinkCycleBackgroundAsync(message.ActorId, message.SubscriptionId);
