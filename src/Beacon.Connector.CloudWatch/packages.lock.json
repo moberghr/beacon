@@ -4,17 +4,17 @@
     "net10.0": {
       "AWSSDK.CloudWatchLogs": {
         "type": "Direct",
-        "requested": "[4.0.106.1, )",
-        "resolved": "4.0.106.1",
-        "contentHash": "byXgE8O9bAK2h5D2vs2PjQL/dzcOXM/1+TE6qtu8uDgYgBXscBWkXdOOXxtVeeSbYo+ZyFS8g9fwZwKV5cA7rA==",
+        "requested": "[4.0.107, )",
+        "resolved": "4.0.107",
+        "contentHash": "M7iTXnFeOzhPWggY21A/e7Z5QqlQmumA9DIHO5cxnYgN3VhbSFXXDEamQYT3bdFuVPfVUI+wLarqvIvyAP3GvQ==",
         "dependencies": {
-          "AWSSDK.Core": "[4.0.102.13, 5.0.0)"
+          "AWSSDK.Core": "[4.0.102.16, 5.0.0)"
         }
       },
       "AWSSDK.Core": {
         "type": "Transitive",
-        "resolved": "4.0.102.13",
-        "contentHash": "vaYs/kwfB+Lv9PeVKYE4g2mQlzVtHImXLWgfTG8UgeCybUAPkew5kwb8GS6RhuzwvImbolyLHT+IM34WoM9lJg=="
+        "resolved": "4.0.102.16",
+        "contentHash": "+Oka3HzrQdsHvsM0lLtJn+Zab7QE9TiPLV+dQ2usIuvCHa6PAcNhcvh6I6mbJZ4SsNBBoVQzeQv0tGmqIOKkNg=="
       },
       "ClosedXML.Parser": {
         "type": "Transitive",
