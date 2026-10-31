@@ -4,9 +4,9 @@
     "net10.0": {
       "JsonPath.Net": {
         "type": "Direct",
-        "requested": "[3.0.2, )",
-        "resolved": "3.0.2",
-        "contentHash": "Cmt2mvPYOLljjqSfM1xUYZYTPf8MPbwv2XpCpPxxq9u23/CGrz/fljgd1fJUNujd3+E1adNOyF1TLwppbyQwxg==",
+        "requested": "[3.0.3, )",
+        "resolved": "3.0.3",
+        "contentHash": "vWOcHJHws/sxbdJXBi/YByAF0clRyoxgyVdTp+Q//MLz5nGMx27M2br7poJtsqRrKMhNsmk3PKgpBmsIWcLQbQ==",
         "dependencies": {
           "Json.More.Net": "3.0.1"
         }
