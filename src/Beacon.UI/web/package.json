@@ -53,7 +53,7 @@
     "monaco-editor": {
       "dompurify": "$dompurify"
     },
-    "katex": "^0.16.47"
+    "katex": "^0.18.11"
   },
   "msw": {
     "workerDirectory": [
