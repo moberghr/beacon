@@ -2,6 +2,7 @@
 import { defineConfig } from 'astro/config';
 import starlight from '@astrojs/starlight';
 import mermaid from 'astro-mermaid';
+import { unified } from '@astrojs/markdown-remark';
 import { MOVED, sidebar } from './src/sidebar.mjs';
 
 const BASE = '/beacon';
@@ -43,7 +44,7 @@ export default defineConfig({
   // Pages that moved when MCP and Security became their own sections keep their old URLs working.
   redirects: Object.fromEntries(Object.entries(MOVED).map(([from, to]) => [`/${from}`, `${BASE}/${to}/`])),
   markdown: {
-    rehypePlugins: [rehypeBasePaths],
+    processor: unified({ rehypePlugins: [rehypeBasePaths] }),
   },
   integrations: [
     // astro-mermaid must precede Starlight so its rehype step runs on doc content.
