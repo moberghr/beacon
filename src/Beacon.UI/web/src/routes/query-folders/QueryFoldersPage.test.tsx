@@ -48,7 +48,8 @@ describe('QueryFoldersPage', () => {
     renderWithProviders(<QueryFoldersPage />);
 
     expect(await screen.findByText('No folders yet')).toBeInTheDocument();
-    fireEvent.click(screen.getByRole('button', { name: /add folder/i }));
+    // The button appears once write access has loaded, which may be after the list.
+    fireEvent.click(await screen.findByRole('button', { name: /add folder/i }));
     fireEvent.change(await screen.findByLabelText(/^Name/), { target: { value: ' Reports ' } });
     fireEvent.click(screen.getByRole('button', { name: /create folder/i }));
 
@@ -80,6 +81,8 @@ describe('QueryFoldersPage', () => {
 
     renderWithProviders(<QueryFoldersPage />);
 
+    // A row opens the editor only once write access has loaded, which may be after the list.
+    await screen.findByRole('button', { name: /add folder/i });
     fireEvent.click((await screen.findAllByText('Finance'))[0]);
     const name = await screen.findByLabelText(/^Name/);
     expect(name).toHaveValue('Finance');
