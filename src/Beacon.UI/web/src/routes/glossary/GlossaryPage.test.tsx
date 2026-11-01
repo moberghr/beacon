@@ -108,6 +108,8 @@ describe('GlossaryPage', () => {
 
     renderWithProviders(<GlossaryPage />, { initialEntries: ['/glossary?projectId=1'] });
 
+    // A row opens the editor only once the Admin check has loaded, which may be after the list.
+    await screen.findByRole('button', { name: /add term/i });
     fireEvent.click(await screen.findByText('Active customer'));
     fireEvent.change(await screen.findByLabelText(/^Target table/), { target: { value: '' } });
     fireEvent.click(screen.getByRole('button', { name: /save changes/i }));

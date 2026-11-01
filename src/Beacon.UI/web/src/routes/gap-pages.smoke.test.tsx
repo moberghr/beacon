@@ -15,7 +15,7 @@ import DataQualityPage from './data-quality/DataQualityPage';
 /**
  * Smoke tests for the five admin / settings / data-quality pages that previously
  * had no coverage and were the MSW mock-mode gaps. Each test registers exactly the
- * endpoints the page hits on mount (the global setup uses onUnhandledRequest:'error',
+ * endpoints the page hits on mount (the global setup uses onUnhandledFrame:'error',
  * so an unexpected request fails the test) and asserts the page mounts and renders
  * content driven by that response — i.e. the page ↔ endpoint contract holds.
  */
@@ -64,7 +64,7 @@ const ownKeys = http.get('*/beacon/api/api-keys', () =>
 
 describe('ApiKeysListPage', () => {
   it('shows a non-admin only their own keys', async () => {
-    // onUnhandledRequest is 'error': a request for every user's keys would fail this test.
+    // onUnhandledFrame is 'error': a request for every user's keys would fail this test.
     mswServer.use(editorMe, ownKeys);
 
     renderWithProviders(<ApiKeysListPage />);
@@ -112,7 +112,7 @@ describe('ApiKeysListPage', () => {
   });
 
   it('shows an Auditor with no Viewer or Editor role every user\'s keys, without own keys or revoking', async () => {
-    // onUnhandledRequest is 'error': a request for the caller's own keys would fail this test.
+    // onUnhandledFrame is 'error': a request for the caller's own keys would fail this test.
     mswServer.use(
       editorMe,
       functionalOnly('Auditor'),

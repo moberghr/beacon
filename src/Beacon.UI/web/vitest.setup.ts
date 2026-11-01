@@ -5,6 +5,6 @@ import { handlers } from './src/test/handlers';
 
 export const mswServer = setupServer(...handlers);
 
-beforeAll(() => mswServer.listen({ onUnhandledRequest: 'error' }));
+beforeAll(() => mswServer.listen({ onUnhandledFrame: 'error' }));
 afterEach(() => mswServer.resetHandlers());
 afterAll(() => mswServer.close());

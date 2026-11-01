@@ -148,7 +148,7 @@ describe('SecurityAuditPage', () => {
   });
 
   it('sends a holder of every other permission home, saying which one the page needs', async () => {
-    // onUnhandledRequest is 'error': reading the trail would fail this test.
+    // onUnhandledFrame is 'error': reading the trail would fail this test.
     mswServer.use(permissionsHandler({ permissions: ['Approver', 'SecurityAdmin', 'UserAdmin', 'DataSourceAdmin', 'MigrationOperator'] }));
 
     renderAt();
