@@ -120,7 +120,7 @@ describe('DataSourcesListPage and the DataSourceAdmin permission', () => {
   });
 
   it('lets a DataSourceAdmin with no Viewer or Editor role add a data source, without listing them', async () => {
-    // onUnhandledRequest is 'error': listing the data sources would fail this test.
+    // onUnhandledFrame is 'error': listing the data sources would fail this test.
     mswServer.use(functionalOnly('DataSourceAdmin'));
 
     renderWithProviders(<DataSourcesListPage />);

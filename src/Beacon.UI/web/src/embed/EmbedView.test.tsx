@@ -25,19 +25,22 @@ interface SeenRender {
   authorization: string | null;
   frame: string | null;
   cookie: string | null;
-  credentialsMode: RequestCredentials;
+  credentialsMode: RequestCredentials | undefined;
 }
 
 /** Answers every render with `body` (or `status`), recording what each call sent. */
 function recordRenders(answer: { body?: object; status?: number }) {
   const seen: SeenRender[] = [];
+  // MSW hands the handler a rebuilt request that always reports the default credentials mode, so the mode the page
+  // asked for is read from the fetch call itself (restored by vi.restoreAllMocks after each test).
+  const fetchCalls = vi.spyOn(globalThis, 'fetch');
   mswServer.use(
     http.post('*/beacon/api/embed/render', ({ request }) => {
       seen.push({
         authorization: request.headers.get('authorization'),
         frame: request.headers.get(FRAME_HEADER),
         cookie: request.headers.get('cookie'),
-        credentialsMode: request.credentials,
+        credentialsMode: fetchCalls.mock.lastCall?.[1]?.credentials,
       });
       return answer.status
         ? HttpResponse.json({ error: 'embed_unavailable' }, { status: answer.status })

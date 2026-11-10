@@ -23,7 +23,7 @@ async function enableMocking(): Promise<void> {
   const { worker } = await import('./mocks/browser');
   // The app is served under /beacon/ (vite `base`), and so is public/mockServiceWorker.js.
   await worker.start({
-    onUnhandledRequest: 'bypass',
+    onUnhandledFrame: 'bypass',
     serviceWorker: { url: `${import.meta.env.BASE_URL}mockServiceWorker.js` },
   });
 }

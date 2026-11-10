@@ -33,7 +33,7 @@ export default defineConfig({
   plugins: [react(), stripMockServiceWorker()],
   resolve: {
     alias: {
-      '@': path.resolve(__dirname, './src'),
+      '@': path.resolve(import.meta.dirname, './src'),
     },
   },
   // Output lands in src/Beacon.UI/wwwroot/beacon — the folder name IS the mount path. The
@@ -50,10 +50,10 @@ export default defineConfig({
     // Two pages: the app, and the embed view (embed.html → src/embed/main.tsx), which the embed route serves under a
     // strict CSP. The embed entry imports none of the app (no sign-in, router or sidebar); shared modules such as React
     // land in common chunks.
-    rollupOptions: {
+    rolldownOptions: {
       input: {
-        main: path.resolve(__dirname, 'index.html'),
-        embed: path.resolve(__dirname, 'embed.html'),
+        main: path.resolve(import.meta.dirname, 'index.html'),
+        embed: path.resolve(import.meta.dirname, 'embed.html'),
       },
     },
   },

@@ -35,7 +35,7 @@ const ownKeys = http.get('*/beacon/api/api-keys', () => HttpResponse.json({ tota
 
 describe('ApiKeysListPage and every user\'s keys', () => {
   it('lists them for a UserAdmin with no Viewer or Editor role, who may revoke them', async () => {
-    // onUnhandledRequest is 'error': a request for the caller's own keys would fail this test.
+    // onUnhandledFrame is 'error': a request for the caller's own keys would fail this test.
     mswServer.use(functionalOnly('UserAdmin'), everyUsersKeys(true));
 
     renderWithProviders(<ApiKeysListPage />);
@@ -62,7 +62,7 @@ describe('ApiKeysListPage and every user\'s keys', () => {
   });
 
   it('does not list them for a holder of every other permission', async () => {
-    // onUnhandledRequest is 'error': a request for every user's keys would fail this test.
+    // onUnhandledFrame is 'error': a request for every user's keys would fail this test.
     mswServer.use(
       permissionsHandler({ permissions: ['Approver', 'SecurityAdmin', 'DataSourceAdmin', 'MigrationOperator'] }),
       ownKeys,

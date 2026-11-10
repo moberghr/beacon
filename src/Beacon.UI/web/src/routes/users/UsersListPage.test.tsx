@@ -54,7 +54,7 @@ describe('UsersListPage', () => {
   });
 
   it('sends a holder of every other permission home, saying which one the page needs', async () => {
-    // onUnhandledRequest is 'error': listing the users would fail this test.
+    // onUnhandledFrame is 'error': listing the users would fail this test.
     mswServer.use(
       permissionsHandler({ permissions: ['Approver', 'Auditor', 'SecurityAdmin', 'DataSourceAdmin', 'MigrationOperator'] }),
     );
@@ -97,7 +97,7 @@ describe('UsersListPage', () => {
   });
 
   it('reads no Admin role grants and shows no mark for a UserAdmin who is not an Admin', async () => {
-    // onUnhandledRequest is 'error': reading the approvals would fail this test.
+    // onUnhandledFrame is 'error': reading the approvals would fail this test.
     mswServer.use(
       permissionsHandler({ permissions: ['UserAdmin'] }),
       http.get('*/beacon/api/users/roles', () => HttpResponse.json({ entries: [] })),
