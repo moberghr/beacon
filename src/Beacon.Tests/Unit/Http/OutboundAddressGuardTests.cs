@@ -13,6 +13,7 @@ using Beacon.Tests.Unit.Notifications;
 using FluentAssertions;
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using NUnit.Framework;
 
 namespace Beacon.Tests.Unit.Http;
@@ -113,16 +114,83 @@ public class OutboundAddressGuardTests
     }
 
     [Test]
+    public void TheDataSourceRules_AllowLoopback_WithAllowLoopback_AloneOfTheTransportOptions()
+    {
+        var services = new ServiceCollection();
+        services.Configure<DataSourceOutboundOptions>(x => x.AllowLoopback = true);
+        using var provider = services.BuildServiceProvider();
+
+        DataSourceOutboundAddresses.Rules(provider).Should().Be(new OutboundAddressRules(AllowLoopback: true, AllowPrivateNetworks: true));
+        provider.GetRequiredService<IOptions<DataSourceTransportOptions>>().Value.AllowInsecure.Should().BeFalse();
+    }
+
+    [Test]
     public void TheDataSourceRules_BindFromConfiguration()
     {
         var configuration = new ConfigurationBuilder()
-            .AddInMemoryCollection(new Dictionary<string, string?> { ["Beacon:DataSources:Outbound:AllowPrivateNetworks"] = "false" })
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Beacon:DataSources:Outbound:AllowPrivateNetworks"] = "false",
+                ["Beacon:DataSources:Outbound:AllowLoopback"] = "true"
+            })
             .Build();
         var services = new ServiceCollection();
         services.AddOptions<DataSourceOutboundOptions>().Bind(configuration.GetSection(DataSourceOutboundOptions.SectionName));
         using var provider = services.BuildServiceProvider();
 
-        DataSourceOutboundAddresses.Rules(provider).AllowPrivateNetworks.Should().BeFalse();
+        DataSourceOutboundAddresses.Rules(provider).Should().Be(new OutboundAddressRules(AllowLoopback: true, AllowPrivateNetworks: false));
+    }
+
+    [TestCase("2001:db8:64::a9fe:a9fe", "LinkLocal")]
+    [TestCase("2001:db8:64::7f00:1", "Loopback")]
+    [TestCase("2001:db8:64::a00:5", "PrivateNetwork")]
+    [TestCase("2001:db8:64::808:808", null)]
+    [TestCase("64:ff9b::a9fe:a9fe", "LinkLocal")]
+    public void TheDataSourceGuard_JudgesAConfiguredNat64Prefix_ByTheIPv4AddressItCarries(string address, string? expected)
+    {
+        var services = new ServiceCollection();
+        services.Configure<NotificationChannelOptions>(x => x.Nat64Prefixes = ["2001:db8:64::/96"]);
+        services.Configure<DataSourceOutboundOptions>(x => x.AllowPrivateNetworks = false);
+        using var provider = services.BuildServiceProvider();
+
+        DataSourceOutboundAddresses.Guard(provider).Judge(IPAddress.Parse(address)).Should().Be(Refusal(expected));
+    }
+
+    [Test]
+    public void WithoutAConfiguredPrefix_TheAddressIsJudgedAsTheIPv6AddressItIs()
+    {
+        using var provider = new ServiceCollection().BuildServiceProvider();
+
+        // 2001:db8::/32 is documentation space, so the address itself is not public.
+        OutboundAddresses.Classify(IPAddress.Parse("2001:db8:64::a9fe:a9fe")).Should().Be(OutboundAddressKind.PrivateNetwork);
+        OutboundAddressPolicy.ConfiguredNat64Prefixes(provider).Should().Equal(OutboundAddresses.WellKnownNat64Prefixes);
+        OutboundAddressPolicy.ConfiguredNat64Prefixes(null).Should().Equal(OutboundAddresses.WellKnownNat64Prefixes);
+    }
+
+    [Test]
+    public void TheConfiguredNat64Prefixes_AreTheWellKnownOne_AndTheValidConfiguredOnes()
+    {
+        var services = new ServiceCollection();
+        services.Configure<NotificationChannelOptions>(x => x.Nat64Prefixes = ["2001:db8:64::/96", "not-a-prefix", "2001:db8:65::/64"]);
+        using var provider = services.BuildServiceProvider();
+
+        OutboundAddressPolicy.ConfiguredNat64Prefixes(provider).Should().Equal(OutboundAddresses.WellKnownNat64, System.Net.IPNetwork.Parse("2001:db8:64::/96"));
+    }
+
+    [Test]
+    public async Task TheLlmClients_JudgeAConfiguredNat64Prefix_ByTheIPv4AddressItCarries()
+    {
+        var resolver = new FakeResolver { ["llm.example.test"] = ["2001:db8:64::a9fe:a9fe"] };
+        var services = new ServiceCollection();
+        services.AddSingleton<IHostAddressResolver>(resolver);
+        services.Configure<NotificationChannelOptions>(x => x.Nat64Prefixes = ["2001:db8:64::/96"]);
+        services.AddLlmHttpClients();
+        using var provider = services.BuildServiceProvider();
+        using var client = provider.GetRequiredService<IHttpClientFactory>().CreateClient(LlmHttpClients.AzureOpenAi);
+
+        var act = () => client.GetAsync("http://llm.example.test/v1", CancellationToken.None);
+
+        (await act.Should().ThrowAsync<AiServiceException>()).Which.Message.Should().Contain("link-local");
     }
 
     [Test]
@@ -231,6 +299,41 @@ public class OutboundAddressGuardTests
     }
 
     [Test]
+    public async Task TheDataSourceCheck_RefusesALoopbackHost_NamingAllowLoopback()
+    {
+        var services = new ServiceCollection();
+        services.AddSingleton<IHostAddressResolver>(new FakeResolver { ["api.example.test"] = ["127.0.0.1"] });
+        using var provider = services.BuildServiceProvider();
+        using var client = DataSourceClient(provider);
+
+        var act = () => client.GetAsync("http://api.example.test/rows");
+
+        (await act.Should().ThrowExactlyAsync<DataSourceTransportException>()).Which.Message
+            .Should().Contain("Beacon:DataSources:Outbound:AllowLoopback")
+            .And.NotContain("127.0.0.1");
+    }
+
+    [Test]
+    public async Task TheDataSourceCheck_ReachesALoopbackHost_WithAllowLoopback()
+    {
+        using var listener = new TcpListener(IPAddress.Loopback, 0);
+        listener.Start();
+        var port = ((IPEndPoint)listener.LocalEndpoint).Port;
+        var services = new ServiceCollection();
+        services.Configure<DataSourceOutboundOptions>(x => x.AllowLoopback = true);
+        using var provider = services.BuildServiceProvider();
+        using var client = DataSourceClient(provider);
+        using var cancel = new CancellationTokenSource(TimeSpan.FromSeconds(5));
+
+        var request = client.GetAsync($"http://127.0.0.1:{port}/rows", cancel.Token);
+        using var accepted = await listener.AcceptTcpClientAsync(cancel.Token);
+        await cancel.CancelAsync();
+
+        accepted.Connected.Should().BeTrue();
+        await request.ContinueWith(_ => { }, TaskScheduler.Default);
+    }
+
+    [Test]
     public async Task TheDataSourceCheck_ReachesALoopbackHost_WithAllowInsecure()
     {
         using var listener = new TcpListener(IPAddress.Loopback, 0);
@@ -276,6 +379,35 @@ public class OutboundAddressGuardTests
 
         chain.OfType<SocketsHttpHandler>().Should().ContainSingle().Which.ConnectCallback.Should().NotBeNull();
         chain.Should().ContainSingle(x => x is OutboundAddressCheckHandler);
+    }
+
+    [TestCase(ApiConnectorHttpClient.Name)]
+    [TestCase(BeaconHttpClients.Databricks)]
+    [TestCase(LlmHttpClients.OpenAi)]
+    [TestCase(LlmHttpClients.AzureOpenAi)]
+    [TestCase(LlmHttpClients.Claude)]
+    public void EveryGuardedClient_GivesUpConnecting_AfterTheSameConnectTimeout(string name)
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        new BeaconBuilder(services, new ConfigurationBuilder().Build()).AddApiConnector();
+        services.AddBeaconOutboundHttpClients();
+        services.AddLlmHttpClients();
+        using var provider = services.BuildServiceProvider();
+
+        var handler = HandlerChain(provider, name).OfType<SocketsHttpHandler>().Single();
+
+        handler.ConnectTimeout.Should().Be(ApiConnectorHttpClient.ConnectTimeout);
+        BeaconHttpClients.DatabricksConnectTimeout.Should().Be(TimeSpan.FromSeconds(10));
+        LlmHttpClients.ConnectTimeout.Should().Be(TimeSpan.FromSeconds(10));
+    }
+
+    [Test]
+    public void TheSharedLlmClientsHandler_GivesUpConnecting_AfterTheConnectTimeout()
+    {
+        using var handler = LlmHttpClients.CreatePrimaryHandler();
+
+        handler.ConnectTimeout.Should().Be(LlmHttpClients.ConnectTimeout);
     }
 
     [TestCase(LlmHttpClients.OpenAi)]

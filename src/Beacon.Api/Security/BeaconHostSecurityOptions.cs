@@ -1,4 +1,5 @@
 using Microsoft.Extensions.Options;
+using Beacon.Core.Configuration;
 
 namespace Beacon.Api.Security;
 
@@ -66,5 +67,22 @@ internal sealed class BeaconHostSecurityOptionsValidator : IValidateOptions<Beac
         return failures.Count == 0
             ? ValidateOptionsResult.Success
             : ValidateOptionsResult.Fail(failures);
+    }
+}
+
+/// <summary>
+/// The regulated profile's browser protections, judged on the bound options: a mode the host set in code
+/// (<c>Configure</c>/<c>PostConfigure</c>) counts as one set in <c>Beacon:Security</c>.
+/// </summary>
+internal sealed class BeaconHostSecurityProfileSettings(IOptions<BeaconHostSecurityOptions> options) : IRegulatedProfileBoundSettings
+{
+    public bool? Holds(string setting)
+    {
+        return setting switch
+        {
+            RegulatedProfile.CspKey => options.Value.Csp == BeaconCspMode.Enforce,
+            RegulatedProfile.OriginGuardKey => options.Value.OriginGuard == BeaconOriginGuardMode.Enforce,
+            _ => null
+        };
     }
 }

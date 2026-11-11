@@ -10,9 +10,11 @@ namespace Beacon.Connector.MySql;
 /// <c>AllowLoadLocalInfile</c> and <c>AllowLoadLocalInfileInPath</c> (the server may then read files on the Beacon host),
 /// <c>CommandInterceptors</c> and <c>ExceptionInterceptors</c> (types loaded by name), and signing in as the host:
 /// <c>IntegratedSecurity</c>, a Kerberos, Windows or OCI authentication plugin, <c>OciConfigFile</c>, a client certificate
-/// from the host's <c>CertificateStoreLocation</c>, the certificate and key files <c>CertificateFile</c> (also written
-/// <c>SslCa</c>, with its <c>CertificatePassword</c>), <c>SslCert</c> and <c>SslKey</c> (files on the Beacon host), a named pipe,
-/// shared memory or Unix socket <c>ConnectionProtocol</c>, or no <c>Password</c>. The pinned MySql.Data has no SSH tunnel
+/// from the host's <c>CertificateStoreLocation</c>, the client certificate and key files on the Beacon host (a
+/// <c>.pfx</c> <c>CertificateFile</c> with its <c>CertificatePassword</c>, <c>SslCert</c>, <c>SslKey</c>), a named pipe,
+/// shared memory or Unix socket <c>ConnectionProtocol</c>, or no <c>Password</c>. <c>SslCa</c> is MySql.Data's other
+/// name for <c>CertificateFile</c>: the driver loads a <c>.pfx</c> file as a client certificate and any other file as the
+/// CA list it verifies the server with, so a CA file (a private CA for <c>VerifyFull</c>) is accepted. The pinned MySql.Data has no SSH tunnel
 /// options: its builder refuses them, so such a connection cannot be read and is refused. MySql.Data follows a server's switch to another authentication plugin and has no setting to
 /// refuse one: with a password the Kerberos plugin signs in with the login's own credentials and the OCI plugin needs the
 /// OCI SDK, which Beacon does not ship, but on a Windows host the Windows plugin signs in as the host's Windows account,
@@ -72,10 +74,11 @@ public sealed partial class MySqlConnectionOptionInspector : IDataSourceConnecti
             return HostCredentials("CertificateStoreLocation", "Remove CertificateStoreLocation and sign in with the login's Password", hosts);
         }
 
-        // SslCa is MySql.Data's other name for CertificateFile: one value, a CA or a client certificate file.
-        if (!string.IsNullOrEmpty(builder.CertificateFile))
+        // SslCa is MySql.Data's other name for CertificateFile: one value, which the driver loads as a client certificate
+        // when its extension is pfx and as the CA list otherwise.
+        if (IsClientCertificateFile(builder.CertificateFile))
         {
-            return HostCredentials("CertificateFile", "Remove CertificateFile (SslCa): add the server's CA to the Beacon host's trust store and sign in with the login's Password", hosts);
+            return HostCredentials("CertificateFile", "Remove the .pfx CertificateFile and sign in with the login's Password (a PEM CA file in SslCa is accepted)", hosts);
         }
 
         if (!string.IsNullOrEmpty(builder.CertificatePassword))
@@ -106,6 +109,20 @@ public sealed partial class MySqlConnectionOptionInspector : IDataSourceConnecti
         }
 
         return DataSourceConnectionOptionVerdict.Accept(hosts);
+    }
+
+    // The driver's own test (MySql.Data Ssl): a file whose extension is pfx, compared in lower case, is a PKCS #12 client
+    // certificate; any other file is read as the PEM CA list.
+    private static bool IsClientCertificateFile(string? file)
+    {
+        if (string.IsNullOrEmpty(file))
+        {
+            return false;
+        }
+
+        var extension = Path.GetExtension(file).TrimStart('.');
+
+        return extension.Trim().Equals("pfx", StringComparison.OrdinalIgnoreCase);
     }
 
     // "host1,host2" or "(address=host1,priority=100),(address=host2,priority=50)"; null when none is named.

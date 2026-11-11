@@ -187,8 +187,8 @@ jobs:
         echo "Scanning $RANGE"
         "$RUNNER_TEMP/gitleaks/gitleaks" git --redact --no-banner --log-opts="--diff-merges=first-parent $RANGE" .
 
-  # Fails on a known High or Critical vulnerability in a dependency (direct or transitive); lower severities are
-  # reported as warnings.
+  # Fails on a known High or Critical vulnerability in a dependency (direct or transitive), and when the vulnerability
+  # data could not be read (no verdict is not a pass); lower severities are reported as warnings.
   audit:
     name: "Dependency audit"
     runs-on: ubuntu-latest
@@ -212,8 +212,18 @@ jobs:
     - name: NuGet vulnerable packages
       run: |
         set -euo pipefail
-        dotnet restore --locked-mode
+        # pipefail: a non-zero exit of restore or list fails the step even through tee.
+        dotnet restore --locked-mode 2>&1 | tee nuget-restore.txt
         dotnet list Beacon.slnx package --vulnerable --include-transitive 2>&1 | tee nuget-audit.txt
+        # A source whose vulnerability data could not be loaded gives no verdict: fail rather than pass on it.
+        if grep -qE 'NU1900|NU1905|Unable to load|error:' nuget-restore.txt nuget-audit.txt; then
+          echo "::error::NuGet could not read the vulnerability data, see the step log."
+          exit 1
+        fi
+        if ! grep -qE 'has no vulnerable packages|has the following vulnerable packages' nuget-audit.txt; then
+          echo "::error::NuGet gave no vulnerability verdict, see the step log."
+          exit 1
+        fi
         if grep -qE '^\s*>.*\s(High|Critical)\s' nuget-audit.txt; then
           echo "::error::NuGet reports a High or Critical vulnerability, see the step log."
           exit 1

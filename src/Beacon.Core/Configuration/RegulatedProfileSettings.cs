@@ -45,9 +45,16 @@ public sealed class RegulatedProfileSettings
 
     /// <summary>
     /// The host's configuration: the profile itself and the keys Beacon reads from it directly (the public base URL, the
-    /// security headers and origin check, the session cookie, Data Protection and the legacy encryption format).
+    /// session cookie, Data Protection and the legacy encryption format), and the security headers and origin check when
+    /// no <see cref="BoundSettings"/> judges them.
     /// </summary>
     public IConfiguration Configuration { get; init; } = new ConfigurationBuilder().Build();
+
+    /// <summary>Beacon runs as the MCP gateway (<see cref="McpGatewayDeployment"/>), where the approval workflow governs nothing.</summary>
+    internal bool GatewayMode { get; init; }
+
+    /// <summary>The settings a layer above Core binds and judges on their bound value (Beacon.Api's <c>Beacon:Security</c>).</summary>
+    internal IReadOnlyList<IRegulatedProfileBoundSettings> BoundSettings { get; init; } = [];
 
     /// <summary>The settings as <paramref name="services"/> resolve them, with <paramref name="configuration"/> for the keys read directly.</summary>
     internal static RegulatedProfileSettings From(IServiceProvider services, IConfiguration configuration)
@@ -68,7 +75,9 @@ public sealed class RegulatedProfileSettings
             ApiKeys = Value<ApiKeyOptions>(services),
             Embed = Value<EmbedOptions>(services),
             Migrations = Value<MigrationOptions>(services),
-            Configuration = configuration
+            Configuration = configuration,
+            GatewayMode = services.GetService<McpGatewayDeployment>() != null,
+            BoundSettings = services.GetServices<IRegulatedProfileBoundSettings>().ToList()
         };
     }
 

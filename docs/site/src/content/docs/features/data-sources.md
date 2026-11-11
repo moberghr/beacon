@@ -114,9 +114,9 @@ synonyms and case do not matter.
 
 | Engine | Required | Server certificate from a private CA |
 |---|---|---|
-| PostgreSQL | `SSL Mode=VerifyFull`. `Require` and `VerifyCA` do not check the host name, and the default (`Prefer`) may not encrypt at all. | Install the CA on the Beacon host, or (with `AllowHostCredentials`) `Root Certificate=/path/to/ca.pem` |
-| SQL Server, Azure Synapse | `Encrypt` set to `Mandatory` (`True`, the default) or `Strict`, and `TrustServerCertificate` left out or `false`. | Install the CA on the Beacon host, with `HostNameInCertificate=<name in the certificate>` when it differs from the server name; or (with `AllowHostCredentials`) `ServerCertificate=/path/to/server.cer` to accept exactly that certificate. |
-| MySQL | `SslMode=VerifyFull`. `Required` and `VerifyCA` do not check the host name, and the default (`Preferred`) may not encrypt at all. | Install the CA on the Beacon host, or (with `AllowHostCredentials`) `SslCa=/path/to/ca.pem` |
+| PostgreSQL | `SSL Mode=VerifyFull`. `Require` and `VerifyCA` do not check the host name, and the default (`Prefer`) may not encrypt at all. | Install the CA on the Beacon host, or name it with `Root Certificate=/path/to/ca.pem` |
+| SQL Server, Azure Synapse | `Encrypt` set to `Mandatory` (`True`, the default) or `Strict`, and `TrustServerCertificate` left out or `false`. | Install the CA on the Beacon host, with `HostNameInCertificate=<name in the certificate>` when it differs from the server name; or `ServerCertificate=/path/to/server.cer` to accept exactly that certificate. |
+| MySQL | `SslMode=VerifyFull`. `Required` and `VerifyCA` do not check the host name, and the default (`Preferred`) may not encrypt at all. | Install the CA on the Beacon host, or name it with `SslCa=/path/to/ca.pem` (a PEM file: MySql.Data reads a `.pfx` file there as a client certificate) |
 | Snowflake | Nothing to set. `insecureMode=true`, a `certRevocationCheckMode` other than `ENABLED` and a `scheme` other than `https` are refused. | Not applicable |
 | API (OpenAPI) | **Base URL** and **OpenAPI spec URL** are absolute `https://` URLs. | Install the CA on the Beacon host. |
 | Databricks, BigQuery, AWS CloudWatch | Nothing to set: their clients always connect over HTTPS and check the certificate. | Not applicable |
@@ -151,9 +151,9 @@ the connection with its driver's own parser and refuses these options:
 
 | Engine | Refused | Signs in as the Beacon host (lifted by `AllowHostCredentials`) |
 |---|---|---|
-| PostgreSQL | `Options`, `Passfile`, `Include Error Detail=true`, `Log Parameters=true` | A Unix-socket `Host`, `GSS Encryption Mode=Require`, a `Require Auth` that admits `GSS` or `SSPI`, a certificate or key file (`SSL Certificate`, `SSL Key`, `SSL Password`, `Root Certificate`), no `Password` (the host's `PGPASSWORD` or pgpass file) |
-| SQL Server, Azure Synapse | `AttachDBFilename`, `User Instance=true`, `Authentication=Active Directory Interactive` or `Device Code Flow` | `Integrated Security` (`Trusted_Connection`), any `Authentication` other than `SqlPassword`, `Active Directory Password` or `Active Directory Service Principal`, `Column Encryption Setting=Enabled`, a `ServerCertificate` file, a named-pipe (`np:`), shared-memory (`lpc:`) or LocalDB `Data Source` |
-| MySQL | `AllowLoadLocalInfile=true`, `AllowLoadLocalInfileInPath`, `CommandInterceptors`, `ExceptionInterceptors` | `IntegratedSecurity`, a Kerberos, Windows or OCI `DefaultAuthenticationPlugin`, `OciConfigFile`, `CertificateStoreLocation`, a certificate or key file (`CertificateFile`, also written `SslCa`, `CertificatePassword`, `SslCert`, `SslKey`), a `ConnectionProtocol` other than TCP, no `Password` |
+| PostgreSQL | `Options`, `Passfile`, `Include Error Detail=true`, `Log Parameters=true` | A Unix-socket `Host`, `GSS Encryption Mode=Require`, a `Require Auth` that admits `GSS` or `SSPI`, a client certificate or key file (`SSL Certificate`, `SSL Key`, `SSL Password`), no `Password` (the host's `PGPASSWORD` or pgpass file) |
+| SQL Server, Azure Synapse | `AttachDBFilename`, `User Instance=true`, `Authentication=Active Directory Interactive` or `Device Code Flow` | `Integrated Security` (`Trusted_Connection`), any `Authentication` other than `SqlPassword`, `Active Directory Password` or `Active Directory Service Principal`, `Column Encryption Setting=Enabled`, a named-pipe (`np:`), shared-memory (`lpc:`) or LocalDB `Data Source` |
+| MySQL | `AllowLoadLocalInfile=true`, `AllowLoadLocalInfileInPath`, `CommandInterceptors`, `ExceptionInterceptors` | `IntegratedSecurity`, a Kerberos, Windows or OCI `DefaultAuthenticationPlugin`, `OciConfigFile`, `CertificateStoreLocation`, a client certificate or key file (a `.pfx` `CertificateFile`, also written `SslCa`, `CertificatePassword`, `SslCert`, `SslKey`), a `ConnectionProtocol` other than TCP, no `Password` |
 | Snowflake | `client_config_file`, `disable_saml_url_check=true`, `authenticator=externalbrowser` or `oauth_authorization_code` | `authenticator=workload_identity`, `private_key_file` (give the key with `private_key`) |
 | BigQuery | **Service account JSON** that is not a service account key (`"type": "service_account"`), or a key whose `token_uri` is not `https://oauth2.googleapis.com/token`, whose `universe_domain` is not `googleapis.com`, or whose other `*_uri`/`*_url` is not an https URL on `accounts.google.com` or below `googleapis.com` | No service account JSON (the host's application default credentials) |
 | AWS CloudWatch | An **AWS region** that is not a region name | An **AWS profile**, or no access key (the host's IAM role) |
@@ -633,8 +633,8 @@ actually runs (see [Engine check](#engine-check)).
 
 **Certificate errors.** The server's certificate must chain to a CA the Beacon host trusts and name the host in the
 connection string. Install the issuing CA on the Beacon host (with `HostNameInCertificate` on SQL Server and Azure
-Synapse when the certificate names another host). A CA or certificate file in the connection (`Root Certificate` on
-PostgreSQL, `SslCa` on MySQL, `ServerCertificate` on SQL Server and Azure Synapse) needs `AllowHostCredentials`. Do not
+Synapse when the certificate names another host), or name a CA or certificate file on the Beacon host in the connection
+(`Root Certificate` on PostgreSQL, a PEM `SslCa` on MySQL, `ServerCertificate` on SQL Server and Azure Synapse). Do not
 turn certificate checks off: Beacon refuses such a connection.
 
 **Permission denied on a table.** Check the login's grants:

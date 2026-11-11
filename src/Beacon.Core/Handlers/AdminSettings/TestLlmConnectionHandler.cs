@@ -54,7 +54,7 @@ internal sealed class TestLlmConnectionHandler(
 
         // The key and the test prompt go to this endpoint: https only (http for a loopback host, or where the host allows it).
         var endpoint = request.LlmEndpoint ?? current.LlmEndpoint;
-        if (provider == AiProvider.AzureOpenAI
+        if (LlmEndpointRule.UsesEndpoint(provider)
             && !string.IsNullOrWhiteSpace(endpoint)
             && !LlmEndpointRule.IsAllowed(endpoint, endpointOptions?.Value.AllowInsecureEndpoint ?? false))
         {

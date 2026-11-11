@@ -8,9 +8,10 @@ namespace Beacon.Core.Http;
 
 /// <summary>
 /// The connect-time address check of the HTTP data-source clients (the REST API connector's and Databricks'): loopback is
-/// refused unless <see cref="DataSourceTransportOptions.AllowInsecure"/> (development hosts), private networks as
+/// refused unless <see cref="DataSourceOutboundOptions.AllowLoopback"/> or <see cref="DataSourceTransportOptions.AllowInsecure"/>
+/// (development hosts), private networks as
 /// <see cref="DataSourceOutboundOptions.AllowPrivateNetworks"/> says, link-local and cloud metadata, unspecified,
-/// multicast and reserved addresses always. A refusal is a <see cref="DataSourceTransportException"/> naming the rule,
+/// multicast and reserved addresses always, with the configured NAT64 prefixes as well as the well-known one. A refusal is a <see cref="DataSourceTransportException"/> naming the rule,
 /// never the address, host or URL.
 /// </summary>
 internal static class DataSourceOutboundAddresses
@@ -20,12 +21,17 @@ internal static class DataSourceOutboundAddresses
         var transport = services.GetService<IOptions<DataSourceTransportOptions>>()?.Value ?? new DataSourceTransportOptions();
         var outbound = services.GetService<IOptions<DataSourceOutboundOptions>>()?.Value ?? new DataSourceOutboundOptions();
 
-        return new OutboundAddressRules(AllowLoopback: transport.AllowInsecure, AllowPrivateNetworks: outbound.AllowPrivateNetworks);
+        return new OutboundAddressRules(
+            AllowLoopback: outbound.AllowLoopback || transport.AllowInsecure,
+            AllowPrivateNetworks: outbound.AllowPrivateNetworks);
     }
 
     public static OutboundAddressGuard Guard(IServiceProvider services)
     {
-        return new OutboundAddressGuard(Rules(services), services.GetService<IHostAddressResolver>() ?? new DnsHostAddressResolver());
+        return new OutboundAddressGuard(
+            Rules(services),
+            services.GetService<IHostAddressResolver>() ?? new DnsHostAddressResolver(),
+            OutboundAddressPolicy.ConfiguredNat64Prefixes(services));
     }
 
     /// <summary>The primary handler's connect callback and the check handler share one guard per handler chain.</summary>
@@ -39,7 +45,7 @@ internal static class DataSourceOutboundAddresses
         return refusal switch
         {
             OutboundAddressRefusal.Loopback =>
-                "The data source's host resolves to a loopback address, which data-source connections do not reach (Beacon:DataSources:Transport:AllowInsecure lifts this on development hosts).",
+                "The data source's host resolves to a loopback address, which data-source connections do not reach while Beacon:DataSources:Outbound:AllowLoopback is false.",
             OutboundAddressRefusal.PrivateNetwork =>
                 "The data source's host resolves to a private network address, which data-source connections do not reach while Beacon:DataSources:Outbound:AllowPrivateNetworks is false.",
             OutboundAddressRefusal.LinkLocal =>

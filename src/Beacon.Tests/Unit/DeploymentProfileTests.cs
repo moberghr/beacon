@@ -151,7 +151,6 @@ public class DeploymentProfileTests
     [TestCase("Beacon:DataSources:Transport:EnforceOnExisting", "false", "Beacon:DataSources:Transport:EnforceOnExisting")]
     [TestCase("Beacon:DataSources:Transport:AllowInsecure", "true", "Beacon:DataSources:Transport:AllowInsecure")]
     [TestCase("Beacon:DataSources:AllowHostCredentials", "true", "Beacon:DataSources:AllowHostCredentials")]
-    [TestCase("Beacon:DataSources:Outbound:AllowPrivateNetworks", "true", "Beacon:DataSources:AllowedHosts")]
     [TestCase("Beacon:LLM:AllowInsecureEndpoint", "true", "Beacon:LLM:AllowInsecureEndpoint")]
     public void Regulated_RefusesASettingTheHostSetWeaker(string key, string value, string expected)
     {
@@ -171,7 +170,7 @@ public class DeploymentProfileTests
     [TestCase("Beacon:DataSources:Transport:EnforceOnExisting", "Beacon:DataSources:Transport:EnforceOnExisting")]
     [TestCase("Beacon:Authorization:RequireProjectMembership", "Beacon:Authorization:RequireProjectMembership")]
     [TestCase("Beacon:ApiKeys:EnforceMaxLifetimeOnExistingKeys", "Beacon:ApiKeys:EnforceMaxLifetimeOnExistingKeys")]
-    [TestCase("Beacon:DataSources:Outbound:AllowPrivateNetworks", "Beacon:DataSources:AllowedHosts")]
+    [TestCase("Beacon:DataSources:AllowedHosts:0", "Beacon:DataSources:AllowedHosts")]
     public void Regulated_RefusesARequiredSettingTheHostLeftUnset(string key, string expected)
     {
         var settings = Regulated();
@@ -184,16 +183,81 @@ public class DeploymentProfileTests
     }
 
     [Test]
-    public void Regulated_AcceptsAHostListInPlaceOfClosedPrivateNetworks()
+    public void Regulated_RequiresAHostList_ClosedPrivateNetworksDoNotStandInForIt()
     {
         var settings = Regulated();
-        settings.Remove("Beacon:DataSources:Outbound:AllowPrivateNetworks");
-        settings["Beacon:DataSources:AllowedHosts:0"] = "db.example.test";
+        settings.Remove("Beacon:DataSources:AllowedHosts:0");
+        settings["Beacon:DataSources:Outbound:AllowPrivateNetworks"] = "false";
         using var provider = Build(settings);
 
         var startup = () => provider.GetRequiredService<IStartupValidator>().Validate();
 
-        startup.Should().NotThrow();
+        startup.Should().Throw<OptionsValidationException>()
+            .WithMessage("*Beacon:Profile is Regulated, so Beacon:DataSources:AllowedHosts must list the hosts data sources may reach*");
+    }
+
+    [Test]
+    public void Regulated_JudgesTheBrowserProtectionsTheHostSetInCode()
+    {
+        var settings = Regulated();
+        settings.Remove("Beacon:Security:OriginGuard");
+        using var enforcedInCode = Build(settings, host: x => x.PostConfigure<BeaconHostSecurityOptions>(y => y.OriginGuard = BeaconOriginGuardMode.Enforce));
+
+        var admitted = () => enforcedInCode.GetRequiredService<IStartupValidator>().Validate();
+
+        admitted.Should().NotThrow("the origin check is enforced in code");
+
+        using var cspOffInCode = Build(Regulated(), host: x => x.PostConfigure<BeaconHostSecurityOptions>(y => y.Csp = BeaconCspMode.Off));
+
+        var refused = () => cspOffInCode.GetRequiredService<IStartupValidator>().Validate();
+
+        refused.Should().Throw<OptionsValidationException>()
+            .WithMessage("*Beacon:Profile is Regulated, so Beacon:Security:Csp must be Enforce*");
+    }
+
+    [Test]
+    public void Report_JudgesTheBrowserProtectionsTheHostSetInCode()
+    {
+        var settings = Regulated();
+        settings.Remove("Beacon:Security:OriginGuard");
+        using var provider = Build(settings, host: x => x.PostConfigure<BeaconHostSecurityOptions>(y =>
+        {
+            y.OriginGuard = BeaconOriginGuardMode.Enforce;
+            y.Csp = BeaconCspMode.ReportOnly;
+        }));
+
+        var findings = RegulatedProfile.Assess(RegulatedProfileSettings.From(provider, provider.GetRequiredService<IConfiguration>()));
+
+        findings.Select(x => x.Setting).Should().Equal("Beacon:Security:Csp");
+    }
+
+    [Test]
+    public void Assess_InTheMcpGateway_DoesNotRequireTheApprovalWorkflow()
+    {
+        var beacon = new BeaconConfiguration();
+        beacon.EnableUserManagement();
+        beacon.UserManagement.LocalLogin.Enabled = false;
+        beacon.UserManagement.MinimumPasswordLength = RegulatedProfile.MinimumPasswordLength;
+        var compliant = Compliant();
+        var gateway = new RegulatedProfileSettings
+        {
+            Mcp = compliant.Mcp,
+            Retention = compliant.Retention,
+            Beacon = beacon,
+            Audit = compliant.Audit,
+            Transport = compliant.Transport,
+            DataSources = compliant.DataSources,
+            ProjectAuthorization = compliant.ProjectAuthorization,
+            ApiKeys = compliant.ApiKeys,
+            Configuration = compliant.Configuration,
+            GatewayMode = true
+        };
+
+        RegulatedProfile.Assess(gateway).Should().BeEmpty();
+        RegulatedProfile.Assess(new RegulatedProfileSettings { GatewayMode = true, Configuration = compliant.Configuration }).Select(x => x.Setting)
+            .Should().NotContain(x => x.StartsWith("ApprovalWorkflow."))
+            .And.Contain("UserManagement.Enabled", "every other requirement still applies in the gateway")
+            .And.Contain("Beacon:DataSources:AllowedHosts");
     }
 
     [TestCaseSource(nameof(WeakCodeOptions))]
@@ -316,20 +380,35 @@ public class DeploymentProfileTests
     }
 
     [Test]
-    public void Assess_ObsoleteOverload_JudgesBeaconsDefaultsForTheSettingsItIsNotGiven()
+    public void Assess_ObsoleteOverload_JudgesOnlyTheSettingsItIsGiven()
     {
 #pragma warning disable CS0618 // The obsolete overload stays for hosts that call it.
-        var findings = RegulatedProfile.Assess(
+        var strong = RegulatedProfile.Assess(
             Strong(),
             new RetentionOptions { Locked = true },
             new RateLimitOptions(),
             null,
             new LocalLoginOptions { Enabled = false });
+        var weak = RegulatedProfile.Assess(
+            new McpDeploymentOptions(),
+            new RetentionOptions(),
+            new RateLimitOptions { Ask = new RateLimitWindow { PermitLimit = 0 } },
+            new OidcAuthenticationOptions { Enabled = true, RequireMfa = false },
+            new LocalLoginOptions { Enabled = true });
 #pragma warning restore CS0618
 
-        var settings = findings.Select(x => x.Setting).ToList();
-        settings.Should().Contain("UserManagement.Enabled").And.Contain("Beacon:Security:OriginGuard");
-        settings.Should().NotContain("Beacon:Mcp:ForbidRowDataToLlm").And.NotContain("Beacon:UserManagement:LocalLogin:Enabled");
+        strong.Should().BeEmpty("the settings it is not given (sign-in, browser, approval workflow, audit, connections) are not judged");
+        weak.Select(x => x.Setting).Should().Equal(
+            "Beacon:Mcp:Audit:Required",
+            "Beacon:Mcp:ForbidRowDataToLlm",
+            "Beacon:Mcp:Ceilings:MaxRowLimit",
+            "Beacon:Mcp:Ceilings:StatementTimeoutSeconds",
+            "Beacon:Mcp:Ceilings:MaxResultBytes",
+            "Beacon:Mcp:Ceilings:MaxConcurrentQueriesPerKey",
+            "Beacon:Retention:Locked",
+            "Beacon:RateLimits:Ask:PermitLimit",
+            "Beacon:UserManagement:LocalLogin:Enabled",
+            "Beacon:Authentication:Oidc:RequireMfa");
     }
 
     [Test]
@@ -367,30 +446,79 @@ public class DeploymentProfileTests
     }
 
     [Test]
-    public void Report_WithoutAProfile_WarnsOnceNamingEachWeakSetting()
+    public void Report_WithoutAProfile_WarnsOnlyOnTheSettingsItAlwaysJudged_AndNotesTheOthers()
+    {
+        var recorder = new LogRecorder();
+        var settings = new RegulatedProfileSettings();
+        var findings = RegulatedProfile.Assess(settings);
+        var original = findings.Count(x => RegulatedProfile.OriginalSettings.Contains(x.Setting));
+
+        Report(recorder, new DeploymentProfileOptions()).Report(settings);
+
+        recorder.Entries.Should().HaveCount(2);
+        var warning = recorder.Entries[0];
+        warning.Level.Should().Be(LogLevel.Warning);
+        warning.EventId.Should().Be(DeploymentProfileStartupReport.WeakSettingsEvent);
+        warning.Message.Should().Contain($"{original} security settings are weaker than the regulated profile requires (profile: None)")
+            .And.Contain("Beacon:Mcp:Audit:Required must be true")
+            .And.Contain("Beacon:Mcp:Ceilings:MaxRowLimit must be set")
+            .And.Contain("Beacon:Retention:Locked must be true")
+            .And.Contain("Beacon:UserManagement:LocalLogin:Enabled must be false")
+            .And.Contain("Set Beacon:Profile to Regulated");
+        warning.Message.Should().NotContain("Beacon:Mcp:ForceReadOnly", "a lock that is on is not weak")
+            .And.NotContain("Beacon:Security:Csp", "the Content-Security-Policy is enforced by default")
+            .And.NotContain("UserManagement.Enabled", "a requirement the report did not judge before warns only under the profile")
+            .And.NotContain("Beacon:Security:OriginGuard")
+            .And.NotContain("Beacon:DataSources:AllowedHosts");
+
+        var note = recorder.Entries[1];
+        note.Level.Should().Be(LogLevel.Information);
+        note.EventId.Should().Be(DeploymentProfileStartupReport.OtherWeakSettingsEvent);
+        note.EventId.Id.Should().Be(9133);
+        note.Message.Should().Contain($"{findings.Count - original} other settings are weaker than the regulated profile requires (profile: None)")
+            .And.Contain("UserManagement.Enabled")
+            .And.Contain("ApprovalWorkflow.Enabled")
+            .And.Contain("Beacon:Security:OriginGuard")
+            .And.Contain("Beacon:Audit:IntegrityKey")
+            .And.Contain("Beacon:DataSources:AllowedHosts");
+        note.Message.Should().NotContain("Beacon:Retention:Locked").And.NotContain("must be");
+    }
+
+    [Test]
+    public void Report_WithoutAProfile_OnlyNewRequirementsWeak_LogsNoWarning()
+    {
+        var recorder = new LogRecorder();
+        var compliant = Compliant();
+        var settings = new RegulatedProfileSettings
+        {
+            Mcp = compliant.Mcp,
+            Retention = compliant.Retention,
+            Beacon = new BeaconConfiguration { UserManagement = new UserManagementOptions { LocalLogin = new LocalLoginOptions { Enabled = false } } }
+        };
+
+        Report(recorder, new DeploymentProfileOptions()).Report(settings);
+
+        recorder.Entries.Should().ContainSingle().Which.Level.Should().Be(LogLevel.Information);
+    }
+
+    [Test]
+    public void Report_UnderTheRegulatedProfile_WarnsNamingEveryWeakSetting()
     {
         var recorder = new LogRecorder();
         var settings = new RegulatedProfileSettings();
         var expectedCount = RegulatedProfile.Assess(settings).Count;
 
-        Report(recorder, new DeploymentProfileOptions()).Report(settings);
+        Report(recorder, new DeploymentProfileOptions { Profile = DeploymentProfile.Regulated }).Report(settings);
 
         var entry = recorder.Entries.Should().ContainSingle().Which;
         entry.Level.Should().Be(LogLevel.Warning);
         entry.EventId.Should().Be(DeploymentProfileStartupReport.WeakSettingsEvent);
-        entry.Message.Should().Contain($"{expectedCount} security settings are weaker than the regulated profile requires (profile: None)")
-            .And.Contain("Beacon:Mcp:Audit:Required must be true")
-            .And.Contain("Beacon:Mcp:Ceilings:MaxRowLimit must be set")
+        entry.Message.Should().Contain($"{expectedCount} security settings are weaker than the regulated profile requires (profile: Regulated)")
             .And.Contain("Beacon:Retention:Locked must be true")
-            .And.Contain("Beacon:UserManagement:LocalLogin:Enabled must be false")
             .And.Contain("UserManagement.Enabled must be true (in code")
             .And.Contain("ApprovalWorkflow.Enabled must be true (in code")
             .And.Contain("Beacon:Security:OriginGuard must be Enforce")
-            .And.Contain("Beacon:Audit:IntegrityKey must be set")
-            .And.Contain("Beacon:DataSources:AllowedHosts must list")
-            .And.Contain("Set Beacon:Profile to Regulated");
-        entry.Message.Should().NotContain("Beacon:Mcp:ForceReadOnly", "a lock that is on is not weak")
-            .And.NotContain("Beacon:Security:Csp", "the Content-Security-Policy is enforced by default");
+            .And.Contain("Beacon:DataSources:AllowedHosts must list");
     }
 
     [Test]
@@ -470,8 +598,9 @@ public class DeploymentProfileTests
 
         Report(recorder, new DeploymentProfileOptions()).Report(settings);
 
-        var text = recorder.Entries.Should().ContainSingle().Which.FullText;
-        text.Should().Contain("Beacon:Authentication:Oidc:RequireMfa must be true").And.Contain("Beacon:PublicBaseUrl must be set");
+        recorder.Entries.Should().HaveCount(2);
+        var text = string.Join("\n", recorder.Entries.Select(x => x.FullText));
+        text.Should().Contain("Beacon:Authentication:Oidc:RequireMfa must be true").And.Contain("Beacon:PublicBaseUrl");
         text.Should().NotContain("client-secret-value")
             .And.NotContain("login.example.test")
             .And.NotContain("break-glass-name")
@@ -571,7 +700,7 @@ public class DeploymentProfileTests
                 IntegrityKey = IntegrityKey
             },
             Transport = new DataSourceTransportOptions { EnforceOnExisting = true },
-            Outbound = new DataSourceOutboundOptions { AllowPrivateNetworks = false },
+            DataSources = new DataSourceConnectionOptions { AllowedHosts = ["db.example.test"] },
             ProjectAuthorization = new ProjectAuthorizationOptions { RequireProjectMembership = true },
             ApiKeys = new ApiKeyOptions { EnforceMaxLifetimeOnExistingKeys = true },
             Embed = new EmbedOptions { Enabled = embed },
@@ -595,7 +724,7 @@ public class DeploymentProfileTests
             ["Beacon:Audit:IntegrityKey"] = IntegrityKey,
             ["Beacon:Encryption:AllowLegacyCbc"] = "false",
             ["Beacon:DataSources:Transport:EnforceOnExisting"] = "true",
-            ["Beacon:DataSources:Outbound:AllowPrivateNetworks"] = "false",
+            ["Beacon:DataSources:AllowedHosts:0"] = "db.example.test",
             ["Beacon:Authorization:RequireProjectMembership"] = "true",
             ["Beacon:ApiKeys:EnforceMaxLifetimeOnExistingKeys"] = "true"
         };
@@ -609,8 +738,13 @@ public class DeploymentProfileTests
     }
 
     // Beacon's own registration, as a regulated host calls it (weaken changes its code configuration afterwards); withOidc
-    // binds the SSO options as Beacon.Api does. Project memberships come from a stand-in source, as no database is reached.
-    private static ServiceProvider Build(Dictionary<string, string?> settings, bool withOidc = false, Action<BeaconConfiguration>? weaken = null)
+    // binds the SSO options as Beacon.Api does; host adds Beacon.Api's services and then the host's own registrations.
+    // Project memberships come from a stand-in source, as no database is reached.
+    private static ServiceProvider Build(
+        Dictionary<string, string?> settings,
+        bool withOidc = false,
+        Action<BeaconConfiguration>? weaken = null,
+        Action<IServiceCollection>? host = null)
     {
         // A throwaway key: AddBeaconServices refuses to start without one (§1.1). Never a real secret (§1.2).
         settings["Beacon:EncryptionKey"] = TestEncryptionKey.Value;
@@ -629,6 +763,12 @@ public class DeploymentProfileTests
         if (withOidc)
         {
             services.Configure<OidcAuthenticationOptions>(configuration.GetSection("Beacon:Authentication:Oidc"));
+        }
+
+        if (host != null)
+        {
+            services.AddBeaconApiServices(x => x.Realtime = false);
+            host(services);
         }
 
         return services.BuildServiceProvider();

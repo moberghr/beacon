@@ -1,14 +1,14 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
 import { EmbedView } from './EmbedView';
-import { expiryNotifier, framingOrigin, readFrameMarker, readFrameOrigins, takeToken } from './embedClient';
+import { expiryNotifier, expiryTargets, readFrameMarker, readFrameOrigins, takeToken } from './embedClient';
 import '../index.css';
 
 // Taken before anything renders: the fragment leaves the address at once and the token stays in memory only.
 const token = takeToken();
 const frameMarker = readFrameMarker();
-// At most one expiry notice per page load, to the framing page only, at an origin the grant lets frame the page.
-const notifyExpired = expiryNotifier(window.parent !== window ? window.parent : null, framingOrigin(readFrameOrigins()));
+// At most one expiry notice per page load, to the framing page only, at origins the grant lets frame the page.
+const notifyExpired = expiryNotifier(window.parent !== window ? window.parent : null, expiryTargets(readFrameOrigins()));
 
 // Follows the viewer's colour scheme; the app's own theme setting is not read here.
 const darkScheme = window.matchMedia?.('(prefers-color-scheme: dark)');

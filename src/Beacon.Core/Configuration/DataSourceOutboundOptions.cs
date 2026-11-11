@@ -3,9 +3,9 @@ namespace Beacon.Core.Configuration;
 /// <summary>
 /// Which addresses the HTTP data-source connectors (the REST API connector and Databricks) connect to, bound from
 /// <c>Beacon:DataSources:Outbound</c>. Their connect-time check resolves the host itself and connects only to an address
-/// it allows: loopback (lifted by <see cref="DataSourceTransportOptions.AllowInsecure"/> on development hosts),
-/// link-local and cloud metadata, unspecified, multicast and reserved addresses are always refused; private networks
-/// follow <see cref="AllowPrivateNetworks"/>.
+/// it allows: loopback follows <see cref="AllowLoopback"/> (also lifted by <see cref="DataSourceTransportOptions.AllowInsecure"/>
+/// on development hosts), private networks <see cref="AllowPrivateNetworks"/>; link-local and cloud metadata,
+/// unspecified, multicast and reserved addresses are always refused.
 /// </summary>
 public sealed class DataSourceOutboundOptions
 {
@@ -17,4 +17,11 @@ public sealed class DataSourceOutboundOptions
     /// where every HTTP source is on the public internet, or list the allowed hosts in <c>Beacon:DataSources:AllowedHosts</c>.
     /// </summary>
     public bool AllowPrivateNetworks { get; set; } = true;
+
+    /// <summary>
+    /// Lets the HTTP data-source connectors reach loopback addresses (127.0.0.0/8, ::1): an API or warehouse endpoint on the
+    /// Beacon host itself, or a local sidecar or tunnel. Default false; unlike <see cref="DataSourceTransportOptions.AllowInsecure"/>,
+    /// which also lifts it, it leaves the TLS and connection option checks on.
+    /// </summary>
+    public bool AllowLoopback { get; set; }
 }

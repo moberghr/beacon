@@ -451,7 +451,7 @@ never the host list. Bound from `Beacon:DataSources`:
 | Key | Type | Default | What it does |
 |---|---|---|---|
 | `AllowedHosts` | string[] | `[]` | The hosts a data-source connection may reach: exact host names or IP addresses, or `*.example.com` for the hosts below `example.com` (ASCII; an internationalised name in its `xn--` form). Empty leaves hosts unrestricted. While set, a connection reaching an unlisted host, a host that is not a bare host name or IP address, or one whose hosts cannot be told, is refused; a BigQuery source needs `oauth2.googleapis.com`. The list matches names, and resolved addresses are not pinned to it (the REST API and Databricks connectors also check the addresses they connect to, see [HTTP data-source addresses](#http-data-source-addresses)). An entry with a scheme, port or path fails startup |
-| `AllowHostCredentials` | bool | `false` | Accepts connections that sign in as the Beacon host: integrated or Kerberos security, a managed, workload or default cloud identity, an AWS profile or IAM role, BigQuery application default credentials, a certificate store, a client certificate, key or CA file on the Beacon host (PostgreSQL `SSL Certificate`, `SSL Key`, `SSL Password`, `Root Certificate`; MySQL `CertificateFile`/`SslCa`, `CertificatePassword`, `SslCert`, `SslKey`; SQL Server and Azure Synapse `ServerCertificate`), a local socket or named pipe, a PostgreSQL pgpass file |
+| `AllowHostCredentials` | bool | `false` | Accepts connections that sign in as the Beacon host: integrated or Kerberos security, a managed, workload or default cloud identity, an AWS profile or IAM role, BigQuery application default credentials, a certificate store, a client certificate or key file on the Beacon host (PostgreSQL `SSL Certificate`, `SSL Key`, `SSL Password`; MySQL a `.pfx` `CertificateFile`/`SslCa`, `CertificatePassword`, `SslCert`, `SslKey`; a CA file that only verifies the server — `Root Certificate`, a PEM `SslCa`, `ServerCertificate` — needs no option), a local socket or named pipe, a PostgreSQL pgpass file |
 
 ```json
 { "Beacon": { "DataSources": { "AllowedHosts": [ "*.db.example.com", "adb-1234567890123456.7.azuredatabricks.net" ] } } }
@@ -474,8 +474,8 @@ with a Warning.
 The REST API and Databricks connectors resolve a data source's host when they connect and connect only to an address
 these rules allow; an address they refuse is never dialled, and the error names the rule, never the address or URL:
 
-- loopback (`127.0.0.0/8`, `::1`) is refused unless `Beacon:DataSources:Transport:AllowInsecure` is `true` (development
-  hosts only);
+- loopback (`127.0.0.0/8`, `::1`) is refused unless `AllowLoopback` below is `true` (or
+  `Beacon:DataSources:Transport:AllowInsecure`, development hosts only, which also lifts the TLS and option checks);
 - private networks (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10`, `fc00::/7`) are allowed unless
   `AllowPrivateNetworks` below is `false`;
 - link-local and cloud metadata addresses (`169.254.0.0/16`, `fe80::/10` and the providers' metadata addresses),
@@ -488,14 +488,15 @@ connects; configure its egress policy to refuse the same destinations. Bound fro
 | Key | Type | Default | What it does |
 |---|---|---|---|
 | `AllowPrivateNetworks` | bool | `true` | Lets the REST API and Databricks connectors reach private network addresses. Set `false` where every HTTP data source is on the public internet; otherwise consider listing the allowed hosts in `Beacon:DataSources:AllowedHosts` |
+| `AllowLoopback` | bool | `false` | Lets the REST API and Databricks connectors reach loopback addresses: an endpoint on the Beacon host itself, or a local sidecar or tunnel. The TLS and connection option checks stay on |
 
 ```json
 { "Beacon": { "DataSources": { "Outbound": { "AllowPrivateNetworks": false } } } }
 ```
 
 :::caution[Upgrading]
-A REST API or Databricks data source whose host resolves to a loopback address stops connecting outside development
-hosts (set `Beacon:DataSources:Transport:AllowInsecure` in Development configuration only), and one whose host resolves
+A REST API or Databricks data source whose host resolves to a loopback address (`localhost`, `127.0.0.1`) stops
+connecting until `Beacon:DataSources:Outbound:AllowLoopback` is `true`, and one whose host resolves
 to a link-local or cloud metadata address stops connecting everywhere.
 :::
 
@@ -719,7 +720,7 @@ Bound from `Beacon:LLM` by `builder.Services.AddBeaconAI(builder.Configuration)`
 | `ApiKey` | string | `""` | The provider key. Bedrock: a legacy `accessKey:secretKey` pair, used when `AwsAccessKeyId` and `AwsSecretAccessKey` are both empty (under `IamRole` with a logged warning) |
 | `BedrockAuthMode` | `IamRole` \| `AccessKey` \| `TemporaryCredentials` | `IamRole` | Bedrock credentials: the default AWS credential chain, the access key pair, or the pair with `SessionToken` |
 | `AwsAccessKeyId`, `AwsSecretAccessKey` | string | None | The Bedrock access key pair for `AccessKey` and `TemporaryCredentials`; one without the other fails |
-| `Endpoint` | string | None | Required for `AzureOpenAI`. An `https` URL; `http` only for a loopback host (`localhost`, `127.0.0.1`, `[::1]`) or while `AllowInsecureEndpoint` is set. Checked when the provider is built, when an Admin saves a new endpoint and when the connection is tested |
+| `Endpoint` | string | None | Required for `AzureOpenAI`. An `https` URL; `http` only for a loopback host (`localhost`, `127.0.0.1`, `[::1]`) or while `AllowInsecureEndpoint` is set. Checked when the provider is built, when an Admin saves a new endpoint for Azure OpenAI and when the connection is tested; the other providers do not read it |
 | `AllowInsecureEndpoint` | bool | `false` | Accepts an `http` endpoint on any host. For development and closed test networks only: the key and every prompt then travel unencrypted |
 | `Region` | string | None | Required for `Bedrock` |
 | `SessionToken` | string | None | Bedrock temporary credentials |
@@ -752,8 +753,9 @@ export Beacon__LLM__ApiKey="<provider key>"
 Whatever the endpoint, the LLM clients resolve its host when they connect and never connect to a link-local or cloud
 metadata address (`169.254.0.0/16`, `fe80::/10` and the providers' metadata addresses), nor to an unspecified, multicast
 or reserved one; loopback and private network addresses stay allowed for local and on-premises gateways. An Azure OpenAI
-endpoint stored with `http` on another host stops working until it is replaced or `AllowInsecureEndpoint` is set (the
-host logs a Warning when the provider cannot be built).
+endpoint stored with `http` on another host stops working until it is replaced or `AllowInsecureEndpoint` is set: the
+host logs a Warning at startup naming where the endpoint comes from (Admin settings or `Beacon:LLM:Endpoint`, never the
+URL), and another when the provider cannot be built.
 
 At startup the provider is built from `Beacon:LLM`. Saving the AI provider in [Admin settings](/security/admin-settings/) swaps it immediately, without a restart; after a restart `Beacon:LLM` applies again until the settings are saved. Keep `Beacon:LLM` in step with Admin settings, or save them again after a restart. See [AI providers](/integrate/ai/).
 
@@ -803,7 +805,7 @@ Bound from `Beacon:Notifications`, validated at startup (each bad entry is named
 | `DisabledTypes` | empty | Types this host does not deliver: `Email`, `Teams`, `Slack`, `Jira`, `Webhook` |
 | `AllowedPrivateNetworks:Webhook` / `Slack` / `Teams` / `Jira` | empty | IP addresses, CIDR ranges or host names that calls of that type may still reach though private |
 | `AllowedHeaders` | empty | Webhook header names allowed besides `Authorization`, `Api-Key`, `X-Api-Key`, `Ocp-Apim-Subscription-Key`. Reserved names (`Host`, `Content-Length`, `X-Forwarded-*`, `Metadata-Flavor`, …) are refused |
-| `Nat64Prefixes` | empty | Extra NAT64 `/96` prefixes besides `64:ff9b::/96` |
+| `Nat64Prefixes` | empty | Extra NAT64 `/96` prefixes besides `64:ff9b::/96`. An address under one is judged by the IPv4 address it carries, by the notification calls and also by the HTTP data-source and LLM clients' address checks |
 | `UseSystemProxy` | `false` | Send notification calls through the system proxy, with the destination checked before sending. Requires `AllowedHosts:Webhook` (or Webhook disabled) |
 | `RequireEncryptedSecrets` | `false` | Refuse to send to a recipient whose secrets are still stored unencrypted |
 
@@ -929,7 +931,7 @@ Other startup-validated keys (`Beacon:Authorization:*`, `Beacon:Authentication:*
 
 ## Regulated profile (`Beacon:Profile`)
 
-`Beacon:Profile: Regulated` turns on a preset of the settings a regulated deployment needs. Unset (or `None`) changes nothing; any other value fails startup. The profile reads the host's configuration keys: a key the host left unset is filled, a key the host set weaker than the profile requires is **never overridden** — the host fails to start with every such key listed in one message.
+`Beacon:Profile: Regulated` turns on a preset of the settings a regulated deployment needs. Unset (or `None`) changes nothing; any other value fails startup. The profile reads the host's configuration keys: a key the host's configuration leaves unset is filled, a key the host's configuration sets weaker than the profile requires is **never overridden** — the host fails to start with every such key listed in one message. For a key the profile fills, a weaker value the host sets in code (with the configuration key unset) is raised to the profile's value.
 
 | Key | Under the profile |
 |---|---|
@@ -942,20 +944,20 @@ Other startup-validated keys (`Beacon:Authorization:*`, `Beacon:Authentication:*
 | `Beacon:Audit:Required`, `Beacon:Audit:ExecutionLog:Required` | Unset: `true` (a sign-in whose audit event cannot be written gets no session; a statement whose execution log row cannot be written does not run). `false` fails startup |
 | `Beacon:Authentication:Cookie:SecureAlways` | Unset: `true` (the session cookie always carries the Secure flag). `false` fails startup |
 | `Beacon:UserManagement:MinimumPasswordLength` | Unset: `12`. A value below 12 fails startup |
-| `Beacon:Security:Csp` | Already `Enforce` by default; `ReportOnly` or `Off` fails startup |
+| `Beacon:Security:Csp` | Already `Enforce` by default; `ReportOnly` or `Off`, in configuration or in code (`BeaconHostSecurityOptions`), fails startup |
 | `Beacon:DataSources:Transport:AllowInsecure`, `Beacon:DataSources:AllowHostCredentials`, `Beacon:LLM:AllowInsecureEndpoint`, `Beacon:DataProtection:AllowUnencryptedKeys` | Already off by default; `true` fails startup |
 | `Beacon:UserManagement:LocalLogin:Enabled` | Must be set to `false`; never filled, since it ends password sign-in for every account but the break-glass ones (`BreakGlassUserNames` stay allowed) |
 | `Beacon:Authentication:Oidc:RequireMfa` | With single sign-on on, must be set to `true`; never filled, since your identity provider must send the `amr`/`acr` claims first |
 | `Beacon:Authorization:RequireProjectMembership` | Must be set to `true`; never filled, since every project becomes members-only and data sources no project links Admin-only |
 | `Beacon:ApiKeys:EnforceMaxLifetimeOnExistingKeys` | Must be set to `true`; never filled, since keys stored without an expiry stop working once they are older than `MaxLifetimeDays` |
-| `Beacon:Security:OriginGuard` | Must be set to `Enforce`; never filled, since a browser origin missing from `Beacon:Security:AllowedOrigins` is then refused (read what `LogOnly` logged first) |
+| `Beacon:Security:OriginGuard` | Must be `Enforce`, in configuration or in code (`BeaconHostSecurityOptions`); never filled, since a browser origin missing from `Beacon:Security:AllowedOrigins` is then refused (read what `LogOnly` logged first) |
 | `Beacon:PublicBaseUrl` | Must be set to Beacon's `https` address |
 | `Beacon:Audit:IntegrityKey` | Must be set, from your secret store (at least 32 characters) |
 | `Beacon:Encryption:AllowLegacyCbc` | Must be set to `false`; never filled, since values still in the legacy format become unreadable: wait until the re-encryption run reports none left (see [Encryption key configuration](#encryption-key-configuration-required)) |
 | `Beacon:DataSources:Transport:EnforceOnExisting` | Must be set to `true`; never filled, since a stored connection that does not authenticate its server stops connecting |
-| `Beacon:DataSources:AllowedHosts` or `Beacon:DataSources:Outbound:AllowPrivateNetworks` | The host list must name the hosts data sources may reach, or private networks must be closed (`false`) |
+| `Beacon:DataSources:AllowedHosts` | Must name the hosts data sources may reach (`Beacon:DataSources:Outbound:AllowPrivateNetworks` covers only the HTTP connectors and does not stand in for it) |
 | `EnableUserManagement` (code) | Must be on: per-user roles, functional permissions and project memberships need Beacon's user store |
-| `EnableApprovalWorkflow` (code) | Must be on, with every `Covers*` switch `true` (`CoversDataSourceConnections`, `CoversLlmConnection` and `CoversAdminRoleGrants` are off by default) and `AllowSelfApproval` `false` |
+| `EnableApprovalWorkflow` (code) | Must be on, with every `Covers*` switch `true` (`CoversDataSourceConnections`, `CoversLlmConnection` and `CoversAdminRoleGrants` are off by default) and `AllowSelfApproval` `false`. Not required in the Beacon MCP gateway (`AddBeaconMcpGateway`), which serves none of the changes the workflow governs |
 
 ```json
 {
@@ -993,9 +995,9 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
 });
 ```
 
-At startup Beacon logs one report of these checks (event 9130, Warning) naming each setting that is weaker than the profile requires, also when no profile is set; under the profile, once every check holds, one Information (9131) names the settings the profile filled, and another (9132) names the surfaces the profile allows that are on (`Beacon:Embed:Enabled`, `Beacon:Migrations:Enabled`), for review. The report and the startup failure carry configuration names only, never a value. LLM concurrency and rate limits are Admin settings stored at runtime (see [AI / LLM](#ai--llm)), outside the profile.
+At startup Beacon logs one report of these checks. Under the profile, event 9130 (Warning) names each setting that is weaker than the profile requires; without a profile, 9130 names only the MCP locks and ceilings, the retention lock, the request limits, the lockout, local login and MFA, and one Information (9133) names the other weak settings, so an alert on the Warning does not start firing at an upgrade. Under the profile, once every check holds, one Information (9131) names the settings the profile filled, and another (9132) names the surfaces the profile allows that are on (`Beacon:Embed:Enabled`, `Beacon:Migrations:Enabled`), for review. The report and the startup failure carry configuration names only, never a value. LLM concurrency and rate limits are Admin settings stored at runtime (see [AI / LLM](#ai--llm)), outside the profile.
 
-**Upgrading a regulated deployment.** The profile now also requires `Beacon:Authorization:RequireProjectMembership`, `Beacon:ApiKeys:EnforceMaxLifetimeOnExistingKeys`, `Beacon:Security:OriginGuard: Enforce`, an `https` `Beacon:PublicBaseUrl`, `Beacon:Audit:IntegrityKey`, `Beacon:Encryption:AllowLegacyCbc: false`, `Beacon:DataSources:Transport:EnforceOnExisting`, a data-source host list (or closed private networks), user management and the approval workflow over every kind. A host that set none of them fails to start with the full list: run once without the profile to read the 9130 report, set each key, then turn the profile back on. The Beacon MCP gateway (`AddBeaconMcpGateway`) owns Beacon's code configuration and does not turn the approval workflow on, so it cannot run under the profile today.
+**Upgrading a regulated deployment.** The profile now also requires `Beacon:Authorization:RequireProjectMembership`, `Beacon:ApiKeys:EnforceMaxLifetimeOnExistingKeys`, `Beacon:Security:OriginGuard: Enforce`, an `https` `Beacon:PublicBaseUrl`, `Beacon:Audit:IntegrityKey`, `Beacon:Encryption:AllowLegacyCbc: false`, `Beacon:DataSources:Transport:EnforceOnExisting`, a data-source host list (`Beacon:DataSources:AllowedHosts`; closed private networks no longer stand in for it), user management and the approval workflow over every kind. A host that set none of them fails to start with the full list: run once without the profile to read the 9130 and 9133 report, set each key, then turn the profile back on. The Beacon MCP gateway (`AddBeaconMcpGateway`) runs under the profile with the keys above set in its configuration; the approval workflow is not required there.
 
 ## MCP (`Beacon:Mcp`)
 
@@ -1019,6 +1021,7 @@ Validated at startup. Without the section, `ForceReadOnly` and `ForcePiiDetectio
 | Key | Type | Default | What it does |
 |---|---|---|---|
 | `ForceReadOnly`, `ForcePiiDetection`, `ForceNoContentRetention`, `ForbidRowDataToLlm` | bool | `true`, `true`, `false`, `false` | See [Deployment locks](#deployment-locks) |
+| `DataNotice` | bool | `true` | Ends every successful tool result with a text block saying its content is data, not instructions (see [Connection details](/mcp/server/#connection-details)). `false` leaves results as the tools built them, for a client that reads every content block as the answer; the server instructions say the same either way |
 | `Ceilings:MaxRowLimit` | int | none | Caps the row limit the MCP tools apply; must be greater than 0 when set |
 | `Ceilings:StatementTimeoutSeconds`, `MaxResultBytes`, `MaxConcurrentQueriesPerKey` | int | none | Clamp the MCP settings of the same names, shown on the MCP settings page; must be greater than 0 when set. The MCP tools apply the statement timeout to every statement, bound each tool result to the byte budget, and refuse a call when the caller already runs that many queries |
 | `Ceilings:LearningSignalRetentionDays` | int | none | Clamps the learning-signal retention (`LearningSignalRetentionDays`, global and per project) on the MCP settings page; greater than 0 when set. Under `Beacon:Retention:Locked` it is at most `Beacon:Retention:Days` |

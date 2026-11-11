@@ -34,6 +34,8 @@ public static class BeaconMcpGatewayServiceCollectionExtensions
     /// <c>offline_access</c>, unless <c>Beacon:Mcp:ProtectedResource</c> sets them.</item>
     /// <item>The host project is synced the first time it is needed, and a <c>beacon-mcp-gateway</c> health check reports
     /// Degraded until it is.</item>
+    /// <item>Under <c>Beacon:Profile = Regulated</c> every requirement but the approval workflow's applies, set in the host's
+    /// configuration: the workflow governs no change a gateway serves.</item>
     /// </list>
     /// Beacon needs <c>Beacon:EncryptionKey</c> and its own schema in a database (<see cref="BeaconMcpGatewayOptions.Database"/>;
     /// migrate it with <c>BeaconPostgreSqlMigrator</c> or <c>BeaconSqlServerMigrator</c> from the host's migration step). Then
@@ -83,6 +85,10 @@ public static class BeaconMcpGatewayServiceCollectionExtensions
         }
 
         options.DatabaseConfiguration!(beacon);
+
+        // The regulated profile (Beacon:Profile) does not require the approval workflow here: the gateway serves none of
+        // the changes it governs, and its administrators come from the host's admin policy.
+        services.TryAddSingleton<McpGatewayDeployment>();
 
         // Pinned in code, whatever a configuration row or a Beacon administrator says: a gateway runs no SQL, and a tool's
         // input and output can carry anything the host returns.

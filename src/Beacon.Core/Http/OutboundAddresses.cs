@@ -120,12 +120,13 @@ internal static class OutboundAddresses
     }
 
     /// <summary>
-    /// What kind of destination <paramref name="address"/> is for the data-source and LLM clients, judged with the
-    /// well-known NAT64 prefix. An IPv4 address carried in an IPv6 form (mapped, translated, compatible, NAT64, 6to4) is
-    /// judged by the IPv4 address it carries.
+    /// What kind of destination <paramref name="address"/> is for the data-source and LLM clients, judged with
+    /// <paramref name="nat64Prefixes"/> (the well-known NAT64 prefix when none are given). An IPv4 address carried in an
+    /// IPv6 form (mapped, translated, compatible, NAT64, 6to4) is judged by the IPv4 address it carries.
     /// </summary>
-    public static OutboundAddressKind Classify(IPAddress address)
+    public static OutboundAddressKind Classify(IPAddress address, IReadOnlyList<IPNetwork>? nat64Prefixes = null)
     {
+        var prefixes = nat64Prefixes ?? WellKnownNat64Prefixes;
         if (address.AddressFamily == AddressFamily.InterNetworkV6)
         {
             if (address.Equals(IPAddress.IPv6Any))
@@ -138,13 +139,13 @@ internal static class OutboundAddresses
                 return OutboundAddressKind.Loopback;
             }
 
-            var embedded = EmbeddedIPv4(address, WellKnownNat64Prefixes);
+            var embedded = EmbeddedIPv4(address, prefixes);
             if (embedded != null)
             {
                 return Classify(embedded);
             }
 
-            if (IsMetadata(address, WellKnownNat64Prefixes) || OtherMetadataAddresses.Any(x => x.Contains(address)))
+            if (IsMetadata(address, prefixes) || OtherMetadataAddresses.Any(x => x.Contains(address)))
             {
                 return OutboundAddressKind.LinkLocal;
             }
@@ -154,7 +155,7 @@ internal static class OutboundAddresses
                 return OutboundAddressKind.NotRoutable;
             }
 
-            return IsPublic(address, WellKnownNat64Prefixes) ? OutboundAddressKind.Public : OutboundAddressKind.PrivateNetwork;
+            return IsPublic(address, prefixes) ? OutboundAddressKind.Public : OutboundAddressKind.PrivateNetwork;
         }
 
         if (address.AddressFamily != AddressFamily.InterNetwork)

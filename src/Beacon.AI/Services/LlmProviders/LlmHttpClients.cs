@@ -8,7 +8,8 @@ namespace Beacon.AI.Services.LlmProviders;
 /// <summary>
 /// The HTTP clients the built-in LLM providers send through: one named <see cref="IHttpClientFactory"/> client per
 /// provider when registered through <c>AddBeaconAI</c>, and one shared pooled client for providers built without DI.
-/// Long completions are expected, so every client waits up to <see cref="Timeout"/>. No client follows redirects: a
+/// Long completions are expected, so every client waits up to <see cref="Timeout"/>, but gives up connecting after
+/// <see cref="ConnectTimeout"/>. No client follows redirects: a
 /// redirect would carry the key headers and the request body to wherever the response points. Every client connects only
 /// to an address the LLM address rules allow (<see cref="OutboundAddressRules.Llm"/>: loopback and private networks for
 /// local and on-premises gateways, never link-local or cloud metadata), judged on the addresses the host resolves to when
@@ -24,6 +25,12 @@ internal static class LlmHttpClients
     public const string Claude = "Beacon.AI.Claude";
 
     public static readonly TimeSpan Timeout = TimeSpan.FromMinutes(5);
+
+    /// <summary>
+    /// How long a client tries to connect (every address the endpoint resolves to, in turn) before it gives up, as the
+    /// data-source clients do; the long <see cref="Timeout"/> is for the completion, not for an endpoint that never answers.
+    /// </summary>
+    public static readonly TimeSpan ConnectTimeout = TimeSpan.FromSeconds(10);
 
     /// <summary>The largest successful response body a provider reads (8 MiB); a larger one fails the call.</summary>
     internal const long MaxResponseBytes = 8 * 1024 * 1024;
@@ -42,8 +49,8 @@ internal static class LlmHttpClients
         {
             services
                 .AddHttpClient(name, x => x.Timeout = Timeout)
-                .ConfigurePrimaryHttpMessageHandler(x => CreatePrimaryHandler(Guard(x.GetService<IHostAddressResolver>())))
-                .AddHttpMessageHandler(x => CheckHandler(Guard(x.GetService<IHostAddressResolver>())))
+                .ConfigurePrimaryHttpMessageHandler(x => CreatePrimaryHandler(Guard(x)))
+                .AddHttpMessageHandler(x => CheckHandler(Guard(x)))
                 .RemoveAllLoggers();
         }
 
@@ -64,6 +71,7 @@ internal static class LlmHttpClients
         return new SocketsHttpHandler
         {
             AllowAutoRedirect = false,
+            ConnectTimeout = ConnectTimeout,
             ConnectCallback = guard.ConnectAsync,
             PooledConnectionLifetime = TimeSpan.FromMinutes(5)
         };
@@ -110,9 +118,14 @@ internal static class LlmHttpClients
         return buffer.ToArray();
     }
 
-    private static OutboundAddressGuard Guard(IHostAddressResolver? resolver)
+    // The named clients take the resolver and the configured NAT64 prefixes from DI; the shared client (null) has neither
+    // and judges with the well-known NAT64 prefix only.
+    private static OutboundAddressGuard Guard(IServiceProvider? services)
     {
-        return new OutboundAddressGuard(OutboundAddressRules.Llm, resolver ?? new DnsHostAddressResolver());
+        return new OutboundAddressGuard(
+            OutboundAddressRules.Llm,
+            services?.GetService<IHostAddressResolver>() ?? new DnsHostAddressResolver(),
+            OutboundAddressPolicy.ConfiguredNat64Prefixes(services));
     }
 
     private static HttpClient CreateShared()
