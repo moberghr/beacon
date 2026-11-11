@@ -1,3 +1,4 @@
+using SqlParser.Ast;
 using SqlParser.Dialects;
 
 namespace Beacon.Core.Services.Validation;
@@ -7,7 +8,18 @@ namespace Beacon.Core.Services.Validation;
 /// storage, run SQL passed as text, change settings, sequences, indexes or server state, take locks, or sleep. A deny list
 /// can only name what is known; the database-level read-only path and a read-only login stay the backstop. The read-only validator refuses
 /// them as calls anywhere in the statement and as table sources. Matching ignores case and uses the last name part, so
-/// a qualified call (<c>pg_catalog.pg_read_file</c>, <c>master.dbo.xp_dirtree</c>) or a quoted one is refused too.
+/// a qualified call (<c>pg_catalog.pg_read_file</c>, <c>master.dbo.xp_dirtree</c>) or a quoted one is refused too;
+/// a family a warehouse groups under one qualifier (BigQuery <c>ML.</c>, <c>AI.</c>, <c>OBJ.</c>, Snowflake
+/// <c>CORTEX.</c>) is matched on the part before the last.
+/// <para>
+/// BigQuery, Snowflake and Databricks have no database-level read-only session, so on those engines these lists are the
+/// control. What sends rows to a model, calls a remote endpoint, reads, lists or hands out access to external storage,
+/// stages or files, or returns secrets reaches beyond the source and is refused with read-only enforcement off too
+/// (<see cref="ReachesBeyondTheSource(IReadOnlyList{string}, Dialect)"/>). User-defined functions that call out — BigQuery
+/// remote functions, Snowflake external functions and UDFs with external access, Databricks UDFs with network access, SQL
+/// Server CLR functions — carry the names their owner chose, so no list can recognise them: the data source login must
+/// not be granted their use.
+/// </para>
 /// </summary>
 internal static class SqlDeniedFunctions
 {
@@ -62,12 +74,44 @@ internal static class SqlDeniedFunctions
 
     internal static readonly string[] TSqlPrefixes = ["sp_", "fn_xe_", "fn_trace_"];
 
+    /// <summary>
+    /// SQL Server procedures that call an HTTP endpoint, send mail, run R or Python code, or create OLE Automation objects
+    /// (<c>sp_OA*</c>): <see cref="SqlCrossDatabaseRule"/> refuses them with read-only enforcement off too.
+    /// </summary>
+    internal static readonly HashSet<string> TSqlBeyondTheSource = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "sp_invoke_external_rest_endpoint", "sp_send_dbmail", "sp_execute_external_script"
+    };
+
+    internal static readonly string[] TSqlBeyondTheSourcePrefixes = ["sp_oa"];
+
     internal static readonly HashSet<string> Snowflake = new(StringComparer.OrdinalIgnoreCase)
     {
         "getnextval"
     };
 
     internal static readonly string[] SnowflakePrefixes = ["system$"];
+
+    /// <summary>
+    /// Snowflake functions that read, list or hand out URLs to staged and external files, send a notification, or send
+    /// rows to a model (Cortex <c>AI_*</c>; <c>SNOWFLAKE.CORTEX.*</c> by its qualifier): <see cref="SqlCrossDatabaseRule"/>
+    /// refuses them with read-only enforcement off too.
+    /// </summary>
+    internal static readonly HashSet<string> SnowflakeBeyondTheSource = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "get_presigned_url", "build_stage_file_url", "build_scoped_file_url", "get_stage_location", "get_absolute_path",
+        "get_relative_path", "infer_schema", "directory", "to_file", "try_to_file", "fl_get_stage_file_url",
+        "fl_get_scoped_file_url", "external_table_files", "external_table_file_registration_history",
+        "stage_directory_file_registration_history", "auto_refresh_registration_history", "system$send_email",
+        "system$send_snowflake_notification"
+    };
+
+    internal static readonly string[] SnowflakeBeyondTheSourcePrefixes = ["ai_"];
+
+    internal static readonly HashSet<string> SnowflakeBeyondTheSourceQualifiers = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "cortex"
+    };
 
     internal static readonly HashSet<string> Databricks = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -76,12 +120,33 @@ internal static class SqlDeniedFunctions
     };
 
     /// <summary>
-    /// Databricks functions that reach other servers or streams, or run arbitrary code: <see cref="SqlCrossDatabaseRule"/>
-    /// refuses them with read-only enforcement off too.
+    /// Databricks functions that reach other servers, streams, model or vector-search endpoints, storage paths or the
+    /// secret store, read a pipeline's event log, or run arbitrary code: <see cref="SqlCrossDatabaseRule"/> refuses them with
+    /// read-only enforcement off too. Every built-in AI function starts with <c>ai_</c>.
     /// </summary>
     internal static readonly HashSet<string> DatabricksBeyondTheSource = new(StringComparer.OrdinalIgnoreCase)
     {
-        "http_request", "read_kafka", "read_kinesis", "read_pubsub", "read_pulsar", "reflect", "try_reflect", "java_method"
+        "http_request", "read_kafka", "read_kinesis", "read_pubsub", "read_pulsar", "reflect", "try_reflect", "java_method",
+        "read_statestore", "read_state_metadata", "cloud_files_state", "vector_search", "remote_query", "event_log",
+        "secret", "try_secret", "list_secrets"
+    };
+
+    internal static readonly string[] DatabricksBeyondTheSourcePrefixes = ["ai_"];
+
+    /// <summary>
+    /// BigQuery families that send rows to a model or another Google service, or hand out access to Cloud Storage objects:
+    /// <c>ML.*</c> (its preprocessing helpers included), <c>AI.*</c> and <c>OBJ.*</c>. Refused by qualifier, so a family
+    /// member added later is refused too: <see cref="SqlCrossDatabaseRule"/> refuses them with read-only enforcement off too.
+    /// </summary>
+    internal static readonly HashSet<string> BigQueryBeyondTheSourceQualifiers = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "ml", "ai", "obj"
+    };
+
+    /// <summary>BigQuery table functions that read object tables or return signed URLs to their files.</summary>
+    internal static readonly HashSet<string> BigQueryBeyondTheSource = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "external_object_transform"
     };
 
     internal static readonly HashSet<string> Sqlite = new(StringComparer.OrdinalIgnoreCase)
@@ -89,13 +154,28 @@ internal static class SqlDeniedFunctions
         "load_extension", "readfile", "writefile", "edit", "fts3_tokenizer"
     };
 
-    /// <param name="name">The function's last name part, unquoted.</param>
-    public static bool IsDenied(string name, Dialect dialect)
+    /// <summary>
+    /// The function's name parts, unquoted. BigQuery reads a quoted path as its parts (<c>`ML.GENERATE_TEXT`</c> is
+    /// <c>ML.GENERATE_TEXT</c>), so there a quoted part is split at its dots; elsewhere a quoted part is one name.
+    /// </summary>
+    public static IReadOnlyList<string> PartsOf(ObjectName name, Dialect dialect)
     {
-        if (ReachesBeyondTheSource(name))
+        var parts = name.Values.Select(x => x.Value);
+
+        return dialect is BigQueryDialect
+            ? parts.SelectMany(x => x.Split('.')).ToList()
+            : parts.ToList();
+    }
+
+    /// <param name="parts">The function's name parts, unquoted (<see cref="PartsOf"/>).</param>
+    public static bool IsDenied(IReadOnlyList<string> parts, Dialect dialect)
+    {
+        if (ReachesBeyondTheSource(parts, dialect))
         {
             return true;
         }
+
+        var name = LastPartOf(parts);
 
         return dialect switch
         {
@@ -121,12 +201,48 @@ internal static class SqlDeniedFunctions
 
     /// <summary>
     /// <see cref="ReachesBeyondTheSource(string)"/>, plus what reaches beyond the source on <paramref name="dialect"/> only:
-    /// Databricks' network, stream and reflection functions.
+    /// SQL Server's HTTP, mail, external-script and OLE Automation procedures, Snowflake's stage, file, notification and
+    /// Cortex functions, Databricks' network, stream, AI, storage, secret and reflection functions, and BigQuery's model,
+    /// AI and object-access families.
     /// </summary>
-    /// <param name="name">The function's last name part, unquoted.</param>
-    public static bool ReachesBeyondTheSource(string name, Dialect dialect)
+    /// <param name="parts">The function's name parts, unquoted (<see cref="PartsOf"/>).</param>
+    public static bool ReachesBeyondTheSource(IReadOnlyList<string> parts, Dialect dialect)
     {
-        return ReachesBeyondTheSource(name) || (dialect is DatabricksDialect && DatabricksBeyondTheSource.Contains(name));
+        var name = LastPartOf(parts);
+        if (ReachesBeyondTheSource(name))
+        {
+            return true;
+        }
+
+        return dialect switch
+        {
+            MsSqlDialect => TSqlBeyondTheSource.Contains(name) || HasPrefix(name, TSqlBeyondTheSourcePrefixes),
+            SnowflakeDialect => SnowflakeBeyondTheSource.Contains(name)
+                || HasPrefix(name, SnowflakeBeyondTheSourcePrefixes)
+                || HasQualifier(parts, SnowflakeBeyondTheSourceQualifiers),
+            DatabricksDialect => DatabricksBeyondTheSource.Contains(name) || HasPrefix(name, DatabricksBeyondTheSourcePrefixes),
+            BigQueryDialect => BigQueryBeyondTheSource.Contains(name) || HasQualifier(parts, BigQueryBeyondTheSourceQualifiers),
+            _ => false
+        };
+    }
+
+    /// <summary>
+    /// The name a refusal shows: the qualifier and the function for a family refused by its qualifier (<c>ML.PREDICT</c>),
+    /// the function alone otherwise.
+    /// </summary>
+    /// <param name="parts">The function's name parts, unquoted (<see cref="PartsOf"/>).</param>
+    public static string DisplayName(IReadOnlyList<string> parts, Dialect dialect)
+    {
+        var familyQualifiers = dialect switch
+        {
+            SnowflakeDialect => SnowflakeBeyondTheSourceQualifiers,
+            BigQueryDialect => BigQueryBeyondTheSourceQualifiers,
+            _ => null
+        };
+
+        return familyQualifiers != null && HasQualifier(parts, familyQualifiers)
+            ? $"{parts[^2]}.{parts[^1]}"
+            : LastPartOf(parts);
     }
 
     /// <summary>True for a PostgreSQL extension function that runs SQL text (<see cref="PostgreSqlSqlTextPrefixes"/>).</summary>
@@ -139,5 +255,15 @@ internal static class SqlDeniedFunctions
     private static bool HasPrefix(string name, string[] prefixes)
     {
         return prefixes.Any(x => name.StartsWith(x, StringComparison.OrdinalIgnoreCase));
+    }
+
+    private static bool HasQualifier(IReadOnlyList<string> parts, HashSet<string> qualifiers)
+    {
+        return parts.Count > 1 && qualifiers.Contains(parts[^2]);
+    }
+
+    private static string LastPartOf(IReadOnlyList<string> parts)
+    {
+        return parts.Count > 0 ? parts[^1] : "";
     }
 }

@@ -22,8 +22,10 @@ namespace Beacon.Core.Services.Validation;
 /// <para>
 /// Functions and procedures that reach other servers, files or storage (<see cref="SqlDeniedFunctions.Everywhere"/> and
 /// its prefixes: <c>dblink</c>, <c>xp_</c>, <c>lo_</c>, <c>OPENROWSET</c>, <c>OPENQUERY</c>, <c>OPENDATASOURCE</c>,
-/// <c>EXTERNAL_QUERY</c>, …) and Databricks file and storage path references are refused here too, so they stay refused
-/// when read-only enforcement is off.
+/// <c>EXTERNAL_QUERY</c>, …), the engine-specific functions that send rows to a model, call an endpoint, reach stages and
+/// files or return secrets (<see cref="SqlDeniedFunctions.ReachesBeyondTheSource(IReadOnlyList{string}, Dialect)"/>),
+/// Databricks file and storage path references, Snowflake stage references (<c>@stage</c>) and relations written as a
+/// string (<c>'@stage/path'</c>) are refused here too, so they stay refused when read-only enforcement is off.
 /// </para>
 /// <para>
 /// A statement runs in its data source's own context, so what changes that context is refused: <c>USE</c> in every form
@@ -135,11 +137,12 @@ public static class SqlCrossDatabaseRule
                 {
                     Expression.Function function => CheckFunction(function.Name, ArgumentsOf(function.Args), naming, home, functionNames),
                     TableFactor.Function function => CheckFunction(function.Name, function.Args, naming, home, functionNames),
+                    TableFactor.Table table when SqlReadOnlyAstValidator.IsLocationReference(table.Name, naming.Dialect) => SqlReadOnlyAstValidator.LocationReferenceMessage,
                     TableFactor.Table { Args: not null } table when naming.HasIdentifierClause && IsIdentifierClause(table.Name) => DynamicNameMessage(naming),
                     TableFactor.Table { Args: not null } table => CheckFunction(table.Name, table.Args.Arguments, naming, home, functionNames),
                     TableFactor.Table table when naming.Dialect is DatabricksDialect && SqlReadOnlyAstValidator.IsPathReference(table.Name) => PathReferenceMessage,
                     TableFactor.TableFunction { Expression: not Expression.Function } => DynamicNameMessage(naming),
-                    Statement.Execute execute when SqlDeniedFunctions.ReachesBeyondTheSource(LastPartOf(execute.Name), naming.Dialect) => BeyondTheSourceMessage(LastPartOf(execute.Name)),
+                    Statement.Execute execute when ReachesBeyondTheSource(execute.Name, naming) => BeyondTheSourceMessage(execute.Name, naming),
                     Statement.Execute execute => CheckExecute(execute, naming),
                     Statement.Prepare => DynamicSqlMessage("PREPARE", naming),
                     Statement.Use => $"USE is not allowed: it changes the {naming.Noun}, schema, role or warehouse the SQL after it runs in. Write {naming.LocalForm} names instead.",
@@ -177,11 +180,12 @@ public static class SqlCrossDatabaseRule
             return DynamicNameMessage(naming);
         }
 
-        var lastPart = LastPartOf(name);
-        if (SqlDeniedFunctions.ReachesBeyondTheSource(lastPart, naming.Dialect))
+        if (ReachesBeyondTheSource(name, naming))
         {
-            return BeyondTheSourceMessage(lastPart);
+            return BeyondTheSourceMessage(name, naming);
         }
+
+        var lastPart = LastPartOf(name);
 
         if (naming.Dialect is PostgreSqlDialect && PostgreSqlQueryTextFunctions.Contains(lastPart))
         {
@@ -346,9 +350,16 @@ public static class SqlCrossDatabaseRule
         return name.Values.Count > 0 ? name.Values[^1].Value : "";
     }
 
-    private static string BeyondTheSourceMessage(string function)
+    private static bool ReachesBeyondTheSource(ObjectName name, Naming naming)
     {
-        return $"{function} is not allowed: it reaches other servers, files or storage.";
+        return SqlDeniedFunctions.ReachesBeyondTheSource(SqlDeniedFunctions.PartsOf(name, naming.Dialect), naming.Dialect);
+    }
+
+    private static string BeyondTheSourceMessage(ObjectName name, Naming naming)
+    {
+        var function = SqlDeniedFunctions.DisplayName(SqlDeniedFunctions.PartsOf(name, naming.Dialect), naming.Dialect);
+
+        return $"{function} is not allowed: it reaches other servers, files, storage, models or secrets.";
     }
 
     private static string DynamicSqlMessage(string form, Naming naming)

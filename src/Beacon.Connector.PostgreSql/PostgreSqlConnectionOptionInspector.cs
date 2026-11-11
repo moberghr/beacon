@@ -8,10 +8,11 @@ namespace Beacon.Connector.PostgreSql;
 /// The Npgsql options Beacon does not accept from an Admin, read with Npgsql's own builder: <c>Options</c> (server
 /// settings sent when the connection opens), <c>Passfile</c> (a file on the Beacon host), <c>Include Error Detail</c> and
 /// <c>Log Parameters</c> (row values in errors and logs), and signing in as the host: a Unix-socket <c>Host</c> (peer
-/// authentication), <c>GSS Encryption Mode=Require</c> (Kerberos), a <c>Require Auth</c> that admits GSS or SSPI, or no
-/// <c>Password</c> and no client certificate (the host's <c>PGPASSWORD</c> or pgpass file). A connection with its own
-/// credentials is also kept from a server-requested GSS or SSPI sign-in where the connector opens it. The hosts are every
-/// host <c>Host</c> lists.
+/// authentication), <c>GSS Encryption Mode=Require</c> (Kerberos), a <c>Require Auth</c> that admits GSS or SSPI, the
+/// certificate and key files <c>SSL Certificate</c>, <c>SSL Key</c> (with its <c>SSL Password</c>) and <c>Root Certificate</c>
+/// (files on the Beacon host), or no <c>Password</c> (the host's <c>PGPASSWORD</c> or pgpass file). A connection with its
+/// own credentials is also kept from a server-requested GSS or SSPI sign-in where the connector opens it. The hosts are
+/// every host <c>Host</c> lists.
 /// </summary>
 public sealed class PostgreSqlConnectionOptionInspector : IDataSourceConnectionOptionInspector
 {
@@ -61,9 +62,29 @@ public sealed class PostgreSqlConnectionOptionInspector : IDataSourceConnectionO
             return HostCredentials("Require Auth", "Remove Require Auth, or list only the password methods (ScramSHA256, MD5, Password, None)", hosts);
         }
 
-        if (string.IsNullOrEmpty(builder.Password) && string.IsNullOrEmpty(builder.SslCertificate))
+        if (!string.IsNullOrEmpty(builder.SslCertificate))
         {
-            return HostCredentials("Password", "Give the login's Password (or a client certificate with SSL Certificate)", hosts);
+            return HostCredentials("SSL Certificate", "Remove SSL Certificate and sign in with the login's Password", hosts);
+        }
+
+        if (!string.IsNullOrEmpty(builder.SslKey))
+        {
+            return HostCredentials("SSL Key", "Remove SSL Key and sign in with the login's Password", hosts);
+        }
+
+        if (!string.IsNullOrEmpty(builder.SslPassword))
+        {
+            return HostCredentials("SSL Password", "Remove SSL Password and sign in with the login's Password", hosts);
+        }
+
+        if (!string.IsNullOrEmpty(builder.RootCertificate))
+        {
+            return HostCredentials("Root Certificate", "Remove Root Certificate and add the server's CA to the Beacon host's trust store", hosts);
+        }
+
+        if (string.IsNullOrEmpty(builder.Password))
+        {
+            return HostCredentials("Password", "Give the login's Password", hosts);
         }
 
         return DataSourceConnectionOptionVerdict.Accept(hosts);

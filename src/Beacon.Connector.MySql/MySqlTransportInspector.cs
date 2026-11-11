@@ -30,7 +30,7 @@ public sealed class MySqlTransportInspector : IDataSourceTransportInspector
         var definition = DataSourceConnectionDefinition.FromBuilder(builder, new MySqlConnectionStringBuilder(), SecretKeys, Login(builder));
         var verdict = builder.SslMode == MySqlSslMode.VerifyFull
             ? DataSourceTransportVerdict.Pass(target)
-            : DataSourceTransportVerdict.Fail("SslMode", "Set SslMode=VerifyFull (with SslCa naming the CA file when the server's CA is not in the system store)", target);
+            : DataSourceTransportVerdict.Fail("SslMode", "Set SslMode=VerifyFull (add the server's CA to the Beacon host's trust store when it is not there; a CA file named by SslCa needs AllowHostCredentials)", target);
 
         return verdict.WithDefinition(definition);
     }

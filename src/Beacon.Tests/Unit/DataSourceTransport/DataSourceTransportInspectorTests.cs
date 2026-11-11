@@ -126,7 +126,9 @@ public class DataSourceTransportInspectorTests
     [TestCaseSource(nameof(Documents))]
     public void ARefusal_NamesTheOption_AndNeverAValueFromTheConnectionString(DataSourceType type, DatabaseEngineType? engine, string connectionData, string? failingOption)
     {
-        var act = () => TestTransport.Policy().EnsureNewConnectionAllowed(type, engine, connectionData);
+        // A CA file (Root Certificate, SslCa) is a host file the option check refuses unless AllowHostCredentials
+        // (DataSourceConnectionOptionTests); here it only has to keep the transport verified.
+        var act = () => TestTransport.Policy(allowHostCredentials: true).EnsureNewConnectionAllowed(type, engine, connectionData);
 
         if (failingOption == null)
         {

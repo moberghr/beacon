@@ -44,7 +44,7 @@ public abstract class SqlClientTransportInspector(DatabaseEngineType databaseEng
         }
 
         return settings.TrustServerCertificate
-            ? DataSourceTransportVerdict.Fail("TrustServerCertificate", "Set TrustServerCertificate=false, or leave it out (use HostNameInCertificate or ServerCertificate for a certificate from a private CA)", target)
+            ? DataSourceTransportVerdict.Fail("TrustServerCertificate", "Set TrustServerCertificate=false, or leave it out (add a private CA to the Beacon host's trust store, with HostNameInCertificate when the certificate names another host; a ServerCertificate file needs AllowHostCredentials)", target)
             : DataSourceTransportVerdict.Pass(target);
     }
 

@@ -10,8 +10,10 @@ namespace Beacon.Connector.MySql;
 /// <c>AllowLoadLocalInfile</c> and <c>AllowLoadLocalInfileInPath</c> (the server may then read files on the Beacon host),
 /// <c>CommandInterceptors</c> and <c>ExceptionInterceptors</c> (types loaded by name), and signing in as the host:
 /// <c>IntegratedSecurity</c>, a Kerberos, Windows or OCI authentication plugin, <c>OciConfigFile</c>, a client certificate
-/// from the host's <c>CertificateStoreLocation</c>, a named pipe, shared memory or Unix socket <c>ConnectionProtocol</c>,
-/// or no <c>Password</c>. MySql.Data follows a server's switch to another authentication plugin and has no setting to
+/// from the host's <c>CertificateStoreLocation</c>, the certificate and key files <c>CertificateFile</c> (also written
+/// <c>SslCa</c>, with its <c>CertificatePassword</c>), <c>SslCert</c> and <c>SslKey</c> (files on the Beacon host), a named pipe,
+/// shared memory or Unix socket <c>ConnectionProtocol</c>, or no <c>Password</c>. The pinned MySql.Data has no SSH tunnel
+/// options: its builder refuses them, so such a connection cannot be read and is refused. MySql.Data follows a server's switch to another authentication plugin and has no setting to
 /// refuse one: with a password the Kerberos plugin signs in with the login's own credentials and the OCI plugin needs the
 /// OCI SDK, which Beacon does not ship, but on a Windows host the Windows plugin signs in as the host's Windows account,
 /// so a MySQL server Beacon connects to from Windows must be trusted not to ask for it. The hosts are every host
@@ -67,7 +69,28 @@ public sealed partial class MySqlConnectionOptionInspector : IDataSourceConnecti
 
         if (builder.CertificateStoreLocation != MySqlCertificateStoreLocation.None)
         {
-            return HostCredentials("CertificateStoreLocation", "Remove CertificateStoreLocation (use CertificateFile for a client certificate)", hosts);
+            return HostCredentials("CertificateStoreLocation", "Remove CertificateStoreLocation and sign in with the login's Password", hosts);
+        }
+
+        // SslCa is MySql.Data's other name for CertificateFile: one value, a CA or a client certificate file.
+        if (!string.IsNullOrEmpty(builder.CertificateFile))
+        {
+            return HostCredentials("CertificateFile", "Remove CertificateFile (SslCa): add the server's CA to the Beacon host's trust store and sign in with the login's Password", hosts);
+        }
+
+        if (!string.IsNullOrEmpty(builder.CertificatePassword))
+        {
+            return HostCredentials("CertificatePassword", "Remove CertificatePassword and sign in with the login's Password", hosts);
+        }
+
+        if (!string.IsNullOrEmpty(builder.SslCert))
+        {
+            return HostCredentials("SslCert", "Remove SslCert and sign in with the login's Password", hosts);
+        }
+
+        if (!string.IsNullOrEmpty(builder.SslKey))
+        {
+            return HostCredentials("SslKey", "Remove SslKey and sign in with the login's Password", hosts);
         }
 
         if (builder.ConnectionProtocol is not (MySqlConnectionProtocol.Sockets or MySqlConnectionProtocol.Tcp))
