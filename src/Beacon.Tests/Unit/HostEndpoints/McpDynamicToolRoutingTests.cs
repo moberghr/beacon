@@ -91,7 +91,7 @@ public class McpDynamicToolRoutingTests
         var unknown = async () => await client.CallToolAsync("nobody_serves_this", new Dictionary<string, object?>());
 
         customRan.Should().BeTrue();
-        HostEndpointDispatchTests.Text(custom).Should().Be("custom");
+        HostEndpointDispatchTests.Text(custom).Should().Be("custom" + McpDataNoticeCallToolFilter.Notice, "the tool's own answer stays first and the data notice ends it");
         saved.IsError.Should().NotBe(true, HostEndpointDispatchTests.Text(saved));
         (await unknown.Should().ThrowAsync<McpException>()).Which.Message.Should().Contain("nobody_serves_this");
     }

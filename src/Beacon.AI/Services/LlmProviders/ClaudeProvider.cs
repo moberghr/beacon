@@ -3,6 +3,7 @@ using System.Text.Json;
 using System.Text.Json.Serialization;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Exceptions;
+using Beacon.Core.Helpers;
 
 namespace Beacon.AI.Services.LlmProviders;
 
@@ -17,6 +18,8 @@ public class ClaudeProvider : ILlmProvider
     private const decimal CachedInputCostPerMillionTokens = 0.30m; // 90% discount
     private const decimal CacheWriteCostPerMillionTokens = 3.75m; // 25% surcharge
     private const string AnthropicVersion = "2023-06-01";
+
+    internal const long MaxResponseBytes = LlmHttpClients.MaxResponseBytes;
 
     private static readonly Uri MessagesUri = new("https://api.anthropic.com/v1/messages");
 
@@ -70,13 +73,17 @@ public class ClaudeProvider : ILlmProvider
             httpRequest.Headers.TryAddWithoutValidation("x-api-key", _apiKey);
             httpRequest.Headers.TryAddWithoutValidation("anthropic-version", AnthropicVersion);
 
-            using var response = await _httpClient.SendAsync(httpRequest, cancellationToken);
+            // The body is read under the client's own deadline, as the headers are, and only up to MaxResponseBytes.
+            using var deadline = new CancellationTokenSource(_httpClient.Timeout, _timeProvider);
+            using var call = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, deadline.Token);
+            using var response = await _httpClient.SendAsync(httpRequest, HttpCompletionOption.ResponseHeadersRead, call.Token);
             if (!response.IsSuccessStatusCode)
             {
                 throw StatusFailure(response);
             }
 
-            var responseContent = await response.Content.ReadAsStringAsync(cancellationToken);
+            var responseContent = await LlmHttpClients.ReadCappedAsync(response.Content, MaxResponseBytes, call.Token)
+                ?? throw new AiServiceException($"Claude API returned a response larger than {MaxResponseBytes} bytes.");
             var result = JsonSerializer.Deserialize<ClaudeResponse>(responseContent);
 
             if (result == null)
@@ -130,9 +137,8 @@ public class ClaudeProvider : ILlmProvider
         }
         catch (Exception ex) when (ex is not AiServiceException)
         {
-            throw new AiServiceException(
-                $"Claude API request failed: {ex.Message}",
-                ex);
+            // Beacon's wording and the failure's type and code only: a message can quote the response.
+            throw new AiServiceException($"Claude API request failed ({FailureCodes.Describe(ex)}).", ex);
         }
     }
 

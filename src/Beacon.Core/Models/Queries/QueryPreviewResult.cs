@@ -21,6 +21,13 @@ public sealed class QueryPreviewResult
     /// multi-step one. Null when a step failed, or a multi-step query has no final query.
     /// </summary>
     public QueryResultPage? Result { get; init; }
+
+    /// <summary>
+    /// True when the rows were PII-masked for a caller who may not write the query's project — as a subscription
+    /// delivers them, under the strictest PII settings of the projects linking its data sources (with PII detection off
+    /// there, only the host-masked columns). False: the rows as the data source returned them, host-masked columns aside.
+    /// </summary>
+    public bool PiiMasked { get; init; }
 }
 
 public sealed class QueryPreviewStep

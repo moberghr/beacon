@@ -229,7 +229,9 @@ public class LlmProviderTransientFailureTests
     {
         var provider = Bedrock(modelId, failure());
 
-        await provider.Invoking(x => x.CompleteAsync(OpenAiCompatibleProviderTests.GoldenRequest())).Should().ThrowExactlyAsync<AiServiceException>();
+        var thrown = await provider.Invoking(x => x.CompleteAsync(OpenAiCompatibleProviderTests.GoldenRequest())).Should().ThrowExactlyAsync<AiServiceException>();
+
+        thrown.Which.Message.Should().NotContain(BedrockServiceText);
     }
 
     [Test]

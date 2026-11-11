@@ -51,6 +51,16 @@ public class BeaconOutboundHttpClientTests
     }
 
     [Test]
+    public void DatabricksClient_LogsNoRequest()
+    {
+        using var provider = Services();
+
+        HandlerChain(provider, BeaconHttpClients.Databricks).Should().NotContain(
+            x => x is Microsoft.Extensions.Http.Logging.LoggingHttpMessageHandler || x is Microsoft.Extensions.Http.Logging.LoggingScopeHttpMessageHandler,
+            "its request URIs name the workspace host, warehouse paths and statement ids");
+    }
+
+    [Test]
     public void GitHubClient_TimesOutAfterSixtySeconds()
     {
         using var provider = Services();

@@ -29,7 +29,7 @@ internal sealed partial class OpenAiCompatibleProvider : ILlmProvider
 
     internal const int MaxRetries = 3;
 
-    internal const long MaxResponseBytes = 8 * 1024 * 1024;
+    internal const long MaxResponseBytes = LlmHttpClients.MaxResponseBytes;
 
     internal static readonly TimeSpan MaxRetryAfter = TimeSpan.FromSeconds(60);
 
@@ -247,30 +247,6 @@ internal sealed partial class OpenAiCompatibleProvider : ILlmProvider
         return requested <= MaxRetryAfter ? requested : null;
     }
 
-    private static async Task<byte[]?> ReadCappedAsync(HttpContent content, long maxBytes, CancellationToken cancellationToken)
-    {
-        if (content.Headers.ContentLength > maxBytes)
-        {
-            return null;
-        }
-
-        await using var stream = await content.ReadAsStreamAsync(cancellationToken);
-        using var buffer = new MemoryStream();
-        var chunk = new byte[81920];
-        int read;
-        while ((read = await stream.ReadAsync(chunk, cancellationToken)) > 0)
-        {
-            if (buffer.Length + read > maxBytes)
-            {
-                return null;
-            }
-
-            buffer.Write(chunk, 0, read);
-        }
-
-        return buffer.ToArray();
-    }
-
     private static string ContentOf(JsonElement choice)
     {
         if (choice.ValueKind != JsonValueKind.Object
@@ -332,7 +308,7 @@ internal sealed partial class OpenAiCompatibleProvider : ILlmProvider
 
         if (response.IsSuccessStatusCode)
         {
-            var completion = await ReadCappedAsync(response.Content, MaxResponseBytes, cancellationToken)
+            var completion = await LlmHttpClients.ReadCappedAsync(response.Content, MaxResponseBytes, cancellationToken)
                 ?? throw new AiServiceException($"{DisplayName} returned a response larger than {MaxResponseBytes} bytes.");
 
             return new Attempt(response.StatusCode, completion, null, null);
@@ -506,7 +482,7 @@ internal sealed partial class OpenAiCompatibleProvider : ILlmProvider
         using var read = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
         try
         {
-            var body = await ReadCappedAsync(content, MaxErrorBytes, read.Token);
+            var body = await LlmHttpClients.ReadCappedAsync(content, MaxErrorBytes, read.Token);
             if (body is null)
             {
                 return null;

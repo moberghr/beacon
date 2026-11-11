@@ -10,7 +10,8 @@ namespace Beacon.Core.Http;
 /// credential header to wherever the response points), none keeps cookies, and each has its own timeout. The JWKS and
 /// Databricks clients also cap the response body, and the Databricks client connects only to an address the data-source
 /// address rules allow (<see cref="DataSourceOutboundAddresses"/>), judged on the addresses the host resolves to when it
-/// connects.
+/// connects. The Databricks client's request logging is removed: its request URIs name the workspace host, warehouse paths
+/// and statement ids.
 /// </summary>
 public static class BeaconHttpClients
 {
@@ -52,7 +53,8 @@ public static class BeaconHttpClients
             .AddHttpClient(Databricks)
             .ConfigurePrimaryHttpMessageHandler(x => CreateDataSourceHandler(DataSourceOutboundAddresses.Guard(x)))
             .AddHttpMessageHandler(x => DataSourceOutboundAddresses.CheckHandler(DataSourceOutboundAddresses.Guard(x)))
-            .AddHttpMessageHandler(() => new ResponseSizeLimitHandler(DatabricksMaxResponseBytes, DatabricksReadTimeout));
+            .AddHttpMessageHandler(() => new ResponseSizeLimitHandler(DatabricksMaxResponseBytes, DatabricksReadTimeout))
+            .RemoveAllLoggers();
 
         // GitHub reads are bounded per call (tree, file) by the scanner's own limits.
         services

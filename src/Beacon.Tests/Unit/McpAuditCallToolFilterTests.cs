@@ -241,7 +241,7 @@ public class McpAuditCallToolFilterTests
         using var provider = registration.BuildServiceProvider();
         var options = provider.GetRequiredService<IOptions<McpServerOptions>>().Value;
 
-        options.Filters.Request.CallToolFilters.Should().HaveCount(4, "AddBeaconMcp registers the project-context filter, the scope filter, the audit filter and the undetermined-access filter");
+        options.Filters.Request.CallToolFilters.Should().HaveCount(5, "AddBeaconMcp registers the data notice, the project-context filter, the scope filter, the audit filter and the undetermined-access filter");
 
         // Compose exactly as the SDK does (McpServerImpl.BuildFilterPipeline: last filter innermost).
         var pipeline = options.Handlers.CallToolHandler!;
@@ -269,7 +269,9 @@ public class McpAuditCallToolFilterTests
         var written = Services(required: true, new McpAuditOutcome { Written = true }, []);
         var passed = await pipeline(Request(written, caller), CancellationToken.None);
 
-        passed.Should().BeSameAs(ToolResult);
+        passed.IsError.Should().NotBe(true);
+        passed.Content.OfType<TextContentBlock>().Select(x => x.Text)
+            .Should().Equal(ToolText, McpDataNoticeCallToolFilter.Notice);
     }
 
     private static async Task<CallToolResult> InvokeAsync(

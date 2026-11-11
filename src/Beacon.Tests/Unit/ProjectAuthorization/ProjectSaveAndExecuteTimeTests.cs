@@ -101,14 +101,12 @@ public class ProjectSaveAndExecuteTimeTests
     public async Task APreview_ReChecksTheSourcesRightBeforeRunning_AndTheRefusalIsNotAResult()
     {
         // The query's source was unlinked from the caller's projects after the request's own check: the re-check refuses.
-        var queryService = new Mock<IQueryService>(MockBehavior.Strict);
         var stored = new RecordingStoredQueryPreview();
         var authorizer = TestProjectAccess.Authorizer(Member, new FixedResolver(ResolvedProjectResource.InProject(3)), new SqlCapture().Factory());
 
-        var act = () => ExecuteQueryPreviewHandler.RunAsync(queryService.Object, stored, authorizer, NullLogger.Instance, 5, null, new Paging(), CancellationToken.None);
+        var act = () => ExecuteQueryPreviewHandler.RunAsync(stored, authorizer, NullLogger.Instance, 5, null, new Paging(), CancellationToken.None);
 
         await act.Should().ThrowAsync<BeaconNotFoundException>();
-        queryService.VerifyNoOtherCalls();
         stored.Loads.Should().BeEmpty();
         stored.Runs.Should().BeEmpty();
     }

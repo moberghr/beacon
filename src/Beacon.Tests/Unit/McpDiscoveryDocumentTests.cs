@@ -140,6 +140,16 @@ public class McpDiscoveryDocumentTests
         McpDiscoveryDocuments.VersionFrom(informational, new Version(9, 9, 9, 9)).Should().Be(expected);
     }
 
+    [TestCase("4.5.1", "4")]
+    [TestCase("5.0.0.3", "5")]
+    [TestCase("12.1.0-local.20261015", "12")]
+    [TestCase("0.0.0", "0")]
+    [TestCase("v5.1", "0")]
+    public void MajorVersionOf_KeepsTheMajorVersionOnly(string version, string expected)
+    {
+        McpDiscoveryDocuments.MajorVersionOf(version).Should().Be(expected);
+    }
+
     [TestCase(null)]
     [TestCase("")]
     [TestCase("+3f20291")]
@@ -155,7 +165,8 @@ public class McpDiscoveryDocumentTests
         var card = McpDiscoveryDocuments.BuildServerCard(BaseUrl);
 
         card["name"]!.GetValue<string>().Should().Be("Beacon");
-        card["version"]!.GetValue<string>().Should().Be(McpDiscoveryDocuments.ServerVersion);
+        card["version"]!.GetValue<string>().Should().Be(McpDiscoveryDocuments.ServerVersion.Split('.')[0], "the anonymous card names the major version only");
+        card["version"]!.GetValue<string>().Should().MatchRegex("^[0-9]+$");
         card["description"]!.GetValue<string>().Should().NotBeNullOrWhiteSpace();
         card["transport"]!.GetValue<string>().Should().Be("streamable-http");
         card["endpoint"]!.GetValue<string>().Should().Be($"{BaseUrl}/beacon/mcp");

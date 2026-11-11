@@ -6,7 +6,6 @@ using Beacon.Core.Models.Queries;
 using Beacon.Core.Services;
 using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
-using Moq;
 using NUnit.Framework;
 using Beacon.Tests.Common;
 
@@ -43,7 +42,7 @@ public class QueryExecutionPreviewServiceTests
     {
         var stored = new RecordingStoredQueryPreview { Answer = () => throw new BeaconException(Cause) };
 
-        var result = await QueryPreview(new Mock<IQueryService>(), stored, null);
+        var result = await QueryPreview(stored, null);
 
         result.Should().NotBeNull();
         result!.Success.Should().BeFalse();
@@ -56,7 +55,6 @@ public class QueryExecutionPreviewServiceTests
         var stored = new RecordingStoredQueryPreview { Answer = () => throw new BeaconException(Cause) };
 
         var result = await ExecuteStepPreviewHandler.RunAsync(
-            new Mock<IQueryService>().Object,
             stored,
             Authorizer(),
             NullLogger.Instance,
@@ -78,16 +76,13 @@ public class QueryExecutionPreviewServiceTests
     public async Task ExecuteQueryPreview_ForwardsTheEditorDraft()
     {
         var draft = new QueryDraft { FinalQuery = "SELECT * FROM @result1" };
-        var queryService = new Mock<IQueryService>();
-        queryService
-            .Setup(x => x.PreviewQuery(5, draft, SecondPage, It.IsAny<CancellationToken>()))
-            .ReturnsAsync(new QueryPreviewResult { Success = true });
         var stored = new RecordingStoredQueryPreview();
 
-        var result = await QueryPreview(queryService, stored, draft);
+        var result = await QueryPreview(stored, draft);
 
         result!.Success.Should().BeTrue();
-        queryService.Verify(x => x.PreviewQuery(5, draft, SecondPage, It.IsAny<CancellationToken>()), Times.Once);
+        stored.DraftRuns.Should().Equal([(null, draft)]);
+        stored.Masking.Should().Equal([false], "a draft without data sources reads no rows to mask");
         stored.Loads.Should().BeEmpty("a draft runs its own steps, never the stored query");
     }
 
@@ -96,7 +91,7 @@ public class QueryExecutionPreviewServiceTests
     {
         var stored = new RecordingStoredQueryPreview { Answer = () => throw new OperationCanceledException() };
 
-        var result = await QueryPreview(new Mock<IQueryService>(), stored, null);
+        var result = await QueryPreview(stored, null);
 
         result.Should().BeNull("a cancelled preview is not a failure to report");
     }
@@ -105,8 +100,8 @@ public class QueryExecutionPreviewServiceTests
         new(stored, Authorizer());
 
     // The saved query 5 (or the draft), the second page, as the preview handler runs it.
-    private static Task<QueryPreviewResult?> QueryPreview(Mock<IQueryService> queryService, RecordingStoredQueryPreview stored, QueryDraft? draft) =>
-        ExecuteQueryPreviewHandler.RunAsync(queryService.Object, stored, Authorizer(), NullLogger.Instance, 5, draft, SecondPage, CancellationToken.None);
+    private static Task<QueryPreviewResult?> QueryPreview(RecordingStoredQueryPreview stored, QueryDraft? draft) =>
+        ExecuteQueryPreviewHandler.RunAsync(stored, Authorizer(), NullLogger.Instance, 5, draft, SecondPage, CancellationToken.None);
 
     private static ProjectRequestAuthorizer Authorizer() => TestProjectAccess.Authorizer(TestProjectAccess.Unrestricted);
 

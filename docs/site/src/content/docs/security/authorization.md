@@ -83,7 +83,7 @@ On a host without Beacon user management, the standard `ClaimTypes.Role` claim w
 
 The provider answers only read (level 1 and up) and write (level 2 and up, or a super admin). There is no delete level: deleting and archiving are the project action **Manage** (see [Project roles](#project-roles)), which an Editor holds in an open project and as the recorded owner. A super admin (`IsSuperAdmin`, the first-run account) passes every check.
 
-When `Authorization.Enabled` or user management is on, `/beacon/api` enforces the global role: `GET` needs read permission and every other method needs write permission. A Viewer may also run a stored query's preview (a draft's preview needs write permission), create Read API keys, revoke their own keys and change their own password. A route of a [functional permission](#functional-permissions) admits its holder instead.
+When `Authorization.Enabled` or user management is on, `/beacon/api` enforces the global role: `GET` needs read permission and every other method needs write permission. A Viewer may also run a stored query's preview (a draft's preview needs write permission), and gets its rows PII-masked under the projects' PII settings, as a subscription delivers them, unless they may write in a project holding the query's data sources; create Read API keys, revoke their own keys and change their own password. A route of a [functional permission](#functional-permissions) admits its holder instead.
 
 ## Project access
 
