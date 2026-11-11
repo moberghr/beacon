@@ -1,6 +1,5 @@
 using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.Options;
-using Beacon.Core.Authentication;
 
 namespace Beacon.Core.Configuration;
 
@@ -65,15 +64,11 @@ public sealed class DeploymentProfileOptions
 
 /// <summary>
 /// Fails startup for an unknown <c>Beacon:Profile</c>, and under the regulated profile for every setting that is weaker
-/// than the preset requires (<see cref="RegulatedProfile.Assess"/>), all of them in one message. Configuration names only,
-/// never a value from a secret.
+/// than the preset requires (<see cref="RegulatedProfile.Assess(RegulatedProfileSettings)"/>), all of them in one message.
+/// Configuration names only, never a value.
 /// </summary>
-internal sealed class DeploymentProfileOptionsValidator(
-    IOptions<McpDeploymentOptions> mcpOptions,
-    IOptions<RetentionOptions> retentionOptions,
-    IOptions<RateLimitOptions> rateLimitOptions,
-    IOptions<OidcAuthenticationOptions> oidcOptions,
-    BeaconConfiguration beaconConfiguration) : IValidateOptions<DeploymentProfileOptions>
+internal sealed class DeploymentProfileOptionsValidator(IServiceProvider services, IConfiguration configuration)
+    : IValidateOptions<DeploymentProfileOptions>
 {
     public ValidateOptionsResult Validate(string? name, DeploymentProfileOptions options)
     {
@@ -87,12 +82,7 @@ internal sealed class DeploymentProfileOptionsValidator(
             return ValidateOptionsResult.Success;
         }
 
-        var findings = RegulatedProfile.Assess(
-            mcpOptions.Value,
-            retentionOptions.Value,
-            rateLimitOptions.Value,
-            oidcOptions.Value,
-            beaconConfiguration.UserManagement.LocalLogin);
+        var findings = RegulatedProfile.Assess(RegulatedProfileSettings.From(services, configuration));
 
         return findings.Count == 0
             ? ValidateOptionsResult.Success

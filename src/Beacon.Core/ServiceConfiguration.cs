@@ -188,6 +188,7 @@ public static class ServiceConfiguration
         // at least a year is set. ValidateOnStart so a retention or key out of range fails the host at boot.
         services.AddOptions<Configuration.SecurityAuditOptions>()
             .Bind(configuration.GetSection(Configuration.SecurityAuditOptions.SectionName))
+            .PostConfigure(x => Configuration.RegulatedProfile.ApplyDefaults(x, configuration))
             .ValidateOnStart();
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.SecurityAuditOptions>, Configuration.SecurityAuditOptionsValidator>());
         services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.SecurityAuditOptions>, Configuration.ExecutionLogRegistrationValidator>());
@@ -510,9 +511,11 @@ public static class ServiceConfiguration
             .ToList();
         localLogin.Validate();
 
-        // Beacon:UserManagement:MinimumPasswordLength can only raise the code-configured minimum.
+        // Beacon:UserManagement:MinimumPasswordLength can only raise the code-configured minimum; the regulated profile
+        // fills it when unset.
         configurationOptions.UserManagement.ApplyConfiguredMinimumPasswordLength(
-            configuration.GetValue<int?>(UserManagementOptions.MinimumPasswordLengthKey));
+            configuration.GetValue<int?>(UserManagementOptions.MinimumPasswordLengthKey)
+                ?? Configuration.RegulatedProfile.FilledMinimumPasswordLength(configuration));
 
         // While local login is off, the last word on every password sign-in, whichever provider authenticated it: only a
         // stored internal break-glass user passes.
@@ -615,9 +618,10 @@ public static class ServiceConfiguration
             .ValidateOnStart();
         services.AddSingleton<IValidateOptions<Configuration.McpDeploymentOptions>, Configuration.McpDeploymentOptionsValidator>();
 
-        // The deployment profile (Beacon:Profile; unset = no preset). Under Regulated it fills the MCP settings the host left
-        // unset, turns the retention lock on when unset, and fails the host at boot, with the full list, on any setting the
-        // host set weaker than the profile requires (RegulatedProfile). An unknown profile name fails too.
+        // The deployment profile (Beacon:Profile; unset = no preset). Under Regulated it fills the keys the host left unset
+        // (RegulatedProfile.DefaultedKeys: the MCP settings here, the retention lock, the audit switches and the password
+        // length above, the session cookie in Beacon.Api), and fails the host at boot, with the full list, on any setting
+        // weaker than the profile requires (RegulatedProfile.Assess). An unknown profile name fails too.
         services.AddOptions<Configuration.McpDeploymentOptions>()
             .PostConfigure(x => Configuration.RegulatedProfile.ApplyDefaults(x, configuration));
         services.AddOptions<Configuration.DeploymentProfileOptions>()
@@ -629,7 +633,8 @@ public static class ServiceConfiguration
                 x.UnknownValue = profile.UnknownValue;
             })
             .ValidateOnStart();
-        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.DeploymentProfileOptions>, Configuration.DeploymentProfileOptionsValidator>());
+        services.TryAddEnumerable(ServiceDescriptor.Singleton<IValidateOptions<Configuration.DeploymentProfileOptions>, Configuration.DeploymentProfileOptionsValidator>(
+            x => new Configuration.DeploymentProfileOptionsValidator(x, configuration)));
 
         // MCP audit retention purge (Beacon:Mcp:Audit:RetentionDays); a null window is a no-op. Scheduled by
         // the host as a Warp recurring job (Beacon.SampleProject/Warp/Jobs/McpMaintenanceJobs.cs).
