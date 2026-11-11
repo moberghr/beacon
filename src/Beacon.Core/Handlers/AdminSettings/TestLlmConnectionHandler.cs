@@ -1,8 +1,10 @@
+using Beacon.Core.Configuration;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Services;
 using MediatR;
 using Beacon.Core.Authorization;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 
 namespace Beacon.Core.Handlers.AdminSettings;
 
@@ -12,7 +14,8 @@ internal sealed class TestLlmConnectionHandler(
     IBeaconActorAccessor actorAccessor,
     IBeaconPermissionAccessor permissionAccessor,
     ILlmProviderCatalog providerCatalog,
-    ILogger<TestLlmConnectionHandler> logger)
+    ILogger<TestLlmConnectionHandler> logger,
+    IOptions<LlmEndpointOptions>? endpointOptions = null)
     : IRequestHandler<TestLlmConnectionCommand, TestLlmConnectionResult>
 {
     public async Task<TestLlmConnectionResult> Handle(TestLlmConnectionCommand request, CancellationToken cancellationToken)
@@ -49,13 +52,22 @@ internal sealed class TestLlmConnectionHandler(
             return new TestLlmConnectionResult(false, null, null, "Model is required to test the connection.");
         }
 
+        // The key and the test prompt go to this endpoint: https only (http for a loopback host, or where the host allows it).
+        var endpoint = request.LlmEndpoint ?? current.LlmEndpoint;
+        if (provider == AiProvider.AzureOpenAI
+            && !string.IsNullOrWhiteSpace(endpoint)
+            && !LlmEndpointRule.IsAllowed(endpoint, endpointOptions?.Value.AllowInsecureEndpoint ?? false))
+        {
+            return new TestLlmConnectionResult(false, null, null, LlmEndpointRule.Message);
+        }
+
         var parameters = new LlmConnectionTestParameters(
             Provider: provider,
             Model: model,
             Region: request.LlmRegion ?? current.LlmRegion,
             BedrockAuthMode: request.LlmBedrockAuthMode,
             ApiKey: request.LlmApiKey ?? current.LlmApiKey ?? string.Empty,
-            Endpoint: request.LlmEndpoint ?? current.LlmEndpoint,
+            Endpoint: endpoint,
             SessionToken: request.LlmSessionToken ?? current.LlmSessionToken,
             AwsAccessKeyId: request.LlmAwsAccessKeyId ?? current.LlmAwsAccessKeyId,
             AwsSecretAccessKey: request.LlmAwsSecretAccessKey ?? current.LlmAwsSecretAccessKey);

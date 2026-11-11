@@ -8,7 +8,9 @@ namespace Beacon.Core.Http;
 /// The named <see cref="IHttpClientFactory"/> clients for Beacon's outbound calls that carry credentials or read
 /// third-party documents: the JWKS fetch, Databricks and GitHub. None follows redirects (a redirect would carry the
 /// credential header to wherever the response points), none keeps cookies, and each has its own timeout. The JWKS and
-/// Databricks clients also cap the response body.
+/// Databricks clients also cap the response body, and the Databricks client connects only to an address the data-source
+/// address rules allow (<see cref="DataSourceOutboundAddresses"/>), judged on the addresses the host resolves to when it
+/// connects.
 /// </summary>
 public static class BeaconHttpClients
 {
@@ -48,7 +50,8 @@ public static class BeaconHttpClients
 
         services
             .AddHttpClient(Databricks)
-            .ConfigurePrimaryHttpMessageHandler(CreatePrimaryHandler)
+            .ConfigurePrimaryHttpMessageHandler(x => CreateDataSourceHandler(DataSourceOutboundAddresses.Guard(x)))
+            .AddHttpMessageHandler(x => DataSourceOutboundAddresses.CheckHandler(DataSourceOutboundAddresses.Guard(x)))
             .AddHttpMessageHandler(() => new ResponseSizeLimitHandler(DatabricksMaxResponseBytes, DatabricksReadTimeout));
 
         // GitHub reads are bounded per call (tree, file) by the scanner's own limits.
@@ -67,6 +70,17 @@ public static class BeaconHttpClients
         {
             AllowAutoRedirect = false,
             UseCookies = false,
+            PooledConnectionLifetime = TimeSpan.FromMinutes(2)
+        };
+    }
+
+    internal static SocketsHttpHandler CreateDataSourceHandler(OutboundAddressGuard guard)
+    {
+        return new SocketsHttpHandler
+        {
+            AllowAutoRedirect = false,
+            UseCookies = false,
+            ConnectCallback = guard.ConnectAsync,
             PooledConnectionLifetime = TimeSpan.FromMinutes(2)
         };
     }

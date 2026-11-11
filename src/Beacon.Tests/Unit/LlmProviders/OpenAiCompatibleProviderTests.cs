@@ -95,6 +95,33 @@ public class OpenAiCompatibleProviderTests
         ftp.Should().Throw<ArgumentException>().WithMessage("The Azure OpenAI endpoint must be an absolute http or https URI.*");
     }
 
+    [TestCase("http://beacon-test.openai.azure.com/")]
+    [TestCase("http://10.0.0.5:8080/")]
+    public void Azure_RefusesAnHttpEndpoint_OnAHostOtherThanLoopback(string endpoint)
+    {
+        var act = () => OpenAiCompatibleProvider.ForAzure(new HttpClient(), endpoint, Key, "dep");
+
+        act.Should().Throw<ArgumentException>().WithMessage($"{Beacon.Core.Configuration.LlmEndpointRule.Message}*");
+    }
+
+    [TestCase("http://127.0.0.1:8080/")]
+    [TestCase("http://[::1]:8080/")]
+    [TestCase("http://LOCALHOST:8080/")]
+    public void Azure_AcceptsAnHttpEndpoint_OnALoopbackHost(string endpoint)
+    {
+        var provider = OpenAiCompatibleProvider.ForAzure(new HttpClient(), endpoint, Key, "dep");
+
+        provider.RequestUri.Scheme.Should().Be("http");
+    }
+
+    [Test]
+    public void Azure_AcceptsAnHttpEndpoint_OnAnyHost_WithAllowInsecureEndpoint()
+    {
+        var provider = OpenAiCompatibleProvider.ForAzure(new HttpClient(), "http://llm.internal/", Key, "dep", allowInsecureEndpoint: true);
+
+        provider.RequestUri.AbsoluteUri.Should().Be("http://llm.internal/openai/deployments/dep/chat/completions?api-version=2024-10-21");
+    }
+
     [Test]
     public async Task Completion_MapsContentUsageCostAndTheConfiguredModel()
     {

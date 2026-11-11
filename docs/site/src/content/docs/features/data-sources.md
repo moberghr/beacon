@@ -88,6 +88,9 @@ An API data source's credentials go only to the API it names:
   `***` in what the API answers, before it becomes rows, also URL- or JSON-escaped.
 - **No redirects.** Beacon does not follow redirects: a `3xx` answer fails the query or the test and says so. Point the
   **Base URL** and the **OpenAPI spec URL** at their final addresses.
+- **Addresses.** The connector (and the Databricks connector) connects only to an address the host allows: never
+  link-local or cloud metadata addresses, loopback only on development hosts, private networks unless the host turns them
+  off. See [HTTP data-source addresses](/getting-started/configuration/#http-data-source-addresses).
 - **Paths stay under the base URL.** A query's path (after its path parameters are filled in) may not contain `.` or
   `..` segments, also percent-encoded or behind a backslash, nor a `#` or a control character, and the request URL keeps
   the base URL's scheme, host, port and path.

@@ -448,7 +448,7 @@ never the host list. Bound from `Beacon:DataSources`:
 
 | Key | Type | Default | What it does |
 |---|---|---|---|
-| `AllowedHosts` | string[] | `[]` | The hosts a data-source connection may reach: exact host names or IP addresses, or `*.example.com` for the hosts below `example.com` (ASCII; an internationalised name in its `xn--` form). Empty leaves hosts unrestricted. While set, a connection reaching an unlisted host, a host that is not a bare host name or IP address, or one whose hosts cannot be told, is refused; a BigQuery source needs `oauth2.googleapis.com`. Resolved addresses are not pinned. An entry with a scheme, port or path fails startup |
+| `AllowedHosts` | string[] | `[]` | The hosts a data-source connection may reach: exact host names or IP addresses, or `*.example.com` for the hosts below `example.com` (ASCII; an internationalised name in its `xn--` form). Empty leaves hosts unrestricted. While set, a connection reaching an unlisted host, a host that is not a bare host name or IP address, or one whose hosts cannot be told, is refused; a BigQuery source needs `oauth2.googleapis.com`. The list matches names, and resolved addresses are not pinned to it (the REST API and Databricks connectors also check the addresses they connect to, see [HTTP data-source addresses](#http-data-source-addresses)). An entry with a scheme, port or path fails startup |
 | `AllowHostCredentials` | bool | `false` | Accepts connections that sign in as the Beacon host: integrated or Kerberos security, a managed, workload or default cloud identity, an AWS profile or IAM role, BigQuery application default credentials, a certificate store, a local socket or named pipe, a PostgreSQL pgpass file |
 
 ```json
@@ -463,6 +463,36 @@ whose key names a token endpoint, universe or URL that is not Google's, stop con
 password are refused. PostgreSQL connections with a password no longer answer a server's Kerberos or SSPI request:
 set `Require Auth` yourself (and `AllowHostCredentials` for an Admin's source) if a password-carrying connection must
 sign in with Kerberos.
+:::
+
+## HTTP data-source addresses
+
+The REST API and Databricks connectors resolve a data source's host when they connect and connect only to an address
+these rules allow; an address they refuse is never dialled, and the error names the rule, never the address or URL:
+
+- loopback (`127.0.0.0/8`, `::1`) is refused unless `Beacon:DataSources:Transport:AllowInsecure` is `true` (development
+  hosts only);
+- private networks (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10`, `fc00::/7`) are allowed unless
+  `AllowPrivateNetworks` below is `false`;
+- link-local and cloud metadata addresses (`169.254.0.0/16`, `fe80::/10` and the providers' metadata addresses),
+  unspecified, multicast and reserved addresses are always refused.
+
+An IPv4 address written in an IPv6 form (for example `::ffff:169.254.169.254`) is judged as the IPv4 address it carries.
+Through a system proxy, the destination's resolved addresses are checked before the request is sent and the proxy
+connects; configure its egress policy to refuse the same destinations. Bound from `Beacon:DataSources:Outbound`:
+
+| Key | Type | Default | What it does |
+|---|---|---|---|
+| `AllowPrivateNetworks` | bool | `true` | Lets the REST API and Databricks connectors reach private network addresses. Set `false` where every HTTP data source is on the public internet; otherwise consider listing the allowed hosts in `Beacon:DataSources:AllowedHosts` |
+
+```json
+{ "Beacon": { "DataSources": { "Outbound": { "AllowPrivateNetworks": false } } } }
+```
+
+:::caution[Upgrading]
+A REST API or Databricks data source whose host resolves to a loopback address stops connecting outside development
+hosts (set `Beacon:DataSources:Transport:AllowInsecure` in Development configuration only), and one whose host resolves
+to a link-local or cloud metadata address stops connecting everywhere.
 :::
 
 ## Authorization
@@ -678,7 +708,8 @@ Bound from `Beacon:LLM` by `builder.Services.AddBeaconAI(builder.Configuration)`
 | `ApiKey` | string | `""` | The provider key. Bedrock: a legacy `accessKey:secretKey` pair, used when `AwsAccessKeyId` and `AwsSecretAccessKey` are both empty (under `IamRole` with a logged warning) |
 | `BedrockAuthMode` | `IamRole` \| `AccessKey` \| `TemporaryCredentials` | `IamRole` | Bedrock credentials: the default AWS credential chain, the access key pair, or the pair with `SessionToken` |
 | `AwsAccessKeyId`, `AwsSecretAccessKey` | string | None | The Bedrock access key pair for `AccessKey` and `TemporaryCredentials`; one without the other fails |
-| `Endpoint` | string | None | Required for `AzureOpenAI` |
+| `Endpoint` | string | None | Required for `AzureOpenAI`. An `https` URL; `http` only for a loopback host (`localhost`, `127.0.0.1`, `[::1]`) or while `AllowInsecureEndpoint` is set. Checked when the provider is built, when an Admin saves a new endpoint and when the connection is tested |
+| `AllowInsecureEndpoint` | bool | `false` | Accepts an `http` endpoint on any host. For development and closed test networks only: the key and every prompt then travel unencrypted |
 | `Region` | string | None | Required for `Bedrock` |
 | `SessionToken` | string | None | Bedrock temporary credentials |
 | `Model` | string | `""` | The model; for Azure the deployment name, for Bedrock the model id |
@@ -706,6 +737,12 @@ Bound from `Beacon:LLM` by `builder.Services.AddBeaconAI(builder.Configuration)`
 ```bash
 export Beacon__LLM__ApiKey="<provider key>"
 ```
+
+Whatever the endpoint, the LLM clients resolve its host when they connect and never connect to a link-local or cloud
+metadata address (`169.254.0.0/16`, `fe80::/10` and the providers' metadata addresses), nor to an unspecified, multicast
+or reserved one; loopback and private network addresses stay allowed for local and on-premises gateways. An Azure OpenAI
+endpoint stored with `http` on another host stops working until it is replaced or `AllowInsecureEndpoint` is set (the
+host logs a Warning when the provider cannot be built).
 
 At startup the provider is built from `Beacon:LLM`. Saving the AI provider in [Admin settings](/security/admin-settings/) swaps it immediately, without a restart; after a restart `Beacon:LLM` applies again until the settings are saved. Keep `Beacon:LLM` in step with Admin settings, or save them again after a restart. See [AI providers](/integrate/ai/).
 

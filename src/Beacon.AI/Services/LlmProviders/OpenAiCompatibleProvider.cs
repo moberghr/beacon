@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Exceptions;
 
@@ -113,7 +114,8 @@ internal sealed partial class OpenAiCompatibleProvider : ILlmProvider
         string deployment,
         Func<TimeSpan, CancellationToken, Task>? delay = null,
         TimeProvider? timeProvider = null,
-        TimeSpan? attemptTimeout = null)
+        TimeSpan? attemptTimeout = null,
+        bool allowInsecureEndpoint = false)
     {
         ArgumentException.ThrowIfNullOrEmpty(deployment);
 
@@ -126,7 +128,7 @@ internal sealed partial class OpenAiCompatibleProvider : ILlmProvider
         return new OpenAiCompatibleProvider(
             httpClient,
             isAzure: true,
-            AzureChatCompletionsUri(endpoint, deployment),
+            AzureChatCompletionsUri(endpoint, deployment, allowInsecureEndpoint),
             apiKey,
             deployment,
             delay,
@@ -195,7 +197,7 @@ internal sealed partial class OpenAiCompatibleProvider : ILlmProvider
             or HttpStatusCode.GatewayTimeout;
     }
 
-    private static Uri AzureChatCompletionsUri(string endpoint, string deployment)
+    private static Uri AzureChatCompletionsUri(string endpoint, string deployment, bool allowInsecureEndpoint)
     {
         ArgumentException.ThrowIfNullOrEmpty(endpoint);
 
@@ -203,6 +205,12 @@ internal sealed partial class OpenAiCompatibleProvider : ILlmProvider
         if (endpointUri.Scheme != Uri.UriSchemeHttps && endpointUri.Scheme != Uri.UriSchemeHttp)
         {
             throw new ArgumentException("The Azure OpenAI endpoint must be an absolute http or https URI.", nameof(endpoint));
+        }
+
+        // The key and every prompt travel to this endpoint: plain http only to a loopback host or where the host allows it.
+        if (!LlmEndpointRule.IsAllowed(endpointUri, allowInsecureEndpoint))
+        {
+            throw new ArgumentException(LlmEndpointRule.Message, nameof(endpoint));
         }
 
         // Credentials in the endpoint would travel in every request URI; the key goes in its own header.

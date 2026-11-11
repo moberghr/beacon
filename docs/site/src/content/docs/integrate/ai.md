@@ -31,7 +31,7 @@ The provider is built from `Beacon:LLM` each time the process starts. Keep that 
 |---|---|---|
 | `OpenAI` | `ApiKey`, `Model` | Calls the public OpenAI API. |
 | `Claude` (shown as **Anthropic** in the UI) | `ApiKey`, `Model` | Calls `https://api.anthropic.com`. |
-| `AzureOpenAI` | `Endpoint`, `ApiKey`, `Model` (the **deployment name**) | |
+| `AzureOpenAI` | `Endpoint`, `ApiKey`, `Model` (the **deployment name**) | `Endpoint` is an `https` URL; `http` only for a loopback host or with `Beacon:LLM:AllowInsecureEndpoint` ([configuration](/getting-started/configuration/#ai--llm)). |
 | `Bedrock` | `Region`, `Model` (model id) | Needs the `Moberg.Beacon.AI.Bedrock` package and `AddBeaconBedrock()`; without them a stored Bedrock setting leaves no active provider. `BedrockAuthMode`: `IamRole` (default) → the default AWS credential chain (instance role, environment); `AccessKey` → `AwsAccessKeyId` and `AwsSecretAccessKey`; `TemporaryCredentials` → those plus `SessionToken`. A legacy `ApiKey` of `accessKey:secretKey` is used when both key fields are empty; under `IamRole` a warning is logged. |
 
 ```json

@@ -75,7 +75,8 @@ public class BeaconOutboundHttpClientTests
     public async Task DatabricksClient_ReturnsARedirectAsIs_WithoutRequestingTheTarget()
     {
         using var server = new LoopbackServer(_ => Redirect);
-        using var provider = Services();
+        // The Databricks client reaches a loopback host only on a development host.
+        using var provider = Services(allowLoopbackDataSources: true);
         var client = provider.GetRequiredService<IHttpClientFactory>().CreateClient(BeaconHttpClients.Databricks);
         client.DefaultRequestHeaders.Authorization = new System.Net.Http.Headers.AuthenticationHeaderValue("Bearer", "secret");
 
@@ -83,6 +84,19 @@ public class BeaconOutboundHttpClientTests
 
         response.StatusCode.Should().Be(HttpStatusCode.Found);
         server.Requests.Should().Equal("/start");
+    }
+
+    [Test]
+    public async Task DatabricksClient_RefusesALoopbackHost_OutsideDevelopmentHosts_WithoutConnecting()
+    {
+        using var server = new LoopbackServer(_ => Redirect);
+        using var provider = Services();
+        var client = provider.GetRequiredService<IHttpClientFactory>().CreateClient(BeaconHttpClients.Databricks);
+
+        var act = () => client.GetAsync(server.Url("/start"));
+
+        await act.Should().ThrowExactlyAsync<Beacon.Core.Models.DataSourceTransportException>();
+        server.Requests.Should().BeEmpty();
     }
 
     [TestCase(BeaconHttpClients.Jwks)]
@@ -132,10 +146,11 @@ public class BeaconOutboundHttpClientTests
         return $"HTTP/1.1 200 OK\r\nContent-Type: application/json\r\nContent-Length: {Encoding.UTF8.GetByteCount(body)}\r\nConnection: close\r\n\r\n{body}";
     }
 
-    private static ServiceProvider Services()
+    private static ServiceProvider Services(bool allowLoopbackDataSources = false)
     {
         var services = new ServiceCollection();
         services.AddLogging();
+        services.Configure<Beacon.Core.Configuration.DataSourceTransportOptions>(x => x.AllowInsecure = allowLoopbackDataSources);
         services.AddBeaconOutboundHttpClients();
         return services.BuildServiceProvider();
     }

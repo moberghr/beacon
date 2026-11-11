@@ -433,6 +433,12 @@ public static class ServiceConfiguration
         // connector's inspector judges it; the options decide what happens to a stored source that does not.
         services.AddOptions<Configuration.DataSourceTransportOptions>()
             .Bind(configuration.GetSection(Configuration.DataSourceTransportOptions.SectionName));
+        // The HTTP connectors' connect-time address rules (Beacon:DataSources:Outbound): private networks allowed or not.
+        services.AddOptions<Configuration.DataSourceOutboundOptions>()
+            .Bind(configuration.GetSection(Configuration.DataSourceOutboundOptions.SectionName));
+        // The configured LLM endpoint's scheme rule (Beacon:LLM:AllowInsecureEndpoint), applied on save, test and use.
+        services.AddOptions<Configuration.LlmEndpointOptions>()
+            .Bind(configuration.GetSection(Configuration.LlmEndpointOptions.SectionName));
         // Driver options and hosts (Beacon:DataSources): each connector's option inspector, and the optional host list.
         services.AddOptions<Configuration.DataSourceConnectionOptions>()
             .Bind(configuration.GetSection(Configuration.DataSourceConnectionOptions.SectionName))

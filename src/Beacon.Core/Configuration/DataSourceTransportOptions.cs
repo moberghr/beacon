@@ -20,8 +20,9 @@ public sealed class DataSourceTransportOptions
     public bool EnforceOnExisting { get; set; }
 
     /// <summary>
-    /// Lifts the check altogether: new, changed and stored connections are accepted without server authentication. For
-    /// development hosts only; the host logs a Warning at startup when it is set outside Development. Default false.
+    /// Lifts the check altogether: new, changed and stored connections are accepted without server authentication, and
+    /// the HTTP connectors may connect to a loopback address (<see cref="DataSourceOutboundOptions"/>). For development
+    /// hosts only; the host logs a Warning at startup when it is set outside Development. Default false.
     /// </summary>
     public bool AllowInsecure { get; set; }
 }
