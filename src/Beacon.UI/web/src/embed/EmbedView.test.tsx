@@ -8,8 +8,11 @@ import {
   EXPIRED_MESSAGE,
   FRAME_HEADER,
   FRAME_MARKER_META,
+  FRAME_ORIGINS_META,
   expiryNotifier,
+  framingOrigin,
   readFrameMarker,
+  readFrameOrigins,
   refusalMeansExpired,
   takeToken,
 } from './embedClient';
@@ -65,6 +68,7 @@ describe('embed page', () => {
   beforeEach(() => {
     window.history.replaceState(null, '', '/beacon/embed/0123456789abcdef0123456789abcdef');
     document.head.querySelector(`meta[name="${FRAME_MARKER_META}"]`)?.remove();
+    document.head.querySelector(`meta[name="${FRAME_ORIGINS_META}"]`)?.remove();
   });
 
   afterEach(() => {
@@ -94,6 +98,38 @@ describe('embed page', () => {
     document.head.appendChild(meta);
 
     expect(readFrameMarker()).toBe('marker-1');
+  });
+
+  it('reads the origins that may frame the page only from the served meta element, origins only', () => {
+    expect(readFrameOrigins()).toEqual([]);
+
+    const meta = document.createElement('meta');
+    meta.name = FRAME_ORIGINS_META;
+    meta.content = ' https://a.example.com  https://b.example.com:8443 * javascript:alert(1) https://c.example.com/path ';
+    document.head.appendChild(meta);
+
+    expect(readFrameOrigins()).toEqual(['https://a.example.com', 'https://b.example.com:8443']);
+  });
+
+  it('posts at the one origin a grant lists, and with several only at the framing page\'s origin when listed', () => {
+    const page = (ancestorOrigins: string[] | undefined, referrer: string) => ({
+      location: { ancestorOrigins },
+      document: { referrer },
+    });
+    const several = ['https://a.example.com', 'https://b.example.com:8443'];
+
+    expect(framingOrigin(['https://a.example.com'], page(undefined, ''))).toBe('https://a.example.com');
+    expect(framingOrigin([], page(['https://a.example.com'], 'https://a.example.com/'))).toBeNull();
+    expect(framingOrigin(several, page(['https://b.example.com:8443'], 'https://a.example.com/'))).toBe(
+      'https://b.example.com:8443',
+    );
+    expect(framingOrigin(several, page(undefined, 'https://b.example.com:8443/portal?x=1'))).toBe(
+      'https://b.example.com:8443',
+    );
+    expect(framingOrigin(several, page([], 'https://a.example.com/'))).toBe('https://a.example.com');
+    expect(framingOrigin(several, page(['https://evil.example.com'], 'https://a.example.com/'))).toBeNull();
+    expect(framingOrigin(several, page(undefined, 'https://evil.example.com/'))).toBeNull();
+    expect(framingOrigin(several, page(undefined, ''))).toBeNull();
   });
 
   it('sends the token only as the BeaconEmbed authorization, with the frame marker and no cookies', async () => {
@@ -215,7 +251,7 @@ describe('embed page', () => {
   it('posts the expiry notice at most once per page load', async () => {
     recordRenders({ status: 401 });
     const host = { postMessage: vi.fn() };
-    const notifyExpired = expiryNotifier(host);
+    const notifyExpired = expiryNotifier(host, 'https://portal.example.com');
 
     // StrictMode runs every effect twice; a second view on the same page load shares the notifier.
     render(
@@ -227,11 +263,20 @@ describe('embed page', () => {
     notifyExpired();
 
     expect(host.postMessage).toHaveBeenCalledTimes(1);
-    expect(host.postMessage).toHaveBeenCalledWith(EXPIRED_MESSAGE, '*');
+    expect(host.postMessage).toHaveBeenCalledWith(EXPIRED_MESSAGE, 'https://portal.example.com');
+    expect(EXPIRED_MESSAGE).toEqual({ type: 'beacon-embed:expired' });
   });
 
   it('posts nothing when the view is not framed', () => {
-    expect(() => expiryNotifier(null)()).not.toThrow();
+    expect(() => expiryNotifier(null, 'https://portal.example.com')()).not.toThrow();
+  });
+
+  it('posts nothing, never to any origin, when no origin the grant lists can be told', () => {
+    const host = { postMessage: vi.fn() };
+
+    expiryNotifier(host, null)();
+
+    expect(host.postMessage).not.toHaveBeenCalled();
   });
 
   it('reads only a row\'s own values and keys repeated column names apart', async () => {

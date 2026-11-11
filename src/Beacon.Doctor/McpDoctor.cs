@@ -44,7 +44,7 @@ internal sealed partial class McpDoctor(HttpClient http)
         }
         else
         {
-            results.Add(new CheckResult(CheckStatus.Warn, "handshake", "No --token given: initialize and tools/list were not tried."));
+            results.Add(new CheckResult(CheckStatus.Warn, "handshake", "No token given (BEACON_MCP_TOKEN or --token-stdin): initialize and tools/list were not tried."));
         }
 
         return results;

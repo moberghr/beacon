@@ -60,12 +60,29 @@ public class DocumentationContentSafetyTests
     [TestCase("[x](#section)", "href=\"#section\"")]
     [TestCase("[x](/projects/1)", "href=\"/projects/1\"")]
     [TestCase("[x](page.html)", "href=\"page.html\"")]
-    [TestCase("![i](https://example.com/a.png)", "src=\"https://example.com/a.png\"")]
+    [TestCase("![i](https://example.com/a.png)", "href=\"https://example.com/a.png\"")]
     public void ConvertToHtml_KeepsAllowedUrls(string markdown, string expected)
     {
         var html = ProjectDocumentationService.ConvertToHtml(markdown);
 
         html.Should().Contain(expected);
+    }
+
+    [TestCase("![Order flow](https://images.example.com/flow.png)", "<a href=\"https://images.example.com/flow.png\">Order flow</a>")]
+    [TestCase("![Order flow](https://images.example.com/flow.png \"Flow\")", "<a href=\"https://images.example.com/flow.png\" title=\"Flow\">Order flow</a>")]
+    [TestCase("![](https://images.example.com/flow.png)", "<a href=\"https://images.example.com/flow.png\">https://images.example.com/flow.png</a>")]
+    [TestCase("![Order flow][f]\n\n[f]: https://images.example.com/flow.png", "<a href=\"https://images.example.com/flow.png\">Order flow</a>")]
+    [TestCase("[![Badge](https://images.example.com/b.svg)](https://example.com)", "<a href=\"https://example.com\">Badge</a>")]
+    [TestCase("![The *order* `flow`](https://images.example.com/flow.png)", "<a href=\"https://images.example.com/flow.png\">The order flow</a>")]
+    [TestCase("![Order flow](flow.png)", "<a href=\"flow.png\">Order flow</a>")]
+    [TestCase("![Order flow](data:image/png;base64,AAAA)", "<a href=\"#\">Order flow</a>")]
+    public void ConvertToHtml_TurnsImagesIntoLinks_SoTheFileLoadsNothing(string markdown, string expected)
+    {
+        var html = ProjectDocumentationService.ConvertToHtml(markdown);
+
+        var body = html[html.IndexOf("<body>", StringComparison.Ordinal)..];
+        body.Should().NotContain("<img");
+        body.Should().Contain(expected);
     }
 
     [Test]
@@ -74,8 +91,8 @@ public class DocumentationContentSafetyTests
         var html = ProjectDocumentationService.ConvertToHtml("# Title");
 
         var head = html[..html.IndexOf("</head>", StringComparison.Ordinal)];
-        head.Should().Contain("http-equiv=\"Content-Security-Policy\"");
-        head.Should().Contain("default-src 'none'");
+        head.Should().Contain(
+            "<meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'\" />");
     }
 
     [Test]

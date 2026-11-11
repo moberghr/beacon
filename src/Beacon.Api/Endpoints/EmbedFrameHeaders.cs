@@ -14,14 +14,22 @@ internal static class EmbedFrameHeaders
     /// <summary>The page's Content-Security-Policy for <paramref name="origins"/>.</summary>
     public static string ContentSecurityPolicy(IReadOnlyList<string> origins)
     {
-        // Each origin again as the grant's rules write one, so nothing stored can add a directive to the header.
-        var allowed = origins
-            .Where(IsOrigin)
-            .Distinct(StringComparer.Ordinal)
-            .ToList();
+        var allowed = FrameOrigins(origins);
         var ancestors = allowed.Count == 0 ? "'none'" : string.Join(' ', allowed);
 
         return $"{BasePolicy}; frame-ancestors {ancestors}";
+    }
+
+    /// <summary>
+    /// The origins that may frame the page: those of <paramref name="origins"/> written exactly as the grant's rules write
+    /// one, distinct, so nothing stored can add a directive to the header or an attribute to the page.
+    /// </summary>
+    public static IReadOnlyList<string> FrameOrigins(IReadOnlyList<string> origins)
+    {
+        return origins
+            .Where(IsOrigin)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
     }
 
     public static void Apply(HttpResponse response, IReadOnlyList<string> origins)

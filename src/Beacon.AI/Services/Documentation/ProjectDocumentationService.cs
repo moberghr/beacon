@@ -1038,6 +1038,22 @@ internal sealed class ProjectDocumentationService(
                 link.GetDynamicUrl = null;
                 link.Url = "#";
             }
+
+            // The export is self-contained, so opening the file fetches nothing: an image becomes a link to it, worded by
+            // its alt text (else its address), or only that text inside another link, so links never nest.
+            if (link.IsImage)
+            {
+                var text = ImageText(link);
+                if (IsInsideLink(link))
+                {
+                    link.ReplaceBy(new LiteralInline(text), copyChildren: false);
+                    continue;
+                }
+
+                link.IsImage = false;
+                link.Clear();
+                link.AppendChild(new LiteralInline(text));
+            }
         }
 
         foreach (var autolink in document.Descendants<AutolinkInline>().ToList())
@@ -1055,7 +1071,7 @@ internal sealed class ProjectDocumentationService(
                "<head>\n" +
                "    <meta charset=\"UTF-8\" />\n" +
                "    <meta name=\"viewport\" content=\"width=device-width, initial-scale=1.0\" />\n" +
-               "    <meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'; img-src https:\" />\n" +
+               "    <meta http-equiv=\"Content-Security-Policy\" content=\"default-src 'none'; style-src 'unsafe-inline'; img-src data:; base-uri 'none'; form-action 'none'\" />\n" +
                "    <title>Project Documentation</title>\n" +
                "    <style>\n" +
                "        body { font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; max-width: 1200px; margin: 0 auto; padding: 2rem; color: #1a1a1a; }\n" +
@@ -1075,6 +1091,34 @@ internal sealed class ProjectDocumentationService(
                "<body>\n" +
                body +
                "\n</body>\n</html>";
+    }
+
+    private static bool IsInsideLink(Inline inline)
+    {
+        for (var parent = inline.Parent; parent != null; parent = parent.Parent)
+        {
+            if (parent is LinkInline)
+            {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    // An image's alt text as plain text, or its address when it has none.
+    private static string ImageText(LinkInline image)
+    {
+        var alt = string.Concat(image
+            .Descendants<Inline>()
+            .Select(x => x switch
+            {
+                LiteralInline literal => literal.Content.ToString(),
+                CodeInline code => code.Content,
+                _ => string.Empty
+            }));
+
+        return alt.Trim().Length > 0 ? alt : image.GetDynamicUrl?.Invoke() ?? image.Url ?? string.Empty;
     }
 
     // --- Context Models ---

@@ -133,7 +133,7 @@ dotnet tool install -g Moberg.Beacon.Doctor
 beacon-doctor mcp https://beacon.example.com/beacon/mcp
 ```
 
-Each line starts with `PASS`, `WARN` or `FAIL`; the exit code is `1` when any check fails and `0` otherwise. Add `--json` for machine-readable output. With an Entra access token for your API (`--token <token>`, or the `BEACON_MCP_TOKEN` environment variable) it also tries `initialize` and `tools/list`, which proves the token maps to a caller. The token is sent to that endpoint only. Without one, the `handshake` line warns that it was not tried.
+Each line starts with `PASS`, `WARN` or `FAIL`; the exit code is `1` when any check fails and `0` otherwise. Add `--json` for machine-readable output. With an Entra access token for your API (in the `BEACON_MCP_TOKEN` environment variable, or on standard input with `--token-stdin`) it also tries `initialize` and `tools/list`, which proves the token maps to a caller. The token is sent to that endpoint only. Without one, the `handshake` line warns that it was not tried. `--token <token>` still works but prints a warning: a token on the command line stays in the process list and the shell history.
 
 ## Check it works
 

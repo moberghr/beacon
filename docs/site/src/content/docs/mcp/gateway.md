@@ -248,8 +248,12 @@ that an agent call is self-service only.
 ```bash
 dotnet tool install -g Moberg.Beacon.Doctor
 beacon-doctor mcp https://your-app/beacon/mcp                    # the challenge, discovery, Entra metadata, absent documents
-beacon-doctor mcp https://your-app/beacon/mcp --token "$TOKEN"   # plus initialize and tools/list as that person
+BEACON_MCP_TOKEN="$TOKEN" beacon-doctor mcp https://your-app/beacon/mcp                    # plus initialize and tools/list as that person
+printf '%s\n' "$TOKEN" | beacon-doctor mcp https://your-app/beacon/mcp --token-stdin      # the same, the token on standard input
 ```
+
+`--token <token>` still works but prints a warning: a token on the command line stays in the process list and the shell
+history.
 
 By hand:
 

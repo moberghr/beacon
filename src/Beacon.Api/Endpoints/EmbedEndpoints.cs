@@ -1,3 +1,4 @@
+using System.Net;
 using Beacon.Api.Authentication;
 using Beacon.Core.Handlers.Embed;
 using Beacon.Core.Helpers;
@@ -21,6 +22,12 @@ internal static class EmbedEndpoints
 
     /// <summary>The meta element the served page carries its frame marker in.</summary>
     public const string FrameMarkerMeta = "beacon-embed-frame";
+
+    /// <summary>
+    /// The meta element the served page carries the origins that may frame it in, space-separated: the same list as the
+    /// response's <c>frame-ancestors</c>. The page posts its messages to the framing page only at one of them.
+    /// </summary>
+    public const string FrameOriginsMeta = "beacon-embed-origins";
 
     public static IEndpointRouteBuilder MapEmbedEndpoints(this IEndpointRouteBuilder endpoints)
     {
@@ -115,7 +122,10 @@ internal static class EmbedEndpoints
         }
 
         var marker = context.RequestServices.GetRequiredService<EmbedTokenCodec>().FrameMarkerOf(publicId);
-        var html = page.Insert(headEnd, $"<meta name=\"{FrameMarkerMeta}\" content=\"{marker}\">");
+        var origins = WebUtility.HtmlEncode(string.Join(' ', EmbedFrameHeaders.FrameOrigins(frame.AllowedOrigins)));
+        var html = page.Insert(
+            headEnd,
+            $"<meta name=\"{FrameOriginsMeta}\" content=\"{origins}\"><meta name=\"{FrameMarkerMeta}\" content=\"{marker}\">");
 
         EmbedFrameHeaders.Apply(context.Response, frame.AllowedOrigins);
         context.Response.StatusCode = StatusCodes.Status200OK;
