@@ -1,4 +1,5 @@
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Exceptions;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Queries;
@@ -18,6 +19,9 @@ namespace Beacon.Core.Services;
 internal partial class QueryService : IStoredQueryPreview
 {
     private const int IntermediatePreviewRows = 10;
+
+    /// <summary>What a preview shows when it fails for a reason Beacon did not word itself.</summary>
+    internal const string PreviewFailedMessage = "The preview could not be run.";
 
     public async Task<QueryPreviewResult> PreviewQuery(int queryId, QueryDraft? draft, ListRequest paging, CancellationToken cancellationToken)
     {
@@ -125,6 +129,15 @@ internal partial class QueryService : IStoredQueryPreview
 
         return await PreviewSingleStep(step, parameters, paging, pii, cancellationToken);
     }
+
+    /// <summary>
+    /// The text a preview shows for <paramref name="exception"/>: Beacon's own message (<see cref="BeaconOwnErrors"/>), or a
+    /// database's error as the query path redacted it for the caller (<see cref="QueryExecutionFailedException"/>); a
+    /// driver's or a library's text, which can quote values, hosts or settings, is replaced by
+    /// <see cref="PreviewFailedMessage"/>, and its cause is logged by type and code only.
+    /// </summary>
+    internal static string PreviewFailureText(Exception exception) =>
+        IsShownToPreviewCaller(exception) ? exception.Message : PreviewFailedMessage;
 
     private async Task<QueryPreviewResult> PreviewSteps(
         List<QueryStep> steps,
@@ -421,7 +434,17 @@ internal partial class QueryService : IStoredQueryPreview
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             stopwatch.Stop();
-            return (StepSummary(step, false, ex.Message, stopwatch.Elapsed.TotalMilliseconds, 0, []), null);
+            if (!IsShownToPreviewCaller(ex))
+            {
+                // The type and error code only (§1.11): the text replaced can quote the SQL, row values or a host.
+                logger.LogWarning(
+                    "Preview of step {StepOrder} on data source {DataSourceId} failed: {Failure}",
+                    step.StepOrder,
+                    step.DataSourceId,
+                    FailureCodes.Describe(ex));
+            }
+
+            return (StepSummary(step, false, PreviewFailureText(ex), stopwatch.Elapsed.TotalMilliseconds, 0, []), null);
         }
 
         stopwatch.Stop();
@@ -519,6 +542,9 @@ internal partial class QueryService : IStoredQueryPreview
             run.Rows.Count,
             false);
     }
+
+    private static bool IsShownToPreviewCaller(Exception exception) =>
+        exception is QueryExecutionFailedException || BeaconOwnErrors.IsOwnMessage(exception);
 
     private static QueryPreviewStep StepSummary(
         QueryStep step,

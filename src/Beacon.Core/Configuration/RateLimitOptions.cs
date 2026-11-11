@@ -85,8 +85,9 @@ public sealed class RateLimitWindow
 /// refused for <see cref="DurationMinutes"/>, whatever password is sent; the answer stays the generic failure and the
 /// password is still checked. A successful sign-in, a lockout and an administrator's password reset start the count again,
 /// and so does a wrong password sent <see cref="DurationMinutes"/> or more after the previous one. The break-glass accounts
-/// (<c>Beacon:UserManagement:LocalLogin:BreakGlassUserNames</c>) are never locked: they get the shorter, growing delay of
-/// <see cref="BreakGlassThrottleOptions"/> instead, and stay limited per client address by <see cref="RateLimitOptions.Login"/>.
+/// (<c>Beacon:UserManagement:LocalLogin:BreakGlassUserNames</c>) are never locked: they stay limited per client address by
+/// <see cref="RateLimitOptions.Login"/>, and get the shorter, growing delay of <see cref="BreakGlassThrottleOptions"/> only
+/// when a host turns it on.
 /// <para>
 /// The count is kept per user, not per client: anyone who knows a user name can lock that user's password sign-in by
 /// sending wrong passwords, again every time the lockout ends. That trades a denial of service against the account for
@@ -116,6 +117,11 @@ public sealed class LockoutOptions
 /// passwords sent during a delay are not counted and do not lengthen it, so a delay always ends and the right password then
 /// signs in. A successful sign-in and an administrator's password reset start the count again, and so does a wrong password
 /// sent <see cref="ResetAfterMinutes"/> or more after the previous one. The count and the delay are stored on the user.
+/// <para>
+/// Off by default. On, the per-account delay limits guessing from many addresses, but anyone who knows a break-glass name can
+/// keep that account delayed. Off, only the per-address limit (<see cref="RateLimitOptions.Login"/>) applies, so the emergency
+/// way in is never held up by someone else's wrong passwords.
+/// </para>
 /// </summary>
 public sealed class BreakGlassThrottleOptions
 {
@@ -125,8 +131,8 @@ public sealed class BreakGlassThrottleOptions
     /// <summary>The longest delay accepted, one hour.</summary>
     public const int MaxDelaySecondsLimit = 3600;
 
-    /// <summary>The delay is applied. Default: true.</summary>
-    public bool Enabled { get; set; } = true;
+    /// <summary>The delay is applied. Default: false.</summary>
+    public bool Enabled { get; set; }
 
     /// <summary>Wrong passwords before the first delay. Default 5.</summary>
     public int FailedAttemptsBeforeDelay { get; set; } = 5;

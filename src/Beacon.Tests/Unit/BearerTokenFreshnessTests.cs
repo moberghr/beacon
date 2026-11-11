@@ -11,7 +11,7 @@ namespace Beacon.Tests.Unit;
 
 /// <summary>
 /// How fresh a bearer token and its signing keys must be: a token issued before its user was last signed out everywhere
-/// is refused (within the clock skew), and the JWKS refresh interval and maximum staleness come from the validation
+/// is refused, with no clock-skew allowance, and the JWKS refresh interval and maximum staleness come from the validation
 /// options, checked at startup.
 /// </summary>
 [TestFixture]
@@ -22,26 +22,25 @@ public class BearerTokenFreshnessTests
     private static readonly DateTime SignedOut = new(2026, 11, 11, 9, 0, 0, DateTimeKind.Utc);
 
     [Test]
-    public void TokenIssuedBeforeTheSignOut_IsRefused_AndOneIssuedAfterIsNot()
+    public void TokenIssuedBeforeTheSignOut_IsRefused_AndOneIssuedAtOrAfterItIsNot()
     {
-        var skew = TimeSpan.FromMinutes(5);
-
-        TokenIssueTime.IssuedBeforeSignOut(Token(SignedOut.AddMinutes(-6)), SignedOut, skew).Should().BeTrue();
-        TokenIssueTime.IssuedBeforeSignOut(Token(SignedOut.AddMinutes(1)), SignedOut, skew).Should().BeFalse();
+        TokenIssueTime.IssuedBeforeSignOut(Token(SignedOut.AddMinutes(-6)), SignedOut).Should().BeTrue();
+        TokenIssueTime.IssuedBeforeSignOut(Token(SignedOut), SignedOut).Should().BeFalse();
+        TokenIssueTime.IssuedBeforeSignOut(Token(SignedOut.AddMinutes(1)), SignedOut).Should().BeFalse();
     }
 
     [Test]
-    public void TokenIssuedWithinTheClockSkewBeforeTheSignOut_IsAccepted()
+    public void TokenIssuedWithinTheClockSkewBeforeTheSignOut_IsRefused()
     {
-        TokenIssueTime.IssuedBeforeSignOut(Token(SignedOut.AddMinutes(-4)), SignedOut, TimeSpan.FromMinutes(5)).Should().BeFalse();
-        TokenIssueTime.IssuedBeforeSignOut(Token(SignedOut.AddMinutes(-4)), SignedOut, TimeSpan.Zero).Should().BeTrue();
+        TokenIssueTime.IssuedBeforeSignOut(Token(SignedOut.AddMinutes(-4)), SignedOut).Should().BeTrue();
+        TokenIssueTime.IssuedBeforeSignOut(Token(SignedOut.AddSeconds(-1)), SignedOut).Should().BeTrue("no allowance is given for the clock skew");
     }
 
     [Test]
     public void UserNeverSignedOutEverywhere_RefusesNoToken()
     {
-        TokenIssueTime.IssuedBeforeSignOut(Token(SignedOut.AddYears(-1)), tokensValidAfter: null, TimeSpan.Zero).Should().BeFalse();
-        TokenIssueTime.IssuedBeforeSignOut(new ClaimsPrincipal(new ClaimsIdentity()), tokensValidAfter: null, TimeSpan.Zero).Should().BeFalse();
+        TokenIssueTime.IssuedBeforeSignOut(Token(SignedOut.AddYears(-1)), tokensValidAfter: null).Should().BeFalse();
+        TokenIssueTime.IssuedBeforeSignOut(new ClaimsPrincipal(new ClaimsIdentity()), tokensValidAfter: null).Should().BeFalse();
     }
 
     [TestCase(null)]
@@ -54,7 +53,7 @@ public class BearerTokenFreshnessTests
         var claims = issuedAt == null ? new List<Claim>() : [new Claim("iat", issuedAt)];
         var token = new ClaimsPrincipal(new ClaimsIdentity(claims, "test"));
 
-        TokenIssueTime.IssuedBeforeSignOut(token, SignedOut, TimeSpan.FromMinutes(5)).Should().BeTrue();
+        TokenIssueTime.IssuedBeforeSignOut(token, SignedOut).Should().BeTrue();
     }
 
     [Test]
@@ -63,7 +62,7 @@ public class BearerTokenFreshnessTests
         var seconds = new DateTimeOffset(SignedOut.AddMinutes(1)).ToUnixTimeSeconds() + 0.5;
         var token = new ClaimsPrincipal(new ClaimsIdentity([new Claim("iat", seconds.ToString(CultureInfo.InvariantCulture))], "test"));
 
-        TokenIssueTime.IssuedBeforeSignOut(token, SignedOut, TimeSpan.Zero).Should().BeFalse();
+        TokenIssueTime.IssuedBeforeSignOut(token, SignedOut).Should().BeFalse();
     }
 
     [Test]

@@ -858,6 +858,35 @@ public class OidcEventHandlersTests
         context.Response.Headers.Location.ToString().Should().Be("/beacon/login?ssoError=1");
     }
 
+    [TestCase("access_denied", "access_denied")]
+    [TestCase("invalid_grant", "invalid_grant")]
+    [TestCase("bad code <script>", "unreadable")]
+    public async Task HandleRemoteFailureAsync_LogsTheProtocolErrorCode_ButNeverItsDescription(string error, string logged)
+    {
+        var logs = new LogRecorder();
+        var failure = new InvalidOperationException("Message contains error: 'x', error_description: 'secret-description-text'");
+        failure.Data["error"] = error;
+        failure.Data["error_description"] = "secret-description-text";
+        var context = BuildRemoteFailureContext(new AuthenticationFailureException("An error was encountered while handling the remote login.", failure), logs);
+
+        await OidcEventHandlers.HandleRemoteFailureAsync(context);
+
+        context.Response.Headers.Location.ToString().Should().Be("/beacon/login?ssoError=1");
+        var entry = logs.Entries.Should().ContainSingle(x => x.Message.StartsWith("OIDC remote failure", StringComparison.Ordinal)).Subject;
+        entry.Message.Should().Contain($"protocol error {logged}").And.NotContain("secret-description-text").And.NotContain("<script>");
+    }
+
+    [Test]
+    public void ProtocolErrorOf_NamesACorrelationFailure_AndNothingForAFailureWithoutACode()
+    {
+        OidcEventHandlers.ProtocolErrorOf(new AuthenticationFailureException("Correlation failed.")).Should().Be("correlation_failed");
+        OidcEventHandlers.ProtocolErrorOf(new InvalidOperationException("Correlation failed.")).Should().Be("none");
+        OidcEventHandlers.ProtocolErrorOf(null).Should().Be("none");
+        var tooLong = new InvalidOperationException();
+        tooLong.Data["error"] = new string('a', 65);
+        OidcEventHandlers.ProtocolErrorOf(tooLong).Should().Be("unreadable");
+    }
+
     [Test]
     public async Task HandleTokenValidatedAsync_TheSessionCookie_EndsWithTheBrowserSession_ByDefault()
     {
@@ -889,11 +918,19 @@ public class OidcEventHandlersTests
         context.Properties!.IsPersistent.Should().BeTrue();
     }
 
-    private static RemoteFailureContext BuildRemoteFailureContext(Exception failure)
+    private static RemoteFailureContext BuildRemoteFailureContext(Exception failure, LogRecorder? logs = null)
     {
         var services = new ServiceCollection();
         services.TryAddSingleton<ISecurityAuditRecorder>(new RecordingSecurityAudit());
-        services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
+        if (logs != null)
+        {
+            services.AddSingleton(LoggerFactory.Create(x => x.AddProvider(logs)));
+            services.AddSingleton(typeof(ILogger<>), typeof(Logger<>));
+        }
+        else
+        {
+            services.AddSingleton(typeof(ILogger<>), typeof(NullLogger<>));
+        }
         var httpContext = new DefaultHttpContext { RequestServices = services.BuildServiceProvider() };
         var scheme = new AuthenticationScheme(
             OpenIdConnectDefaults.AuthenticationScheme,

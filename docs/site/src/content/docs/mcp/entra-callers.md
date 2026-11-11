@@ -32,8 +32,10 @@ The token only proves **who** is calling. **What** the caller may do (which proj
    3. **User mode**, for delegated tokens, when it is enabled and the caller has one of the required roles or groups
       (or `AllowAnyTenantUser` is set).
 3. A matched caller gets the Beacon claims that API keys already use: `allowed_projects`, `scope` (`Read` or `Execute`), and the Beacon user id as the name identifier when the user is provisioned. It also gets `caller_kind` and `caller_hash`.
-   A token of a provisioned user issued before that user's last **sign out everywhere** (its `iat`, within
-   `ClockSkew`) is refused with `401`; the mapping holds the user's sign-out time for up to a minute.
+   A token of a provisioned user issued before that user's last **sign out everywhere** (its `iat`, with no
+   clock-skew allowance) is refused with `401`; the mapping holds the user's sign-out time for up to a minute. After
+   a sign-out everywhere the client must obtain a new token, and an identity provider whose clock runs behind
+   Beacon's can have tokens it issues right after the sign-out refused for as long as that lag.
 4. The route's Execute-scope policy then applies to JWT callers exactly as it does to API keys. **`Read` callers and unknown callers get `403`**, and `Execute` callers pass.
 
 A caller that is neither a configured system nor an accepted user is **unknown**. It gets no projects and no scope, and it is rejected. This fails closed.

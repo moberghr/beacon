@@ -82,7 +82,7 @@ public class BeaconUser : ArchivableBaseEntity
 
     /// <summary>
     /// Set (UTC) when the user is signed out everywhere: a bearer token for this user issued before it (by its <c>iat</c>
-    /// claim, within the validation clock skew) is refused, and so is one without an <c>iat</c>. Null (the default, and every
+    /// claim, with no clock-skew allowance) is refused, and so is one without an <c>iat</c>. Null (the default, and every
     /// user from before it was recorded) refuses no token by its issue time.
     /// </summary>
     public DateTime? TokensValidAfter { get; set; }

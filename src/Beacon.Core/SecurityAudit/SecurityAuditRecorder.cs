@@ -89,6 +89,20 @@ internal sealed class SecurityAuditRecorder(
         throw new SecurityAuditUnavailableException();
     }
 
+    public async Task RecordExemptAsync(SecurityAuditEntry entry, CancellationToken cancellationToken)
+    {
+        if (await WriteAsync(entry) || options?.Value.Required != true)
+        {
+            return;
+        }
+
+        // Logged on every such admission, so an action that went ahead without its required event never goes unnoticed.
+        _auditLogger.LogError(
+            SecurityAuditLogEvents.ExemptEventNotWritten,
+            "Admitted {Action} without its security audit event: Beacon:Audit:Required is on and the action is exempt from its refusal",
+            entry.Action);
+    }
+
     // Writes entry on its own; false when it could not, after the event went to the log stream.
     private async Task<bool> WriteAsync(SecurityAuditEntry entry)
     {

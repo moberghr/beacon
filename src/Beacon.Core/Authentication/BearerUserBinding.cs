@@ -172,7 +172,7 @@ internal static class BearerUserBinding
             .Where(x => x.User.IdentityProvider != null)
             .Select(x => x.User)
             .FirstOrDefault() ?? matches[0].User;
-        if (TokenIssueTime.IssuedBeforeSignOut(token, user.TokensValidAfter, options.Validation.ClockSkew))
+        if (TokenIssueTime.IssuedBeforeSignOut(token, user.TokensValidAfter))
         {
             return BearerBinding.Refused(BearerRefusal.IssuedBeforeSignOut);
         }

@@ -5,9 +5,10 @@ namespace Beacon.Core.Authentication;
 
 /// <summary>
 /// Whether a bearer token predates the instant its user was last signed out everywhere (<c>Users.TokensValidAfter</c>).
-/// A token is refused when its <c>iat</c> is earlier than that instant by more than the validation clock skew, and, once
-/// the instant is set, when it carries no readable <c>iat</c>. A user never signed out everywhere (no instant) refuses no
-/// token by its issue time.
+/// A token is refused when its <c>iat</c> is earlier than that instant, with no clock-skew allowance (an identity provider
+/// whose clock runs behind Beacon's can have tokens issued just after the sign-out refused for that lag; <c>iat</c> is read
+/// in whole seconds), and, once the instant is set, when it carries no readable <c>iat</c>. A user never signed out
+/// everywhere (no instant) refuses no token by its issue time.
 /// </summary>
 internal static class TokenIssueTime
 {
@@ -17,7 +18,7 @@ internal static class TokenIssueTime
     private const double MinUnixSeconds = -62_135_596_800;
     private const double MaxUnixSeconds = 253_402_300_799;
 
-    public static bool IssuedBeforeSignOut(ClaimsPrincipal token, DateTime? tokensValidAfter, TimeSpan clockSkew)
+    public static bool IssuedBeforeSignOut(ClaimsPrincipal token, DateTime? tokensValidAfter)
     {
         if (tokensValidAfter is not { } validAfter)
         {
@@ -30,9 +31,7 @@ internal static class TokenIssueTime
             return true;
         }
 
-        var cutOff = DateTime.SpecifyKind(validAfter, DateTimeKind.Utc) - clockSkew;
-
-        return issuedAt.Value.UtcDateTime < cutOff;
+        return issuedAt.Value.UtcDateTime < DateTime.SpecifyKind(validAfter, DateTimeKind.Utc);
     }
 
     // The single iat claim as a NumericDate (seconds since the epoch, fractions allowed); null when absent, repeated or

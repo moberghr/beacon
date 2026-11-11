@@ -95,7 +95,7 @@ Every action belongs to one category, the part of its name before the dot.
 | `auth.sso_signed_in` | A single sign-on was admitted. |
 | `auth.sso_refused` | A single sign-on was refused, with the reason; the subject only as its keyed hash. |
 | `auth.setup_token_refused` | First-run setup was attempted with a setup token that does not match. |
-| `auth.user_locked_out` | An internal user's password sign-in was locked after too many wrong passwords in a row (`Beacon:RateLimits:Lockout`); names the user, with the number of attempts, the lockout length in minutes and when it ends. |
+| `auth.user_locked_out` | An internal user's password sign-in was locked after too many wrong passwords in a row (`Beacon:RateLimits:Lockout`); names the user, with the number of attempts, the lockout length in minutes and when it ends. With `Beacon:RateLimits:BreakGlassThrottle` on, also a break-glass account's delay (`breakGlassDelay`, `delaySeconds`), recorded in place of that wrong password's `auth.password_sign_in_failed`. |
 
 **Identity** (`identity`)
 
@@ -235,7 +235,12 @@ audit table: `audit.mcp_audit_verified` and `audit.mcp_audit_sealing_started` ([
   and no session, and every such refusal is logged at Error (`Beacon.Audit` 9115, `SecurityAuditRequiredEventNotWritten`,
   with the action) next to the 9107 copy of the event. A failed or refused sign-in, and any other refusal, is refused
   either way, so its event still falls back to the log stream as above. Turn it on when no one may hold a session the
-  trail does not show; while the audit table cannot be written, nobody can sign in, so alert on 9115.
+  trail does not show; while the audit table cannot be written, nobody can sign in, so alert on 9115. A **break-glass**
+  sign-in (local login off) is the exception: it is the way in when the rest is down, the audit database included, so it
+  is admitted without its event, and each such admission is logged at Error (`Beacon.Audit` 9116,
+  `SecurityAuditExemptEventNotWritten`, with the action) next to the 9107 copy; alert on 9116 too. When the refused
+  sign-in had just set a new password the user was required to choose, the password stays changed and the answer says
+  to sign in with the new password instead of the generic failure.
 - **Reads of audit data fail closed.** A read of the trail, of the MCP audit export or of a user's owned resources, and a
   verification, is recorded before anything is returned, and fails when its event cannot be written: audit data is never
   handed out without a record of who read it. An identical read (the same filters and page) by the same actor within 60
@@ -492,6 +497,7 @@ to keep a copy Beacon's database cannot change.
 | 9113 | `AuditTableVerificationFailed` | Error | The scheduled verification found execution log or settings history rows that fail verification (or a checkpoint of theirs that does). | `Store`, the counts by verdict, the first failing row ids |
 | 9114 | `AuditTableCheckpoint` | Information | Each run of the verification, once per sealed table. | `Store`, `FromRowId`, `MaxRowId`, `Checked`, `Failed`, `Unsealed`, `LastHmac`, `KeyId`, `SealedFromRowId`, `NeverCommitted`, `WaitingForRowId` |
 | 9115 | `SecurityAuditRequiredEventNotWritten` | Error | While `Beacon:Audit:Required` is on, a successful sign-in was refused because its event could not be written. | `Action` |
+| 9116 | `SecurityAuditExemptEventNotWritten` | Error | While `Beacon:Audit:Required` is on, a break-glass sign-in was admitted although its event could not be written. | `Action` |
 
 Match a log-stream copy to its row by `EventGuid`. The copy holds the same identifiers, codes and digests as the row,
 nothing more.
@@ -717,7 +723,7 @@ lets a deployment pin the MCP audit's content on. See
 - **Alert on two counters.** `beacon.security_audit.write_failures` (an event written on its own was not stored, and the
   log stream holds it as 9107 with `Persisted=False`; or a purge did not run, 9110) and
   `beacon.security_audit.verification_failures` (stored events failed verification, 9108). Ship the `Beacon.Audit` events
-  9104 to 9115 to your SIEM; the database stays the source of truth, the 9104 copy is best-effort.
+  9104 to 9116 to your SIEM; the database stays the source of truth, the 9104 copy is best-effort.
 - **Reads of audit data fail closed.** `GET /security-audit`, `POST /security-audit/verify`, `GET /mcp/audit` and
   `GET /users/{id}/owned-resources` are recorded in the trail before they return anything and fail when that record
   cannot be written (so they fail while the database cannot take writes). An identical read by the same actor within 60

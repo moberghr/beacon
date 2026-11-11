@@ -1,3 +1,4 @@
+using System.Text.Json;
 using Beacon.Connector.Api;
 using Beacon.Connector.Api.Services;
 using Beacon.Connector.BigQuery;
@@ -5,6 +6,7 @@ using Beacon.Connector.CloudWatch;
 using Beacon.Connector.Databricks;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Models;
 using Beacon.Core.HostData;
 using Beacon.Core.Models.Providers;
 using Beacon.Core.Services;
@@ -43,6 +45,33 @@ public class ConnectorConfigurationFixtureTests
         result.ErrorMessage.Should().StartWith(expectedStart);
         result.ConnectionInfo.Should().BeNullOrEmpty();
         result.TestDurationMs.Should().BeGreaterThanOrEqualTo(0);
+    }
+
+    [Test]
+    public void MalformedConfigurationJson_IsNamedByTheParsersFailure_NeverByItsMessage()
+    {
+        var act = () => ConnectorProviderSupport.ParseConfiguration<Dictionary<string, string>>(
+            "{\"secretAccessKey\": \"wJalr-not-a-real-key\" trailing}",
+            "unreadable",
+            "Invalid configuration JSON: ");
+
+        var thrown = act.Should().Throw<BeaconException>().Which;
+        thrown.Message.Should().StartWith("Invalid configuration JSON: JsonException (error code none");
+        thrown.Message.Should().NotContain("wJalr").And.NotContain("trailing").And.NotContain("LineNumber");
+        thrown.InnerException.Should().BeOfType<JsonException>("the parser's exception stays the inner one");
+    }
+
+    [Test]
+    public void CloudWatchServiceErrors_AreWordedByBeacon_NeverByTheServicesMessage()
+    {
+        var source = File.ReadAllText(Path.Combine(RepositoryRoot(), "src", "Beacon.Connector.CloudWatch", "CloudWatchProvider.cs"));
+        var wrapped = source
+            .Split('\n')
+            .Where(x => x.Contains("new BeaconException(", StringComparison.Ordinal))
+            .ToList();
+
+        wrapped.Should().Contain(x => x.Contains("FailureCodes.Describe(ex)", StringComparison.Ordinal));
+        wrapped.Should().NotContain(x => x.Contains("ex.Message", StringComparison.Ordinal), "an AWS message can quote log group names, ARNs or the query");
     }
 
     [TestCase("BigQuery")]
@@ -119,6 +148,19 @@ public class ConnectorConfigurationFixtureTests
                 new JsonResponseTabularizer(),
                 NullLogger<ApiProvider>.Instance)
         };
+    }
+
+    private static string RepositoryRoot()
+    {
+        var directory = new DirectoryInfo(TestContext.CurrentContext.TestDirectory);
+        while (directory != null && !File.Exists(Path.Combine(directory.FullName, "Beacon.slnx")))
+        {
+            directory = directory.Parent;
+        }
+
+        directory.Should().NotBeNull("the tests run inside the repository");
+
+        return directory!.FullName;
     }
 
     private static DataSource Source(string engine) =>

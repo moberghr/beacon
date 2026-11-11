@@ -102,6 +102,27 @@ public class PasswordPolicyTests
     }
 
     [TestCase(0)]
+    [TestCase(200)]
+    public void CodeConfiguredMinimumLength_WithoutAConfiguredOne_IsLeftAsTheHostSetIt(int codeConfigured)
+    {
+        var options = new UserManagementOptions { MinimumPasswordLength = codeConfigured };
+
+        options.Invoking(x => x.ApplyConfiguredMinimumPasswordLength(null)).Should().NotThrow();
+
+        options.MinimumPasswordLength.Should().Be(codeConfigured);
+    }
+
+    [Test]
+    public void ConfiguredMinimumLength_RaisesACodeConfiguredZero()
+    {
+        var options = new UserManagementOptions { MinimumPasswordLength = 0 };
+
+        options.ApplyConfiguredMinimumPasswordLength(10);
+
+        options.MinimumPasswordLength.Should().Be(10);
+    }
+
+    [TestCase(0)]
     [TestCase(129)]
     public void ConfiguredMinimumLengthOutOfRange_FailsStartup(int configured)
     {

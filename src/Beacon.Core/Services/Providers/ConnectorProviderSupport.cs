@@ -18,7 +18,8 @@ internal static class ConnectorProviderSupport
     /// <summary>
     /// Reads a connector's decrypted configuration JSON. A document that reads as null fails with
     /// <paramref name="unreadableMessage"/>; when <paramref name="invalidJsonPrefix"/> is given, malformed JSON fails with
-    /// that prefix followed by the parser's message, otherwise the parser's exception propagates.
+    /// that prefix followed by the parser's failure type (<see cref="FailureCodes.Describe"/>, never its message, which can
+    /// quote the decrypted configuration), the parser's exception kept as the inner one; otherwise it propagates.
     /// </summary>
     public static TConfig ParseConfiguration<TConfig>(
         string json,
@@ -34,7 +35,7 @@ internal static class ConnectorProviderSupport
         }
         catch (JsonException ex) when (invalidJsonPrefix != null)
         {
-            throw new BeaconException($"{invalidJsonPrefix}{ex.Message}", ex);
+            throw new BeaconException($"{invalidJsonPrefix}{FailureCodes.Describe(ex)}", ex);
         }
     }
 

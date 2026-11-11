@@ -167,7 +167,7 @@ With `Enabled: false` the login page shows no password form, and only the listed
 | Startup: `DefaultRoleName cannot be the Admin role ...` | Pick `Viewer` or `Editor`, or leave it unset. |
 | Startup: local login is off and nobody could sign in | List a break-glass user name, or turn SSO on, or set `LocalLogin:Enabled` back to `true`. |
 | Everyone is sent back with "Your account is not permitted ..." | Tenant, guest, group or role admission failed. The host log has one Warning with the reason, the tenant and a hash of the subject, never the name. |
-| "Single sign-on failed" | The token was not valid for the app (wrong client secret, expired secret, wrong authority). Check the host log for `OIDC remote failure`. |
+| "Single sign-on failed" | The token was not valid for the app (wrong client secret, expired secret, wrong authority). Check the host log for `OIDC remote failure`: it names the failure's type and the identity provider's protocol error code (`access_denied`, `invalid_grant`, `correlation_failed`, …), never its description. |
 | Signed in but "Your account has no access yet." | The new user has no role. An Admin assigns one on **Users**, or set `DefaultRoleName`. |
 | First SSO sign-in is refused before setup | Nobody is provisioned until first-run setup has created the super admin. Complete setup first. |
 | An Entra `Admin` role does nothing in Beacon | By design: roles come from Beacon's store. Assign the Admin role on **Users**. |

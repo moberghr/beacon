@@ -38,7 +38,6 @@ public static class RegulatedProfile
     internal const string CeilingsSection = $"{McpDeploymentOptions.SectionName}:{nameof(McpDeploymentOptions.Ceilings)}";
     internal const string RetentionLockedKey = $"{RetentionOptions.SectionName}:{nameof(RetentionOptions.Locked)}";
     internal const string LockoutKey = $"{RateLimitOptions.SectionName}:{nameof(RateLimitOptions.Lockout)}";
-    internal const string BreakGlassThrottleKey = $"{RateLimitOptions.SectionName}:{nameof(RateLimitOptions.BreakGlassThrottle)}";
     internal const string LocalLoginEnabledKey = $"{LocalLoginOptions.SectionName}:{nameof(LocalLoginOptions.Enabled)}";
     internal const string RequireMfaKey = $"Beacon:Authentication:Oidc:{nameof(OidcAuthenticationOptions.RequireMfa)}";
     internal const string UserManagementEnabledSetting = $"{nameof(BeaconConfiguration.UserManagement)}.{nameof(UserManagementOptions.Enabled)}";
@@ -108,7 +107,6 @@ public static class RegulatedProfile
         RateLimit(nameof(RateLimitOptions.Mcp), x => x.Mcp),
         RateLimit(nameof(RateLimitOptions.Ask), x => x.Ask),
         new(LockoutKey, "must be on (Enabled true, MaxFailedAttempts greater than zero): password guessing is limited only per client address", x => x.RateLimits.Lockout?.IsEnabled == true),
-        new(BreakGlassThrottleKey, "must be on (Enabled true, FailedAttemptsBeforeDelay greater than zero): a break-glass account's password guessing is limited only per client address", x => x.RateLimits.BreakGlassThrottle?.IsEnabled == true),
 
         // Sign-in and access.
         new(LocalLoginEnabledKey, "must be false: every account can sign in with a password (list emergency accounts in BreakGlassUserNames)", x => !x.Beacon.UserManagement.LocalLogin.Enabled),

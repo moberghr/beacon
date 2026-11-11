@@ -61,9 +61,9 @@ internal static class PreviewRunSupport
     public static bool IsAccessRefusal(Exception exception) =>
         exception is BeaconNotFoundException or BeaconForbiddenException;
 
-    // A preview is run by the user who wrote the query, so the failure goes back to them as the result
-    // (the shell renders ErrorMessage) instead of null, which the handlers could only turn into
-    // "preview failed" - hiding the cause in a host log the user usually cannot see.
+    // A preview is run by the user who wrote the query, so the failure goes back to them as the result (the shell renders
+    // ErrorMessage) instead of null: Beacon's own text or the database's error as the query path redacted it. A driver's
+    // or a library's text is replaced by Beacon's generic wording; the handlers log its type and code.
     public static QueryPreviewResult Failed(Exception exception) =>
-        new() { Success = false, ErrorMessage = exception.Message };
+        new() { Success = false, ErrorMessage = QueryService.PreviewFailureText(exception) };
 }

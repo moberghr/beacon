@@ -10,9 +10,11 @@ namespace Beacon.Core.SecurityAudit;
 /// fields as 9104 with <c>Persisted=False</c>, so the stream still holds what the database lost), stored events that fail
 /// verification (9108, Error), the checkpoint each scheduled verification writes (9109), a retention purge that did not
 /// run (9110, Error), MCP audit rows that fail verification (9111, Error), the MCP audit checkpoint (9112), rows of the other sealed audit
-/// tables (the execution log, the settings history) that fail verification (9113, Error) and their checkpoint (9114), and an
+/// tables (the execution log, the settings history) that fail verification (9113, Error) and their checkpoint (9114), an
 /// action refused because its event could not be written while <c>Beacon:Audit:Required</c> is on (9115, Error, after the
-/// 9107 copy of the event). Identifiers, codes, counts and digests only, like the events themselves.
+/// 9107 copy of the event), and an action exempt from that refusal (a break-glass sign-in) admitted without its event while
+/// the option is on (9116, Error, after the 9107 copy). Identifiers, codes, counts and digests only, like the events
+/// themselves.
 /// </summary>
 public static class SecurityAuditLogEvents
 {
@@ -28,6 +30,7 @@ public static class SecurityAuditLogEvents
     public static readonly EventId AuditTableVerificationFailed = new(9113, "AuditTableVerificationFailed");
     public static readonly EventId AuditTableCheckpoint = new(9114, "AuditTableCheckpoint");
     public static readonly EventId RequiredEventNotWritten = new(9115, "SecurityAuditRequiredEventNotWritten");
+    public static readonly EventId ExemptEventNotWritten = new(9116, "SecurityAuditExemptEventNotWritten");
 
     private const string EventTemplate =
         "Security audit event: Action={Action} Outcome={Outcome} EventGuid={EventGuid} AuditId={AuditId} Persisted={Persisted} " +

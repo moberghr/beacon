@@ -24,6 +24,7 @@ using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.SecurityAudit;
+using Beacon.Core.Services;
 using Beacon.Core.Telemetry;
 using Beacon.Tests.Common;
 
@@ -137,6 +138,37 @@ public class SignInEventTests
     }
 
     [Test]
+    public async Task AWrongPasswordThatSetsABreakGlassDelay_IsRecordedAsThatDelay_InTheAttemptsOneEvent()
+    {
+        var audit = new RecordingSecurityAudit();
+        var until = new DateTime(2026, 10, 24, 9, 0, 30, DateTimeKind.Utc);
+        var result = new AuthenticationResult
+        {
+            Success = false,
+            ErrorMessage = "Invalid username or password.",
+            BeaconUserId = 7,
+            BreakGlassDelay = new BreakGlassDelay(7, 5, until, 30)
+        };
+        await using var app = await StartAsync(result, audit);
+
+        var response = await LoginAsync(app);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("Invalid username or password.");
+        var recorded = audit.Single(TypedName, Password);
+        recorded.Should().BeEquivalentTo(
+            new
+            {
+                Action = SecurityAuditActions.UserLockedOut,
+                ResourceType = SecurityAuditResources.User,
+                ResourceId = "7",
+                CallerHash = SecurityAuditTestKit.CallerHasher.Hash(SignInAudit.LoginTenant, TypedName)
+            },
+            x => x.ExcludingMissingMembers());
+        recorded.DetailsJson.Should().Contain("\"breakGlassDelay\":true").And.Contain("\"delaySeconds\":30").And.Contain("\"failedAttempts\":5");
+    }
+
+    [Test]
     public async Task ASignIn_IsRecordedAsItsUsers()
     {
         var audit = new RecordingSecurityAudit();
@@ -222,6 +254,47 @@ public class SignInEventTests
         SessionCookies(response).Should().OnlyContain(x => x == $"{SessionCookieName}=", "the session cookie just issued is removed");
         logs.Entries.Should().ContainSingle(x => x.EventId.Id == SecurityAuditLogEvents.RequiredEventNotWritten.Id)
             .Which.Should().BeEquivalentTo(new { Level = LogLevel.Error, Category = BeaconTelemetry.AuditLogCategory }, x => x.ExcludingMissingMembers());
+    }
+
+    [Test]
+    public async Task WhileTheAuditIsRequired_ABreakGlassSignInWhoseEventCannotBeWritten_IsAdmitted_AndLoggedAtError()
+    {
+        var logs = new LogRecorder();
+        var glassUser = new BeaconUser { Id = 7, ExternalId = "ext-glass", UserName = "emergency.ops", IsInternalUser = true, IsEnabled = true };
+        await using var app = await StartAsync(SignedIn(7, "ext-glass"), BrokenRecorder(logs, required: true), breakGlassUser: glassUser);
+
+        var response = await LoginAsync(app);
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK, "a break-glass account is the way in when the audit database is down too");
+        SessionCookies(response).Should().ContainSingle().Which.Should().NotBe($"{SessionCookieName}=");
+        logs.Entries.Should().NotContain(x => x.EventId.Id == SecurityAuditLogEvents.RequiredEventNotWritten.Id);
+        logs.Entries.Should().ContainSingle(x => x.EventId.Id == SecurityAuditLogEvents.ExemptEventNotWritten.Id)
+            .Which.Should().BeEquivalentTo(new { Level = LogLevel.Error, Category = BeaconTelemetry.AuditLogCategory }, x => x.ExcludingMissingMembers());
+        logs.Entries.Should().NotContain(x => x.Message.Contains("emergency.ops", StringComparison.OrdinalIgnoreCase));
+    }
+
+    [Test]
+    public async Task WhileTheAuditIsRequired_ARequiredPasswordChangeWhoseSignInEventCannotBeWritten_SaysToSignInWithTheNewPassword()
+    {
+        var logs = new LogRecorder();
+        var users = new Mock<IUserManagementService>();
+        users
+            .Setup(x => x.CompleteRequiredPasswordChangeAsync(TypedName, Password, "a-new-passphrase", It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SignedIn(7, "ext-ana"));
+        var mustChange = new AuthenticationResult { Success = false, PasswordChangeRequired = true, BeaconUserId = 7, ErrorMessage = "Choose a new password." };
+        await using var app = await StartAsync(mustChange, BrokenRecorder(logs, required: true), users: users.Object);
+        using var client = app.GetTestClient();
+
+        var response = await client.PostAsJsonWithAntiforgeryAsync(app.Services, "/beacon/api/auth/login", new LoginRequest(TypedName, Password, NewPassword: "a-new-passphrase"));
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        var answer = await response.Content.ReadFromJsonAsync<LoginResponse>();
+        answer!.Success.Should().BeFalse();
+        answer.PasswordChangeRequired.Should().BeFalse();
+        answer.Error.Should().Contain("new password is saved").And.Contain("Sign in with your new password");
+        SessionCookies(response).Should().OnlyContain(x => x == $"{SessionCookieName}=", "the session cookie just issued is removed");
+        users.Verify(x => x.CompleteRequiredPasswordChangeAsync(TypedName, Password, "a-new-passphrase", It.IsAny<CancellationToken>()), Times.Once);
+        logs.Entries.Should().ContainSingle(x => x.EventId.Id == SecurityAuditLogEvents.RequiredEventNotWritten.Id);
     }
 
     [Test]
@@ -383,7 +456,8 @@ public class SignInEventTests
         AuthenticationResult result,
         ISecurityAuditRecorder audit,
         BeaconUser? breakGlassUser = null,
-        IBeaconActorAccessor? actors = null)
+        IBeaconActorAccessor? actors = null,
+        IUserManagementService? users = null)
     {
         var configuration = new BeaconConfiguration();
         var builder = WebApplication.CreateBuilder(new WebApplicationOptions { EnvironmentName = "Testing" });
@@ -403,6 +477,11 @@ public class SignInEventTests
         if (actors != null)
         {
             builder.Services.AddSingleton(actors);
+        }
+
+        if (users != null)
+        {
+            builder.Services.AddSingleton(users);
         }
 
         if (breakGlassUser != null)

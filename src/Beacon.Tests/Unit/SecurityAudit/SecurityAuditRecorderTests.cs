@@ -274,6 +274,37 @@ public class SecurityAuditRecorderTests
         }
     }
 
+    // An action exempt from the refusal (a break-glass sign-in) is never refused for its event; while the audit is required,
+    // its admission without the event is logged at Error next to the event's own copy.
+    [TestCase(false, TestName = "AnExemptEvent_ThatCannotBeWritten_WhileTheAuditIsNotRequired_FailsOpen")]
+    [TestCase(true, TestName = "AnExemptEvent_ThatCannotBeWritten_WhileTheAuditIsRequired_IsAdmitted_AndLoggedAtError")]
+    public async Task AnExemptEvent_ThatCannotBeWritten_NeverRefusesItsAction(bool required)
+    {
+        var logs = new LogRecorder();
+        var factory = new Mock<IDbContextFactory<BeaconContext>>();
+        factory
+            .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("the database is down"));
+
+        var act = () => RecorderOver(factory.Object, logs, required).RecordExemptAsync(
+            new SecurityAuditEntry(SecurityAuditActions.BreakGlassSignedIn).By(SecurityAuditActor.OfUser(7)),
+            CancellationToken.None);
+
+        await act.Should().NotThrowAsync();
+        logs.Entries.Should().ContainSingle(x => x.EventId.Id == SecurityAuditLogEvents.WriteFailed.Id).Which.Level.Should().Be(LogLevel.Error);
+        logs.Entries.Should().NotContain(x => x.EventId.Id == SecurityAuditLogEvents.RequiredEventNotWritten.Id);
+        var admissions = logs.Entries
+            .Where(x => x.EventId.Id == SecurityAuditLogEvents.ExemptEventNotWritten.Id)
+            .ToList();
+        admissions.Should().HaveCount(required ? 1 : 0);
+        foreach (var admission in admissions)
+        {
+            admission.Level.Should().Be(LogLevel.Error);
+            admission.Category.Should().Be(BeaconTelemetry.AuditLogCategory);
+            admission.Message.Should().Contain(SecurityAuditActions.BreakGlassSignedIn).And.NotContain("database is down");
+        }
+    }
+
     [Test]
     public async Task ARequiredEvent_ThatIsWritten_IsWrittenAsAnyOther_WhileTheAuditIsRequired()
     {
