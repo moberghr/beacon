@@ -17,6 +17,9 @@ public class RetentionScheduleCheckTests
 {
     private static readonly DateTime Now = new(2026, 10, 23, 12, 0, 0, DateTimeKind.Utc);
 
+    // The first security audit event of an install older than every job's window.
+    private static readonly DateTime EstablishedInstall = Now.AddDays(-30);
+
     [Test]
     public void ExpectedJobs_IncludeAPurgeOnlyWhileItsRetentionIsSet()
     {
@@ -39,7 +42,7 @@ public class RetentionScheduleCheckTests
             [MaintenanceJobNames.SecurityAuditVerify] = Now.AddHours(-7)
         };
 
-        var findings = RetentionScheduleCheck.Findings(expected, lastRuns, Now);
+        var findings = RetentionScheduleCheck.Findings(expected, lastRuns, EstablishedInstall, Now);
 
         findings
             .Select(x => x.Job)
@@ -58,7 +61,38 @@ public class RetentionScheduleCheckTests
             [MaintenanceJobNames.SecurityAuditVerify] = Now.AddHours(-1)
         };
 
-        RetentionScheduleCheck.Findings(RetentionScheduleCheck.ExpectedJobs(90, 400), lastRuns, Now).Should().BeEmpty();
+        RetentionScheduleCheck.Findings(RetentionScheduleCheck.ExpectedJobs(90, 400), lastRuns, EstablishedInstall, Now).Should().BeEmpty();
+    }
+
+    [Test]
+    public void Findings_NameAJobWithNoRun_OnlyOnceTheFirstSecurityAuditEventIsOlderThanItsWindow()
+    {
+        var expected = RetentionScheduleCheck.ExpectedJobs(90, null);
+        var noRuns = new Dictionary<string, DateTime>();
+
+        RetentionScheduleCheck.Findings(expected, noRuns, null, Now).Should().BeEmpty("an install without an event has had no chance to run a job");
+        RetentionScheduleCheck.Findings(expected, noRuns, Now.AddHours(-5), Now).Should().BeEmpty();
+
+        RetentionScheduleCheck.Findings(expected, noRuns, Now.AddHours(-7), Now)
+            .Select(x => x.Job)
+            .Should().BeEquivalentTo(MaintenanceJobNames.SecurityAuditVerify);
+
+        RetentionScheduleCheck.Findings(expected, noRuns, Now.AddHours(-37), Now)
+            .Select(x => x.Job)
+            .Should().BeEquivalentTo(MaintenanceJobNames.McpAuditRetention, MaintenanceJobNames.SecurityAuditVerify);
+    }
+
+    [Test]
+    public void Findings_NameAJobPastItsWindow_HoweverRecentTheFirstSecurityAuditEvent()
+    {
+        var lastRuns = new Dictionary<string, DateTime>
+        {
+            [MaintenanceJobNames.SecurityAuditVerify] = Now.AddHours(-7)
+        };
+
+        RetentionScheduleCheck.Findings(RetentionScheduleCheck.ExpectedJobs(null, null), lastRuns, Now.AddHours(-1), Now)
+            .Should().ContainSingle()
+            .Which.LastRunTime.Should().Be(Now.AddHours(-7));
     }
 
     [Test]

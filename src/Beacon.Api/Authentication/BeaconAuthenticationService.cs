@@ -116,7 +116,11 @@ public class BeaconAuthenticationService : IBeaconAuthenticationService
             return AuthenticationResult.Failed(InvalidCredentials);
         }
 
-        await SignInAudit.SignedInAsync(httpContext, result, breakGlass: !localLogin.Enabled);
+        // Beacon:Audit:Required: no session without its event (the recorder logged why).
+        if (!await SignInAudit.SignedInAsync(httpContext, result, breakGlass: !localLogin.Enabled))
+        {
+            return AuthenticationResult.Failed(InvalidCredentials);
+        }
 
         return result;
     }

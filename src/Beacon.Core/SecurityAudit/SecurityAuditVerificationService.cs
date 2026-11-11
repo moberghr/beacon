@@ -19,6 +19,15 @@ namespace Beacon.Core.SecurityAudit;
 /// event below a stored one (a transaction that has not committed yet) is waited for, and the events above it are checked
 /// again by the next run, until the nearest intact event above it is <see cref="GapGrace"/> old; then the id is taken as
 /// never committed (an insert that rolled back consumes its identity value), counted in the checkpoint, and passed.
+/// Each run also checks again up to <see cref="SecurityAuditVerificationService.RecheckEventsPerRun"/> events an earlier run
+/// checked, by their HMAC, continuing where the last run's re-check stopped and starting over once it reaches the last
+/// checkpoint, so an event changed after it was checked is found within one full cycle. It counts the events up to its
+/// checkpoint that the retention purge cannot delete before the next run (all of them without a retention; else those dated
+/// no earlier than the purge's cutoff plus <see cref="SecurityAuditVerificationService.CountMargin"/>), and the events above
+/// its checkpoint that it read (those it checked while waiting for a lower id), with the newest id it read; the next run
+/// compares: fewer events up to the checkpoint is an event deleted (<c>events_missing</c>), more is one written below it
+/// (<c>events_added</c>), fewer events above it or the newest one gone is an event deleted from the end of the trail
+/// (<c>tail_events_missing</c>). An id that never held an event is not counted, so it stays informational.
 /// Events that fail are logged at Error (<see cref="SecurityAuditLogEvents.VerificationFailed"/>, 9108) and counted; every
 /// run writes a checkpoint to the log stream (<see cref="SecurityAuditLogEvents.Checkpoint"/>, 9109: how many it checked,
 /// the checkpoint id and that event's HMAC, the ids passed as never committed), which anchors the trail outside the
@@ -37,7 +46,7 @@ public interface ISecurityAuditVerificationService
 /// <summary>
 /// What one scheduled verification covered: events after <see cref="FromEventId"/>, every id up to
 /// <see cref="MaxEventId"/> checked or passed as never committed (its HMAC <see cref="LastHmac"/>), how many it checked and
-/// how many failed.
+/// how many failed, the events it checked again, and how the stored events compare with what the last run counted.
 /// </summary>
 public sealed record SecurityAuditCheckpoint(
     int FromEventId,
@@ -63,6 +72,73 @@ public sealed record SecurityAuditCheckpoint(
     /// events above it were checked and are checked again by the next run. Null when nothing is waited for.
     /// </summary>
     public int? WaitingForEventId { get; init; }
+
+    /// <summary>How many events an earlier run checked this run checked again, by their HMAC; their failures are counted above.</summary>
+    public int RecheckedCount { get; init; }
+
+    /// <summary>Where the next run's re-check continues; 0 when this run's re-check reached the last checkpoint.</summary>
+    public int RecheckedThroughEventId { get; init; }
+
+    /// <summary>Events up to the last checkpoint that it counted and that are no longer stored.</summary>
+    public int MissingEventCount { get; init; }
+
+    /// <summary>Events up to the last checkpoint that it did not count and that are stored now.</summary>
+    public int AddedEventCount { get; init; }
+
+    /// <summary>Events above the last checkpoint that it read and counted and that are no longer stored.</summary>
+    public int MissingTailEventCount { get; init; }
+
+    /// <summary>The earliest time an event is counted from (the purge cannot reach it before the next run); null without a retention.</summary>
+    public DateTime? RetainedFrom { get; init; }
+
+    /// <summary>The events up to <see cref="MaxEventId"/> dated no earlier than <see cref="RetainedFrom"/>; null while there is no checkpoint.</summary>
+    public int? RetainedEventCount { get; init; }
+
+    /// <summary>The highest event id this run read; above <see cref="MaxEventId"/> while a lower id is waited for.</summary>
+    public int NewestEventId { get; init; }
+
+    /// <summary>The events above <see cref="MaxEventId"/> up to <see cref="NewestEventId"/> dated no earlier than <see cref="RetainedFrom"/>.</summary>
+    public int RetainedTailCount { get; init; }
+
+    /// <summary>Every failure this run found.</summary>
+    public int FailedCount => ModifiedCount + UnknownKeyCount + OutOfRangeCount + MissingEventCount + AddedEventCount + MissingTailEventCount;
+
+    /// <summary>Why this run failed, as codes (<see cref="SecurityAuditVerificationReasons"/>); empty when it did not.</summary>
+    public IReadOnlyList<string> FailureReasons =>
+        new (int Count, string Reason)[]
+            {
+                (ModifiedCount, SecurityAuditVerificationReasons.Modified),
+                (UnknownKeyCount, SecurityAuditVerificationReasons.UnknownKey),
+                (OutOfRangeCount, SecurityAuditVerificationReasons.OutOfRange),
+                (MissingEventCount, SecurityAuditVerificationReasons.EventsMissing),
+                (AddedEventCount, SecurityAuditVerificationReasons.EventsAdded),
+                (MissingTailEventCount, SecurityAuditVerificationReasons.TailEventsMissing)
+            }
+            .Where(x => x.Count > 0)
+            .Select(x => x.Reason)
+            .ToList();
+}
+
+/// <summary>Why a scheduled security audit verification failed, as its event's <c>failureReasons</c> records it.</summary>
+public static class SecurityAuditVerificationReasons
+{
+    /// <summary>An event's fields do not match its HMAC (found when first checked, or checked again).</summary>
+    public const string Modified = SecurityAuditVerdicts.Modified;
+
+    /// <summary>An event names a key this deployment does not hold.</summary>
+    public const string UnknownKey = SecurityAuditVerdicts.UnknownKey;
+
+    /// <summary>An event that verifies is dated where no genuine event can be.</summary>
+    public const string OutOfRange = SecurityAuditVerdicts.OutOfRange;
+
+    /// <summary>Fewer events up to the last checkpoint than it counted: an event that was stored is gone.</summary>
+    public const string EventsMissing = "events_missing";
+
+    /// <summary>More events up to the last checkpoint than it counted: an event was written below it.</summary>
+    public const string EventsAdded = "events_added";
+
+    /// <summary>Fewer events above the last checkpoint than it read and counted, or the newest one it read is gone.</summary>
+    public const string TailEventsMissing = "tail_events_missing";
 }
 
 internal sealed class SecurityAuditVerificationService(
@@ -90,8 +166,23 @@ internal sealed class SecurityAuditVerificationService(
     /// </summary>
     internal static readonly TimeSpan GapGrace = TimeSpan.FromHours(1);
 
+    /// <summary>The most events one run checks again; a full cycle takes as many runs as it needs.</summary>
+    internal const int RecheckEventsPerRun = 10_000;
+
+    /// <summary>
+    /// How far past the purge's cutoff an event must be dated to be counted: the next run compares the count only while the
+    /// purge cannot have reached a counted event (a daily purge that runs late, plus a margin).
+    /// </summary>
+    internal static readonly TimeSpan CountMargin = TimeSpan.FromDays(2);
+
     /// <summary>The detail a scheduled verification records its checkpoint id under.</summary>
     internal const string MaxEventIdDetail = "maxEventId";
+
+    internal const string RecheckedThroughEventIdDetail = "recheckedThroughEventId";
+    internal const string RetainedFromDetail = "retainedFrom";
+    internal const string RetainedEventCountDetail = "retainedEventCount";
+    internal const string NewestEventIdDetail = "newestEventId";
+    internal const string RetainedTailCountDetail = "retainedTailCount";
 
     private const int RecentCheckpointsRead = 20;
 
@@ -123,10 +214,12 @@ internal sealed class SecurityAuditVerificationService(
     private async Task<SecurityAuditCheckpoint> VerifyAsync(CancellationToken cancellationToken)
     {
         var now = timeProvider.GetUtcNow();
-        var range = SecurityAuditVerification.PlausibleRange(now, options.Value.RetentionDays);
+        var retentionDays = options.Value.RetentionDays;
+        var range = SecurityAuditVerification.PlausibleRange(now, retentionDays);
 
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
-        var fromEventId = await HighWaterMarkAsync(context, cancellationToken);
+        var last = await LastCheckpointAsync(context, cancellationToken);
+        var fromEventId = last.MaxEventId;
         var lastId = fromEventId;
         var seen = new List<SeenEvent>();
         var failed = new List<int>();
@@ -162,24 +255,95 @@ internal sealed class SecurityAuditVerificationService(
 
         var advanced = Advance(fromEventId, seen, now.UtcDateTime - GapGrace);
         var outOfRangeCount = counts.GetValueOrDefault(SecurityAuditVerdicts.OutOfRange);
+        var checkedCount = seen.Count - outOfRangeCount;
+
+        // Events earlier runs checked, again, by their HMAC only (their time was judged when first checked): an event
+        // changed after it was checked is found within one full cycle.
+        var rechecked = 0;
+        var recheckedThrough = last.RecheckedThrough < last.MaxEventId ? last.RecheckedThrough : 0;
+        while (last.MaxEventId > 0 && rechecked < RecheckEventsPerRun)
+        {
+            var batch = await context.SecurityAuditEvents
+                .AsNoTracking()
+                .Where(x => x.Id > recheckedThrough)
+                .Where(x => x.Id <= last.MaxEventId)
+                .OrderBy(x => x.Id)
+                .Take(Math.Min(BatchSize, RecheckEventsPerRun - rechecked))
+                .ToListAsync(cancellationToken);
+            if (batch.Count == 0)
+            {
+                break;
+            }
+
+            foreach (var auditEvent in batch)
+            {
+                var verdict = SealVerdictOf(auditEvent);
+                if (verdict != SecurityAuditVerdicts.Intact)
+                {
+                    counts[verdict] = counts.GetValueOrDefault(verdict) + 1;
+                    failed.Add(auditEvent.Id);
+                }
+            }
+
+            rechecked += batch.Count;
+            recheckedThrough = batch[^1].Id;
+        }
+
+        var compared = await CompareCountsAsync(context, last, now.UtcDateTime, retentionDays, cancellationToken);
+        var retainedFrom = retentionDays == null ? (DateTime?)null : McpAuditVerificationService.WholeSeconds(now.UtcDateTime.AddDays(-retentionDays.Value) + CountMargin);
+        var newestEventId = seen.Count > 0 ? seen[^1].Id : advanced.MaxEventId;
+        int? retainedEventCount = advanced.MaxEventId == 0
+            ? null
+            : await Counted(context.SecurityAuditEvents, 0, advanced.MaxEventId, retainedFrom).CountAsync(cancellationToken);
+        var retainedTailCount = newestEventId > advanced.MaxEventId
+            ? await Counted(context.SecurityAuditEvents, advanced.MaxEventId, newestEventId, retainedFrom).CountAsync(cancellationToken)
+            : 0;
 
         return new SecurityAuditCheckpoint(
             fromEventId,
             advanced.MaxEventId,
             advanced.LastHmac,
-            seen.Count - outOfRangeCount,
+            checkedCount,
             counts.GetValueOrDefault(SecurityAuditVerdicts.Modified),
             counts.GetValueOrDefault(SecurityAuditVerdicts.UnknownKey),
             outOfRangeCount,
             failed
+                .Distinct()
                 .Take(MaxReportedEvents)
                 .ToList())
         {
             NeverCommittedCount = advanced.NeverCommittedCount,
             FirstNeverCommittedId = advanced.FirstNeverCommittedId,
             LastNeverCommittedId = advanced.LastNeverCommittedId,
-            WaitingForEventId = advanced.WaitingForEventId
+            WaitingForEventId = advanced.WaitingForEventId,
+            RecheckedCount = rechecked,
+            RecheckedThroughEventId = rechecked < RecheckEventsPerRun ? 0 : recheckedThrough,
+            MissingEventCount = compared.Missing,
+            AddedEventCount = compared.Added,
+            MissingTailEventCount = compared.MissingTail,
+            RetainedFrom = retainedFrom,
+            RetainedEventCount = retainedEventCount,
+            NewestEventId = newestEventId,
+            RetainedTailCount = retainedTailCount
         };
+    }
+
+    /// <summary>
+    /// The events with an id above <paramref name="afterId"/> up to <paramref name="throughId"/> that a count covers: those
+    /// dated no earlier than <paramref name="retainedFrom"/>, all of them without one. Shared with the translation tests on
+    /// both providers (§4.3-§4.5).
+    /// </summary>
+    internal static IQueryable<SecurityAuditEvent> Counted(IQueryable<SecurityAuditEvent> source, int afterId, int throughId, DateTime? retainedFrom)
+    {
+        var counted = source
+            .Where(x => x.Id > afterId)
+            .Where(x => x.Id <= throughId);
+        if (retainedFrom is { } from)
+        {
+            counted = counted.Where(x => x.CreatedTime >= from);
+        }
+
+        return counted;
     }
 
     // The highest id below which every id was checked by this run (or an earlier one), or passed as never committed. An id
@@ -222,9 +386,52 @@ internal sealed class SecurityAuditVerificationService(
         return new Advanced(maxEventId, lastHmac, neverCommitted, firstNeverCommitted, lastNeverCommitted, null);
     }
 
-    // The checkpoint id the latest intact scheduled verification recorded; 0 when there is none. A checkpoint event that
-    // does not verify is itself reported and passed over: a forged one cannot make a run skip events.
-    private async Task<int> HighWaterMarkAsync(BeaconContext context, CancellationToken cancellationToken)
+    // The events up to the last checkpoint that it counted, against those stored now, and the events above it that it read
+    // and counted, against those still there. Compared only while the purge cannot have reached a counted event since: no
+    // retention now, or a run within the margin of the last one. An id that never held an event was never counted.
+    private async Task<CountComparison> CompareCountsAsync(
+        BeaconContext context,
+        LastCheckpoint last,
+        DateTime now,
+        int? retentionDays,
+        CancellationToken cancellationToken)
+    {
+        if (last.RetainedEventCount is not { } counted || last.MaxEventId == 0)
+        {
+            return new CountComparison(0, 0, 0);
+        }
+
+        var comparable = retentionDays == null
+            || (last.RetainedFrom is { } retainedFrom && now.AddDays(-retentionDays.Value) + SecurityAuditVerification.ClockSkew <= retainedFrom);
+        if (!comparable)
+        {
+            _auditLogger.LogWarning(
+                SecurityAuditLogEvents.Checkpoint,
+                "Security audit events up to event {MaxEventId} were not counted against the last checkpoint: it is older than the margin, or the retention was set since",
+                last.MaxEventId);
+
+            return new CountComparison(0, 0, 0);
+        }
+
+        var present = await Counted(context.SecurityAuditEvents, 0, last.MaxEventId, last.RetainedFrom).CountAsync(cancellationToken);
+        var missingTail = 0;
+        if (last.NewestEventId > last.MaxEventId && last.RetainedTailCount is { } tailCounted)
+        {
+            // An id the last run waited for may have committed since: more events here is no failure, fewer is.
+            var presentTail = await Counted(context.SecurityAuditEvents, last.MaxEventId, last.NewestEventId, last.RetainedFrom).CountAsync(cancellationToken);
+            var newestStored = await context.SecurityAuditEvents
+                .Where(x => x.Id == last.NewestEventId)
+                .AnyAsync(cancellationToken);
+            missingTail = Math.Max(Math.Max(0, tailCounted - presentTail), newestStored ? 0 : 1);
+        }
+
+        return new CountComparison(Math.Max(0, counted - present), Math.Max(0, present - counted), missingTail);
+    }
+
+    // The checkpoint the latest intact scheduled verification recorded: the id it reached, where its re-check stopped, and
+    // what it counted; none when there is no such event. A checkpoint event that does not verify is itself reported and
+    // passed over: a forged one cannot make a run skip events.
+    private async Task<LastCheckpoint> LastCheckpointAsync(BeaconContext context, CancellationToken cancellationToken)
     {
         var recent = await context.SecurityAuditEvents
             .AsNoTracking()
@@ -247,40 +454,53 @@ internal sealed class SecurityAuditVerificationService(
                 continue;
             }
 
-            if (MaxEventIdOf(auditEvent.DetailsJson) is { } maxEventId)
+            var details = string.IsNullOrEmpty(auditEvent.DetailsJson) ? null : JsonNode.Parse(auditEvent.DetailsJson);
+            if (McpAuditVerificationService.IntOf(details, MaxEventIdDetail) is not { } maxEventId)
             {
-                return maxEventId;
+                continue;
             }
+
+            return new LastCheckpoint(
+                maxEventId,
+                McpAuditVerificationService.IntOf(details, RecheckedThroughEventIdDetail) ?? 0,
+                McpAuditVerificationService.IntOf(details, RetainedEventCountDetail),
+                McpAuditVerificationService.TimeOf(details, RetainedFromDetail),
+                McpAuditVerificationService.IntOf(details, NewestEventIdDetail) ?? maxEventId,
+                McpAuditVerificationService.IntOf(details, RetainedTailCountDetail));
         }
 
-        return 0;
+        return new LastCheckpoint(0, 0, null, null, 0, null);
     }
 
-    private static int? MaxEventIdOf(string? detailsJson)
+    // The verdict on an event by its HMAC alone.
+    private string SealVerdictOf(SecurityAuditEvent auditEvent)
     {
-        if (string.IsNullOrEmpty(detailsJson))
+        return integrity.Verify(auditEvent) switch
         {
-            return null;
-        }
-
-        return JsonNode.Parse(detailsJson)?[MaxEventIdDetail] is JsonValue value && value.TryGetValue<int>(out var maxEventId)
-            ? maxEventId
-            : null;
+            SecurityAuditVerdict.Intact => SecurityAuditVerdicts.Intact,
+            SecurityAuditVerdict.UnknownKey => SecurityAuditVerdicts.UnknownKey,
+            _ => SecurityAuditVerdicts.Modified
+        };
     }
 
     private async Task ReportAsync(SecurityAuditCheckpoint checkpoint, CancellationToken cancellationToken)
     {
-        var failedCount = checkpoint.ModifiedCount + checkpoint.UnknownKeyCount + checkpoint.OutOfRangeCount;
+        var failedCount = checkpoint.FailedCount;
         if (failedCount > 0)
         {
             _auditLogger.LogError(
                 SecurityAuditLogEvents.VerificationFailed,
-                "Security audit verification found {FailedCount} events that fail (modified {ModifiedCount}, unknown key {UnknownKeyCount}, out of range {OutOfRangeCount}) after event {FromEventId}; first ids {FailedEventIds}",
+                "Security audit verification found {FailedCount} failures ({FailureReasons}: modified {ModifiedCount}, unknown key {UnknownKeyCount}, out of range {OutOfRangeCount}, events missing {MissingEventCount}, events added {AddedEventCount}, newest events missing {MissingTailEventCount}) after event {FromEventId} and in {RecheckedCount} events checked again; first ids {FailedEventIds}",
                 failedCount,
+                string.Join(",", checkpoint.FailureReasons),
                 checkpoint.ModifiedCount,
                 checkpoint.UnknownKeyCount,
                 checkpoint.OutOfRangeCount,
+                checkpoint.MissingEventCount,
+                checkpoint.AddedEventCount,
+                checkpoint.MissingTailEventCount,
                 checkpoint.FromEventId,
+                checkpoint.RecheckedCount,
                 string.Join(",", checkpoint.FailedEventIds));
             BeaconTelemetry.SecurityAuditVerificationFailures.Add(
                 failedCount,
@@ -290,19 +510,25 @@ internal sealed class SecurityAuditVerificationService(
         _auditLogger.Log(
             LogLevel.Information,
             SecurityAuditLogEvents.Checkpoint,
-            "Security audit checkpoint: FromEventId={FromEventId} MaxEventId={MaxEventId} Checked={Checked} Failed={Failed} LastHmac={LastHmac} KeyId={KeyId} NeverCommitted={NeverCommittedCount} FirstNeverCommittedId={FirstNeverCommittedId} LastNeverCommittedId={LastNeverCommittedId} WaitingForEventId={WaitingForEventId}",
+            "Security audit checkpoint: FromEventId={FromEventId} MaxEventId={MaxEventId} Checked={Checked} Rechecked={Rechecked} RecheckedThroughEventId={RecheckedThroughEventId} Failed={Failed} LastHmac={LastHmac} KeyId={KeyId} NeverCommitted={NeverCommittedCount} FirstNeverCommittedId={FirstNeverCommittedId} LastNeverCommittedId={LastNeverCommittedId} WaitingForEventId={WaitingForEventId} RetainedEventCount={RetainedEventCount} NewestEventId={NewestEventId} RetainedTailCount={RetainedTailCount}",
             checkpoint.FromEventId,
             checkpoint.MaxEventId,
             checkpoint.CheckedCount,
+            checkpoint.RecheckedCount,
+            checkpoint.RecheckedThroughEventId,
             failedCount,
             checkpoint.LastHmac,
             integrity.CurrentKeyId,
             checkpoint.NeverCommittedCount,
             checkpoint.FirstNeverCommittedId,
             checkpoint.LastNeverCommittedId,
-            checkpoint.WaitingForEventId);
+            checkpoint.WaitingForEventId,
+            checkpoint.RetainedEventCount,
+            checkpoint.NewestEventId,
+            checkpoint.RetainedTailCount);
 
-        if (checkpoint.CheckedCount + checkpoint.OutOfRangeCount == 0)
+        // A run that read no new event and found nothing records nothing: the next run compares against the same checkpoint.
+        if (checkpoint.CheckedCount + checkpoint.OutOfRangeCount + failedCount == 0)
         {
             return;
         }
@@ -324,7 +550,17 @@ internal sealed class SecurityAuditVerificationService(
                     .Add("neverCommittedCount", checkpoint.NeverCommittedCount)
                     .Add("firstNeverCommittedId", checkpoint.FirstNeverCommittedId)
                     .Add("lastNeverCommittedId", checkpoint.LastNeverCommittedId)
-                    .Add("waitingForEventId", checkpoint.WaitingForEventId)),
+                    .Add("waitingForEventId", checkpoint.WaitingForEventId)
+                    .Add("recheckedCount", checkpoint.RecheckedCount)
+                    .Add(RecheckedThroughEventIdDetail, checkpoint.RecheckedThroughEventId)
+                    .Add("missingEventCount", checkpoint.MissingEventCount)
+                    .Add("addedEventCount", checkpoint.AddedEventCount)
+                    .Add("missingTailEventCount", checkpoint.MissingTailEventCount)
+                    .Add(RetainedFromDetail, checkpoint.RetainedFrom)
+                    .Add(RetainedEventCountDetail, checkpoint.RetainedEventCount)
+                    .Add(NewestEventIdDetail, checkpoint.NewestEventId)
+                    .Add(RetainedTailCountDetail, checkpoint.RetainedTailCount)
+                    .AddCodes("failureReasons", checkpoint.FailureReasons)),
             cancellationToken);
     }
 
@@ -338,4 +574,14 @@ internal sealed class SecurityAuditVerificationService(
         int? FirstNeverCommittedId,
         int? LastNeverCommittedId,
         int? WaitingForEventId);
+
+    private sealed record LastCheckpoint(
+        int MaxEventId,
+        int RecheckedThrough,
+        int? RetainedEventCount,
+        DateTime? RetainedFrom,
+        int NewestEventId,
+        int? RetainedTailCount);
+
+    private sealed record CountComparison(int Missing, int Added, int MissingTail);
 }

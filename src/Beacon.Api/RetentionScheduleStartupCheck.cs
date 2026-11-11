@@ -6,8 +6,9 @@ namespace Beacon.Api;
 /// <summary>
 /// At startup, warns about each retention or verification job that should be running (a purge with a retention set, the
 /// security audit verification) and has no recorded run within its window: Beacon schedules none of them itself, so a host
-/// that never scheduled them, or whose scheduler stopped, would otherwise see nothing. A first start has no record yet, and
-/// the warning says so. The look-up is bounded and best effort (the schema may not exist yet, §host migrations): a failure
+/// that never scheduled them, or whose scheduler stopped, would otherwise see nothing. A new install is not warned about a
+/// job before its first security audit event is older than the job's window (<see cref="IRetentionScheduleCheck"/>). The
+/// last verification's outcome is the <c>audit.verified</c> event on the Security Audit page. The look-up is bounded and best effort (the schema may not exist yet, §host migrations): a failure
 /// is logged at Information and never stops the host. Job names and times only (§1.11).
 /// </summary>
 internal sealed class RetentionScheduleStartupCheck(
@@ -43,7 +44,7 @@ internal sealed class RetentionScheduleStartupCheck(
                 if (finding.LastRunTime == null)
                 {
                     logger.LogWarning(
-                        "Maintenance job {Job} has no recorded run (expected at least every {ExpectedHours} hours). Beacon does not schedule it: the host must (the sample host does with a Warp recurring job). Ignore this on a first start.",
+                        "Maintenance job {Job} has no recorded run (expected at least every {ExpectedHours} hours). Beacon does not schedule it: the host must (the sample host does with a Warp recurring job).",
                         finding.Job,
                         (int)finding.ExpectedWithin.TotalHours);
                 }

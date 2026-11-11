@@ -684,7 +684,8 @@ Beacon records sign-ins and changes to identities, keys, access, data sources, d
     "Audit": {
       "IntegrityKey": "<from a secret store>",
       "PreviousIntegrityKeys": [],
-      "RetentionDays": null
+      "RetentionDays": null,
+      "Required": false
     }
   }
 }
@@ -695,6 +696,7 @@ Beacon records sign-ins and changes to identities, keys, access, data sources, d
 | `Beacon:Audit:IntegrityKey` | string | derived | The secret events are signed with: at least 32 characters, supplied like the encryption key (a secret store, or `Beacon__Audit__IntegrityKey`), never committed. Unset, Beacon derives a key for this purpose from `Beacon:Mcp:CallerHashKey`, else from `Beacon:EncryptionKey`. Set it before you change the encryption key |
 | `Beacon:Audit:PreviousIntegrityKeys` | string[] | empty | Integrity keys used earlier, as a list (`Beacon__Audit__PreviousIntegrityKeys__0`, ...): accepted when verifying events, never used to sign. Move the old key here when you set a new one |
 | `Beacon:Audit:RetentionDays` | int | none (keep forever) | Days events are kept: between `365` and `36500`. The purge must be scheduled; the sample host runs it daily as the Warp job `security-audit-retention` (see [Retention](/security/audit-trail/#retention)) |
+| `Beacon:Audit:Required` | bool | `false` | When `true`, a successful sign-in (password or single sign-on) whose security audit event cannot be written is refused with the generic sign-in failure and no session, and logged at Error (`Beacon.Audit` 9115). Failed sign-ins and other refusals are unchanged (their event falls back to the log stream, 9107). While the audit table cannot be written nobody can sign in, so alert on 9115. See [How events are written](/security/audit-trail/#how-events-are-written) |
 
 An integrity key shorter than 32 characters or containing `${`, or a retention outside the range, stops the host at startup with a message that never contains a key. At startup the host logs the id of the key events are sealed under and where it comes from (never the key), with a Warning while `IntegrityKey` is unset.
 
@@ -1135,7 +1137,7 @@ Not configurable, on every deployment:
 }
 ```
 
-Beacon logs identifiers and counts, never query text, connection strings, row data or tokens. Security log events are structured log events 7101 to 7123; route them to your log pipeline, together with the `Beacon.Audit` category, which carries the MCP audit events and a copy of every committed [security audit](/security/audit-trail/#shipping-to-a-siem) event (9104 to 9114).
+Beacon logs identifiers and counts, never query text, connection strings, row data or tokens. Security log events are structured log events 7101 to 7123; route them to your log pipeline, together with the `Beacon.Audit` category, which carries the MCP audit events and a copy of every committed [security audit](/security/audit-trail/#shipping-to-a-siem) event (9104 to 9115).
 
 ## Complete example
 

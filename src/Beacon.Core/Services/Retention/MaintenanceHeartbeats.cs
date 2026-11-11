@@ -59,7 +59,9 @@ public sealed record RetentionScheduleFinding(string Job, DateTime? LastRunTime,
 /// <summary>
 /// Finds the retention and verification jobs that are configured to matter but have not run within their window: the
 /// purges the host sets a retention for, and the security audit verification. Beacon schedules none of them itself (the
-/// sample host does, with Warp), so a host that never did would otherwise see nothing.
+/// sample host does, with Warp), so a host that never did would otherwise see nothing. A job with no recorded run is named
+/// only once the deployment's first security audit event is older than the job's window: a new install, which has no
+/// event yet or only recent ones, has had no chance to run it.
 /// </summary>
 public interface IRetentionScheduleCheck
 {
@@ -93,10 +95,18 @@ internal sealed class RetentionScheduleCheck(
                     x.LastRunTime
                 })
             .ToListAsync(cancellationToken);
+        var firstEventTime = lastRuns.Count < names.Count
+            ? await context.SecurityAuditEvents
+                .AsNoTracking()
+                .OrderBy(x => x.Id)
+                .Select(x => (DateTime?)x.CreatedTime)
+                .FirstOrDefaultAsync(cancellationToken)
+            : null;
 
         return Findings(
             expected,
             lastRuns.ToDictionary(x => x.Name, x => x.LastRunTime, StringComparer.Ordinal),
+            firstEventTime,
             timeProvider.GetUtcNow().UtcDateTime);
     }
 
@@ -119,19 +129,32 @@ internal sealed class RetentionScheduleCheck(
         return expected;
     }
 
-    /// <summary>Each expected job with no recorded run, or none within its window.</summary>
+    /// <summary>
+    /// Each expected job whose last run is older than its window, and each with no recorded run once the first security
+    /// audit event (<paramref name="firstEventTime"/>, null while there is none) is older than the window.
+    /// </summary>
     internal static List<RetentionScheduleFinding> Findings(
         IEnumerable<(string Job, TimeSpan Window)> expected,
         IReadOnlyDictionary<string, DateTime> lastRuns,
+        DateTime? firstEventTime,
         DateTime now)
     {
         var findings = new List<RetentionScheduleFinding>();
         foreach (var (job, window) in expected)
         {
-            DateTime? lastRun = lastRuns.TryGetValue(job, out var found) ? found : null;
-            if (lastRun == null || now - lastRun.Value > window)
+            if (lastRuns.TryGetValue(job, out var lastRun))
             {
-                findings.Add(new RetentionScheduleFinding(job, lastRun, window));
+                if (now - lastRun > window)
+                {
+                    findings.Add(new RetentionScheduleFinding(job, lastRun, window));
+                }
+
+                continue;
+            }
+
+            if (firstEventTime != null && now - firstEventTime.Value > window)
+            {
+                findings.Add(new RetentionScheduleFinding(job, null, window));
             }
         }
 

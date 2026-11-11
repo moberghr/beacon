@@ -109,7 +109,13 @@ internal static class OidcEventHandlers
         // A session cookie unless the host keeps SSO sessions across browser restarts (Session:PersistSsoCookie).
         context.Properties!.IsPersistent = services.GetService<IOptions<SessionLifetimeOptions>>()?.Value.PersistSsoCookie == true;
         AddIdpPermissions(context, roleMapping, idpPermissions, services.GetService<TimeProvider>() ?? TimeProvider.System);
-        await SignInAudit.SsoSignedInAsync(context.HttpContext, user.Id);
+        // Beacon:Audit:Required: no session without its event (the recorder logged why).
+        if (!await SignInAudit.SsoSignedInAsync(context.HttpContext, user.Id))
+        {
+            context.Fail(new OidcNotAdmittedException());
+            return;
+        }
+
         if (idpPermissions.Count > 0)
         {
             logger.LogInformation(
