@@ -184,7 +184,11 @@ public static partial class LoginEndpoints
                 return Results.Json(new LoginResponse { Success = false, Error = InvalidCredentials }, statusCode: StatusCodes.Status401Unauthorized);
             }
 
-            await SignInAudit.SignedInAsync(context, result, breakGlass: !localLogin.Enabled);
+            // Beacon:Audit:Required: no session without its event (the recorder logged why).
+            if (!await SignInAudit.SignedInAsync(context, result, breakGlass: !localLogin.Enabled))
+            {
+                return Results.Json(new LoginResponse { Success = false, Error = InvalidCredentials }, statusCode: StatusCodes.Status401Unauthorized);
+            }
 
             // Antiforgery tokens are bound to claims; the cookie issued
             // pre-login was minted for the anonymous user and won't validate

@@ -90,7 +90,7 @@ The gate is the primary control and database-level read-only is defence in depth
 
 ## 7. Masking and what leaves Beacon
 
-- **PII masking** (on by default, pinned by `Beacon:Mcp:ForcePiiDetection`) masks columns detected as PII (and their aliases, renames and wildcard expansions) in results that reach MCP clients, recipients and attachments. When Beacon cannot prove where a PII column went, it masks every column (fail closed). Host DbContext sources mask by output position.
+- **PII masking** (on by default, pinned by `Beacon:Mcp:ForcePiiDetection`) masks columns detected as PII (and their aliases, renames and wildcard expansions) in results that reach MCP clients, recipients and attachments, and in query and step previews run by someone who may not write in the query's project (a Viewer, for example): they see the rows as a subscription would deliver them, and the preview says they are masked. Someone who may write there sees the rows as read. When Beacon cannot prove where a PII column went, it masks every column (fail closed). Host DbContext sources mask by output position.
 - **Database errors are redacted:** errors that can carry values (constraint violations, conversion failures) are reduced to their class; others keep their message with quoted values replaced.
 - **LLM providers receive schema, not rows**, unless a project turns on sample-value collection, value grounding or the eval judge (all off by default; `Beacon:Mcp:ForbidRowDataToLlm` pins them off). Every request that carries row-derived data is logged as event 7123 with the categories sent, never the values.
 - **Content retention:** a project (or the deployment, with `ForceNoContentRetention`) can keep MCP audit rows structural only (tool, tables, counts, timings, error class, keyed hashes), with no question, SQL or error text stored. A deployment that must keep that evidence pins retention on instead with `Beacon:Mcp:Audit:RequireContent`.
@@ -167,7 +167,7 @@ Beacon's guarantees assume the host does its share:
 - HSTS and `AllowedHosts` set by the host, and Beacon's origin check switched to `Enforce` once its warnings are gone;
 - the middleware order from [Host wiring](/integrate/host-setup/#the-middleware-pipeline);
 - every job scope marked as system work;
-- security log events and the `Beacon.Audit` category (including the security audit trail's copies and verification checkpoints, 9104 to 9114) shipped to a monitored log store;
+- security log events and the `Beacon.Audit` category (including the security audit trail's copies and verification checkpoints, 9104 to 9115) shipped to a monitored log store;
 - `Beacon:Audit:IntegrityKey` set from a secret store, and the security audit verification and retention jobs scheduled (the sample host schedules both).
 
 The [production checklist](/integrate/production/) collects all of these.

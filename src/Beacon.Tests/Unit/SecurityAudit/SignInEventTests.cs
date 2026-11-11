@@ -12,6 +12,7 @@ using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
 using Beacon.Api.Authentication;
@@ -19,6 +20,7 @@ using Beacon.Api.Endpoints;
 using Beacon.Core;
 using Beacon.Core.Authentication;
 using Beacon.Core.Authorization;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.SecurityAudit;
@@ -31,8 +33,8 @@ namespace Beacon.Tests.Unit.SecurityAudit;
 /// The password sign-in and sign-out events, over the real login endpoints: a failed attempt names the user the name
 /// resolved to (only when it did) and never the name typed or the password; a refusal because local login is off is told
 /// apart; a sign-in names its user; a break-glass sign-in while local login is off is its own action; a sign-out names the
-/// session's user. Writing an event never fails the sign-in it records, and nothing is written for an attempt the endpoint
-/// turns away before checking a password.
+/// session's user. Writing an event never fails the sign-in it records unless <c>Beacon:Audit:Required</c> is on, and then
+/// only a successful one; nothing is written for an attempt the endpoint turns away before checking a password.
 /// </summary>
 [TestFixture]
 public class SignInEventTests
@@ -203,6 +205,58 @@ public class SignInEventTests
         response.StatusCode.Should().Be(HttpStatusCode.OK, "the sign-in goes on: a security audit write fails open");
         logs.Entries.Should().ContainSingle(x => x.EventId.Id == SecurityAuditLogEvents.WriteFailed.Id)
             .Which.Should().BeEquivalentTo(new { Level = LogLevel.Error, Category = BeaconTelemetry.AuditLogCategory }, x => x.ExcludingMissingMembers());
+        logs.Entries.Should().NotContain(x => x.EventId.Id == SecurityAuditLogEvents.RequiredEventNotWritten.Id);
+        SessionCookies(response).Should().ContainSingle().Which.Should().NotBe($"{SessionCookieName}=");
+    }
+
+    [Test]
+    public async Task WhileTheAuditIsRequired_ASignInWhoseEventCannotBeWritten_IsRefused_WithTheGenericAnswer_AndNoSession()
+    {
+        var logs = new LogRecorder();
+        await using var app = await StartAsync(SignedIn(7, "ext-ana"), BrokenRecorder(logs, required: true));
+
+        var response = await LoginAsync(app);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        (await response.Content.ReadAsStringAsync()).Should().Contain("Invalid username or password");
+        SessionCookies(response).Should().OnlyContain(x => x == $"{SessionCookieName}=", "the session cookie just issued is removed");
+        logs.Entries.Should().ContainSingle(x => x.EventId.Id == SecurityAuditLogEvents.RequiredEventNotWritten.Id)
+            .Which.Should().BeEquivalentTo(new { Level = LogLevel.Error, Category = BeaconTelemetry.AuditLogCategory }, x => x.ExcludingMissingMembers());
+    }
+
+    [Test]
+    public async Task WhileTheAuditIsRequired_AFailedSignInWhoseEventCannotBeWritten_StaysAFailure_LoggedAsBefore()
+    {
+        var logs = new LogRecorder();
+        await using var app = await StartAsync(Failed(userId: 7), BrokenRecorder(logs, required: true));
+
+        var response = await LoginAsync(app);
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+        logs.Entries.Should().ContainSingle(x => x.EventId.Id == SecurityAuditLogEvents.WriteFailed.Id).Which.Level.Should().Be(LogLevel.Error);
+        logs.Entries.Should().NotContain(x => x.EventId.Id == SecurityAuditLogEvents.RequiredEventNotWritten.Id, "there is no action left to refuse");
+    }
+
+    [Test]
+    public async Task WhileTheAuditIsRequired_TheAuthenticationService_RefusesASignInWhoseEventCannotBeWritten()
+    {
+        var logs = new LogRecorder();
+        var provider = new Mock<IBeaconAuthenticationProvider>();
+        provider
+            .Setup(x => x.AuthenticateAsync(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(SignedIn(7, "ext-ana"));
+        var authentication = new Mock<IAuthenticationService>();
+        var services = new ServiceCollection();
+        services.AddSingleton<ISecurityAuditRecorder>(BrokenRecorder(logs, required: true));
+        services.AddSingleton(authentication.Object);
+        var httpContext = new DefaultHttpContext { RequestServices = services.BuildServiceProvider() };
+        var service = new BeaconAuthenticationService(provider.Object, new HttpContextAccessor { HttpContext = httpContext }, new BeaconConfiguration());
+
+        var result = await service.SignInAsync(TypedName, Password);
+
+        result.Success.Should().BeFalse();
+        authentication.Verify(x => x.SignOutAsync(httpContext, CookieAuthenticationDefaults.AuthenticationScheme, It.IsAny<AuthenticationProperties?>()), Times.Once, "the session just issued is withdrawn");
+        logs.Entries.Should().ContainSingle(x => x.EventId.Id == SecurityAuditLogEvents.RequiredEventNotWritten.Id);
     }
 
     [Test]
@@ -269,6 +323,36 @@ public class SignInEventTests
         {
             SecurityAuditTestKit.AssertNoPii(auditEvent, TypedName, Password);
         }
+    }
+
+    // A recorder whose database cannot be reached.
+    private static ISecurityAuditRecorder BrokenRecorder(LogRecorder logs, bool required)
+    {
+        var broken = new Mock<IDbContextFactory<BeaconContext>>();
+        broken
+            .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("the audit table is unreachable"));
+
+        return new Core.SecurityAudit.SecurityAuditRecorder(
+            broken.Object,
+            TestProjectAccess.Actors(),
+            SecurityAuditTestKit.Integrity,
+            SecurityAuditTestKit.CallerHasher,
+            TimeProvider.System,
+            LoggerFactory.Create(x => x.AddProvider(logs)),
+            TestRequestPrincipal.OffRequest(),
+            Options.Create(new SecurityAuditOptions { Required = required }));
+    }
+
+    // The session cookies a response sets, name and value only.
+    private static List<string> SessionCookies(HttpResponseMessage response)
+    {
+        return response.Headers.TryGetValues("Set-Cookie", out var cookies)
+            ? cookies
+                .Select(x => x.Split(';')[0])
+                .Where(x => x.StartsWith($"{SessionCookieName}=", StringComparison.Ordinal))
+                .ToList()
+            : [];
     }
 
     private static AuthenticationResult Failed(int? userId)

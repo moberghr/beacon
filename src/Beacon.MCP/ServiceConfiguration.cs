@@ -157,7 +157,8 @@ public static class ServiceConfiguration
                     "Approved saved queries appear as q_<name> tools (or, for many, search_saved_queries to find one and run_saved_query to run it): reviewed, versioned, parameterized read-only SQL — prefer one over hand-written SQL when it answers the question.\n" +
                     "When the host application exposes some of its read-only endpoints, they appear as api_<name> tools (or, for many endpoints, search_api to find one and call_api to run it); they run as your host identity, and the host decides what each may do.\n" +
                     "Auth: API keys need the Execute scope for this endpoint. Keys can be project-restricted — pass project_id on every call when your key has access to more than one project.\n" +
-                    "SQL dialect follows the target data source's engine (PostgreSQL, SQL Server, MySQL, BigQuery, Snowflake, Databricks). Write statements are rejected at multiple layers; don't attempt them.";
+                    "SQL dialect follows the target data source's engine (PostgreSQL, SQL Server, MySQL, BigQuery, Snowflake, Databricks). Write statements are rejected at multiple layers; don't attempt them.\n" +
+                    McpDataNoticeCallToolFilter.InstructionsSentence;
             })
             .WithHttpTransport(options =>
             {
@@ -204,11 +205,13 @@ public static class ServiceConfiguration
             // is refused here; tools/call by the scope call-tool filter, ahead of every tool so a refused call reaches
             // none. The project-context filters run outermost: they only read the caller's project access, which the
             // tools, the tool lists and the audit of a refused call need. A call whose project access could not be
-            // determined is answered (and audited) innermost, after the scope check, before any tool.
+            // determined is answered (and audited) innermost, after the scope check, before any tool. The data notice is
+            // outermost: it marks the successful result that leaves Beacon as data.
             .WithMessageFilters(x => x.AddIncomingFilter(McpScopeMessageFilter.Create()))
             .WithRequestFilters(x => x
                 .AddListToolsFilter(McpProjectContextFilter.CreateListToolsFilter())
                 .AddListToolsFilter(McpToolDescriptionOverrides.CreateListToolsFilter())
+                .AddCallToolFilter(McpDataNoticeCallToolFilter.Create())
                 .AddCallToolFilter(McpProjectContextFilter.CreateCallToolFilter())
                 .AddCallToolFilter(McpScopeCallToolFilter.Create())
                 .AddCallToolFilter(McpAuditCallToolFilter.Create())

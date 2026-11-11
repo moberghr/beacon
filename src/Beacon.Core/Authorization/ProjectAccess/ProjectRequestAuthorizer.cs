@@ -68,6 +68,45 @@ internal sealed class ProjectRequestAuthorizer(
     }
 
     /// <summary>
+    /// Whether the caller may take <paramref name="check"/>'s action on its resource, decided as
+    /// <see cref="DemandAsync(ProjectCheck, CancellationToken)"/> decides it but without refusing: false for a missing or
+    /// unreadable resource and where the action is not allowed, and nothing is logged as a refusal. For a choice that
+    /// shapes what an allowed request returns, never for whether it runs. A check a functional permission grants or that
+    /// needs every linking project is not decided here.
+    /// </summary>
+    public async Task<bool> AllowsAsync(ProjectCheck check, CancellationToken cancellationToken)
+    {
+        if (check.GrantedBy != null || check.InEveryLinkingProject)
+        {
+            throw new ArgumentException("Only a plain project check is decided without refusing.", nameof(check));
+        }
+
+        var scope = await evaluator.GetScopeAsync(cancellationToken);
+        if (scope.IsUnrestricted || IsDecidedWithoutLookup(scope, check))
+        {
+            return true;
+        }
+
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+        var resolved = await resolver.ResolveAsync(context, check.Resource, cancellationToken);
+        var holders = new Dictionary<IReadOnlyList<int>, IReadOnlyList<int>>(ReferenceEqualityComparer.Instance);
+        if (resolved.IsMissing || !await AllowsAsync(context, resolved, scope.For(ProjectAction.Read), holders, cancellationToken))
+        {
+            return false;
+        }
+
+        if (check.Action == ProjectAction.Read)
+        {
+            return true;
+        }
+
+        var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
+        var asRecordedOwner = resolved.OwnerUserId != null && actor.Is(resolved.OwnerUserId);
+
+        return await AllowsAsync(context, resolved, scope.For(check.Action, asRecordedOwner), holders, cancellationToken);
+    }
+
+    /// <summary>
     /// Refuses (409, <see cref="BeaconConflictException"/> with <paramref name="refusal"/>) making
     /// <paramref name="ownerUserId"/> (a <c>Users.ExternalId</c>) the owner of scheduled work unless that user, as they
     /// are now and not the caller, may read the check's resource and take its action: the work runs as its owner and

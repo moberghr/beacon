@@ -356,20 +356,26 @@ public class LlmProviderFactoryRegistrationTests
     [TestCase("Beacon.AI.OpenAI")]
     [TestCase("Beacon.AI.AzureOpenAI")]
     [TestCase("Beacon.AI.Claude")]
-    public void AddBeaconAI_RegistersANamedClientPerBuiltIn_WithAFiveMinuteTimeout_ThatFollowsNoRedirect(string name)
+    public void AddBeaconAI_RegistersANamedClientPerBuiltIn_WithAFiveMinuteTimeout_ThatFollowsNoRedirect_AndLogsNoRequest(string name)
     {
         var services = Services();
         services.AddBeaconAI(new ConfigurationBuilder().Build());
         using var provider = services.BuildServiceProvider();
 
         provider.GetRequiredService<IHttpClientFactory>().CreateClient(name).Timeout.Should().Be(TimeSpan.FromMinutes(5));
+        var chain = new List<HttpMessageHandler>();
         var handler = provider.GetRequiredService<IHttpMessageHandlerFactory>().CreateHandler(name);
+        chain.Add(handler);
         while (handler is DelegatingHandler { InnerHandler: { } inner })
         {
             handler = inner;
+            chain.Add(handler);
         }
 
         handler.Should().BeOfType<SocketsHttpHandler>().Which.AllowAutoRedirect.Should().BeFalse();
+        chain.Should().NotContain(
+            x => x is Microsoft.Extensions.Http.Logging.LoggingHttpMessageHandler || x is Microsoft.Extensions.Http.Logging.LoggingScopeHttpMessageHandler,
+            "a request URI can name an Azure resource, region and deployment");
     }
 
     [Test]

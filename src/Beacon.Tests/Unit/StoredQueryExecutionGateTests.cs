@@ -432,6 +432,72 @@ public class StoredQueryExecutionGateTests
         page.ErrorMessage.Should().Contain("more than 5 rows");
     }
 
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task StepPreview_MaskedForAReadOnlyCaller_RawForOneWhoMayWrite(bool maskPii)
+    {
+        Connect(new RecordingDbConnection
+        {
+            Columns = [("id", x => x + 1), ("email", x => $"customer{x}@bank.example")],
+            RowCount = 2
+        });
+        var service = (IStoredQueryPreview)BuildService("SELECT id, email FROM customers");
+        var snapshot = await service.LoadSnapshot(QueryId, CancellationToken.None);
+
+        var page = await service.PreviewSnapshotStep(snapshot, 1, null, new Paging { Page = 0, PageSize = 20 }, maskPii, CancellationToken.None);
+
+        page.Success.Should().BeTrue(page.ErrorMessage);
+        page.PiiMasked.Should().Be(maskPii);
+        page.Result!.Rows.Select(x => x["id"]).Should().Equal(1, 2);
+        var emails = page.Result.Rows.Select(x => x["email"]!.ToString()!).ToList();
+        if (maskPii)
+        {
+            emails.Should().OnlyContain(x => x.Contains("***") && !x.Contains("@bank.example"));
+        }
+        else
+        {
+            emails.Should().Equal("customer0@bank.example", "customer1@bank.example");
+        }
+    }
+
+    [Test]
+    public async Task QueryPreview_MaskedForAReadOnlyCaller_MasksTheStepRowsAndTheJoinPage_AndIgnoresASortOnAMaskedColumn()
+    {
+        Connect(new RecordingDbConnection
+        {
+            Columns = [("id", x => x + 1), ("email", x => $"customer{x}@bank.example")],
+            RowCount = 2
+        });
+        var service = (IStoredQueryPreview)BuildService("SELECT id, email FROM customers", finalQuery: "SELECT id, email AS contact FROM @result1");
+        var snapshot = await service.LoadSnapshot(QueryId, CancellationToken.None);
+
+        var preview = await service.PreviewSnapshot(snapshot, new Paging { Page = 0, PageSize = 20, Sort = "-contact" }, true, CancellationToken.None);
+
+        preview.Success.Should().BeTrue(preview.ErrorMessage);
+        preview.PiiMasked.Should().BeTrue();
+        preview.Steps.Single().PreviewRows.Should().OnlyContain(x => !x["email"]!.ToString()!.Contains("@bank.example"));
+        preview.Result!.Rows.Should().HaveCount(2)
+            .And.OnlyContain(x => x["contact"]!.ToString()!.Contains("***") && !x["contact"]!.ToString()!.Contains("@bank.example"));
+        preview.Result.Sortable.Should().BeFalse("ordering by a masked column would tell the order of the values it hides");
+    }
+
+    [Test]
+    public async Task StepPreview_MaskedForAReadOnlyCaller_WithPiiDetectionOff_FollowsTheSettingsAsADeliveryDoes()
+    {
+        Connect(new RecordingDbConnection
+        {
+            Columns = [("id", x => x + 1), ("email", x => $"customer{x}@bank.example")],
+            RowCount = 2
+        });
+        var service = (IStoredQueryPreview)BuildService("SELECT id, email FROM customers", piiSettings: new McpSettingsData { EnablePiiDetection = false });
+        var snapshot = await service.LoadSnapshot(QueryId, CancellationToken.None);
+
+        var page = await service.PreviewSnapshotStep(snapshot, 1, null, new Paging { Page = 0, PageSize = 20 }, true, CancellationToken.None);
+
+        page.PiiMasked.Should().BeTrue();
+        page.Result!.Rows.Select(x => x["email"]).Should().Equal("customer0@bank.example", "customer1@bank.example");
+    }
+
     private const int Ceiling = Constants.Query.MaxExecutionRows;
 
     private static QueryData GivenSteps(string sql) => new()
@@ -479,7 +545,8 @@ public class StoredQueryExecutionGateTests
         int? executionRowCeiling = null,
         int? finalQueryTimeoutSeconds = null,
         ISqlExecutionGate? gate = null,
-        List<object>? saved = null)
+        List<object>? saved = null,
+        McpSettingsData? piiSettings = null)
     {
         var dataSource = new DataSource
         {
@@ -528,7 +595,8 @@ public class StoredQueryExecutionGateTests
             factory.Object,
             executionRowCeiling: executionRowCeiling,
             finalQueryTimeoutSeconds: finalQueryTimeoutSeconds,
-            gate: gate);
+            gate: gate,
+            sharedSourceSettings: piiSettings == null ? null : TestQueryServices.DefaultSettings(piiSettings));
     }
 
     // The statement that ran on the in-memory join store: the gate's FinalSql for the join request.

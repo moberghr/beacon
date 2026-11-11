@@ -58,6 +58,11 @@ public class DataSourceConnectionOptionTests
         yield return Database(DatabaseEngineType.PostgreSQL, $"{PostgreSql};Require Auth=GSS", "Require Auth", HostCredentials);
         yield return Database(DatabaseEngineType.PostgreSQL, $"{PostgreSql};Require Auth=ScramSHA256,SSPI", "Require Auth", HostCredentials);
         yield return Database(DatabaseEngineType.PostgreSQL, $"{PostgreSql};Require Auth=!MD5", "Require Auth", HostCredentials);
+        yield return Database(DatabaseEngineType.PostgreSQL, $"Host={Host};Username=reader;SSL Mode=VerifyFull;SSL Certificate=/srv/{Marker}.pem;SSL Key=/srv/{Marker}.key", "SSL Certificate", HostCredentials);
+        yield return Database(DatabaseEngineType.PostgreSQL, $"{PostgreSql};SSL Certificate=/srv/{Marker}.pem", "SSL Certificate", HostCredentials);
+        yield return Database(DatabaseEngineType.PostgreSQL, $"{PostgreSql};SSL Key=/srv/{Marker}.key", "SSL Key", HostCredentials);
+        yield return Database(DatabaseEngineType.PostgreSQL, $"{PostgreSql};SSL Password={Marker}", "SSL Password", HostCredentials);
+        yield return Database(DatabaseEngineType.PostgreSQL, $"{PostgreSql};Root Certificate=/srv/{Marker}.pem", "Root Certificate", HostCredentials);
 
         yield return Database(DatabaseEngineType.MySQL, $"{MySql};AllowLoadLocalInfile=true", "AllowLoadLocalInfile", Unsafe);
         yield return Database(DatabaseEngineType.MySQL, $"{MySql};AllowLoadLocalInfileInPath=/srv/{Marker}", "AllowLoadLocalInfileInPath", Unsafe);
@@ -66,6 +71,11 @@ public class DataSourceConnectionOptionTests
         yield return Database(DatabaseEngineType.MySQL, $"{MySql};DefaultAuthenticationPlugin=authentication_kerberos_client", "DefaultAuthenticationPlugin", HostCredentials);
         yield return Database(DatabaseEngineType.MySQL, $"{MySql};OciConfigFile=/srv/{Marker}", "OciConfigFile", HostCredentials);
         yield return Database(DatabaseEngineType.MySQL, $"{MySql};CertificateStoreLocation=LocalMachine", "CertificateStoreLocation", HostCredentials);
+        yield return Database(DatabaseEngineType.MySQL, $"{MySql};CertificateFile=/srv/{Marker}.pfx", "CertificateFile", HostCredentials);
+        yield return Database(DatabaseEngineType.MySQL, $"{MySql};CertificatePassword={Marker}", "CertificatePassword", HostCredentials);
+        yield return Database(DatabaseEngineType.MySQL, $"{MySql};SslCert=/srv/{Marker}.pem", "SslCert", HostCredentials);
+        yield return Database(DatabaseEngineType.MySQL, $"{MySql};SslKey=/srv/{Marker}.key", "SslKey", HostCredentials);
+        yield return Database(DatabaseEngineType.MySQL, $"{MySql};SslCa=/srv/{Marker}.pem", "CertificateFile", HostCredentials);
         yield return Database(DatabaseEngineType.MySQL, $"{MySql};Protocol=Unix", "ConnectionProtocol", HostCredentials);
         yield return Database(DatabaseEngineType.MySQL, $"Server={Host};Uid=reader;SslMode=VerifyFull", "Password", HostCredentials);
 
@@ -80,6 +90,8 @@ public class DataSourceConnectionOptionTests
         yield return Database(DatabaseEngineType.MSSQL, $"{SqlServer};Column Encryption Setting=Enabled", "Column Encryption Setting", HostCredentials);
         yield return Database(DatabaseEngineType.MSSQL, $"Server=np:\\\\{Host}\\pipe\\sql\\query;User ID=reader;Password={Password}", "Data Source", HostCredentials);
         yield return Database(DatabaseEngineType.MSSQL, $"Server=(localdb)\\{Marker};User ID=reader;Password={Password}", "Data Source", HostCredentials);
+        yield return Database(DatabaseEngineType.MSSQL, $"{SqlServer};Encrypt=Strict;ServerCertificate=/srv/{Marker}.cer", "ServerCertificate", HostCredentials);
+        yield return Database(DatabaseEngineType.AzureSynapse, $"{SqlServer};Encrypt=Strict;ServerCertificate=/srv/{Marker}.cer", "ServerCertificate", HostCredentials);
         yield return Database(DatabaseEngineType.AzureSynapse, $"Server={Host};Authentication=Active Directory Managed Identity", "Authentication", HostCredentials);
         yield return Database(DatabaseEngineType.AzureSynapse, $"{SqlServer};AttachDBFilename=/srv/{Marker}.mdf", "AttachDBFilename", Unsafe);
 
@@ -115,13 +127,14 @@ public class DataSourceConnectionOptionTests
     public static IEnumerable<TestCaseData> Accepted()
     {
         yield return Database(DatabaseEngineType.PostgreSQL, PostgreSql);
-        yield return Database(DatabaseEngineType.PostgreSQL, $"Host={Host},{OtherHost}:5433;Username=reader;SSL Mode=VerifyFull;SSL Certificate=/etc/beacon/client.pem;SSL Key=/etc/beacon/client.key");
+        yield return Database(DatabaseEngineType.PostgreSQL, $"Host={Host},{OtherHost}:5433;Username=reader;Password={Password};SSL Mode=VerifyFull");
         yield return Database(DatabaseEngineType.PostgreSQL, $"{PostgreSql};Search Path=sales;Include Error Detail=false");
         yield return Database(DatabaseEngineType.PostgreSQL, $"{PostgreSql};Require Auth=ScramSHA256");
         yield return Database(DatabaseEngineType.PostgreSQL, $"{PostgreSql};Require Auth=!GSS,!SSPI");
         yield return Database(DatabaseEngineType.MySQL, MySql);
-        yield return Database(DatabaseEngineType.MySQL, $"{MySql};AllowLoadLocalInfile=false;SslCa=/etc/ssl/beacon-ca.pem;Protocol=Tcp");
+        yield return Database(DatabaseEngineType.MySQL, $"{MySql};AllowLoadLocalInfile=false;Protocol=Tcp");
         yield return Database(DatabaseEngineType.MSSQL, SqlServer);
+        yield return Database(DatabaseEngineType.MSSQL, $"{SqlServer};Encrypt=Strict;HostNameInCertificate=db.example.com");
         yield return Database(DatabaseEngineType.MSSQL, $"Server=tcp:{Host},1433;Authentication=Active Directory Service Principal;User ID=app-id;Password={Password};Failover Partner={OtherHost}");
         yield return Database(DatabaseEngineType.AzureSynapse, $"{SqlServer};Authentication=SqlPassword");
         yield return Database(DatabaseEngineType.Snowflake, Snowflake);
@@ -341,6 +354,33 @@ public class DataSourceConnectionOptionTests
         var warning = log.Entries.Should().ContainSingle(x => x.Level == LogLevel.Warning).Which;
         warning.Message.Should().Contain("Data source 7").And.Contain("Passfile").And.Contain("EnforceOnExisting");
         log.Entries.Should().OnlyContain(x => !x.FullText.Contains(Host) && !x.FullText.Contains(Password) && !x.FullText.Contains(Marker));
+    }
+
+    [TestCase(DatabaseEngineType.PostgreSQL, "Host={0};Username=reader;Password=p;SSL Mode=VerifyFull;Root Certificate=/srv/{1}.pem", "Root Certificate")]
+    [TestCase(DatabaseEngineType.MySQL, "Server={0};Uid=reader;Pwd=p;SslMode=VerifyFull;SslCert=/srv/{1}.pem", "SslCert")]
+    [TestCase(DatabaseEngineType.MSSQL, "Server={0};User ID=reader;Password=p;Encrypt=Strict;ServerCertificate=/srv/{1}.cer", "ServerCertificate")]
+    public void AStoredConnection_NamingACertificateFile_KeepsWorking_WithOneWarning(DatabaseEngineType engine, string template, string option)
+    {
+        var log = new LogRecorder();
+        var policy = TestTransport.Policy(logger: log.For<DataSourceTransportPolicy>());
+        var connection = string.Format(template, Host, Marker);
+
+        policy.EnsureStoredConnectionAllowed(Stored(9, engine), connection);
+        policy.EnsureStoredConnectionAllowed(Stored(9, engine), connection);
+
+        log.Entries.Should().ContainSingle(x => x.Level == LogLevel.Warning).Which.Message.Should().Contain("Data source 9").And.Contain(option);
+        log.Entries.Should().OnlyContain(x => !x.FullText.Contains(Host) && !x.FullText.Contains(Marker));
+    }
+
+    [TestCase("SshHostName={0}")]
+    [TestCase("SshHostName={0};SshUserName=reader;SshKeyFile=/srv/key")]
+    public void AMySqlConnection_WithAnSshTunnel_IsRefused_AsTheDriverCannotReadIt(string sshOptions)
+    {
+        var connection = $"{MySql};{string.Format(sshOptions, OtherHost)}";
+
+        var act = () => TestTransport.Policy(allowHostCredentials: true).EnsureNewConnectionAllowed(DataSourceType.Database, DatabaseEngineType.MySQL, connection);
+
+        act.Should().Throw<DataSourceTransportException>().Which.Message.Should().NotContainAny(Host, OtherHost, Password);
     }
 
     [Test]

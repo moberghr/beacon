@@ -34,6 +34,13 @@ internal static class McpDiscoveryDocuments
     /// <summary>Reported when the assembly carries no usable version.</summary>
     public const string FallbackVersion = "0.0.0";
 
+    /// <summary>
+    /// The version the anonymous server card publishes: the major version of <see cref="ServerVersion"/> only (<c>5</c>),
+    /// so the card names the release line but not the exact build. Authenticated clients get <see cref="ServerVersion"/>
+    /// at <c>initialize</c>.
+    /// </summary>
+    public static readonly string CardVersion = MajorVersionOf(ServerVersion);
+
     // Aliases only — the paths themselves live in Beacon.Core so the auth middlewares in
     // Beacon.Api can allow-list the exact same values without Api referencing MCP (§2.4).
     public const string McpPath = McpDiscoveryPaths.McpPath;
@@ -167,7 +174,8 @@ internal static class McpDiscoveryDocuments
     }
 
     /// <summary>
-    /// Server card per SEP-2127. NOTE: SEP-2127 is a DRAFT proposal — this shape (name, version,
+    /// Server card per SEP-2127; anonymous, so its version is <see cref="CardVersion"/> (major only). NOTE: SEP-2127 is a
+    /// DRAFT proposal — this shape (name, version,
     /// description, transport, endpoint, authentication summary, tools, documentation) is
     /// provisional and may need adjusting when the SEP is accepted.
     /// </summary>
@@ -205,7 +213,7 @@ internal static class McpDiscoveryDocuments
         return new JsonObject
         {
             ["name"] = ServerNameFor(name),
-            ["version"] = ServerVersion,
+            ["version"] = CardVersion,
             ["description"] = string.IsNullOrWhiteSpace(description) ? Description : description.Trim(),
             ["transport"] = "streamable-http",
             ["endpoint"] = $"{publicBaseUrl}{McpPath}",
@@ -233,6 +241,14 @@ internal static class McpDiscoveryDocuments
         }
 
         return assemblyVersion?.ToString(3) ?? FallbackVersion;
+    }
+
+    /// <summary>The major version of <paramref name="version"/> (<c>4.5.1-local.1</c> is <c>4</c>); <c>0</c> when it has none.</summary>
+    internal static string MajorVersionOf(string version)
+    {
+        var major = version.Split('.', '-', '+')[0].Trim();
+
+        return major.Length > 0 && major.All(char.IsAsciiDigit) ? major : "0";
     }
 
     /// <summary>The server's name: <see cref="McpProtectedResourceOptions.ResourceName"/> when set, else <see cref="ServerName"/>.</summary>

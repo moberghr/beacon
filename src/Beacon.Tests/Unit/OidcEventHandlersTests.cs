@@ -113,6 +113,41 @@ public class OidcEventHandlersTests
         audit.Ways.Should().Equal("recorded");
     }
 
+    // Beacon:Audit:Required: an admitted sign-in whose event cannot be written gets no session, and the refusal is logged.
+    [Test]
+    public async Task HandleTokenValidatedAsync_WhileTheAuditIsRequired_ASignInWhoseEventCannotBeWritten_IsNotAdmitted()
+    {
+        var logs = new LogRecorder();
+        var broken = new Mock<Microsoft.EntityFrameworkCore.IDbContextFactory<Beacon.Core.Data.BeaconContext>>();
+        broken
+            .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("the audit table is unreachable"));
+        var recorder = new SecurityAuditRecorder(
+            broken.Object,
+            TestProjectAccess.Actors(),
+            SecurityAuditTestKit.Integrity,
+            SecurityAuditTestKit.CallerHasher,
+            TimeProvider.System,
+            LoggerFactory.Create(x => x.AddProvider(logs)),
+            TestRequestPrincipal.OffRequest(),
+            Options.Create(new SecurityAuditOptions { Required = true }));
+        var context = BuildContext(
+            ProvisioningAs(Viewer("sub-alice-0001")).Object,
+            sub: "sub-alice-0001",
+            iss: "https://login.example.com/",
+            email: "alice@example.com",
+            name: "Alice Example",
+            preferredUsername: "alice.typed",
+            existingRoleFromIdp: null,
+            audit: recorder);
+
+        await OidcEventHandlers.HandleTokenValidatedAsync(context);
+
+        context.Result!.Failure.Should().BeOfType<OidcNotAdmittedException>();
+        logs.Entries.Should().ContainSingle(x => x.EventId.Id == SecurityAuditLogEvents.RequiredEventNotWritten.Id)
+            .Which.Level.Should().Be(LogLevel.Error);
+    }
+
     [Test]
     public async Task HandleTokenValidatedAsync_ARefusedSignIn_IsRecordedByTheSubjectsKeyedHash_WithTheReason()
     {
@@ -912,7 +947,7 @@ public class OidcEventHandlersTests
         LogRecorder? logs = null,
         RoleMappingOptions? roleMapping = null,
         TimeProvider? timeProvider = null,
-        RecordingSecurityAudit? audit = null,
+        ISecurityAuditRecorder? audit = null,
         SessionLifetimeOptions? sessionLifetime = null)
     {
         var oidcOptions = new OidcAuthenticationOptions

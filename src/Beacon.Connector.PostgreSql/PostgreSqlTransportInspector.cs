@@ -29,7 +29,7 @@ public sealed class PostgreSqlTransportInspector : IDataSourceTransportInspector
         var definition = DataSourceConnectionDefinition.FromBuilder(builder, new NpgsqlConnectionStringBuilder(), SecretKeys, Login(builder));
         var verdict = builder.SslMode == SslMode.VerifyFull
             ? DataSourceTransportVerdict.Pass(target)
-            : DataSourceTransportVerdict.Fail("SSL Mode", "Set SSL Mode=VerifyFull (with Root Certificate naming the CA file when the server's CA is not in the system store)", target);
+            : DataSourceTransportVerdict.Fail("SSL Mode", "Set SSL Mode=VerifyFull (add the server's CA to the Beacon host's trust store when it is not there; a CA file named by Root Certificate needs AllowHostCredentials)", target);
 
         return verdict.WithDefinition(definition);
     }

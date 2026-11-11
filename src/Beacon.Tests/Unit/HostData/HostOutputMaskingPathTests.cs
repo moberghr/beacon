@@ -167,7 +167,7 @@ public class HostOutputMaskingPathTests
     {
         var connection = Connect(true, ServerColumns(), columnsFor: x => x.Contains("COUNT(*)") ? [("count", _ => 2L)] : null);
 
-        var result = await PreviewService().PreviewSnapshotStep(Snapshot(null), 1, null, new Paging { Page = 0, PageSize = 20 }, CancellationToken.None);
+        var result = await PreviewService().PreviewSnapshotStep(Snapshot(null), 1, null, new Paging { Page = 0, PageSize = 20 }, false, CancellationToken.None);
 
         result.Success.Should().BeTrue(result.ErrorMessage);
         connection.BatchedCommands.Should().Contain(x => x.Contains("LIMIT 20 OFFSET 0"), "the page rewrite ran");
@@ -184,6 +184,7 @@ public class HostOutputMaskingPathTests
         var result = await PreviewService().PreviewSnapshot(
             Snapshot($"SELECT r.Id, r.{ServerLabel} AS copy FROM @result1 r ORDER BY r.Id"),
             new Paging { Page = 0, PageSize = 20 },
+            false,
             CancellationToken.None);
 
         result.Success.Should().BeTrue(result.ErrorMessage);

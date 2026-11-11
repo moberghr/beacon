@@ -1,3 +1,5 @@
+using Microsoft.AspNetCore.Authentication;
+using Microsoft.AspNetCore.Authentication.Cookies;
 using Beacon.Core.Authentication;
 using Beacon.Core.Authorization;
 using Beacon.Core.SecurityAudit;
@@ -6,7 +8,8 @@ namespace Beacon.Api.Authentication;
 
 /// <summary>
 /// The security audit events of signing in and out, written on their own (a sign-in has no unit of work to join) and never
-/// failing the request they record. The actor is always named here: while a request signs in, its caller is not resolved
+/// failing the request they record, except a successful sign-in while <c>Beacon:Audit:Required</c> is on: when its event
+/// cannot be written, it is refused (<see cref="ISecurityAuditRecorder.RecordRequiredAsync"/>). The actor is always named here: while a request signs in, its caller is not resolved
 /// yet, and resolving it early would fix it for the rest of the request. Users are named by their <c>Users.Id</c>, a
 /// subject without one by a keyed hash; never by the name typed, an e-mail address or an external id. A failed password
 /// sign-in names the attempt by a keyed hash of the name typed (<see cref="LoginTenant"/>), so attempts on one name can be
@@ -74,18 +77,32 @@ internal static class SignInAudit
                 .With(new SecurityAuditDetails().AddCode("reason", "local_login_off")));
     }
 
-    /// <summary>A password sign-in that issued a session; a break-glass account's while local login is off is its own action.</summary>
-    public static Task SignedInAsync(HttpContext context, AuthenticationResult result, bool breakGlass)
+    /// <summary>
+    /// A password sign-in that issued a session; a break-glass account's while local login is off is its own action. False
+    /// when its event could not be written while <c>Beacon:Audit:Required</c> is on: the session just issued is withdrawn
+    /// (its cookie removed) and the caller answers with the generic failure.
+    /// </summary>
+    public static async Task<bool> SignedInAsync(HttpContext context, AuthenticationResult result, bool breakGlass)
     {
         var actor = result.BeaconUserId is { } userId
             ? SecurityAuditActor.OfUser(userId)
             : SessionCaller(context, result.User?.UserId);
+        try
+        {
+            await Recorder(context).RecordRequiredAsync(
+                new SecurityAuditEntry(breakGlass ? SecurityAuditActions.BreakGlassSignedIn : SecurityAuditActions.PasswordSignInSucceeded)
+                    .On(SecurityAuditResources.User, result.BeaconUserId)
+                    .By(actor),
+                context.RequestAborted);
 
-        return RecordAsync(
-            context,
-            new SecurityAuditEntry(breakGlass ? SecurityAuditActions.BreakGlassSignedIn : SecurityAuditActions.PasswordSignInSucceeded)
-                .On(SecurityAuditResources.User, result.BeaconUserId)
-                .By(actor));
+            return true;
+        }
+        catch (SecurityAuditUnavailableException)
+        {
+            await context.SignOutAsync(CookieAuthenticationDefaults.AuthenticationScheme);
+
+            return false;
+        }
     }
 
     /// <summary>
@@ -126,14 +143,27 @@ internal static class SignInAudit
                 .With(new SecurityAuditDetails().AddCode("reason", reason)));
     }
 
-    /// <summary>A single sign-on the identity provider authenticated and Beacon admitted, as user <paramref name="userId"/>.</summary>
-    public static Task SsoSignedInAsync(HttpContext context, int userId)
+    /// <summary>
+    /// A single sign-on the identity provider authenticated and Beacon admitted, as user <paramref name="userId"/>. False when
+    /// its event could not be written while <c>Beacon:Audit:Required</c> is on: the caller refuses the sign-in before any
+    /// session is issued.
+    /// </summary>
+    public static async Task<bool> SsoSignedInAsync(HttpContext context, int userId)
     {
-        return RecordAsync(
-            context,
-            new SecurityAuditEntry(SecurityAuditActions.SsoSignedIn)
-                .On(SecurityAuditResources.User, userId)
-                .By(SecurityAuditActor.OfUser(userId)));
+        try
+        {
+            await Recorder(context).RecordRequiredAsync(
+                new SecurityAuditEntry(SecurityAuditActions.SsoSignedIn)
+                    .On(SecurityAuditResources.User, userId)
+                    .By(SecurityAuditActor.OfUser(userId)),
+                context.RequestAborted);
+
+            return true;
+        }
+        catch (SecurityAuditUnavailableException)
+        {
+            return false;
+        }
     }
 
     /// <summary>A single sign-on Beacon refused; the subject is named by its keyed hash under its tenant (or issuer).</summary>

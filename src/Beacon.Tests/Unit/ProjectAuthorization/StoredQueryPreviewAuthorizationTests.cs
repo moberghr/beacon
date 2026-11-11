@@ -78,8 +78,9 @@ public class StoredQueryPreviewAuthorizationTests
 
         result!.Success.Should().BeFalse("the run stops at the connection lookup");
         result.ErrorMessage.Should().Be(ExecutionReachedException.Text);
+        // The second look at the same sources decides whether the caller may write there (PII masking of the rows).
         world.Resolved.Should().Equal(
-            [$"Query({QueryId})", $"DataSources({OpenSource})"],
+            [$"Query({QueryId})", $"DataSources({OpenSource})", $"DataSources({OpenSource})"],
             "the snapshot checked is the one read before the move");
         asked.Should().Equal([OpenSource], "the step that runs is the snapshot's, not the one saved after the check");
     }
@@ -88,8 +89,8 @@ public class StoredQueryPreviewAuthorizationTests
     private static Task<QueryPreviewResult?> Preview(PreviewServices previews, bool singleStep)
     {
         return singleStep
-            ? ExecuteStepPreviewHandler.RunAsync(previews.Queries, previews.Queries, previews.Authorizer, NullLogger.Instance, QueryId, 1, null, null, new Paging(), CancellationToken.None)
-            : ExecuteQueryPreviewHandler.RunAsync(previews.Queries, previews.Queries, previews.Authorizer, NullLogger.Instance, QueryId, null, new Paging(), CancellationToken.None);
+            ? ExecuteStepPreviewHandler.RunAsync(previews.Queries, previews.Authorizer, NullLogger.Instance, QueryId, 1, null, null, new Paging(), CancellationToken.None)
+            : ExecuteQueryPreviewHandler.RunAsync(previews.Queries, previews.Authorizer, NullLogger.Instance, QueryId, null, new Paging(), CancellationToken.None);
     }
 
     /// <summary>
