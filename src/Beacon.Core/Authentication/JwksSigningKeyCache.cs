@@ -5,10 +5,11 @@ namespace Beacon.Core.Authentication;
 
 /// <summary>
 /// Caches the signing keys of a JWKS endpoint so bearer validation does not fetch the key set on every request.
-/// Keys are refreshed after <see cref="RefreshInterval"/>; a token signed with an unknown key id may force an early
+/// Keys are refreshed after <see cref="RefreshInterval"/> (or the caller's <c>JwtValidationOptions.JwksRefreshInterval</c>); a token signed with an unknown key id may force an early
 /// refresh (key rotation), but at most once per <see cref="MinimumForcedRefreshInterval"/> so a flood of forged tokens
 /// cannot turn Beacon into a JWKS hammer. When a refresh fails and keys are already cached, the cached keys are kept, but
-/// for at most <see cref="MaximumStaleness"/> after the last successful fetch: after that they are dropped and every
+/// for at most <see cref="MaximumStaleness"/> (or the caller's <c>JwtValidationOptions.JwksMaximumStaleness</c>) after the
+/// last successful fetch: after that they are dropped and every
 /// validation fails as keys-unavailable until a fetch succeeds, so a key the identity provider withdrew is not trusted
 /// indefinitely while its JWKS cannot be read. A fetch that fails with no usable keys is not repeated for
 /// <see cref="FailureRetryInterval"/>; the requests in between fail at once instead of queueing behind another fetch.
@@ -37,15 +38,32 @@ internal sealed class JwksSigningKeyCache(TimeProvider timeProvider)
     /// nothing is cached, the cached keys are older than <see cref="MaximumStaleness"/>, or a fetch failed like that less
     /// than <see cref="FailureRetryInterval"/> ago (<see cref="RetryNotDueException"/>, without fetching).
     /// </summary>
-    public async Task<IReadOnlyList<SecurityKey>> GetKeysAsync(
+    public Task<IReadOnlyList<SecurityKey>> GetKeysAsync(
         string endpoint,
         Func<CancellationToken, Task<string>> fetchDocument,
         bool forceRefresh,
         CancellationToken cancellationToken)
     {
+        return GetKeysAsync(endpoint, fetchDocument, forceRefresh, RefreshInterval, MaximumStaleness, cancellationToken);
+    }
+
+    /// <summary>
+    /// As <see cref="GetKeysAsync(string, Func{CancellationToken, Task{string}}, bool, CancellationToken)"/>, with the
+    /// caller's refresh interval and maximum staleness in place of <see cref="RefreshInterval"/> and
+    /// <see cref="MaximumStaleness"/>.
+    /// </summary>
+    public async Task<IReadOnlyList<SecurityKey>> GetKeysAsync(
+        string endpoint,
+        Func<CancellationToken, Task<string>> fetchDocument,
+        bool forceRefresh,
+        TimeSpan refreshInterval,
+        TimeSpan maximumStaleness,
+        CancellationToken cancellationToken)
+    {
+        var times = new CacheTimes(refreshInterval, maximumStaleness);
         var entry = _entries.GetOrAdd(endpoint, _ => new Entry());
         var now = timeProvider.GetUtcNow();
-        if (!NeedsFetch(entry, now, forceRefresh))
+        if (!NeedsFetch(entry, now, forceRefresh, times))
         {
             return entry.Keys!;
         }
@@ -57,7 +75,7 @@ internal sealed class JwksSigningKeyCache(TimeProvider timeProvider)
         {
             // Another caller may have refreshed (or failed to) while this one waited.
             now = timeProvider.GetUtcNow();
-            if (!NeedsFetch(entry, now, forceRefresh))
+            if (!NeedsFetch(entry, now, forceRefresh, times))
             {
                 return entry.Keys!;
             }
@@ -72,10 +90,10 @@ internal sealed class JwksSigningKeyCache(TimeProvider timeProvider)
                 entry.LastSuccessAt = now;
                 entry.FailedAt = null;
             }
-            catch (Exception) when (entry.Keys != null && IsFresh(entry, now) && !cancellationToken.IsCancellationRequested)
+            catch (Exception) when (entry.Keys != null && IsFresh(entry, now, times) && !cancellationToken.IsCancellationRequested)
             {
                 // Keep serving the last good key set; retry after the forced-refresh interval.
-                entry.FetchedAt = now - RefreshInterval + MinimumForcedRefreshInterval;
+                entry.FetchedAt = now - times.Refresh + MinimumForcedRefreshInterval;
             }
             catch (Exception) when (!cancellationToken.IsCancellationRequested)
             {
@@ -93,19 +111,19 @@ internal sealed class JwksSigningKeyCache(TimeProvider timeProvider)
         }
     }
 
-    private static bool NeedsFetch(Entry entry, DateTimeOffset now, bool forceRefresh)
+    private static bool NeedsFetch(Entry entry, DateTimeOffset now, bool forceRefresh, CacheTimes times)
     {
-        if (entry.Keys == null || !IsFresh(entry, now))
+        if (entry.Keys == null || !IsFresh(entry, now, times))
         {
             return true;
         }
 
         var age = now - entry.FetchedAt;
 
-        return age >= RefreshInterval || (forceRefresh && age >= MinimumForcedRefreshInterval);
+        return age >= times.Refresh || (forceRefresh && age >= MinimumForcedRefreshInterval);
     }
 
-    private static bool IsFresh(Entry entry, DateTimeOffset now) => now - entry.LastSuccessAt < MaximumStaleness;
+    private static bool IsFresh(Entry entry, DateTimeOffset now, CacheTimes times) => now - entry.LastSuccessAt < times.MaximumStaleness;
 
     private static void ThrowWhileBackingOff(Entry entry, DateTimeOffset now)
     {
@@ -118,6 +136,8 @@ internal sealed class JwksSigningKeyCache(TimeProvider timeProvider)
     /// <summary>The last fetch left no usable keys and the next one is not due yet; nothing was fetched.</summary>
     internal sealed class RetryNotDueException()
         : Exception("The signing keys could not be fetched; the next attempt is not due yet.");
+
+    private readonly record struct CacheTimes(TimeSpan Refresh, TimeSpan MaximumStaleness);
 
     private sealed class Entry
     {

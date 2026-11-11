@@ -34,5 +34,11 @@ public class BeaconUserData
     /// </summary>
     public int ApiKeyGeneration { get; set; }
 
+    /// <summary>
+    /// When the user was last signed out everywhere (<c>BeaconUser.TokensValidAfter</c>): bearer tokens issued before it
+    /// are refused. Read by the bearer and MCP caller lookups; the other lookups leave it null.
+    /// </summary>
+    public DateTime? TokensValidAfter { get; set; }
+
     public List<BeaconRoleData> Roles { get; set; } = new();
 }

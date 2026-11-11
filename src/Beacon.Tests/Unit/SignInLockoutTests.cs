@@ -24,7 +24,8 @@ namespace Beacon.Tests.Unit;
 /// a success, the lockout itself, a password reset and a lockout duration without wrong passwords start the count again;
 /// the lock is a security audit event. Whether a right password signs in is decided after the password check by the
 /// statement that clears the count, so an attempt racing a concurrent lock is refused. Break-glass accounts are never
-/// locked, and a host can switch the lockout off.
+/// locked: they get a delay that grows up to a longest one and always ends. Every refused attempt runs the same statements,
+/// and a host can switch the lockout and the delay off.
 /// </summary>
 [TestFixture]
 public class SignInLockoutTests
@@ -259,40 +260,157 @@ public class SignInLockoutTests
     }
 
     [Test]
-    public async Task BreakGlassAccount_IsNeverLockedOut()
+    public async Task BreakGlassAccount_IsNeverLockedOut_ButGetsADelayThatGrowsUpToTheLongest()
     {
         var clock = new FakeTimeProvider(new DateTimeOffset(2026, 10, 24, 9, 0, 0, TimeSpan.Zero));
         var user = InternalUser();
         var audit = new RecordingSecurityAudit();
-        var configuration = new BeaconConfiguration();
-        configuration.UserManagement.LocalLogin.Enabled = false;
-        configuration.UserManagement.LocalLogin.BreakGlassUserNames = ["ana"];
-        var service = Service([user], Hasher(), clock, audit, configuration: configuration);
+        var service = Service([user], Hasher(), clock, audit, configuration: BreakGlass());
 
-        for (var attempt = 0; attempt < 12; attempt++)
+        for (var attempt = 0; attempt < 5; attempt++)
         {
             var refused = await service.AuthenticateInternalUserAsync("ana", "wrong");
             refused.ErrorMessage.Should().Be(Generic);
-            refused.LockedOut.Should().BeFalse();
         }
 
-        user.FailedSignInCount.Should().Be(0, "a break-glass account is not counted");
+        user.LockoutEndTime.Should().Be(Now(clock).AddSeconds(30), "the fifth wrong password starts the first delay");
+        user.FailedSignInCount.Should().Be(5, "a delay keeps the count, so the next one is longer");
+        audit.Events.Should().ContainSingle(x => x.Action == SecurityAuditActions.UserLockedOut);
+
+        var delays = new List<int>();
+        for (var cycle = 0; cycle < 6; cycle++)
+        {
+            clock.Advance(user.LockoutEndTime!.Value - Now(clock));
+            await service.AuthenticateInternalUserAsync("ana", "wrong");
+            delays.Add((int)(user.LockoutEndTime!.Value - Now(clock)).TotalSeconds);
+        }
+
+        delays.Should().Equal(60, 120, 240, 300, 300, 300);
+    }
+
+    [Test]
+    public async Task BreakGlassAccount_DuringADelay_IsRefusedTheSameWay_AndItsAttemptsDoNotLengthenIt()
+    {
+        var clock = new FakeTimeProvider(new DateTimeOffset(2026, 10, 24, 9, 0, 0, TimeSpan.Zero));
+        var user = InternalUser();
+        user.FailedSignInCount = 5;
+        user.LastFailedSignInTime = Now(clock);
+        user.LockoutEndTime = Now(clock).AddSeconds(30);
+        var hasher = Hasher();
+        var service = Service([user], hasher, clock, new RecordingSecurityAudit(), configuration: BreakGlass());
+
+        var right = await service.AuthenticateInternalUserAsync("ana", "right");
+        for (var attempt = 0; attempt < 10; attempt++)
+        {
+            await service.AuthenticateInternalUserAsync("ana", "wrong");
+        }
+
+        right.Success.Should().BeFalse();
+        right.ErrorMessage.Should().Be(Generic);
+        right.LockedOut.Should().BeTrue();
+        hasher.Verify(x => x.VerifyPassword("right", "hash-a", "salt"), Times.Once, "the password is still checked");
+        user.LockoutEndTime.Should().Be(Now(clock).AddSeconds(30));
+        user.FailedSignInCount.Should().Be(5);
+    }
+
+    [Test]
+    public async Task BreakGlassAccount_AfterTheDelay_SignsInWithTheRightPassword_AndStartsTheCountAgain()
+    {
+        var clock = new FakeTimeProvider(new DateTimeOffset(2026, 10, 24, 9, 0, 0, TimeSpan.Zero));
+        var user = InternalUser();
+        user.FailedSignInCount = 11;
+        user.LastFailedSignInTime = Now(clock);
+        user.LockoutEndTime = Now(clock).AddSeconds(300);
+        var service = Service([user], Hasher(), clock, new RecordingSecurityAudit(), configuration: BreakGlass());
+
+        clock.Advance(TimeSpan.FromSeconds(300));
+        var result = await service.AuthenticateInternalUserAsync("ana", "right");
+
+        result.Success.Should().BeTrue("a delay always ends, however many wrong passwords came before it");
         user.LockoutEndTime.Should().BeNull();
-        audit.Events.Should().NotContain(x => x.Action == SecurityAuditActions.UserLockedOut);
+        user.FailedSignInCount.Should().Be(0);
+    }
+
+    [Test]
+    public async Task BreakGlassAccount_WrongPasswordsAnHourApart_StartTheCountAgain()
+    {
+        var clock = new FakeTimeProvider(new DateTimeOffset(2026, 10, 24, 9, 0, 0, TimeSpan.Zero));
+        var user = InternalUser();
+        user.FailedSignInCount = 4;
+        user.LastFailedSignInTime = Now(clock);
+        var service = Service([user], Hasher(), clock, new RecordingSecurityAudit(), configuration: BreakGlass());
+
+        clock.Advance(TimeSpan.FromMinutes(60));
+        await service.AuthenticateInternalUserAsync("ana", "wrong");
+
+        user.FailedSignInCount.Should().Be(1);
+        user.LockoutEndTime.Should().BeNull();
+    }
+
+    [Test]
+    public async Task BreakGlassThrottleSwitchedOff_NeverDelays()
+    {
+        var clock = new FakeTimeProvider(new DateTimeOffset(2026, 10, 24, 9, 0, 0, TimeSpan.Zero));
+        var user = InternalUser();
+        var options = new RateLimitOptions { BreakGlassThrottle = new BreakGlassThrottleOptions { Enabled = false } };
+        var service = Service([user], Hasher(), clock, new RecordingSecurityAudit(), options, BreakGlass());
+
+        for (var attempt = 0; attempt < 12; attempt++)
+        {
+            (await service.AuthenticateInternalUserAsync("ana", "wrong")).LockedOut.Should().BeFalse();
+        }
+
+        user.FailedSignInCount.Should().Be(0);
+        user.LockoutEndTime.Should().BeNull();
         (await service.AuthenticateInternalUserAsync("ana", "right")).Success.Should().BeTrue();
     }
 
     [Test]
-    public async Task BreakGlassAccount_WithAStoredLockout_StillSignsIn()
+    public async Task EveryRefusedAttempt_RunsTheSameStatements()
     {
         var clock = new FakeTimeProvider(new DateTimeOffset(2026, 10, 24, 9, 0, 0, TimeSpan.Zero));
-        var user = InternalUser();
-        user.LockoutEndTime = clock.GetUtcNow().UtcDateTime.AddMinutes(10);
-        var configuration = new BeaconConfiguration();
-        configuration.UserManagement.LocalLogin.BreakGlassUserNames = ["ana"];
-        var service = Service([user], Hasher(), clock, new RecordingSecurityAudit(), configuration: configuration);
+        var scenarios = new (string Name, Action<BeaconUser> Arrange, BeaconConfiguration Configuration, string Typed, string Password)[]
+        {
+            ("unknown name", _ => { }, new BeaconConfiguration(), "nobody", "wrong"),
+            ("wrong password", _ => { }, new BeaconConfiguration(), "ana", "wrong"),
+            ("right password while locked out", x => x.LockoutEndTime = Now(clock).AddMinutes(5), new BeaconConfiguration(), "ana", "right"),
+            ("right password of a disabled user", x => x.IsEnabled = false, new BeaconConfiguration(), "ana", "right"),
+            ("wrong password of a break-glass account", _ => { }, BreakGlass(), "ana", "wrong"),
+            ("right password during a break-glass delay", x => x.LockoutEndTime = Now(clock).AddSeconds(30), BreakGlass(), "ana", "right")
+        };
 
-        (await service.AuthenticateInternalUserAsync("ana", "right")).Success.Should().BeTrue();
+        foreach (var scenario in scenarios)
+        {
+            var user = InternalUser();
+            scenario.Arrange(user);
+            var updates = new List<string>();
+            var service = SnapshotService(user, Hasher(), clock, new RecordingSecurityAudit(), scenario.Configuration, updates);
+
+            (await service.AuthenticateInternalUserAsync(scenario.Typed, scenario.Password)).Success.Should().BeFalse(scenario.Name);
+
+            updates.Should().HaveCount(4, $"a refused attempt ({scenario.Name}) runs the claim and the three counting statements");
+        }
+    }
+
+    [Test]
+    public void BreakGlassThrottleOptions_OutOfRange_AreRefused()
+    {
+        var options = new RateLimitOptions
+        {
+            BreakGlassThrottle = new BreakGlassThrottleOptions
+            {
+                FailedAttemptsBeforeDelay = -1,
+                InitialDelaySeconds = 600,
+                MaxDelaySeconds = 300,
+                ResetAfterMinutes = 2
+            }
+        };
+
+        var result = new RateLimitOptionsValidator().Validate(null, options);
+
+        result.Failed.Should().BeTrue();
+        result.Failures.Should().HaveCount(3);
+        result.Failures.Should().OnlyContain(x => x.Contains("Beacon:RateLimits:BreakGlassThrottle:"));
     }
 
     [Test]
@@ -411,6 +529,16 @@ public class SignInLockoutTests
         new RateLimitOptionsValidator().Validate(null, new RateLimitOptions()).Succeeded.Should().BeTrue();
     }
 
+    private static DateTime Now(TimeProvider clock) => clock.GetUtcNow().UtcDateTime;
+
+    private static BeaconConfiguration BreakGlass()
+    {
+        var configuration = new BeaconConfiguration();
+        configuration.UserManagement.LocalLogin.BreakGlassUserNames = ["ana"];
+
+        return configuration;
+    }
+
     private static Mock<IPasswordHasher> Hasher()
     {
         var hasher = new Mock<IPasswordHasher>();
@@ -465,10 +593,17 @@ public class SignInLockoutTests
 
     // As a database serves concurrent attempts: every load returns a copy of the stored row as it is at that moment, and
     // the bulk updates write onto the stored row, so a copy loaded earlier does not see a later update.
-    private static UserManagementService SnapshotService(BeaconUser stored, Mock<IPasswordHasher> hasher, TimeProvider clock, RecordingSecurityAudit audit)
+    // The bulk updates are listed in updates when it is given.
+    private static UserManagementService SnapshotService(
+        BeaconUser stored,
+        Mock<IPasswordHasher> hasher,
+        TimeProvider clock,
+        RecordingSecurityAudit audit,
+        BeaconConfiguration? configuration = null,
+        List<string>? updates = null)
     {
         var rows = new List<BeaconUser> { stored }.AsQueryable();
-        var provider = new SnapshotReads(new TestAsyncQueryProvider<BeaconUser>(rows.Provider));
+        var provider = new SnapshotReads(new TestAsyncQueryProvider<BeaconUser>(rows.Provider), updates);
         var set = new Mock<DbSet<BeaconUser>>();
         set.As<IQueryable<BeaconUser>>().Setup(x => x.Provider).Returns(provider);
         set.As<IQueryable<BeaconUser>>().Setup(x => x.Expression).Returns(rows.Expression);
@@ -483,13 +618,13 @@ public class SignInLockoutTests
             factory.Object,
             hasher.Object,
             Mock.Of<IRoleService>(),
-            new BeaconConfiguration(),
+            configuration ?? new BeaconConfiguration(),
             clock,
             audit,
             rateLimits: Options.Create(new RateLimitOptions()));
     }
 
-    private sealed class SnapshotReads(IAsyncQueryProvider database) : IAsyncQueryProvider
+    private sealed class SnapshotReads(IAsyncQueryProvider database, List<string>? updates = null) : IAsyncQueryProvider
     {
         public IQueryable CreateQuery(Expression expression) => new SnapshotQuery<BeaconUser>(expression, this);
 
@@ -501,6 +636,11 @@ public class SignInLockoutTests
 
         public TResult ExecuteAsync<TResult>(Expression expression, CancellationToken cancellationToken = default)
         {
+            if (expression is MethodCallExpression { Method.Name: "ExecuteUpdate" })
+            {
+                updates?.Add("update");
+            }
+
             var result = database.ExecuteAsync<TResult>(expression, cancellationToken);
             if (result is Task<BeaconUser> read)
             {

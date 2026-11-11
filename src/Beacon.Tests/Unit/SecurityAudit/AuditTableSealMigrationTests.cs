@@ -21,8 +21,8 @@ namespace Beacon.Tests.Unit.SecurityAudit;
 /// row's guid, seal version, key id and HMAC to the execution log and the settings history, all nullable without a default
 /// (every existing row stays unsealed, and is reported so), and a unique index on each table's guid. It runs no SQL and
 /// backfills nothing. Up is exactly the difference between
-/// the model before it and its target model, and Down is exactly the way back. Its target model is the snapshot, the model
-/// has no pending changes, and it sorts last.
+/// the model before it and its target model, and Down is exactly the way back. Its target model differs from the next
+/// migration's (<c>AddUserTokensValidAfter</c>) only by that migration, which sorts right after it.
 /// </summary>
 [TestFixture]
 public class AuditTableSealMigrationTests
@@ -31,7 +31,7 @@ public class AuditTableSealMigrationTests
 
     [TestCase(false)]
     [TestCase(true)]
-    public void TheMigration_AddsTheSealColumnsAndTheGuidIndexesToBothTables_AndIsTheSnapshot(bool sqlServer)
+    public void TheMigration_AddsTheSealColumnsAndTheGuidIndexesToBothTables(bool sqlServer)
     {
         using var provider = BuildProvider(sqlServer);
         using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
@@ -60,13 +60,17 @@ public class AuditTableSealMigrationTests
             .Should().BeEquivalentTo(Signatures(differ.GetDifferences(before, target)), "Up is exactly the difference from the model before");
         Signatures(migration.DownOperations)
             .Should().BeEquivalentTo(Signatures(differ.GetDifferences(target, before)), "Down removes exactly what Up adds");
-        differ.GetDifferences(target, Initialized(migrations.ModelSnapshot!.Model, initializer).GetRelationalModel())
-            .Should().BeEmpty("the migration's target model is the snapshot");
-        context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
+        var next = MigrationNamed(context, migrations, "_AddUserTokensValidAfter");
+        Signatures(differ.GetDifferences(target, Initialized(next.TargetModel!, initializer).GetRelationalModel()))
+            .Should().BeEquivalentTo(
+                Signatures(next.UpOperations),
+                "this migration's target model differs from the next one's only by the next migration");
         migrations.Migrations.Keys
             .Order(StringComparer.Ordinal)
-            .Last()
-            .Should().EndWith(Suffix, "it sorts after every earlier migration");
+            .SkipWhile(x => !x.EndsWith(Suffix, StringComparison.Ordinal))
+            .Skip(1)
+            .First()
+            .Should().EndWith("_AddUserTokensValidAfter", "the next migration sorts right after it");
     }
 
     // PostgreSQL names tables and columns in snake_case; SQL Server keeps the model's PascalCase.

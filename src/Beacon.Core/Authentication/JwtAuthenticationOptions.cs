@@ -102,6 +102,21 @@ public class JwtAuthenticationOptions
                 $"JWT Validation.ClockSkew must be between zero and {JwtValidationOptions.MaxClockSkew.TotalMinutes:0} minutes.");
         }
 
+        if (Validation.JwksRefreshInterval < JwtValidationOptions.MinJwksRefreshInterval
+            || Validation.JwksRefreshInterval > JwtValidationOptions.MaxJwksRefreshInterval)
+        {
+            throw new InvalidOperationException(
+                $"JWT Validation.JwksRefreshInterval must be between {JwtValidationOptions.MinJwksRefreshInterval.TotalMinutes:0} minutes "
+                + $"and {JwtValidationOptions.MaxJwksRefreshInterval.TotalHours:0} hours.");
+        }
+
+        if (Validation.JwksMaximumStaleness < Validation.JwksRefreshInterval
+            || Validation.JwksMaximumStaleness > JwtValidationOptions.MaxJwksStaleness)
+        {
+            throw new InvalidOperationException(
+                $"JWT Validation.JwksMaximumStaleness must be at least Validation.JwksRefreshInterval and at most {JwtValidationOptions.MaxJwksStaleness.TotalDays:0} days.");
+        }
+
         if (!string.IsNullOrEmpty(Validation.SigningKey)
             && Encoding.UTF8.GetByteCount(Validation.SigningKey) < JwtValidationOptions.MinimumSigningKeyBytes)
         {
@@ -224,10 +239,35 @@ public class JwtValidationOptions
     public static readonly TimeSpan MaxClockSkew = TimeSpan.FromMinutes(5);
 
     /// <summary>
-    /// Allowed clock skew for token expiration validation, at most <see cref="MaxClockSkew"/>.
+    /// Allowed clock skew for token expiration validation, at most <see cref="MaxClockSkew"/>. Also the tolerance on a
+    /// token's <c>iat</c> against the instant its user was last signed out everywhere.
     /// Default: 5 minutes.
     /// </summary>
     public TimeSpan ClockSkew { get; set; } = TimeSpan.FromMinutes(5);
+
+    /// <summary>The shortest <see cref="JwksRefreshInterval"/> accepted.</summary>
+    public static readonly TimeSpan MinJwksRefreshInterval = TimeSpan.FromMinutes(5);
+
+    /// <summary>The longest <see cref="JwksRefreshInterval"/> accepted.</summary>
+    public static readonly TimeSpan MaxJwksRefreshInterval = TimeSpan.FromHours(24);
+
+    /// <summary>The longest <see cref="JwksMaximumStaleness"/> accepted.</summary>
+    public static readonly TimeSpan MaxJwksStaleness = TimeSpan.FromDays(7);
+
+    /// <summary>
+    /// How long fetched JWKS signing keys are used before they are fetched again (a token naming an unknown key fetches
+    /// sooner, at most once per five minutes), between 5 minutes and 24 hours. Shared by every validator of the same JWKS
+    /// endpoint in the process.
+    /// Default: 1 hour.
+    /// </summary>
+    public TimeSpan JwksRefreshInterval { get; set; } = JwksSigningKeyCache.RefreshInterval;
+
+    /// <summary>
+    /// How long, counted from their fetch, keys are still used while the JWKS endpoint cannot be reached; after it, tokens
+    /// are refused until a fetch succeeds. At least <see cref="JwksRefreshInterval"/> and at most 7 days.
+    /// Default: 24 hours.
+    /// </summary>
+    public TimeSpan JwksMaximumStaleness { get; set; } = JwksSigningKeyCache.MaximumStaleness;
 
     /// <summary>
     /// Whether to validate the token lifetime (exp claim). Must stay true whenever tokens are validated:

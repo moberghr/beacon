@@ -4,6 +4,7 @@ using Beacon.Core.Data.Entities;
 using Beacon.Tests.Common;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Time.Testing;
 using Moq;
 using NUnit.Framework;
 
@@ -54,6 +55,19 @@ public class UserSessionStoreTests
         unknown.Should().BeFalse();
         users[0].SecurityStamp.Should().MatchRegex("^[0-9a-f]{32}$");
         users[1].SecurityStamp.Should().Be("s-2");
+    }
+
+    [Test]
+    public async Task RenewStamp_RecordsWhenTheUsersBearerTokensStopBeingAccepted()
+    {
+        var clock = new FakeTimeProvider(new DateTimeOffset(2026, 11, 11, 9, 0, 0, TimeSpan.Zero));
+        var users = new List<BeaconUser> { User(1, "ana", stamp: "s-1"), User(2, "ben", stamp: "s-2") };
+        var store = new UserSessionStore(Factory(users), new RecordingSecurityAudit(), clock);
+
+        await store.RenewStampAsync(1, CancellationToken.None);
+
+        users[0].TokensValidAfter.Should().Be(clock.GetUtcNow().UtcDateTime);
+        users[1].TokensValidAfter.Should().BeNull();
     }
 
     [Test]

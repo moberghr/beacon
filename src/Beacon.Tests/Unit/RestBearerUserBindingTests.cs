@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.IdentityModel.Tokens.Jwt;
 using System.Net;
 using System.Net.Http.Json;
@@ -123,6 +124,66 @@ public class RestBearerUserBindingTests
         var outcome = await RunAsync("/beacon/api/projects", MintToken(UserClaims()), CreateMapper(), users.Object);
 
         AssertRefused(outcome);
+    }
+
+    [Test]
+    public async Task TokenIssuedBeforeTheUserWasSignedOutEverywhere_IsRefused()
+    {
+        var signedOut = DateTime.UtcNow.AddMinutes(-2);
+        var user = External(UserSub, Issuer, "Viewer");
+        user.TokensValidAfter = signedOut;
+        var token = MintToken(UserClaims(), IssuedAt(signedOut.AddMinutes(-10)));
+
+        var outcome = await RunAsync("/beacon/api/projects", token, CreateMapper(), Store(Row(user)).Object);
+
+        AssertRefused(outcome);
+    }
+
+    [Test]
+    public async Task TokenIssuedAfterTheUserWasSignedOutEverywhere_IsAccepted()
+    {
+        var signedOut = DateTime.UtcNow.AddMinutes(-20);
+        var user = External(UserSub, Issuer, "Viewer");
+        user.TokensValidAfter = signedOut;
+        var token = MintToken(UserClaims(), IssuedAt(signedOut.AddMinutes(1)));
+
+        var outcome = await RunAsync("/beacon/api/projects", token, CreateMapper(), Store(Row(user)).Object);
+
+        outcome.NextInvoked.Should().BeTrue();
+        outcome.User!.FindFirst(ClaimTypes.NameIdentifier)!.Value.Should().Be(UserSub);
+    }
+
+    [Test]
+    public async Task TokenWithoutIssueTime_IsRefusedOnlyOnceTheUserWasSignedOutEverywhere()
+    {
+        var neverSignedOut = External(UserSub, Issuer, "Viewer");
+        var signedOut = External(UserSub, Issuer, "Viewer");
+        signedOut.TokensValidAfter = DateTime.UtcNow.AddHours(-1);
+
+        var accepted = await RunAsync("/beacon/api/projects", MintToken(UserClaims()), CreateMapper(), Store(Row(neverSignedOut)).Object);
+        var refused = await RunAsync("/beacon/api/projects", MintToken(UserClaims()), CreateMapper(), Store(Row(signedOut)).Object);
+
+        accepted.NextInvoked.Should().BeTrue("a user never signed out everywhere refuses no token by its issue time");
+        AssertRefused(refused);
+    }
+
+    [Test]
+    public async Task McpToken_IssuedBeforeTheMappedUserWasSignedOutEverywhere_IsRefused()
+    {
+        var signedOut = DateTime.UtcNow.AddMinutes(-2);
+        var mapper = new Mock<IMcpCallerMapper>();
+        mapper
+            .Setup(x => x.MapAsync(It.IsAny<ClaimsPrincipal>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new McpCaller(McpCallerKind.User, "Ana", "hash", 42, [1], McpCallerScope.Execute, [])
+            {
+                TokensValidAfter = signedOut
+            });
+
+        var before = await RunAsync("/beacon/mcp", MintToken(UserClaims(), IssuedAt(signedOut.AddMinutes(-10))), mapper.Object, users: null);
+        var after = await RunAsync("/beacon/mcp", MintToken(UserClaims(), IssuedAt(signedOut.AddMinutes(1))), mapper.Object, users: null);
+
+        AssertRefused(before);
+        after.NextInvoked.Should().BeTrue();
     }
 
     [Test]
@@ -1046,6 +1107,11 @@ public class RestBearerUserBindingTests
             expires: DateTime.UtcNow.AddMinutes(10));
 
         return new JwtSecurityTokenHandler().WriteToken(new JwtSecurityToken(header, payload));
+    }
+
+    private static Claim IssuedAt(DateTime issuedAt)
+    {
+        return new Claim("iat", new DateTimeOffset(issuedAt).ToUnixTimeSeconds().ToString(CultureInfo.InvariantCulture), ClaimValueTypes.Integer64);
     }
 
     private static List<Claim> UserClaims()

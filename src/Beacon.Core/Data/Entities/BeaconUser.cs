@@ -81,6 +81,13 @@ public class BeaconUser : ArchivableBaseEntity
     public string? SecurityStamp { get; set; }
 
     /// <summary>
+    /// Set (UTC) when the user is signed out everywhere: a bearer token for this user issued before it (by its <c>iat</c>
+    /// claim, within the validation clock skew) is refused, and so is one without an <c>iat</c>. Null (the default, and every
+    /// user from before it was recorded) refuses no token by its issue time.
+    /// </summary>
+    public DateTime? TokensValidAfter { get; set; }
+
+    /// <summary>
     /// The user must choose a new password before they can sign in: set when an administrator chooses their password (a
     /// new internal user, a password reset), cleared when the user sets their own. False for every user that existed
     /// before the flag.

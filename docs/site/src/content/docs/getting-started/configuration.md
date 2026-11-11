@@ -132,7 +132,7 @@ Set in the `AddBeaconServices` lambda. None of these are read from configuration
 | `Authentication.RememberMeExpirationDays` | `30` | Requested "remember me" lifetime; capped the same way |
 | `UserManagement.Enabled` (`EnableUserManagement()`) | `false` | Beacon's user store, Users page and first-run setup |
 | `UserManagement.AllowInternalUsers` | `true` | Allow password users |
-| `UserManagement.MinimumPasswordLength` | `8` | Shortest password |
+| `UserManagement.MinimumPasswordLength` | `8` | Shortest password. `Beacon:UserManagement:MinimumPasswordLength` (1–128, unset by default) raises it from configuration; a lower configured value leaves the code value |
 | `UserManagement.RequirePasswordComplexity` | `true` | Upper case, lower case, digit and another character required |
 | `UserManagement.SetupToken` | unset | Also bound from `Beacon:UserManagement:SetupToken` (see [User management](#user-management-and-first-run-setup)) |
 | `UserManagement.LocalLogin` | on | Also bound from `Beacon:UserManagement:LocalLogin` |
@@ -383,7 +383,9 @@ builder.Services.AddBeaconJwtAuthentication(jwt =>
 | `AccessTokenClaim` | None | For a non-Entra issuer without `typ: at+jwt`: a claim only its access tokens carry. A claim ID tokens carry stops startup |
 | `Validation.SigningKey` / `JwksEndpoint` | None | One is required. A signing key is at least 32 bytes (HS256/384/512 only); the JWKS endpoint is an `https` URL (RS, PS and ES 256/384/512 only). `http` to a loopback host is accepted in Development only |
 | `Validation.ValidIssuer(s)`, `ValidAudience(s)` | None | At least one of each is required |
-| `Validation.ClockSkew` | 5 minutes | At most 5 minutes |
+| `Validation.ClockSkew` | 5 minutes | At most 5 minutes. Also the tolerance on a token's `iat` against the user's last sign-out everywhere |
+| `Validation.JwksRefreshInterval` | 1 hour | How long fetched JWKS keys are used before the next fetch; 5 minutes to 24 hours |
+| `Validation.JwksMaximumStaleness` | 24 hours | How long the last good keys are kept while the endpoint fails; at least the refresh interval, at most 7 days |
 | `Validation.ValidateLifetime`, `ValidateIssuer`, `ValidateAudience` | `true` | Must stay `true` |
 | `ClaimsMapping.*` | `sub`, `preferred_username`, `email`, `roles`, `name` | Which claims hold the user id, user name, e-mail, roles and display name |
 
@@ -591,10 +593,15 @@ Bound from `Beacon:RateLimits`, validated at startup. Each limit is a fixed wind
 | Key | Type | Default | Range | What it does |
 |---|---|---|---|---|
 | `Beacon:RateLimits:Lockout:Enabled` | bool | `true` | | Apply the lockout. `false` (or `MaxFailedAttempts` `0`) turns it off: password sign-in is then limited only per client address by `Login` |
-| `Beacon:RateLimits:Lockout:MaxFailedAttempts` | int | `5` | 0–100 (`0` = off) | After this many wrong passwords an internal user's password sign-in, and the password change of a signed-in user, is locked. Counted per user (stored on the user, so it holds across instances), a wrong current password on a password change included; a name no user has is counted against nobody. The break-glass accounts (`Beacon:UserManagement:LocalLogin:BreakGlassUserNames`) are never counted or locked: they stay limited per client address by `Login` |
+| `Beacon:RateLimits:Lockout:MaxFailedAttempts` | int | `5` | 0–100 (`0` = off) | After this many wrong passwords an internal user's password sign-in, and the password change of a signed-in user, is locked. Counted per user (stored on the user, so it holds across instances), a wrong current password on a password change included; a name no user has is counted against nobody. The break-glass accounts (`Beacon:UserManagement:LocalLogin:BreakGlassUserNames`) are never locked: they get the growing delay of `BreakGlassThrottle` instead |
 | `Beacon:RateLimits:Lockout:DurationMinutes` | int | `15` | 1–1440 | How long the lock lasts. While locked every password, the right one included, gets the same generic answer as a wrong one, after the same password check; wrong passwords while locked do not extend it. The lock is decided after the password check, together with the write that clears the count, so attempts already in flight when another attempt locks the user are refused too. A successful sign-in, the lock itself, an administrator's password reset and a wrong password sent this long or longer after the previous one start the count again. A lock records `auth.user_locked_out` and logs `UserLockedOut` (7124); a refused attempt records `auth.password_sign_in_refused` with reason `locked_out` |
+| `Beacon:RateLimits:BreakGlassThrottle:Enabled` | bool | `true` | | Delay a break-glass account's password sign-in after repeated wrong passwords. The account is never locked: the delay ends on its own |
+| `Beacon:RateLimits:BreakGlassThrottle:FailedAttemptsBeforeDelay` | int | `5` | 0–100 (`0` = off) | The wrong password that starts the first delay. Counted per account like the lockout |
+| `Beacon:RateLimits:BreakGlassThrottle:InitialDelaySeconds` | int | `30` | 1–`MaxDelaySeconds` | The first delay. Each further wrong password once the delay has ended doubles it. During a delay every password, the right one included, gets the generic answer after the same password check and does not extend it |
+| `Beacon:RateLimits:BreakGlassThrottle:MaxDelaySeconds` | int | `300` | 1–3600 | The longest delay |
+| `Beacon:RateLimits:BreakGlassThrottle:ResetAfterMinutes` | int | `60` | 1–1440, longer than `MaxDelaySeconds` | A successful sign-in, an administrator's password reset or this long without a wrong password starts the count again. A delay records `auth.user_locked_out` with `breakGlassDelay` and `delaySeconds` and logs `UserLockedOut` (7124) |
 
-The lockout counts per user, not per client: anyone who knows a user name can lock that user's password sign-in by sending wrong passwords, and again each time the lock ends (the per-address `Login` limit slows this down, but several addresses get past it). That denial of service is the price of a hard cap on password guessing. Keep a break-glass account for emergencies (it is never locked), prefer single sign-on for everyday users, or set `Lockout:Enabled` to `false` when the denial of service weighs more for your deployment than the cap.
+The lockout counts per user, not per client: anyone who knows a user name can lock that user's password sign-in by sending wrong passwords, and again each time the lock ends (the per-address `Login` limit slows this down, but several addresses get past it). That denial of service is the price of a hard cap on password guessing. Keep a break-glass account for emergencies (it is never locked, only delayed for at most `BreakGlassThrottle:MaxDelaySeconds` at a time), prefer single sign-on for everyday users, or set `Lockout:Enabled` to `false` when the denial of service weighs more for your deployment than the cap.
 
 ## Request size and time limits
 

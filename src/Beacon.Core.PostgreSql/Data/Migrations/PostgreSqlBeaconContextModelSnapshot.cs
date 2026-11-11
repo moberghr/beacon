@@ -993,6 +993,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("character varying(64)")
                         .HasColumnName("security_stamp");
 
+                    b.Property<DateTime?>("TokensValidAfter")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("tokens_valid_after");
+
                     b.Property<string>("UserName")
                         .IsRequired()
                         .HasMaxLength(100)

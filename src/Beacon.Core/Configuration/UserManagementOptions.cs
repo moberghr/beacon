@@ -25,11 +25,38 @@ public class UserManagementOptions
     /// </summary>
     public bool HostOwnsSignIn { get; set; }
 
+    /// <summary>The configuration key that can raise <see cref="MinimumPasswordLength"/>.</summary>
+    public const string MinimumPasswordLengthKey = "Beacon:UserManagement:MinimumPasswordLength";
+
+    /// <summary>The longest minimum password length accepted.</summary>
+    public const int MinimumPasswordLengthLimit = 128;
+
     /// <summary>
-    /// Minimum password length for internal users.
+    /// Minimum password length for internal users, enforced wherever a password is set (first-run setup, a new internal
+    /// user, a change, an administrator's reset, the required change at sign-in). Also read from the
+    /// <c>Beacon:UserManagement:MinimumPasswordLength</c> configuration key: the larger of the two applies, and a value
+    /// outside 1 to 128 fails startup.
     /// Default: 8
     /// </summary>
     public int MinimumPasswordLength { get; set; } = 8;
+
+    /// <summary>
+    /// Applies <see cref="MinimumPasswordLengthKey"/> (the larger of it and the code-configured length) and checks the
+    /// result is between 1 and <see cref="MinimumPasswordLengthLimit"/>.
+    /// </summary>
+    public void ApplyConfiguredMinimumPasswordLength(int? configured)
+    {
+        if (configured is < 1 or > MinimumPasswordLengthLimit)
+        {
+            throw new InvalidOperationException($"{MinimumPasswordLengthKey} must be between 1 and {MinimumPasswordLengthLimit}.");
+        }
+
+        MinimumPasswordLength = Math.Max(MinimumPasswordLength, configured ?? 0);
+        if (MinimumPasswordLength is < 1 or > MinimumPasswordLengthLimit)
+        {
+            throw new InvalidOperationException($"The minimum password length must be between 1 and {MinimumPasswordLengthLimit}.");
+        }
+    }
 
     /// <summary>
     /// Require password complexity (uppercase, lowercase, digit, special char).

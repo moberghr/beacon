@@ -20,7 +20,8 @@ internal interface IUserSessionStore
 
     /// <summary>
     /// Gives user <paramref name="userId"/> a new security stamp: every session they hold is signed out when it is next
-    /// revalidated. False when there is no such user.
+    /// revalidated. In the same update it records the instant before which the user's bearer tokens are refused
+    /// (<c>TokensValidAfter</c>). False when there is no such user.
     /// </summary>
     Task<bool> RenewStampAsync(int userId, CancellationToken cancellationToken);
 }
@@ -49,7 +50,10 @@ internal static class SecurityStamps
     }
 }
 
-internal sealed class UserSessionStore(IDbContextFactory<BeaconContext> contextFactory, ISecurityAuditRecorder securityAudit) : IUserSessionStore
+internal sealed class UserSessionStore(
+    IDbContextFactory<BeaconContext> contextFactory,
+    ISecurityAuditRecorder securityAudit,
+    TimeProvider? timeProvider = null) : IUserSessionStore
 {
     public async Task<SessionUser?> FindAsync(string externalId, CancellationToken cancellationToken)
     {
@@ -76,14 +80,20 @@ internal sealed class UserSessionStore(IDbContextFactory<BeaconContext> contextF
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         var stamp = SecurityStamps.New();
+        DateTime? tokensValidAfter = (timeProvider ?? TimeProvider.System).GetUtcNow().UtcDateTime;
 
-        // The new stamp and the event commit together; the event names the user, the caller is its actor.
+        // The new stamp, the bearer-token cut-off and the event commit together; the event names the user, the caller is
+        // its actor.
         var changed = await securityAudit.SaveWithEventsAsync(
             context,
             () => context.Users
                 .IgnoreQueryFilters()
                 .Where(x => x.Id == userId)
-                .ExecuteUpdateAsync(x => x.SetProperty(y => y.SecurityStamp, stamp), cancellationToken),
+                .ExecuteUpdateAsync(
+                    x => x
+                        .SetProperty(y => y.SecurityStamp, stamp)
+                        .SetProperty(y => y.TokensValidAfter, tokensValidAfter),
+                    cancellationToken),
             rows => rows > 0
                 ? [new SecurityAuditEntry(SecurityAuditActions.SignedOutEverywhere).On(SecurityAuditResources.User, userId)]
                 : [],

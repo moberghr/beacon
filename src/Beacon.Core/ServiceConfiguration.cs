@@ -510,6 +510,10 @@ public static class ServiceConfiguration
             .ToList();
         localLogin.Validate();
 
+        // Beacon:UserManagement:MinimumPasswordLength can only raise the code-configured minimum.
+        configurationOptions.UserManagement.ApplyConfiguredMinimumPasswordLength(
+            configuration.GetValue<int?>(UserManagementOptions.MinimumPasswordLengthKey));
+
         // While local login is off, the last word on every password sign-in, whichever provider authenticated it: only a
         // stored internal break-glass user passes.
         services.TryAddScoped<PasswordSignInGate>();

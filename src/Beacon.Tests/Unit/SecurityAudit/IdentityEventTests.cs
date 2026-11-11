@@ -38,6 +38,7 @@ public class IdentityEventTests
     private const string BenEmail = "ben@corp.example";
     private const string BenExternalId = "ext-ben-0001";
     private const string Password = "Aa1!correct-horse";
+    private const string NewPassword = "Aa1!battery-staple";
     private const int EditorRole = 2;
     private const int ViewerRole = 3;
 
@@ -302,9 +303,9 @@ public class IdentityEventTests
     {
         _audit = new RecordingSecurityAudit(Caller(BenId));
 
-        (await Users(passwordMatches: true).ChangePasswordAsync(BenId, "old-password", Password)).Success.Should().BeTrue();
+        (await Users(passwordMatches: true).ChangePasswordAsync(BenId, "old-password", NewPassword)).Success.Should().BeTrue();
 
-        _audit.Single(Password, "old-password").Should().BeEquivalentTo(new { Action = SecurityAuditActions.PasswordChanged, ActorUserId = (int?)BenId, ResourceId = "7" }, x => x.ExcludingMissingMembers());
+        _audit.Single(NewPassword, "old-password").Should().BeEquivalentTo(new { Action = SecurityAuditActions.PasswordChanged, ActorUserId = (int?)BenId, ResourceId = "7" }, x => x.ExcludingMissingMembers());
     }
 
     [Test]
@@ -454,7 +455,10 @@ public class IdentityEventTests
         offline ??= new SqlCapture();
         var hasher = new Mock<IPasswordHasher>();
         hasher.Setup(x => x.HashPassword(It.IsAny<string>())).Returns(("hash", "salt"));
-        hasher.Setup(x => x.VerifyPassword(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>())).Returns(passwordMatches);
+        // The stored credential is never NewPassword, so changing to it is never refused as unchanged.
+        hasher
+            .Setup(x => x.VerifyPassword(It.IsAny<string>(), It.IsAny<string>(), It.IsAny<string>()))
+            .Returns<string, string, string>((password, _, _) => passwordMatches && password != NewPassword);
         var sets = new Dictionary<Type, object>
         {
             [typeof(BeaconUser)] = RecordingBeaconContext.MemorySet(_users, _saved),

@@ -781,6 +781,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasMaxLength(64)
                         .HasColumnType("nvarchar(64)");
 
+                    b.Property<DateTime?>("TokensValidAfter")
+                        .HasColumnType("datetime2");
+
                     b.Property<string>("UserName")
                         .IsRequired()
                         .HasMaxLength(100)

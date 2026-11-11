@@ -107,7 +107,7 @@ public sealed class ConfiguredMcpCallerMapper(
             return null;
         }
 
-        int? beaconUserId = null;
+        ProvisionedUser? beaconUser = null;
         if (settings.Users.AutoProvision)
         {
             var provisioning = await ProvisionUserAsync(jwtPrincipal, tenantId, objectId, subjectHash, settings.Users, cancellationToken);
@@ -116,7 +116,7 @@ public sealed class ConfiguredMcpCallerMapper(
                 return null;
             }
 
-            beaconUserId = provisioning.BeaconUserId;
+            beaconUser = provisioning.User;
         }
 
         var displayName = GetClaim(jwtPrincipal, "name") ?? GetClaim(jwtPrincipal, "preferred_username") ?? "user";
@@ -125,10 +125,13 @@ public sealed class ConfiguredMcpCallerMapper(
             McpCallerKind.User,
             displayName,
             subjectHash,
-            beaconUserId,
+            beaconUser?.Id,
             ResolveUserProjects(settings.Users, roles, groups),
             settings.Users.Scope,
-            HostClaims: []);
+            HostClaims: [])
+        {
+            TokensValidAfter = beaconUser?.TokensValidAfter
+        };
     }
 
     /// <summary>
@@ -243,7 +246,9 @@ public sealed class ConfiguredMcpCallerMapper(
             .ToList();
     }
 
-    private async Task<(bool Accepted, int? BeaconUserId)> ProvisionUserAsync(
+    // The user id and sign-out-everywhere instant are cached for ProvisionedUserCacheDuration: a sign-out everywhere
+    // reaches a cached caller's tokens within that minute.
+    private async Task<(bool Accepted, ProvisionedUser? User)> ProvisionUserAsync(
         ClaimsPrincipal principal,
         string tenantId,
         string objectId,
@@ -260,28 +265,28 @@ public sealed class ConfiguredMcpCallerMapper(
         }
 
         var cacheKey = BeaconCacheEntries.Key($"mcp-caller-user:{subjectHash}");
-        if (cache.TryGetValue(cacheKey, out int cachedUserId))
+        if (cache.TryGetValue(cacheKey, out ProvisionedUser? cachedUser) && cachedUser != null)
         {
-            return (true, cachedUserId);
+            return (true, cachedUser);
         }
 
         try
         {
-            int userId;
+            ProvisionedUser user;
             try
             {
-                userId = await GetOrCreateUserIdAsync(userManagementService, principal, tenantId, objectId, users, cancellationToken);
+                user = await GetOrCreateUserAsync(userManagementService, principal, tenantId, objectId, users, cancellationToken);
             }
             catch (DbUpdateException ex) when (DbUniqueViolation.IsUniqueViolation(ex))
             {
                 // A concurrent first request for the same oid inserted the user between our read and our insert:
                 // the second attempt reads the row that request created.
-                userId = await GetOrCreateUserIdAsync(userManagementService, principal, tenantId, objectId, users, cancellationToken);
+                user = await GetOrCreateUserAsync(userManagementService, principal, tenantId, objectId, users, cancellationToken);
             }
 
-            cache.Set(cacheKey, userId, BeaconCacheEntries.For(ProvisionedUserCacheDuration));
+            cache.Set(cacheKey, user, BeaconCacheEntries.For(ProvisionedUserCacheDuration));
 
-            return (true, userId);
+            return (true, user);
         }
         catch (BeaconException ex)
         {
@@ -290,7 +295,7 @@ public sealed class ConfiguredMcpCallerMapper(
         }
     }
 
-    private static async Task<int> GetOrCreateUserIdAsync(
+    private static async Task<ProvisionedUser> GetOrCreateUserAsync(
         IUserManagementService userService,
         ClaimsPrincipal principal,
         string tenantId,
@@ -313,8 +318,10 @@ public sealed class ConfiguredMcpCallerMapper(
             users.DefaultRoleName,
             cancellationToken);
 
-        return user.Id;
+        return new ProvisionedUser(user.Id, user.TokensValidAfter);
     }
+
+    private sealed record ProvisionedUser(int Id, DateTime? TokensValidAfter);
 
     private static string? GetClaim(ClaimsPrincipal principal, string type)
     {

@@ -394,6 +394,8 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
                 jwksEndpoint,
                 x => _httpClient.GetStringAsync(jwksEndpoint, x),
                 forceRefresh,
+                _options.Validation.JwksRefreshInterval,
+                _options.Validation.JwksMaximumStaleness,
                 cancellationToken);
         }
         catch (JwksSigningKeyCache.RetryNotDueException ex)
