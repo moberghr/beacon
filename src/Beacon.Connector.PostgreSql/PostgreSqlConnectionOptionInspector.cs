@@ -9,10 +9,11 @@ namespace Beacon.Connector.PostgreSql;
 /// settings sent when the connection opens), <c>Passfile</c> (a file on the Beacon host), <c>Include Error Detail</c> and
 /// <c>Log Parameters</c> (row values in errors and logs), and signing in as the host: a Unix-socket <c>Host</c> (peer
 /// authentication), <c>GSS Encryption Mode=Require</c> (Kerberos), a <c>Require Auth</c> that admits GSS or SSPI, the
-/// certificate and key files <c>SSL Certificate</c>, <c>SSL Key</c> (with its <c>SSL Password</c>) and <c>Root Certificate</c>
-/// (files on the Beacon host), or no <c>Password</c> (the host's <c>PGPASSWORD</c> or pgpass file). A connection with its
-/// own credentials is also kept from a server-requested GSS or SSPI sign-in where the connector opens it. The hosts are
-/// every host <c>Host</c> lists.
+/// client certificate and key files <c>SSL Certificate</c> and <c>SSL Key</c> (with its <c>SSL Password</c>) on the Beacon
+/// host, or no <c>Password</c> (the host's <c>PGPASSWORD</c> or pgpass file). <c>Root Certificate</c>, the CA file the
+/// server is verified with (a private CA for <c>VerifyFull</c>), is accepted. A connection with its own credentials is
+/// also kept from a server-requested GSS or SSPI sign-in where the connector opens it. The hosts are every host
+/// <c>Host</c> lists.
 /// </summary>
 public sealed class PostgreSqlConnectionOptionInspector : IDataSourceConnectionOptionInspector
 {
@@ -75,11 +76,6 @@ public sealed class PostgreSqlConnectionOptionInspector : IDataSourceConnectionO
         if (!string.IsNullOrEmpty(builder.SslPassword))
         {
             return HostCredentials("SSL Password", "Remove SSL Password and sign in with the login's Password", hosts);
-        }
-
-        if (!string.IsNullOrEmpty(builder.RootCertificate))
-        {
-            return HostCredentials("Root Certificate", "Remove Root Certificate and add the server's CA to the Beacon host's trust store", hosts);
         }
 
         if (string.IsNullOrEmpty(builder.Password))

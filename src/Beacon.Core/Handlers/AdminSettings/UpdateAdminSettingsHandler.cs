@@ -73,10 +73,14 @@ internal sealed class UpdateAdminSettingsHandler(
         LlmConnectionSettings.DemandAdminForChanges(permissions, actor, logger, connection, connectionRequest, nullKeepsStored: false);
         LlmConnectionSettings.DemandCredentialsForNewDestination(connection, connectionRequest);
 
-        // A new endpoint must use https (http only for a loopback host, or where the host allows it); a stored one is
-        // judged when the provider is built, so a save of other settings never fails on it.
-        if (!string.IsNullOrWhiteSpace(request.LlmEndpoint)
-            && !SameEndpoint(connection.LlmEndpoint, request.LlmEndpoint)
+        // An endpoint the saved provider sends to must use https (http only for a loopback host, or where the host allows
+        // it) once it is new to that provider; a stored one it already used is judged when the provider is built, so a save
+        // of other settings never fails on it. A provider that does not read the endpoint is not held to it.
+        var endpointNewToProvider = !SameEndpoint(connection.LlmEndpoint, request.LlmEndpoint ?? string.Empty)
+            || !LlmEndpointRule.UsesEndpoint(connection.LlmProvider);
+        if (LlmEndpointRule.UsesEndpoint(request.LlmProvider)
+            && !string.IsNullOrWhiteSpace(request.LlmEndpoint)
+            && endpointNewToProvider
             && !LlmEndpointRule.IsAllowed(request.LlmEndpoint, endpointOptions?.Value.AllowInsecureEndpoint ?? false))
         {
             throw new InvalidOperationException(LlmEndpointRule.Message);

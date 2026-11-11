@@ -451,7 +451,7 @@ never the host list. Bound from `Beacon:DataSources`:
 | Key | Type | Default | What it does |
 |---|---|---|---|
 | `AllowedHosts` | string[] | `[]` | The hosts a data-source connection may reach: exact host names or IP addresses, or `*.example.com` for the hosts below `example.com` (ASCII; an internationalised name in its `xn--` form). Empty leaves hosts unrestricted. While set, a connection reaching an unlisted host, a host that is not a bare host name or IP address, or one whose hosts cannot be told, is refused; a BigQuery source needs `oauth2.googleapis.com`. The list matches names, and resolved addresses are not pinned to it (the REST API and Databricks connectors also check the addresses they connect to, see [HTTP data-source addresses](#http-data-source-addresses)). An entry with a scheme, port or path fails startup |
-| `AllowHostCredentials` | bool | `false` | Accepts connections that sign in as the Beacon host: integrated or Kerberos security, a managed, workload or default cloud identity, an AWS profile or IAM role, BigQuery application default credentials, a certificate store, a client certificate, key or CA file on the Beacon host (PostgreSQL `SSL Certificate`, `SSL Key`, `SSL Password`, `Root Certificate`; MySQL `CertificateFile`/`SslCa`, `CertificatePassword`, `SslCert`, `SslKey`; SQL Server and Azure Synapse `ServerCertificate`), a local socket or named pipe, a PostgreSQL pgpass file |
+| `AllowHostCredentials` | bool | `false` | Accepts connections that sign in as the Beacon host: integrated or Kerberos security, a managed, workload or default cloud identity, an AWS profile or IAM role, BigQuery application default credentials, a certificate store, a client certificate or key file on the Beacon host (PostgreSQL `SSL Certificate`, `SSL Key`, `SSL Password`; MySQL a `.pfx` `CertificateFile`/`SslCa`, `CertificatePassword`, `SslCert`, `SslKey`; a CA file that only verifies the server — `Root Certificate`, a PEM `SslCa`, `ServerCertificate` — needs no option), a local socket or named pipe, a PostgreSQL pgpass file |
 
 ```json
 { "Beacon": { "DataSources": { "AllowedHosts": [ "*.db.example.com", "adb-1234567890123456.7.azuredatabricks.net" ] } } }
@@ -474,8 +474,8 @@ with a Warning.
 The REST API and Databricks connectors resolve a data source's host when they connect and connect only to an address
 these rules allow; an address they refuse is never dialled, and the error names the rule, never the address or URL:
 
-- loopback (`127.0.0.0/8`, `::1`) is refused unless `Beacon:DataSources:Transport:AllowInsecure` is `true` (development
-  hosts only);
+- loopback (`127.0.0.0/8`, `::1`) is refused unless `AllowLoopback` below is `true` (or
+  `Beacon:DataSources:Transport:AllowInsecure`, development hosts only, which also lifts the TLS and option checks);
 - private networks (`10.0.0.0/8`, `172.16.0.0/12`, `192.168.0.0/16`, `100.64.0.0/10`, `fc00::/7`) are allowed unless
   `AllowPrivateNetworks` below is `false`;
 - link-local and cloud metadata addresses (`169.254.0.0/16`, `fe80::/10` and the providers' metadata addresses),
@@ -488,14 +488,15 @@ connects; configure its egress policy to refuse the same destinations. Bound fro
 | Key | Type | Default | What it does |
 |---|---|---|---|
 | `AllowPrivateNetworks` | bool | `true` | Lets the REST API and Databricks connectors reach private network addresses. Set `false` where every HTTP data source is on the public internet; otherwise consider listing the allowed hosts in `Beacon:DataSources:AllowedHosts` |
+| `AllowLoopback` | bool | `false` | Lets the REST API and Databricks connectors reach loopback addresses: an endpoint on the Beacon host itself, or a local sidecar or tunnel. The TLS and connection option checks stay on |
 
 ```json
 { "Beacon": { "DataSources": { "Outbound": { "AllowPrivateNetworks": false } } } }
 ```
 
 :::caution[Upgrading]
-A REST API or Databricks data source whose host resolves to a loopback address stops connecting outside development
-hosts (set `Beacon:DataSources:Transport:AllowInsecure` in Development configuration only), and one whose host resolves
+A REST API or Databricks data source whose host resolves to a loopback address (`localhost`, `127.0.0.1`) stops
+connecting until `Beacon:DataSources:Outbound:AllowLoopback` is `true`, and one whose host resolves
 to a link-local or cloud metadata address stops connecting everywhere.
 :::
 
@@ -719,7 +720,7 @@ Bound from `Beacon:LLM` by `builder.Services.AddBeaconAI(builder.Configuration)`
 | `ApiKey` | string | `""` | The provider key. Bedrock: a legacy `accessKey:secretKey` pair, used when `AwsAccessKeyId` and `AwsSecretAccessKey` are both empty (under `IamRole` with a logged warning) |
 | `BedrockAuthMode` | `IamRole` \| `AccessKey` \| `TemporaryCredentials` | `IamRole` | Bedrock credentials: the default AWS credential chain, the access key pair, or the pair with `SessionToken` |
 | `AwsAccessKeyId`, `AwsSecretAccessKey` | string | None | The Bedrock access key pair for `AccessKey` and `TemporaryCredentials`; one without the other fails |
-| `Endpoint` | string | None | Required for `AzureOpenAI`. An `https` URL; `http` only for a loopback host (`localhost`, `127.0.0.1`, `[::1]`) or while `AllowInsecureEndpoint` is set. Checked when the provider is built, when an Admin saves a new endpoint and when the connection is tested |
+| `Endpoint` | string | None | Required for `AzureOpenAI`. An `https` URL; `http` only for a loopback host (`localhost`, `127.0.0.1`, `[::1]`) or while `AllowInsecureEndpoint` is set. Checked when the provider is built, when an Admin saves a new endpoint for Azure OpenAI and when the connection is tested; the other providers do not read it |
 | `AllowInsecureEndpoint` | bool | `false` | Accepts an `http` endpoint on any host. For development and closed test networks only: the key and every prompt then travel unencrypted |
 | `Region` | string | None | Required for `Bedrock` |
 | `SessionToken` | string | None | Bedrock temporary credentials |
@@ -752,8 +753,9 @@ export Beacon__LLM__ApiKey="<provider key>"
 Whatever the endpoint, the LLM clients resolve its host when they connect and never connect to a link-local or cloud
 metadata address (`169.254.0.0/16`, `fe80::/10` and the providers' metadata addresses), nor to an unspecified, multicast
 or reserved one; loopback and private network addresses stay allowed for local and on-premises gateways. An Azure OpenAI
-endpoint stored with `http` on another host stops working until it is replaced or `AllowInsecureEndpoint` is set (the
-host logs a Warning when the provider cannot be built).
+endpoint stored with `http` on another host stops working until it is replaced or `AllowInsecureEndpoint` is set: the
+host logs a Warning at startup naming where the endpoint comes from (Admin settings or `Beacon:LLM:Endpoint`, never the
+URL), and another when the provider cannot be built.
 
 At startup the provider is built from `Beacon:LLM`. Saving the AI provider in [Admin settings](/security/admin-settings/) swaps it immediately, without a restart; after a restart `Beacon:LLM` applies again until the settings are saved. Keep `Beacon:LLM` in step with Admin settings, or save them again after a restart. See [AI providers](/integrate/ai/).
 
@@ -803,7 +805,7 @@ Bound from `Beacon:Notifications`, validated at startup (each bad entry is named
 | `DisabledTypes` | empty | Types this host does not deliver: `Email`, `Teams`, `Slack`, `Jira`, `Webhook` |
 | `AllowedPrivateNetworks:Webhook` / `Slack` / `Teams` / `Jira` | empty | IP addresses, CIDR ranges or host names that calls of that type may still reach though private |
 | `AllowedHeaders` | empty | Webhook header names allowed besides `Authorization`, `Api-Key`, `X-Api-Key`, `Ocp-Apim-Subscription-Key`. Reserved names (`Host`, `Content-Length`, `X-Forwarded-*`, `Metadata-Flavor`, …) are refused |
-| `Nat64Prefixes` | empty | Extra NAT64 `/96` prefixes besides `64:ff9b::/96` |
+| `Nat64Prefixes` | empty | Extra NAT64 `/96` prefixes besides `64:ff9b::/96`. An address under one is judged by the IPv4 address it carries, by the notification calls and also by the HTTP data-source and LLM clients' address checks |
 | `UseSystemProxy` | `false` | Send notification calls through the system proxy, with the destination checked before sending. Requires `AllowedHosts:Webhook` (or Webhook disabled) |
 | `RequireEncryptedSecrets` | `false` | Refuse to send to a recipient whose secrets are still stored unencrypted |
 

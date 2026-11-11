@@ -1,6 +1,7 @@
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data.Enums;
@@ -27,7 +28,7 @@ internal sealed class OutboundAddressPolicy
 {
     private readonly Dictionary<NotificationType, List<IPNetwork>> _allowedNetworks = [];
     private readonly Dictionary<NotificationType, List<string>> _allowedHosts = [];
-    private readonly List<IPNetwork> _nat64Prefixes = [OutboundAddresses.WellKnownNat64];
+    private readonly IReadOnlyList<IPNetwork> _nat64Prefixes;
     private readonly IHostAddressResolver _resolver;
 
     public OutboundAddressPolicy(IOptions<NotificationChannelOptions> options, IHostAddressResolver resolver)
@@ -52,13 +53,7 @@ internal sealed class OutboundAddressPolicy
             }
         }
 
-        foreach (var entry in options.Value.Nat64Prefixes)
-        {
-            if (TryParseNat64Prefix(entry, out var prefix))
-            {
-                _nat64Prefixes.Add(prefix);
-            }
-        }
+        _nat64Prefixes = Nat64PrefixesOf(options.Value);
     }
 
     /// <summary>The notification types that make HTTP calls, each with its own private-network allowances.</summary>
@@ -77,6 +72,19 @@ internal sealed class OutboundAddressPolicy
     public static bool IsValidNat64Prefix(string? entry)
     {
         return TryParseNat64Prefix(entry, out _);
+    }
+
+    /// <summary>
+    /// The NAT64 prefixes of this network: the well-known one and the valid entries of
+    /// <c>Beacon:Notifications:Nat64Prefixes</c> (the startup validation refuses an invalid one). The data-source and LLM
+    /// clients' address checks judge an address under one of them by the IPv4 address it carries, as the notification
+    /// check does.
+    /// </summary>
+    public static IReadOnlyList<IPNetwork> ConfiguredNat64Prefixes(IServiceProvider? services)
+    {
+        var options = services?.GetService<IOptions<NotificationChannelOptions>>()?.Value;
+
+        return options == null ? OutboundAddresses.WellKnownNat64Prefixes : Nat64PrefixesOf(options);
     }
 
     /// <summary>
@@ -192,6 +200,20 @@ internal sealed class OutboundAddressPolicy
         }
 
         return await OutboundAddresses.ConnectToFirstAsync(allowed, endpoint.Port, cancellationToken);
+    }
+
+    private static List<IPNetwork> Nat64PrefixesOf(NotificationChannelOptions options)
+    {
+        var prefixes = new List<IPNetwork> { OutboundAddresses.WellKnownNat64 };
+        foreach (var entry in options.Nat64Prefixes)
+        {
+            if (TryParseNat64Prefix(entry, out var prefix))
+            {
+                prefixes.Add(prefix);
+            }
+        }
+
+        return prefixes;
     }
 
     private static bool TryParseNat64Prefix(string? entry, out IPNetwork prefix)

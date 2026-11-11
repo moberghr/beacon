@@ -8,8 +8,8 @@ namespace Beacon.Core.Http;
 /// The named <see cref="IHttpClientFactory"/> clients for Beacon's outbound calls that carry credentials or read
 /// third-party documents: the JWKS fetch, Databricks and GitHub. None follows redirects (a redirect would carry the
 /// credential header to wherever the response points), none keeps cookies, and each has its own timeout. The JWKS and
-/// Databricks clients also cap the response body, and the Databricks client connects only to an address the data-source
-/// address rules allow (<see cref="DataSourceOutboundAddresses"/>), judged on the addresses the host resolves to when it
+/// Databricks clients also cap the response body, and the Databricks client gives up connecting after
+/// <see cref="DatabricksConnectTimeout"/> and connects only to an address the data-source address rules allow (<see cref="DataSourceOutboundAddresses"/>), judged on the addresses the host resolves to when it
 /// connects. The Databricks client's request logging is removed: its request URIs name the workspace host, warehouse paths
 /// and statement ids.
 /// </summary>
@@ -31,6 +31,12 @@ public static class BeaconHttpClients
 
     // A Databricks call sets its own timeout from the data source's query timeout; this is the ceiling for reading a body.
     private static readonly TimeSpan DatabricksReadTimeout = TimeSpan.FromMinutes(16);
+
+    /// <summary>
+    /// How long the Databricks client tries to connect (every address the host resolves to, in turn) before it gives up,
+    /// as the REST API connector's client does.
+    /// </summary>
+    internal static readonly TimeSpan DatabricksConnectTimeout = TimeSpan.FromSeconds(10);
 
     /// <summary>Registers the named clients. Safe to call more than once.</summary>
     public static IServiceCollection AddBeaconOutboundHttpClients(this IServiceCollection services)
@@ -82,6 +88,7 @@ public static class BeaconHttpClients
         {
             AllowAutoRedirect = false,
             UseCookies = false,
+            ConnectTimeout = DatabricksConnectTimeout,
             ConnectCallback = guard.ConnectAsync,
             PooledConnectionLifetime = TimeSpan.FromMinutes(2)
         };

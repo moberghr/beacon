@@ -11,7 +11,9 @@ namespace Beacon.Tests.Unit;
 /// there. A call that sends rows to a model, calls an endpoint, reaches stages, files or external storage, or returns
 /// secrets is refused wherever it sits in the statement — select list, WHERE, CTE body, subquery, FROM — quoted or in any
 /// case, by the read-only validator and, with read-only enforcement off, by the always-on boundary stage. SQL Server's
-/// procedures that call out are refused by the boundary stage too. Ordinary analytical functions still pass.
+/// procedures that call out are refused by the boundary stage too, and so are the PostgreSQL, MySQL and SQL Server
+/// functions that call HTTP endpoints, cloud services or models. Ordinary analytical functions and columns or literals of
+/// the same names still pass.
 /// </summary>
 [TestFixture]
 public class WarehouseFunctionRefusalTests
@@ -41,6 +43,8 @@ public class WarehouseFunctionRefusalTests
         ("bigquery", "AI.SCORE(body)"),
         ("bigquery", "ML.GENERATE_TEXT(body)"),
         ("bigquery", "ml.distance([1.0], [2.0])"),
+        ("bigquery", "ML.PREDICT(m, body)"),
+        ("bigquery", "ml.predict(m, body)"),
         ("bigquery", "`ML.UNDERSTAND_TEXT`(body)"),
         ("bigquery", "`ai`.`generate`(body)"),
         ("bigquery", "SAFE.AI.GENERATE(body)"),
@@ -67,7 +71,38 @@ public class WarehouseFunctionRefusalTests
         ("Snowflake", "AI_COMPLETE('model', body)"),
         ("Snowflake", "ai_classify(body, ['a', 'b'])"),
         ("Snowflake", "\"AI_FILTER\"(body)"),
-        ("Snowflake", "SYSTEM$SEND_EMAIL('integration', 'a@example.com', 's', body)")
+        ("Snowflake", "SYSTEM$SEND_EMAIL('integration', 'a@example.com', 's', body)"),
+        ("PostgreSQL", "aws_s3.query_export_to_s3(q, uri)"),
+        ("PostgreSQL", "query_export_to_s3(q, uri)"),
+        ("PostgreSQL", "AWS_S3.Table_Import_From_S3('t', '', '(format csv)', uri)"),
+        ("PostgreSQL", "aws_lambda.invoke('fn', body)"),
+        ("PostgreSQL", "aws_ml.invoke_sagemaker_endpoint('endpoint', 1, body)"),
+        ("PostgreSQL", "aws_comprehend.detect_sentiment(body, 'en')"),
+        ("PostgreSQL", "aws_bedrock.invoke_model('model', 'application/json', 'application/json', body)"),
+        ("PostgreSQL", "azure_ai.get_setting('azure_openai.endpoint')"),
+        ("PostgreSQL", "azure_openai.create_embeddings('deployment', body)"),
+        ("PostgreSQL", "\"azure_cognitive\".analyze_sentiment(body, 'en')"),
+        ("PostgreSQL", "azure_ml.invoke(body)"),
+        ("PostgreSQL", "azure_storage.blob_get('account', 'container', 'path')"),
+        ("PostgreSQL", "ai.openai_embed('model', body)"),
+        ("PostgreSQL", "google_ml.predict_row('model', body)"),
+        ("PostgreSQL", "http(req)"),
+        ("PostgreSQL", "http_get('https://example.com')"),
+        ("PostgreSQL", "extensions.HTTP_POST('https://example.com', body, 'text/plain')"),
+        ("PostgreSQL", "net.http_get('https://example.com')"),
+        ("PostgreSQL", "http_put(u, body, 'text/plain')"),
+        ("PostgreSQL", "http_patch(u, body, 'text/plain')"),
+        ("PostgreSQL", "http_delete(u)"),
+        ("PostgreSQL", "\"http_head\"(u)"),
+        ("MySQL", "lambda_sync('arn', body)"),
+        ("MySQL", "LAMBDA_ASYNC('arn', body)"),
+        ("MySQL", "mysql.lambda_async('arn', body)"),
+        ("MySQL", "sys.ML_PREDICT_ROW(body, 'model', NULL)"),
+        ("MySQL", "sys.ml_explain_row(body, 'model', NULL)"),
+        ("MySQL", "ML_GENERATE(body, NULL)"),
+        ("MySQL", "ml_embed_row(body, NULL)"),
+        ("MSSQL", "AI_GENERATE_EMBEDDINGS(body)"),
+        ("AzureSynapse", "ai_generate_embeddings(body)")
     ];
 
     // Table functions and stage or file locations read in FROM.
@@ -96,7 +131,11 @@ public class WarehouseFunctionRefusalTests
         ("MySQL", "'orders'"),
         ("MSSQL", "'orders'"),
         ("bigquery", "'orders'"),
-        ("databricks", "'orders'")
+        ("databricks", "'orders'"),
+        ("PostgreSQL", "aws_s3.table_import_from_s3('t', '', '(format csv)', uri)"),
+        ("PostgreSQL", "http_get('https://example.com')"),
+        ("MySQL", "sys.ML_PREDICT_TABLE('db.t', 'model', 'db.out', NULL)"),
+        ("MSSQL", "AI_GENERATE_CHUNKS(body)")
     ];
 
     // Procedures that call out: refused by the boundary stage whether or not read-only enforcement is on.
@@ -106,7 +145,9 @@ public class WarehouseFunctionRefusalTests
         ("MSSQL", "EXEC dbo.sp_send_dbmail @recipients = 'a@example.com'"),
         ("MSSQL", "EXEC sp_execute_external_script @language = N'Python', @script = N'x'"),
         ("MSSQL", "EXEC sp_OAMethod @o, 'Run'"),
-        ("AzureSynapse", "EXEC [sp_invoke_external_rest_endpoint] @url = 'https://example.com'")
+        ("AzureSynapse", "EXEC [sp_invoke_external_rest_endpoint] @url = 'https://example.com'"),
+        ("MySQL", "CALL mysql.lambda_async('arn', '{}')"),
+        ("MySQL", "CALL sys.ML_PREDICT_TABLE('db.t', 'model', 'db.out', NULL)")
     ];
 
     private SqlReadOnlyAstValidator _validator = null!;
@@ -175,10 +216,46 @@ public class WarehouseFunctionRefusalTests
     [TestCase("MSSQL", "SELECT * FROM OPENJSON(@j)")]
     [TestCase("MSSQL", "SELECT JSON_VALUE(j, '$.a'), STRING_AGG(x, ','), SUSER_SNAME() FROM t GROUP BY j")]
     [TestCase("AzureSynapse", "SELECT TOP 10 x, APPROX_COUNT_DISTINCT(y) FROM dbo.t GROUP BY x")]
+    [TestCase("PostgreSQL", "SELECT http, http_get, t.http_post, t.query_export_to_s3 FROM t")]
+    [TestCase("PostgreSQL", "SELECT 'http_get(u)' AS http, 'aws_s3.query_export_to_s3(q)' AS v FROM t")]
+    [TestCase("PostgreSQL", "SELECT public.http_status(code), app.ai_score(x), my_ai.score(x) FROM t")]
+    [TestCase("PostgreSQL", "SELECT v.id FROM ai.vectorizer v JOIN aws_s3.exports e ON e.id = v.id")]
+    [TestCase("MySQL", "SELECT lambda_sync, ml_generate, sys_flag FROM t")]
+    [TestCase("MySQL", "SELECT 'lambda_async(1)' AS lambda_async, 'sys.ML_GENERATE' AS ml_embed_row FROM t")]
+    [TestCase("MySQL", "SELECT home.ml_score(x) FROM t")]
+    [TestCase("MSSQL", "SELECT ai_generate_embeddings, 'AI_GENERATE_CHUNKS(x)' AS AI_GENERATE_CHUNKS FROM t")]
     public void OrdinaryFunctions_Pass(string dialect, string sql)
     {
         _validator.Validate(sql, dialect).Should().BeNull();
         SqlCrossDatabaseRule.Validate(sql, dialect, ConfiguredDatabase).Should().BeNull();
+    }
+
+    // Only a two-part name can be a BigQuery family member; with a project part it is a user function in a dataset.
+    [TestCase("SELECT proj.ml.normalize(x) FROM t")]
+    [TestCase("SELECT proj.AI.score(x), proj.obj.fetch(x) FROM t")]
+    [TestCase("SELECT `proj.ml.normalize`(x) FROM t")]
+    [TestCase("SELECT * FROM proj.ml.predictions_for((SELECT 1))")]
+    public void BigQuery_UserFunctionInADatasetNamedLikeAFamily_Passes(string sql)
+    {
+        _validator.Validate(sql, "bigquery").Should().BeNull();
+        SqlCrossDatabaseRule.Validate(sql, "bigquery", "proj").Should().BeNull();
+    }
+
+    [TestCase("SELECT AI_GENERATE_EMBEDDINGS(body USE MODEL m) AS v FROM t")]
+    [TestCase("SELECT c.chunk FROM t CROSS APPLY AI_GENERATE_CHUNKS(source = t.body, chunk_type = FIXED, chunk_size = 50) c")]
+    public void TSql_EmbeddingFunctionsInTheirOwnSyntax_AreRefused(string sql)
+    {
+        SqlCrossDatabaseRule.Validate(sql, "MSSQL", ConfiguredDatabase).Should().NotBeNull();
+        _validator.Validate(sql, "MSSQL").Should().NotBeNull();
+    }
+
+    [Test]
+    public void Validator_NamesTheSchemaOfAnExtensionFunctionRefusedByIt()
+    {
+        SqlCrossDatabaseRule.Validate("SELECT aws_s3.query_export_to_s3(q, uri) FROM t", "PostgreSQL", ConfiguredDatabase)
+            .Should().StartWith("aws_s3.query_export_to_s3 is not allowed");
+        _validator.Validate("SELECT sys.ML_PREDICT_ROW(body, 'm', NULL) FROM t", "MySQL")
+            .Should().StartWith("The function sys.ML_PREDICT_ROW is not allowed");
     }
 
     [Test]

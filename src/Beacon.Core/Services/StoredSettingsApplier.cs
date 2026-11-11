@@ -1,7 +1,12 @@
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
+using Beacon.Core.Configuration;
+using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
+using Beacon.Core.Models.Settings;
 
 namespace Beacon.Core.Services;
 
@@ -14,7 +19,9 @@ namespace Beacon.Core.Services;
 /// ones only when an Admin stored them (<see cref="AppSettingsData.LlmLimitsStored"/>), also without a stored provider (<see cref="ILlmConfigurationUpdater.UpdateLimits"/>). Without Beacon.AI there is no <see cref="ILlmConfigurationUpdater"/> and only the base URL applies. Settings
 /// that cannot be read leave the host's configuration in force and are logged as a Warning naming the exception type
 /// only, never a value (§1.11). A change another process stored is applied again the same way
-/// (<see cref="StoredSettingsConvergence"/>).
+/// (<see cref="StoredSettingsConvergence"/>). At startup it also warns once when the LLM endpoint in force (the stored one,
+/// else <c>Beacon:LLM:Endpoint</c>) is http on a host that is not loopback while <c>Beacon:LLM:AllowInsecureEndpoint</c> is
+/// off, for a provider that sends to it: that provider is not built until the endpoint uses https.
 /// </summary>
 public sealed class StoredSettingsApplier(
     IAppSettingsService settingsService,
@@ -83,6 +90,11 @@ public sealed class StoredSettingsApplier(
                 llmApplied,
                 limitsApplied);
 
+            if (!afterChange && llmUpdater != null)
+            {
+                WarnOfAnInsecureLlmEndpoint(settings, llmApplied);
+            }
+
             return true;
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
@@ -98,6 +110,31 @@ public sealed class StoredSettingsApplier(
         {
             StoredSettingsApplyOrder.Gate.Release();
         }
+    }
+
+    // Configuration names only: the endpoint itself is never logged.
+    private void WarnOfAnInsecureLlmEndpoint(AppSettingsData settings, bool storedInForce)
+    {
+        var allowInsecureEndpoint = services?.GetService<IOptions<LlmEndpointOptions>>()?.Value.AllowInsecureEndpoint ?? false;
+        var hostSection = services?.GetService<IConfiguration>()?.GetSection(LlmEndpointOptions.SectionName);
+        var provider = storedInForce ? settings.LlmProvider : ConfiguredProvider(hostSection?["Provider"]);
+        var endpoint = storedInForce ? settings.LlmEndpoint : hostSection?["Endpoint"];
+
+        if (!LlmEndpointRule.UsesEndpoint(provider) || !LlmEndpointRule.IsInsecureWithoutAllowance(endpoint, allowInsecureEndpoint))
+        {
+            return;
+        }
+
+        logger.LogWarning(
+            "The LLM endpoint in force ({Source}) uses http on a host that is not loopback while {Option} is off, so the {Provider} provider is not built. Use an https endpoint, or set that option on development and closed test networks only",
+            storedInForce ? "stored in Admin Settings" : $"{LlmEndpointOptions.SectionName}:Endpoint",
+            $"{LlmEndpointOptions.SectionName}:{nameof(LlmEndpointOptions.AllowInsecureEndpoint)}",
+            provider);
+    }
+
+    private static AiProvider? ConfiguredProvider(string? value)
+    {
+        return Enum.TryParse<AiProvider>(value, ignoreCase: true, out var provider) ? provider : AiProvider.OpenAI;
     }
 }
 

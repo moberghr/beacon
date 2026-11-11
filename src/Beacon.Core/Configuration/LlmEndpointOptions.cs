@@ -1,4 +1,5 @@
 using System.Net;
+using Beacon.Core.Data.Enums;
 using Beacon.Core.Http;
 
 namespace Beacon.Core.Configuration;
@@ -26,6 +27,15 @@ internal static class LlmEndpointRule
     public const string Message =
         "The LLM endpoint must use https (http only for a loopback host such as localhost, or while Beacon:LLM:AllowInsecureEndpoint is set).";
 
+    /// <summary>
+    /// Whether <paramref name="provider"/> sends its requests to the configured endpoint, as the provider factory builds it:
+    /// Azure OpenAI only. The other providers call their own service addresses and never read it.
+    /// </summary>
+    public static bool UsesEndpoint(AiProvider? provider)
+    {
+        return provider == AiProvider.AzureOpenAI;
+    }
+
     /// <summary>Whether an absolute endpoint URI meets the rule. A URI that is neither http nor https never does.</summary>
     public static bool IsAllowed(Uri endpoint, bool allowInsecureEndpoint)
     {
@@ -51,6 +61,19 @@ internal static class LlmEndpointRule
         return !Uri.TryCreate(endpoint.Trim(), UriKind.Absolute, out var uri)
             || (uri.Scheme != Uri.UriSchemeHttp && uri.Scheme != Uri.UriSchemeHttps)
             || IsAllowed(uri, allowInsecureEndpoint);
+    }
+
+    /// <summary>
+    /// Whether an endpoint that meets the scheme rule only through <see cref="LlmEndpointOptions.AllowInsecureEndpoint"/>
+    /// is configured without it: http on a host that is not loopback. Text that is not an absolute http URI never is.
+    /// </summary>
+    public static bool IsInsecureWithoutAllowance(string? endpoint, bool allowInsecureEndpoint)
+    {
+        return !allowInsecureEndpoint
+            && !string.IsNullOrWhiteSpace(endpoint)
+            && Uri.TryCreate(endpoint.Trim(), UriKind.Absolute, out var uri)
+            && uri.Scheme == Uri.UriSchemeHttp
+            && !IsLoopbackHost(uri);
     }
 
     private static bool IsLoopbackHost(Uri endpoint)

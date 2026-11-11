@@ -9,11 +9,12 @@ namespace Beacon.Core.Services.Validation;
 /// can only name what is known; the database-level read-only path and a read-only login stay the backstop. The read-only validator refuses
 /// them as calls anywhere in the statement and as table sources. Matching ignores case and uses the last name part, so
 /// a qualified call (<c>pg_catalog.pg_read_file</c>, <c>master.dbo.xp_dirtree</c>) or a quoted one is refused too;
-/// a family a warehouse groups under one qualifier (BigQuery <c>ML.</c>, <c>AI.</c>, <c>OBJ.</c>, Snowflake
-/// <c>CORTEX.</c>) is matched on the part before the last.
+/// a family an engine groups under one qualifier (BigQuery <c>ML.</c>, <c>AI.</c>, <c>OBJ.</c>, Snowflake
+/// <c>CORTEX.</c>, PostgreSQL extension schemas such as <c>aws_s3.</c>, MySQL <c>sys.ML_</c>) is matched on the part
+/// before the last.
 /// <para>
 /// BigQuery, Snowflake and Databricks have no database-level read-only session, so on those engines these lists are the
-/// control. What sends rows to a model, calls a remote endpoint, reads, lists or hands out access to external storage,
+/// control; a read-only transaction does not stop a function that calls out either. What sends rows to a model, calls a remote endpoint, reads, lists or hands out access to external storage,
 /// stages or files, or returns secrets reaches beyond the source and is refused with read-only enforcement off too
 /// (<see cref="ReachesBeyondTheSource(IReadOnlyList{string}, Dialect)"/>). User-defined functions that call out — BigQuery
 /// remote functions, Snowflake external functions and UDFs with external access, Databricks UDFs with network access, SQL
@@ -56,6 +57,28 @@ internal static class SqlDeniedFunctions
     /// </summary>
     internal static readonly string[] PostgreSqlSqlTextPrefixes = ["pg_background_", "pgr_"];
 
+    /// <summary>
+    /// PostgreSQL extension functions that call HTTP endpoints (pgsql-http, pg_net) or move rows to and from S3:
+    /// <see cref="SqlCrossDatabaseRule"/> refuses them with read-only enforcement off too.
+    /// </summary>
+    internal static readonly HashSet<string> PostgreSqlBeyondTheSource = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "http", "http_get", "http_post", "http_put", "http_patch", "http_delete", "http_head",
+        "query_export_to_s3", "table_import_from_s3"
+    };
+
+    /// <summary>
+    /// The schemas of PostgreSQL extensions that send rows to a model or another cloud service, or reach cloud storage
+    /// (aws_s3, aws_lambda, aws_ml, aws_comprehend, aws_bedrock, azure_ai and its schemas, azure_storage, pgai's
+    /// <c>ai</c>, google_ml_integration): a call qualified with one is refused, so a function added to the extension later
+    /// is refused too. A function is refused by its schema only when the call names it.
+    /// </summary>
+    internal static readonly HashSet<string> PostgreSqlBeyondTheSourceQualifiers = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "aws_s3", "aws_lambda", "aws_ml", "aws_comprehend", "aws_bedrock", "azure_ai", "azure_openai", "azure_cognitive",
+        "azure_ml", "azure_storage", "ai", "google_ml"
+    };
+
     internal static readonly HashSet<string> MySql = new(StringComparer.OrdinalIgnoreCase)
     {
         "load_file", "sleep", "benchmark", "get_lock", "release_lock", "release_all_locks", "master_pos_wait",
@@ -67,6 +90,17 @@ internal static class SqlDeniedFunctions
     // Keyring, audit-log, firewall and version-token administration functions change server state.
     internal static readonly string[] MySqlPrefixes = ["keyring_", "audit_log_", "mysql_firewall_", "version_tokens_"];
 
+    /// <summary>
+    /// MySQL functions and procedures that invoke an AWS Lambda function (Aurora) or send rows to a HeatWave model
+    /// (<c>sys.ML_*</c> by its schema): <see cref="SqlCrossDatabaseRule"/> refuses them with read-only enforcement off too.
+    /// </summary>
+    internal static readonly HashSet<string> MySqlBeyondTheSource = new(StringComparer.OrdinalIgnoreCase)
+    {
+        "lambda_sync", "lambda_async", "ml_predict_row", "ml_predict_table", "ml_generate", "ml_embed_row"
+    };
+
+    internal static readonly string[] MySqlHeatWaveSchemaPrefixes = ["ml_"];
+
     internal static readonly HashSet<string> TSql = new(StringComparer.OrdinalIgnoreCase)
     {
         "fn_get_audit_file", "fn_dump_dblog", "dm_os_enumerate_filesystem", "dm_os_file_exists"
@@ -76,11 +110,13 @@ internal static class SqlDeniedFunctions
 
     /// <summary>
     /// SQL Server procedures that call an HTTP endpoint, send mail, run R or Python code, or create OLE Automation objects
-    /// (<c>sp_OA*</c>): <see cref="SqlCrossDatabaseRule"/> refuses them with read-only enforcement off too.
+    /// (<c>sp_OA*</c>), and the functions that send text to an external model: <see cref="SqlCrossDatabaseRule"/> refuses
+    /// them with read-only enforcement off too.
     /// </summary>
     internal static readonly HashSet<string> TSqlBeyondTheSource = new(StringComparer.OrdinalIgnoreCase)
     {
-        "sp_invoke_external_rest_endpoint", "sp_send_dbmail", "sp_execute_external_script"
+        "sp_invoke_external_rest_endpoint", "sp_send_dbmail", "sp_execute_external_script", "ai_generate_embeddings",
+        "ai_generate_chunks"
     };
 
     internal static readonly string[] TSqlBeyondTheSourcePrefixes = ["sp_oa"];
@@ -137,6 +173,9 @@ internal static class SqlDeniedFunctions
     /// BigQuery families that send rows to a model or another Google service, or hand out access to Cloud Storage objects:
     /// <c>ML.*</c> (its preprocessing helpers included), <c>AI.*</c> and <c>OBJ.*</c>. Refused by qualifier, so a family
     /// member added later is refused too: <see cref="SqlCrossDatabaseRule"/> refuses them with read-only enforcement off too.
+    /// Only a two-part name (<c>ML.PREDICT</c>, or <c>SAFE.ML.PREDICT</c>) can be a family member, and it is refused also
+    /// when it names a user function in a dataset called <c>ml</c>, <c>ai</c> or <c>obj</c>: BigQuery reads both the same
+    /// way. A name with a project part (<c>project.ml.fn</c>) is a user function and passes.
     /// </summary>
     internal static readonly HashSet<string> BigQueryBeyondTheSourceQualifiers = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -201,9 +240,10 @@ internal static class SqlDeniedFunctions
 
     /// <summary>
     /// <see cref="ReachesBeyondTheSource(string)"/>, plus what reaches beyond the source on <paramref name="dialect"/> only:
-    /// SQL Server's HTTP, mail, external-script and OLE Automation procedures, Snowflake's stage, file, notification and
-    /// Cortex functions, Databricks' network, stream, AI, storage, secret and reflection functions, and BigQuery's model,
-    /// AI and object-access families.
+    /// PostgreSQL's HTTP, S3 and cloud model extensions, MySQL's Lambda and HeatWave model functions, SQL Server's HTTP,
+    /// mail, external-script and OLE Automation procedures and its embedding functions, Snowflake's stage, file,
+    /// notification and Cortex functions, Databricks' network, stream, AI, storage, secret and reflection functions, and
+    /// BigQuery's model, AI and object-access families.
     /// </summary>
     /// <param name="parts">The function's name parts, unquoted (<see cref="PartsOf"/>).</param>
     public static bool ReachesBeyondTheSource(IReadOnlyList<string> parts, Dialect dialect)
@@ -216,12 +256,14 @@ internal static class SqlDeniedFunctions
 
         return dialect switch
         {
+            PostgreSqlDialect => PostgreSqlBeyondTheSource.Contains(name) || HasQualifier(parts, PostgreSqlBeyondTheSourceQualifiers),
+            MySqlDialect => MySqlBeyondTheSource.Contains(name) || IsHeatWaveSchemaFunction(parts),
             MsSqlDialect => TSqlBeyondTheSource.Contains(name) || HasPrefix(name, TSqlBeyondTheSourcePrefixes),
             SnowflakeDialect => SnowflakeBeyondTheSource.Contains(name)
                 || HasPrefix(name, SnowflakeBeyondTheSourcePrefixes)
                 || HasQualifier(parts, SnowflakeBeyondTheSourceQualifiers),
             DatabricksDialect => DatabricksBeyondTheSource.Contains(name) || HasPrefix(name, DatabricksBeyondTheSourcePrefixes),
-            BigQueryDialect => BigQueryBeyondTheSource.Contains(name) || HasQualifier(parts, BigQueryBeyondTheSourceQualifiers),
+            BigQueryDialect => BigQueryBeyondTheSource.Contains(name) || IsBigQueryFamilyMember(parts),
             _ => false
         };
     }
@@ -233,14 +275,16 @@ internal static class SqlDeniedFunctions
     /// <param name="parts">The function's name parts, unquoted (<see cref="PartsOf"/>).</param>
     public static string DisplayName(IReadOnlyList<string> parts, Dialect dialect)
     {
-        var familyQualifiers = dialect switch
+        var refusedByQualifier = dialect switch
         {
-            SnowflakeDialect => SnowflakeBeyondTheSourceQualifiers,
-            BigQueryDialect => BigQueryBeyondTheSourceQualifiers,
-            _ => null
+            PostgreSqlDialect => HasQualifier(parts, PostgreSqlBeyondTheSourceQualifiers),
+            MySqlDialect => IsHeatWaveSchemaFunction(parts),
+            SnowflakeDialect => HasQualifier(parts, SnowflakeBeyondTheSourceQualifiers),
+            BigQueryDialect => IsBigQueryFamilyMember(parts),
+            _ => false
         };
 
-        return familyQualifiers != null && HasQualifier(parts, familyQualifiers)
+        return refusedByQualifier
             ? $"{parts[^2]}.{parts[^1]}"
             : LastPartOf(parts);
     }
@@ -260,6 +304,24 @@ internal static class SqlDeniedFunctions
     private static bool HasQualifier(IReadOnlyList<string> parts, HashSet<string> qualifiers)
     {
         return parts.Count > 1 && qualifiers.Contains(parts[^2]);
+    }
+
+    // A built-in family member is written as family.function, optionally after SAFE. (which BigQuery accepts on built-in
+    // functions only); a third part in front is a project, so project.ml.fn is a user function in a dataset.
+    private static bool IsBigQueryFamilyMember(IReadOnlyList<string> parts)
+    {
+        var name = parts.Count == 3 && parts[0].Equals("SAFE", StringComparison.OrdinalIgnoreCase)
+            ? parts.Skip(1).ToList()
+            : parts;
+
+        return name.Count == 2 && BigQueryBeyondTheSourceQualifiers.Contains(name[0]);
+    }
+
+    private static bool IsHeatWaveSchemaFunction(IReadOnlyList<string> parts)
+    {
+        return parts.Count > 1
+            && parts[^2].Equals("sys", StringComparison.OrdinalIgnoreCase)
+            && HasPrefix(parts[^1], MySqlHeatWaveSchemaPrefixes);
     }
 
     private static string LastPartOf(IReadOnlyList<string> parts)

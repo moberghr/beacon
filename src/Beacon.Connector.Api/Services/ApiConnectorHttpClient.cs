@@ -7,8 +7,8 @@ namespace Beacon.Connector.Api.Services;
 /// The HTTP client of the REST API connector: its queries and its connection test. Its handler never follows redirects
 /// (a redirect would carry the data source's header credentials and the caller's headers to another address), keeps no
 /// cookies, gives up connecting after <see cref="ConnectTimeout"/> and connects only to an address the data-source address
-/// rules allow (<see cref="DataSourceOutboundAddresses"/>: never loopback outside development hosts, link-local or cloud
-/// metadata; private networks while <c>Beacon:DataSources:Outbound:AllowPrivateNetworks</c>), judged on the addresses the
+/// rules allow (<see cref="DataSourceOutboundAddresses"/>: loopback only while <c>Beacon:DataSources:Outbound:AllowLoopback</c>,
+/// never link-local or cloud metadata; private networks while <c>Beacon:DataSources:Outbound:AllowPrivateNetworks</c>), judged on the addresses the
 /// host resolves to when it connects; the connector bounds each request's whole wait and the size of the body it reads. The client's request logging is removed, because a request's path and query can carry
 /// identifiers or a credential, and every request is marked so a host's HTTP tracing can leave it out
 /// (<see cref="ApiConnectorRequests.IsApiConnectorRequest"/>).

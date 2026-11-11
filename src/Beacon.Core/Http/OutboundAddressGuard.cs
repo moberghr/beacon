@@ -2,6 +2,7 @@ using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
 using Beacon.Core.Notifications;
+using IPNetwork = System.Net.IPNetwork;
 
 namespace Beacon.Core.Http;
 
@@ -11,7 +12,9 @@ namespace Beacon.Core.Http;
 /// DNS answer that changes between a check and the connect cannot redirect the call. Link-local and cloud metadata
 /// addresses, unspecified, multicast and reserved addresses are always refused, also when carried in an IPv6 form
 /// (mapped, translated, compatible, NAT64, 6to4); loopback and private-network addresses as the
-/// <see cref="OutboundAddressRules"/> say.
+/// <see cref="OutboundAddressRules"/> say. An address under a NAT64 prefix is judged by the IPv4 address it carries: the
+/// well-known prefix always, and the prefixes configured in <c>Beacon:Notifications:Nat64Prefixes</c> when the guard is
+/// given them (<see cref="OutboundAddressPolicy.ConfiguredNat64Prefixes"/>).
 /// <para>
 /// Through the system proxy the connection goes to the proxy, which the callback lets through: the tunnel an https call
 /// opens through it, and a connection to another endpoint than the request's own host while the proxy applies to the
@@ -20,14 +23,17 @@ namespace Beacon.Core.Http;
 /// trusted to enforce its own egress policy.
 /// </para>
 /// </summary>
-internal sealed class OutboundAddressGuard(OutboundAddressRules rules, IHostAddressResolver resolver)
+internal sealed class OutboundAddressGuard(
+    OutboundAddressRules rules,
+    IHostAddressResolver resolver,
+    IReadOnlyList<IPNetwork>? nat64Prefixes = null)
 {
     public OutboundAddressRules Rules => rules;
 
     /// <summary>Why the rules refuse <paramref name="address"/>, or null when they allow it.</summary>
     public OutboundAddressRefusal? Judge(IPAddress address)
     {
-        return OutboundAddresses.Classify(address) switch
+        return OutboundAddresses.Classify(address, nat64Prefixes) switch
         {
             OutboundAddressKind.Public => null,
             OutboundAddressKind.PrivateNetwork => rules.AllowPrivateNetworks ? null : OutboundAddressRefusal.PrivateNetwork,

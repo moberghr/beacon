@@ -3,6 +3,7 @@ using Beacon.AI.Services.LlmProviders;
 using Beacon.Api;
 using Beacon.Api.Endpoints;
 using Beacon.Core;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.Settings;
 using Beacon.Core.Services;
@@ -11,6 +12,7 @@ using FluentAssertions;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.AspNetCore.TestHost;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -232,6 +234,63 @@ public class StoredSettingsStartupTests
         services.AddBeaconApiAuthorization();
 
         services.Should().Contain(x => x.ServiceType == typeof(IStartupFilter) && x.ImplementationType == typeof(StoredSettingsStartupApplier));
+    }
+
+    [TestCase(AiProvider.AzureOpenAI, "http://llm.example.test", false, true)]
+    [TestCase(AiProvider.AzureOpenAI, "http://10.0.0.5:8080/", false, true)]
+    [TestCase(AiProvider.AzureOpenAI, "http://llm.example.test", true, false)]
+    [TestCase(AiProvider.AzureOpenAI, "http://localhost:11434", false, false)]
+    [TestCase(AiProvider.AzureOpenAI, "https://llm.example.test", false, false)]
+    [TestCase(AiProvider.OpenAI, "http://llm.example.test", false, false)]
+    public async Task AStoredHttpLlmEndpoint_ForAProviderThatSendsToIt_IsWarnedAboutOnce_ByNameOnly(AiProvider provider, string endpoint, bool allowInsecureEndpoint, bool warns)
+    {
+        var logs = new LogRecorder();
+        var applier = new StoredSettingsApplier(
+            Settings(new AppSettingsData { LlmProvider = provider, LlmEndpoint = endpoint, LlmApiKey = "stored-key", LlmModel = "m" }),
+            new BeaconConfiguration(),
+            logs.For<StoredSettingsApplier>(),
+            Manager(),
+            EndpointServices(allowInsecureEndpoint));
+
+        await applier.ApplyAsync(CancellationToken.None);
+        await applier.ApplyChangedAsync(CancellationToken.None);
+
+        var warnings = logs.Entries.Where(x => x.Level == LogLevel.Warning).ToList();
+        warnings.Should().HaveCount(warns ? 1 : 0);
+        warnings.Should().NotContain(x => !x.Message.Contains("Beacon:LLM:AllowInsecureEndpoint") || !x.Message.Contains("stored in Admin Settings"));
+        logs.Entries.Should().NotContain(x => x.FullText.Contains(endpoint) || x.FullText.Contains("stored-key"));
+    }
+
+    [TestCase("AzureOpenAI", "http://llm.internal", true)]
+    [TestCase("AzureOpenAI", "https://llm.internal", false)]
+    [TestCase("Claude", "http://llm.internal", false)]
+    [TestCase(null, "http://llm.internal", false)]
+    public async Task AConfiguredHttpLlmEndpoint_InForceWithoutAStoredProvider_IsWarnedAbout_ByNameOnly(string? provider, string endpoint, bool warns)
+    {
+        var logs = new LogRecorder();
+        var applier = new StoredSettingsApplier(
+            Settings(new AppSettingsData()),
+            new BeaconConfiguration(),
+            logs.For<StoredSettingsApplier>(),
+            Manager(),
+            EndpointServices(allowInsecureEndpoint: false, ("Beacon:LLM:Provider", provider), ("Beacon:LLM:Endpoint", endpoint)));
+
+        await applier.ApplyAsync(CancellationToken.None);
+
+        var warnings = logs.Entries.Where(x => x.Level == LogLevel.Warning).ToList();
+        warnings.Should().HaveCount(warns ? 1 : 0);
+        warnings.Should().NotContain(x => !x.Message.Contains("Beacon:LLM:Endpoint") || x.FullText.Contains(endpoint));
+    }
+
+    private static ServiceProvider EndpointServices(bool allowInsecureEndpoint, params (string Key, string? Value)[] configuration)
+    {
+        var services = new ServiceCollection();
+        services.Configure<LlmEndpointOptions>(x => x.AllowInsecureEndpoint = allowInsecureEndpoint);
+        services.AddSingleton<IConfiguration>(new ConfigurationBuilder()
+            .AddInMemoryCollection(configuration.Select(x => new KeyValuePair<string, string?>(x.Key, x.Value)))
+            .Build());
+
+        return services.BuildServiceProvider();
     }
 
     private static IAppSettingsService Settings(AppSettingsData data)

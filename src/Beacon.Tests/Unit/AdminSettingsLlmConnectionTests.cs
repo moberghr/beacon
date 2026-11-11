@@ -420,6 +420,39 @@ public class AdminSettingsLlmConnectionTests
         _settings.Verify(x => x.SaveSettingsAsync(It.Is<AppSettingsData>(y => y.LlmEndpoint == "http://llm.internal"), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
+    [TestCase(AiProvider.OpenAI)]
+    [TestCase(AiProvider.Claude)]
+    [TestCase(AiProvider.Bedrock)]
+    public async Task AnHttpEndpoint_SavedWithAProviderThatDoesNotSendToIt_IsNotHeldToTheRule(AiProvider provider)
+    {
+        await Update(TestPermissions.Admin).Handle(Command() with { LlmProvider = provider, LlmEndpoint = "http://llm.example", LlmApiKey = "new-key" }, CancellationToken.None);
+
+        _settings.Verify(x => x.SaveSettingsAsync(It.Is<AppSettingsData>(y => y.LlmProvider == provider && y.LlmEndpoint == "http://llm.example"), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public async Task AStoredHttpEndpoint_IsRefused_WhenTheSaveSwitchesToAProviderThatSendsToIt()
+    {
+        _settings
+            .Setup(x => x.GetSettingsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AppSettingsData { BaseUrl = "https://beacon.example", LlmProvider = AiProvider.OpenAI, LlmRegion = "westeurope", LlmEndpoint = "http://legacy.example", LlmApiKey = "stored-key" });
+
+        var act = () => Update(TestPermissions.Admin).Handle(Command() with { LlmEndpoint = "http://legacy.example", LlmApiKey = "new-key" }, CancellationToken.None);
+
+        await act.Should().ThrowExactlyAsync<InvalidOperationException>().WithMessage(LlmEndpointRule.Message);
+        _settings.Verify(x => x.SaveSettingsAsync(It.IsAny<AppSettingsData>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [TestCase(AiProvider.OpenAI)]
+    [TestCase(AiProvider.Claude)]
+    public async Task TestingAProviderThatDoesNotSendToTheEndpoint_IsNotHeldToTheRule(AiProvider provider)
+    {
+        var result = await Test(TestPermissions.Admin).Handle(TestCommand(provider) with { LlmEndpoint = "http://llm.example", LlmApiKey = "new-key" }, CancellationToken.None);
+
+        result.Error.Should().NotBe(LlmEndpointRule.Message);
+        _tester.Verify(x => x.TestAsync(It.IsAny<LlmConnectionTestParameters>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
     [Test]
     public async Task AStoredHttpEndpointThatPredatesTheRule_DoesNotBlockOtherSettings()
     {
