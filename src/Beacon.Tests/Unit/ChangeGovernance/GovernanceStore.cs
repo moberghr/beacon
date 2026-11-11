@@ -142,6 +142,22 @@ internal sealed class GovernanceStore
         return user;
     }
 
+    /// <summary>
+    /// A stored, enabled user holding the system roles named in <paramref name="roles"/>: the Admin role at the Admin level,
+    /// any other as a functional role (level 0).
+    /// </summary>
+    public BeaconUser UserHolding(int id, string externalId, params string[] roles)
+    {
+        var user = User(id, externalId, null);
+        foreach (var role in roles)
+        {
+            var level = role == RoleService.RoleNames.Admin ? RoleService.RoleLevels.Admin : RoleService.RoleLevels.Functional;
+            user.UserRoles.Add(new BeaconUserRole { UserId = id, User = user, Role = new BeaconRole { Name = role, IsSystemRole = true, Level = level } });
+        }
+
+        return user;
+    }
+
     /// <summary>A version of the query holding one warehouse step with <paramref name="sql"/>, its hash recorded unless <paramref name="legacy"/>.</summary>
     public QueryVersion AddVersion(int number, QueryVersionStatus status, string sql = "SELECT 1", bool legacy = false, string? finalQuery = null)
     {

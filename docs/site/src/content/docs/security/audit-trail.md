@@ -430,9 +430,10 @@ data contract rule. (MCP calls have their own [audit](/mcp/observability-and-aud
 - **Read and export.** `GET /beacon/api/execution-log` (paged, newest first) and `GET /beacon/api/execution-log/export`
   (CSV, at most 10,000 rows; the `X-Beacon-Truncated` header says when more matched) take `from` and `to` (UTC, at most
   93 days apart) and optional `dataSourceId`, `triggeredByUserId`, `status` and `executionContext`. Both are an Auditor's
-  or a SecurityAdmin's, list only the data sources the caller may read, and record an `audit.execution_log_read` or
-  `audit.execution_log_exported` event (the filters' shape, the row count) before they return; they fail when the event
-  cannot be written.
+  or a SecurityAdmin's; an Auditor (or an Admin) reads every row, without project membership, as it reads the security
+  audit trail, while a SecurityAdmin who is no Auditor reads only the rows of the data sources its projects let it read.
+  Both record an `audit.execution_log_read` or `audit.execution_log_exported` event (the filters' shape, the row count)
+  before they return; they fail when the event cannot be written.
 - **Values masked on the way out.** The stored SQL keeps the values written into it (bind values are never stored); the
   read and the export replace its string literals and numbers with `?` and drop its comments, read with the data
   source's dialect (every quoted span and number when the source or its dialect is unknown). The export also cuts each

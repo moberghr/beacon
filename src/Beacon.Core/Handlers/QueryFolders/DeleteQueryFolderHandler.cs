@@ -1,11 +1,8 @@
-using System.Linq.Expressions;
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Data;
-using Beacon.Core.Data.Entities;
 using Beacon.Core.Authorization;
-using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.SecurityAudit;
 
 namespace Beacon.Core.Handlers.QueryFolders;
@@ -28,7 +25,7 @@ internal sealed class DeleteQueryFolderHandler(
 
         // A folder is project-less, but deleting it moves or strands its queries: the caller must be able to write every
         // one of them.
-        await DemandWriteOnEveryQueryAsync(context, request.FolderId, cancellationToken);
+        await QueryFolderWriteCheck.DemandWriteOnEveryQueryAsync(context, projectAccess, actorAccessor, logger, request.FolderId, withSubfolders: false, cancellationToken);
 
         var folder = await context.QueryFolders
             .Include(f => f.ChildFolders)
@@ -72,27 +69,6 @@ internal sealed class DeleteQueryFolderHandler(
         await context.SaveChangesAsync(cancellationToken);
 
         return Unit.Value;
-    }
-
-    private async Task DemandWriteOnEveryQueryAsync(BeaconContext context, int folderId, CancellationToken cancellationToken)
-    {
-        var writable = (await projectAccess.GetScopeAsync(cancellationToken)).For(ProjectAction.Write);
-        if (writable.Ids == null)
-        {
-            return;
-        }
-
-        var isWritable = ProjectAccessQueryableExtensions.AllSourcesInOneProjectOf<Query>(context, writable, x => x.Steps.Select(y => y.DataSourceId), x => x.OwnerUserId);
-        var isNotWritable = Expression.Lambda<Func<Query, bool>>(Expression.Not(isWritable.Body), isWritable.Parameters);
-        var holdsUnwritable = await context.Queries
-            .Where(x => x.FolderId == folderId)
-            .AnyAsync(isNotWritable, cancellationToken);
-        if (holdsUnwritable)
-        {
-            var actor = await actorAccessor.GetCurrentAsync(cancellationToken);
-
-            throw AccessRefusal.Of(logger, actor, "query folder", folderId, "The folder holds queries you cannot change.");
-        }
     }
 }
 

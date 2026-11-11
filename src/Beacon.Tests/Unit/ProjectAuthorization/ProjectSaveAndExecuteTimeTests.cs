@@ -162,6 +162,68 @@ public class ProjectSaveAndExecuteTimeTests
     }
 
     [Test]
+    public async Task RenamingAFolder_ThatHoldsAQueryTheCallerCannotChange_InItOrASubfolder_IsRefused_AndWritesNothing()
+    {
+        var capture = new SqlCapture().ThenScalar(true);
+        var handler = UpdateFolderHandler(capture, Member);
+
+        var act = () => handler.Handle(new UpdateQueryFolderCommand(3, "renamed", "described"), CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconForbiddenException>();
+        var check = capture.Commands.Should().ContainSingle("nothing is read or written after the refusal").Subject;
+        check.Should().Contain("NOT")
+            .And.Contain("q.folder_id", "the queries checked are those of the folder")
+            .And.Contain("q0.id = @", "named by the request")
+            .And.Contain("q1.id = q0.id OR", "the folder itself")
+            .And.Contain("q1.path", "and every folder whose path lies under its path");
+    }
+
+    [Test]
+    public async Task TheRenameCheck_Translates_OnSqlServer()
+    {
+        var capture = SqlCapture.OnSqlServer().ThenScalar(true);
+        var handler = UpdateFolderHandler(capture, Member);
+
+        var act = () => handler.Handle(new UpdateQueryFolderCommand(3, "renamed", null), CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconForbiddenException>();
+        capture.Commands.Should().ContainSingle()
+            .Which.Should().Contain("CROSS APPLY").And.Contain("LEFT([q1].[Path], LEN([q0].[Path] + N'/')) = [q0].[Path] + N'/'", "a subfolder is matched by its path's prefix");
+    }
+
+    [Test]
+    public async Task RenamingAFolder_WhoseQueriesTheCallerMayAllChange_OrThatHoldsNone_GoesOnToTheRename()
+    {
+        // The check finds no query the caller cannot write (none at all, or only writable ones); the handler then loads the
+        // folder and checks the new name against its siblings (taken here, so nothing is saved).
+        var capture = new SqlCapture()
+            .ThenScalar(false)
+            .ThenRow(FolderRow(3, "finance"))
+            .ThenRow(FolderRow(4, "renamed"));
+        var handler = UpdateFolderHandler(capture, Member);
+
+        var act = () => handler.Handle(new UpdateQueryFolderCommand(3, "renamed", "described"), CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("A folder named 'renamed' already exists at this level.");
+        capture.Commands.Should().HaveCount(3);
+        capture.Commands[0].Should().Contain("NOT");
+        capture.Commands[1].Should().Contain("FROM beacon.query_folders");
+    }
+
+    [Test]
+    public async Task AnUnrestrictedWriter_RenamesAFolder_WithoutTheCheck()
+    {
+        var capture = new SqlCapture().ThenNoRows();
+        var handler = UpdateFolderHandler(capture, TestProjectAccess.Unrestricted);
+
+        var act = () => handler.Handle(new UpdateQueryFolderCommand(3, "renamed", null), CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("Folder not found.");
+        capture.Commands.Should().ContainSingle()
+            .Which.Should().NotContain("NOT").And.Contain("FROM beacon.query_folders");
+    }
+
+    [Test]
     public async Task ARelationshipOfAnotherDataSource_IsNotFound()
     {
         var capture = new SqlCapture().ThenNoRows();
@@ -251,6 +313,14 @@ public class ProjectSaveAndExecuteTimeTests
         summary.Should().Be(new GetHomeMigrationSummaryResult(0, 0, 0, 0));
         capture.Commands.Should().BeEmpty();
     }
+
+    private static UpdateQueryFolderHandler UpdateFolderHandler(SqlCapture capture, ProjectAccessScope scope) =>
+        new(capture.Factory(), TestProjectAccess.Evaluator(scope), TestProjectAccess.Actors(), NullLogger<UpdateQueryFolderHandler>.Instance);
+
+    // A root folder as the query_folders select returns it: id, archived_time, created_time, description, name,
+    // parent_folder_id, path, sort_order.
+    private static object[] FolderRow(int id, string name) =>
+        [id, DBNull.Value, DateTime.UtcNow, DBNull.Value, name, DBNull.Value, name, 0];
 
     private sealed record Paging : ListRequest;
 

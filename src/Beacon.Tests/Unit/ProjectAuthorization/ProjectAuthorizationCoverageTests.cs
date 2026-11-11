@@ -49,7 +49,7 @@ public class ProjectAuthorizationCoverageTests
         ["RunMigrationJob"] = "MigrationOperator: data migration; the handler checks Run on the source and Write on the destination",
         ["StartMigrationJobRun"] = "MigrationOperator: data migration; the handler checks Run on the source and Write on the destination, and its task checks them again",
         ["DeleteQueryFolder"] = "query folders are project-less; delete demands Write on every query held",
-        ["UpdateQueryFolder"] = "query folders are project-less",
+        ["UpdateQueryFolder"] = "query folders are project-less; rename demands Write on every query in the folder and its subfolders",
         ["DeleteRecipient"] = "SecurityAdmin: recipients are project-less",
         ["UpdateRecipient"] = "SecurityAdmin: recipients are project-less; a changed destination needs Read on what it is attached to",
         ["GetMcpProjectSettings"] = "Auditor or SecurityAdmin: security configuration",

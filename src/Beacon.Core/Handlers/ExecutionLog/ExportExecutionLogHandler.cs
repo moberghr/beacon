@@ -17,7 +17,7 @@ namespace Beacon.Core.Handlers.ExecutionLog;
 /// <summary>
 /// The execution log as CSV, newest first, over a window of at most <see cref="GetExecutionLogHandler.MaxRangeDays"/>
 /// days and at most <see cref="MaxRows"/> rows (the file says when more matched), for an Auditor or a SecurityAdmin. The
-/// rows are the ones the paged read lists for the same filters. The export is recorded before it returns
+/// rows are the ones the paged read lists for the same filters and caller (every row for an Auditor). The export is recorded before it returns
 /// (<see cref="SecurityAuditActions.ExecutionLogExported"/>: the filters' shape, the row count, whether it was cut) and
 /// fails when the event cannot be written. Rows are shown as the read shows them (<see cref="ExecutionLogView"/>), each
 /// statement's text cut at <see cref="MaxQueryTextChars"/> characters, and a text cell a spreadsheet would read as a
@@ -26,6 +26,7 @@ namespace Beacon.Core.Handlers.ExecutionLog;
 internal sealed class ExportExecutionLogHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IProjectAccessEvaluator projectAccess,
+    IBeaconPermissionAccessor permissionAccessor,
     SecurityAuditReads reads,
     IOptions<QueryExecutionOptions> queryOptions,
     TimeProvider timeProvider)
@@ -48,8 +49,7 @@ internal sealed class ExportExecutionLogHandler(
     {
         var (from, to) = SecurityAuditWindow.Validate(request.From, request.To, GetExecutionLogHandler.MaxRangeDays);
 
-        var scope = await projectAccess.GetScopeAsync(cancellationToken);
-        var readable = scope.For(ProjectAction.Read);
+        var readable = await ExecutionLogView.ReadableAsync(projectAccess, permissionAccessor, cancellationToken);
         var abandonedBefore = ExecutionLogView.AbandonedBefore(timeProvider, queryOptions.Value);
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 

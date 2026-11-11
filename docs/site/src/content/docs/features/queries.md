@@ -139,7 +139,9 @@ version, or submits it for approval while the workflow is on. **Change history**
 
 Queries can be filed in folders through the API: `GET`/`POST /beacon/api/query-folders`, `PUT` and `DELETE
 /beacon/api/query-folders/{id}` (delete optionally moves the folder's queries to its parent), and
-`PUT /beacon/api/queries/{id}/folder` to move a query. The Queries list does not show folders.
+`PUT /beacon/api/queries/{id}/folder` to move a query. The Queries list does not show folders. Folders belong to no
+project, but renaming or deleting one needs the right to change every query it holds (for a rename, its subfolders'
+queries too); an Admin always may.
 
 ### Deleting
 

@@ -1,6 +1,7 @@
 using Beacon.Core.Helpers;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
+using Beacon.Core.ChangeApprovals;
 using System.Text.Json;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
@@ -36,15 +37,18 @@ public interface IQueryApprovalService
     /// (<paramref name="expectedContentHash"/>, the <see cref="ApprovalRequestDetail.ContentHash"/> they reviewed:
     /// required), with the steps' orders and every step passing the save check again (409 otherwise). A request recorded
     /// before Beacon kept a change's base and content is rejected, not approved (409). The transaction takes the query's
-    /// row first (as a submission does), then decides, moves the query to the proposal and writes its steps, all committed
-    /// together; a request that is no longer pending answers 409.
+    /// row first (as a submission does), then reads the reviewer again (<see cref="IReviewerAuthority"/>: 403 for a
+    /// reviewer who is no longer an active user or no longer holds the Approver permission or the Admin role), then
+    /// decides, moves the query to the proposal and writes its steps, all committed together; a request that is no longer
+    /// pending answers 409.
     /// </summary>
     Task<QueryApprovalDecision> ApproveAsync(int requestId, string? comment, string? expectedContentHash, CancellationToken cancellationToken = default);
 
     /// <summary>
     /// Rejects a pending request as the current caller (the requester may withdraw their own); a request that is no
-    /// longer pending answers 409. The transaction takes the query's row first, as approving and submitting do. Only a
-    /// pending proposal is marked Rejected, never a live version.
+    /// longer pending answers 409. The transaction takes the query's row first, as approving and submitting do, then reads
+    /// the reviewer again as approving does (403 for one who no longer decides). Only a pending proposal is marked Rejected,
+    /// never a live version.
     /// </summary>
     Task<QueryApprovalDecision> RejectAsync(int requestId, string? comment, CancellationToken cancellationToken = default);
 }
@@ -57,6 +61,7 @@ internal class QueryApprovalService(
     IStepSqlSaveCheck saveCheck,
     BeaconConfiguration configuration,
     ISecurityAuditRecorder securityAudit,
+    IReviewerAuthority reviewerAuthority,
     ILogger<QueryApprovalService> logger) : IQueryApprovalService
 {
     /// <summary>Why a decision on a request that is no longer pending is refused.</summary>
@@ -309,6 +314,7 @@ internal class QueryApprovalService(
             await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
             await LockQueryAsync(context, request.QueryId, cancellationToken);
+            await EnsureReviewerStillDecidesAsync(context, reviewer, requestId, cancellationToken);
 
             // Decided only from Pending: a second decision, or one on a superseded request, changes nothing.
             var decided = await context.QueryApprovalRequests
@@ -426,6 +432,7 @@ internal class QueryApprovalService(
             await using var transaction = await context.Database.BeginTransactionAsync(cancellationToken);
 
             await LockQueryAsync(context, request.QueryId, cancellationToken);
+            await EnsureReviewerStillDecidesAsync(context, reviewer, requestId, cancellationToken);
 
             // Decided only from Pending: rejecting never overwrites an approval, a rejection or a superseded request.
             var decided = await context.QueryApprovalRequests
@@ -508,6 +515,37 @@ internal class QueryApprovalService(
         return context.Queries
             .Where(x => x.Id == queryId)
             .ExecuteUpdateAsync(x => x.SetProperty(y => y.ActiveVersionId, y => y.ActiveVersionId), cancellationToken);
+    }
+
+    // Who decides, checked again inside the decision's transaction, after the query's lock (a decision may wait for it), from
+    // the user store as it is now: the reviewer's own row taken, then still an active user and, wherever the route's
+    // permission filter demands it, still holding the Approver permission or the Admin role. A refusal rolls the attempt
+    // back; every retried attempt checks again.
+    private async Task EnsureReviewerStillDecidesAsync(BeaconContext context, BeaconActor reviewer, int requestId, CancellationToken cancellationToken)
+    {
+        var live = await reviewerAuthority.ReadLockedAsync(context, reviewer, cancellationToken);
+        if (live == null)
+        {
+            return;
+        }
+
+        var refusal = ReviewerRefusal(live);
+        if (refusal != null)
+        {
+            throw AccessRefusal.Of(logger, reviewer, "approval request", requestId, refusal);
+        }
+    }
+
+    private string? ReviewerRefusal(LiveReviewer live)
+    {
+        if (!live.IsActive)
+        {
+            return ChangeApprovalService.ReviewerInactiveMessage;
+        }
+
+        var approverRequired = configuration.Authorization.Enabled || configuration.UserManagement.Enabled;
+
+        return approverRequired && !live.Permissions.Holds(BeaconPermissions.Approver) ? ChangeApprovalService.ApproverRequiredMessage : null;
     }
 
     private void EnsureMayApprove(BeaconActor reviewer, string? requestedByUserId, IReadOnlyList<string> contributorUserIds, int requestId)

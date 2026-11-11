@@ -1,6 +1,8 @@
+using System.Security.Claims;
 using System.Text.Json;
 using Beacon.Core;
 using Beacon.Core.Authorization;
+using Beacon.Core.ChangeApprovals;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models;
@@ -508,6 +510,98 @@ public class ApprovalDecisionTests
         await approve.Should().ThrowAsync<BeaconForbiddenException>();
         await reject.Should().ThrowAsync<BeaconForbiddenException>();
         ShouldBeUntouched(store, active, proposal, request);
+    }
+
+    // Who decides is read again inside the decision's transaction, after the query's lock, from the user store as it is now:
+    // a reviewer disabled, archived, stripped of the Approver role or signed out everywhere while the decision waited for that
+    // lock does not decide, and nothing is written.
+    [TestCase("approve", "disabled")]
+    [TestCase("approve", "archived")]
+    [TestCase("approve", "approver role removed")]
+    [TestCase("approve", "signed out everywhere")]
+    [TestCase("reject", "disabled")]
+    [TestCase("reject", "archived")]
+    [TestCase("reject", "approver role removed")]
+    [TestCase("reject", "signed out everywhere")]
+    public async Task ADecision_ByAReviewerRevokedWhileItWaitedForTheLock_IsRefused_AndWritesNothing(string decision, string revocation)
+    {
+        var (store, active, proposal, request) = Pending(requestedBy: "ext-ben");
+        var ada = store.UserHolding(3, Ada, BeaconPermissions.Approver);
+        ada.SecurityStamp = "stamp-1";
+        var reviewers = new RevokingReviewerAuthority(TestChangeApprovals.Reviewers(SessionStamped("stamp-1")), () => Revoke(ada, revocation));
+        var service = TestQueryServices.ApprovalService(store.Factory(), Reviewer(Ada, beaconUserId: 3), ManagingUsers(), reviewers: reviewers);
+
+        Func<Task> act = decision == "approve"
+            ? () => service.ApproveAsync(request.Id, null, Shown(request), CancellationToken.None)
+            : () => service.RejectAsync(request.Id, null, CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconForbiddenException>().WithMessage(
+            revocation == "approver role removed" ? ChangeApprovalService.ApproverRequiredMessage : ChangeApprovalService.ReviewerInactiveMessage);
+        reviewers.Reads.Should().Be(1);
+        reviewers.ReadInsideTheTransaction.Should().BeTrue();
+        ShouldBeUntouched(store, active, proposal, request);
+    }
+
+    // The same re-read lets a reviewer who still decides make the decision: an Approver, or an Admin who holds no Approver role.
+    [TestCase("approve", BeaconPermissions.Approver)]
+    [TestCase("approve", RoleService.RoleNames.Admin)]
+    [TestCase("reject", BeaconPermissions.Approver)]
+    [TestCase("reject", RoleService.RoleNames.Admin)]
+    public async Task ADecision_ByAReviewerWhoStillHoldsTheRole_IsMade(string decision, string role)
+    {
+        var (store, _, proposal, request) = Pending(requestedBy: "ext-ben");
+        store.UserHolding(3, Ada, role);
+        var reviewers = new RevokingReviewerAuthority(TestChangeApprovals.Reviewers(), () => { });
+        var service = TestQueryServices.ApprovalService(store.Factory(), Reviewer(Ada, beaconUserId: 3), ManagingUsers(), reviewers: reviewers);
+
+        if (decision == "approve")
+        {
+            await service.ApproveAsync(request.Id, null, Shown(request), CancellationToken.None);
+        }
+        else
+        {
+            await service.RejectAsync(request.Id, null, CancellationToken.None);
+        }
+
+        reviewers.Reads.Should().Be(1);
+        request.Status.Should().Be(decision == "approve" ? ApprovalStatus.Approved : ApprovalStatus.Rejected);
+        request.ReviewedByUserId.Should().Be(Ada);
+        proposal.Status.Should().Be(decision == "approve" ? QueryVersionStatus.Active : QueryVersionStatus.Rejected);
+        store.Offline.Commits.Should().Be(1);
+    }
+
+    private static BeaconConfiguration ManagingUsers()
+    {
+        var configuration = new BeaconConfiguration { ApprovalWorkflow = new ApprovalWorkflowOptions { Enabled = true } };
+        configuration.UserManagement.Enabled = true;
+
+        return configuration;
+    }
+
+    private static IBeaconRequestPrincipal SessionStamped(string stamp)
+    {
+        var principal = new ClaimsPrincipal(new ClaimsIdentity([new Claim(BeaconClaims.SessionStamp, stamp, ClaimValueTypes.String, BeaconClaims.Issuer)], "Cookies"));
+
+        return Mock.Of<IBeaconRequestPrincipal>(x => x.User == principal);
+    }
+
+    private static void Revoke(BeaconUser user, string revocation)
+    {
+        switch (revocation)
+        {
+            case "disabled":
+                user.IsEnabled = false;
+                break;
+            case "archived":
+                user.ArchivedTime = DateTime.UtcNow;
+                break;
+            case "signed out everywhere":
+                user.SecurityStamp = "stamp-2";
+                break;
+            default:
+                user.UserRoles.Clear();
+                break;
+        }
     }
 
     // The content hash the request's detail shows a reviewer: the proposal's stored hash, or its snapshot's.
