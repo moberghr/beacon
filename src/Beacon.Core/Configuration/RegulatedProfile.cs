@@ -10,8 +10,9 @@ public sealed record DeploymentProfileFinding(string Setting, string Requirement
 
 /// <summary>
 /// The regulated deployment profile (<c>Beacon:Profile = Regulated</c>). Each setting is either filled by the profile when
-/// the host's configuration leaves its key unset, or required as it stands; a host value weaker than the profile requires
-/// is never overridden: it fails startup, listed with every other one. The requirements are the list
+/// the host's configuration leaves its key unset, or required as it stands; a value the host's configuration sets weaker
+/// than the profile requires is never overridden: it fails startup, listed with every other one. For a key the profile
+/// fills, a weaker value the host set in code (with the configuration key unset) is raised. The requirements are the list
 /// <see cref="Assess(RegulatedProfileSettings)"/> walks, in these groups: the MCP locks and ceilings, retention, request
 /// limits and password guessing, sign-in and access, the browser protections, the approval workflow, the audit and
 /// encryption, and the data-source and LLM connections.
@@ -25,9 +26,12 @@ public sealed record DeploymentProfileFinding(string Setting, string Requirement
 /// <item>Required, never filled (the host must decide): local login off, MFA with single sign-on, user management, project
 /// membership, API key expiry for keys stored without one, the origin check, the public base URL, the approval workflow
 /// and its other switches, the audit integrity key, the legacy encryption format off, the transport check on stored
-/// connections, and a data-source host list or no private networks.</item>
+/// connections, and a data-source host list.</item>
 /// </list>
-/// The same checks make the startup report of weak settings, also without a profile.
+/// The browser protections are judged on Beacon.Api's bound <c>Beacon:Security</c> options when it registers them
+/// (<see cref="IRegulatedProfileBoundSettings"/>). In the MCP gateway (<see cref="McpGatewayDeployment"/>) the approval
+/// workflow governs nothing, so its requirements are not judged there. The same checks make the startup report of weak
+/// settings, also without a profile.
 /// </summary>
 public static class RegulatedProfile
 {
@@ -59,7 +63,6 @@ public static class RegulatedProfile
     internal const string AllowInsecureTransportKey = $"{DataSourceTransportOptions.SectionName}:{nameof(DataSourceTransportOptions.AllowInsecure)}";
     internal const string AllowHostCredentialsKey = $"{DataSourceConnectionOptions.SectionName}:{nameof(DataSourceConnectionOptions.AllowHostCredentials)}";
     internal const string AllowedHostsKey = $"{DataSourceConnectionOptions.SectionName}:{nameof(DataSourceConnectionOptions.AllowedHosts)}";
-    internal const string AllowPrivateNetworksKey = $"{DataSourceOutboundOptions.SectionName}:{nameof(DataSourceOutboundOptions.AllowPrivateNetworks)}";
     internal const string AllowInsecureEndpointKey = $"{LlmEndpointOptions.SectionName}:{nameof(LlmEndpointOptions.AllowInsecureEndpoint)}";
     internal const string EmbedEnabledKey = $"{EmbedOptions.SectionName}:{nameof(EmbedOptions.Enabled)}";
     internal const string MigrationsEnabledKey = $"{MigrationOptions.SectionName}:{nameof(MigrationOptions.Enabled)}";
@@ -84,6 +87,33 @@ public static class RegulatedProfile
         CookieSecureAlwaysKey,
         MinimumPasswordLengthKey
     ];
+
+    /// <summary>
+    /// The settings the profile judged before it covered sign-in, the browser protections, the approval workflow, the audit
+    /// and the connections: the MCP locks and ceilings, the retention lock, the request limits, the lockout, local login and
+    /// MFA. The obsolete <c>Assess</c> overload judges only these, and without a profile only these make the startup
+    /// report's Warning.
+    /// </summary>
+    internal static readonly IReadOnlySet<string> OriginalSettings = new HashSet<string>(StringComparer.Ordinal)
+    {
+        ForceReadOnlyKey,
+        ForcePiiDetectionKey,
+        AuditRequiredKey,
+        ForbidRowDataToLlmKey,
+        $"{CeilingsSection}:{nameof(McpCeilingOptions.MaxRowLimit)}",
+        $"{CeilingsSection}:{nameof(McpCeilingOptions.StatementTimeoutSeconds)}",
+        $"{CeilingsSection}:{nameof(McpCeilingOptions.MaxResultBytes)}",
+        $"{CeilingsSection}:{nameof(McpCeilingOptions.MaxConcurrentQueriesPerKey)}",
+        RetentionLockedKey,
+        RateLimitKey(nameof(RateLimitOptions.Login)),
+        RateLimitKey(nameof(RateLimitOptions.Api)),
+        RateLimitKey(nameof(RateLimitOptions.Anonymous)),
+        RateLimitKey(nameof(RateLimitOptions.Mcp)),
+        RateLimitKey(nameof(RateLimitOptions.Ask)),
+        LockoutKey,
+        LocalLoginEnabledKey,
+        RequireMfaKey
+    };
 
     // One entry per requirement: the setting it names, what it requires and why, and whether the settings meet it.
     private static readonly IReadOnlyList<Requirement> Requirements =
@@ -145,7 +175,7 @@ public static class RegulatedProfile
         new(EnforceOnExistingKey, "must be true: a stored connection that does not authenticate its server keeps connecting", x => x.Transport.EnforceOnExisting),
         new(AllowInsecureTransportKey, "must not be true: connections that do not authenticate their server are accepted", x => !x.Transport.AllowInsecure),
         new(AllowHostCredentialsKey, "must not be true: a connection can sign in as the Beacon host", x => !x.DataSources.AllowHostCredentials),
-        new(AllowedHostsKey, $"must list the hosts data sources may reach, or {AllowPrivateNetworksKey} must be false: a connection can reach any host on the Beacon host's networks", x => x.DataSources.AllowedHosts.Count > 0 || !x.Outbound.AllowPrivateNetworks),
+        new(AllowedHostsKey, "must list the hosts data sources may reach: a connection can reach any host on the Beacon host's networks", x => x.DataSources.AllowedHosts.Count > 0),
         new(AllowInsecureEndpointKey, "must not be true: an LLM endpoint over plain http is accepted", x => !x.Llm.AllowInsecureEndpoint)
     ];
 
@@ -232,17 +262,15 @@ public static class RegulatedProfile
     {
         ArgumentNullException.ThrowIfNull(settings);
 
-        return Requirements
-            .Where(x => !x.Holds(settings))
-            .Select(x => new DeploymentProfileFinding(x.Setting, x.Text))
-            .ToList();
+        return Judge(settings, Requirements);
     }
 
     /// <summary>
-    /// Every setting weaker than the regulated profile requires, judging the given settings and Beacon's defaults for every
-    /// other one; empty when all of them hold.
+    /// The settings among <see cref="OriginalSettings"/> (the MCP locks and ceilings, the retention lock, the request limits,
+    /// the lockout, local login and MFA) weaker than the regulated profile requires, judged on the given options only;
+    /// empty when all of them hold.
     /// </summary>
-    [Obsolete("Judges Beacon's defaults for every setting it is not given; use Assess(RegulatedProfileSettings).")]
+    [Obsolete("Judges only the MCP, retention, request-limit and sign-in settings it is given; use Assess(RegulatedProfileSettings), which judges every requirement.")]
     public static IReadOnlyList<DeploymentProfileFinding> Assess(
         McpDeploymentOptions mcp,
         RetentionOptions retention,
@@ -250,14 +278,16 @@ public static class RegulatedProfile
         OidcAuthenticationOptions? oidc,
         LocalLoginOptions localLogin)
     {
-        return Assess(new RegulatedProfileSettings
+        var settings = new RegulatedProfileSettings
         {
             Mcp = mcp,
             Retention = retention,
             RateLimits = rateLimits,
             Oidc = oidc,
             Beacon = new BeaconConfiguration { UserManagement = new UserManagementOptions { LocalLogin = localLogin } }
-        });
+        };
+
+        return Judge(settings, Requirements.Where(x => OriginalSettings.Contains(x.Setting)));
     }
 
     /// <summary>
@@ -280,6 +310,36 @@ public static class RegulatedProfile
         return surfaces;
     }
 
+    private static IReadOnlyList<DeploymentProfileFinding> Judge(RegulatedProfileSettings settings, IEnumerable<Requirement> requirements)
+    {
+        return requirements
+            .Where(x => !settings.GatewayMode || !GovernsNothingInGateway(x))
+            .Where(x => !Holds(x, settings))
+            .Select(x => new DeploymentProfileFinding(x.Setting, x.Text))
+            .ToList();
+    }
+
+    // A setting a layer above Core binds is judged on its bound value; every other one on the settings Core resolved.
+    private static bool Holds(Requirement requirement, RegulatedProfileSettings settings)
+    {
+        return settings.BoundSettings
+            .Select(x => x.Holds(requirement.Setting))
+            .FirstOrDefault(x => x != null)
+            ?? requirement.Holds(settings);
+    }
+
+    // The gateway serves no query, migration, data contract, recipient, data source, LLM or user-role change, so the
+    // approval workflow governs nothing there; its administrators come from the host's admin policy.
+    private static bool GovernsNothingInGateway(Requirement requirement)
+    {
+        return requirement.Setting.StartsWith($"{ApprovalWorkflowSetting}.", StringComparison.Ordinal);
+    }
+
+    private static string RateLimitKey(string limit)
+    {
+        return $"{RateLimitOptions.SectionName}:{limit}:{nameof(RateLimitWindow.PermitLimit)}";
+    }
+
     private static Requirement Ceiling(string ceiling, Func<McpCeilingOptions, int?> value)
     {
         return new(
@@ -291,7 +351,7 @@ public static class RegulatedProfile
     private static Requirement RateLimit(string limit, Func<RateLimitOptions, RateLimitWindow?> window)
     {
         return new(
-            $"{RateLimitOptions.SectionName}:{limit}:{nameof(RateLimitWindow.PermitLimit)}",
+            RateLimitKey(limit),
             "must be greater than zero: the limit is off",
             x => window(x.RateLimits)?.IsEnabled == true);
     }

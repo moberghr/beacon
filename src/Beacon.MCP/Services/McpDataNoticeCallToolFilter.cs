@@ -1,5 +1,8 @@
+using Microsoft.Extensions.DependencyInjection;
+using Microsoft.Extensions.Options;
 using ModelContextProtocol.Protocol;
 using ModelContextProtocol.Server;
+using Beacon.Core.Configuration;
 
 namespace Beacon.MCP.Services;
 
@@ -11,7 +14,8 @@ namespace Beacon.MCP.Services;
 /// first and exactly as the tool built them (a client reading the first block as the tool's JSON still finds it there),
 /// and so does its <c>structuredContent</c>. An error result (a refusal, a withheld result) is Beacon's own wording and
 /// passes through unchanged. Registered outermost, so it sees the answer that leaves Beacon; the audit records the
-/// tool's own result.
+/// tool's own result. A host turns it off with <c>Beacon:Mcp:DataNotice</c> = <c>false</c>
+/// (<see cref="McpDeploymentOptions.DataNotice"/>); the server instructions keep <see cref="InstructionsSentence"/>.
 /// </summary>
 internal static class McpDataNoticeCallToolFilter
 {
@@ -27,7 +31,11 @@ internal static class McpDataNoticeCallToolFilter
 
     public static McpRequestFilter<CallToolRequestParams, CallToolResult> Create()
     {
-        return next => async (request, cancellationToken) => WithNotice(await next(request, cancellationToken));
+        return next => async (request, cancellationToken) =>
+        {
+            var result = await next(request, cancellationToken);
+            return IsOn(request.Services) ? WithNotice(result) : result;
+        };
     }
 
     /// <summary>
@@ -54,5 +62,11 @@ internal static class McpDataNoticeCallToolFilter
             Meta = result.Meta,
             ResultType = result.ResultType
         };
+    }
+
+    // On unless the host turned it off; a request without services (a test double) keeps the default.
+    private static bool IsOn(IServiceProvider? services)
+    {
+        return services?.GetService<IOptions<McpDeploymentOptions>>()?.Value.DataNotice ?? true;
     }
 }

@@ -1,11 +1,13 @@
 using System.Text.Json;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using NUnit.Framework;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
 using Beacon.Api.Middleware;
+using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit;
 
@@ -104,6 +106,31 @@ public class ApiExceptionMappingTests
         AssertInternalError(status, problem);
     }
 
+    [Test]
+    public async Task AnInternalError_IsLoggedWithItsStackFrames_NeverItsMessage()
+    {
+        var log = new LogRecorder();
+
+        var (status, _) = await RunAsync(_ =>
+        {
+            FailInternally();
+            return Task.CompletedTask;
+        }, log);
+
+        status.Should().Be(StatusCodes.Status500InternalServerError);
+        var entry = log.Entries.Should().ContainSingle().Which;
+        entry.Level.Should().Be(LogLevel.Error);
+        entry.Message.Should().Contain("Unhandled exception in PUT /beacon/api/mcp/settings (IOException (error code none")
+            .And.Contain("stack: IOException at ApiExceptionMappingTests.FailInternally, ");
+        log.Contains("db-internal-7").Should().BeFalse();
+        entry.Exception.Should().BeNull();
+    }
+
+    private static void FailInternally()
+    {
+        throw new IOException("Connection to db-internal-7 failed.");
+    }
+
     private static void AssertInternalError(int status, JsonElement problem)
     {
         status.Should().Be(StatusCodes.Status500InternalServerError);
@@ -111,9 +138,9 @@ public class ApiExceptionMappingTests
         problem.GetProperty("title").GetString().Should().Be("Internal server error");
     }
 
-    private static async Task<(int Status, JsonElement Problem)> RunAsync(RequestDelegate next)
+    private static async Task<(int Status, JsonElement Problem)> RunAsync(RequestDelegate next, LogRecorder? log = null)
     {
-        var middleware = new ApiExceptionMiddleware(next, NullLogger<ApiExceptionMiddleware>.Instance);
+        var middleware = new ApiExceptionMiddleware(next, log?.For<ApiExceptionMiddleware>() ?? NullLogger<ApiExceptionMiddleware>.Instance);
         var context = new DefaultHttpContext();
         context.Request.Method = "PUT";
         context.Request.Path = "/beacon/api/mcp/settings";

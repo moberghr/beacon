@@ -11,12 +11,16 @@ namespace Beacon.Core.Helpers;
 
 /// <summary>
 /// What a log may say about a failed query or call (§1.11): the exception's type, the driver's or service's error code,
-/// the types of the exceptions it wraps and the method that threw it — never a message: a server, conversion or HTTP error
-/// message can quote query text, row values or a URL with a credential in it.
+/// the types of the exceptions it wraps, the method that threw it and, for an unhandled error, the methods on its stack —
+/// never a message: a server, conversion or HTTP error message can quote query text, row values or a URL with a credential
+/// in it.
 /// </summary>
 public static partial class FailureCodes
 {
     private const int MaxInnerTypes = 5;
+
+    /// <summary>The most stack frames <see cref="StackOf"/> names, over the exception and the ones it wraps together.</summary>
+    internal const int MaxStackFrames = 40;
 
     // A service's error code is repeated only when it is a plain token ("ThrottlingException", "INVALID_PARAMETER_VALUE").
     [GeneratedRegex(@"^[A-Za-z0-9_.\-]{1,64}$", RegexOptions.CultureInvariant, matchTimeoutMilliseconds: 250)]
@@ -102,11 +106,83 @@ public static partial class FailureCodes
     public static string? ThrowingMethodOf(Exception exception)
     {
         var method = exception.TargetSite ?? new StackTrace(exception, false).GetFrame(0)?.GetMethod();
-        if (method == null)
+
+        return method == null ? null : NameOf(method);
+    }
+
+    /// <summary>
+    /// The stack of <paramref name="exception"/> and of the exceptions it wraps, as an unhandled error's log names it:
+    /// <c>InvalidOperationException at Service.Run, Endpoint.Handle; inner SocketException at Socket.Connect</c> — each
+    /// exception's type and the methods of its frames, innermost call first, as <c>Type.Method</c> (an async method or
+    /// lambda by its own name), at most <see cref="MaxStackFrames"/> frames in all. Frames the runtime hides from stack
+    /// traces are left out. Never a message, an argument value or a file path.
+    /// </summary>
+    public static string StackOf(Exception exception)
+    {
+        ArgumentNullException.ThrowIfNull(exception);
+
+        var parts = new List<string>();
+        var remaining = MaxStackFrames;
+        var depth = 0;
+        for (var current = exception; current != null && depth <= MaxInnerTypes; current = current.InnerException, depth++)
         {
-            return null;
+            var frames = FramesOf(current);
+            var shown = frames
+                .Take(remaining)
+                .ToList();
+            remaining -= shown.Count;
+
+            var part = current.GetType().Name;
+            if (shown.Count > 0)
+            {
+                part += $" at {string.Join(", ", shown)}";
+            }
+
+            if (shown.Count < frames.Count)
+            {
+                part += $" (+{frames.Count - shown.Count} frames)";
+            }
+
+            parts.Add(part);
         }
 
+        return string.Join("; inner ", parts);
+    }
+
+    private static List<string> FramesOf(Exception exception)
+    {
+        var names = new List<string>();
+        foreach (var frame in new StackTrace(exception, false).GetFrames())
+        {
+            var method = frame.GetMethod();
+            if (method == null || IsHiddenFromStackTraces(method))
+            {
+                continue;
+            }
+
+            names.Add(NameOf(method));
+        }
+
+        return names;
+    }
+
+    private static bool IsHiddenFromStackTraces(MethodBase method)
+    {
+        try
+        {
+            return method.IsDefined(typeof(StackTraceHiddenAttribute), false)
+                || method.DeclaringType?.IsDefined(typeof(StackTraceHiddenAttribute), false) == true;
+        }
+        catch (Exception)
+        {
+            // Metadata that cannot be read leaves the frame in: the log line is still written.
+            return false;
+        }
+    }
+
+    // Type.Method, with an async method, iterator or lambda named after the method that declares it.
+    private static string NameOf(MethodBase method)
+    {
         var type = method.DeclaringType;
         var name = method.Name;
 

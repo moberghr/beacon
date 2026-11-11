@@ -291,6 +291,32 @@ When you upgrade:
 - [ ] **Data sources with overlapping foreign keys:** more foreign-key relationships appear after the next metadata
       refresh. Nothing changes until a source is refreshed, and no relationship is removed.
 
+### Behaviour changes in the security hardening
+
+| Area | Now |
+|---|---|
+| Outbound addresses | The REST API and Databricks connectors and the LLM clients resolve the host when they connect and never connect to a link-local or cloud metadata address. The two connectors also refuse loopback unless `Beacon:DataSources:Outbound:AllowLoopback` is `true`, and private networks while `Beacon:DataSources:Outbound:AllowPrivateNetworks` is `false` ([HTTP data-source addresses](/getting-started/configuration/#http-data-source-addresses)). An Azure OpenAI endpoint must be `https`, except on a loopback host or with `Beacon:LLM:AllowInsecureEndpoint` ([AI / LLM](/getting-started/configuration/#ai--llm)). |
+| Connection options | A new connection that names a client certificate or key file on the Beacon host is refused unless `Beacon:DataSources:AllowHostCredentials` is `true`; stored ones keep working with a Warning. A CA file is still accepted. |
+| Warehouse functions | Functions that reach models, storage or secrets (BigQuery `ML.`/`AI.`, Databricks AI and secret functions, Snowflake Cortex, PostgreSQL HTTP, S3 and cloud-model extensions, MySQL Lambda and HeatWave ML, SQL Server AI and REST calls) are refused, with read-only enforcement on or off ([the full list](/security/authorization/)). |
+| Previews | A query or step preview run by someone who may not write in the query's project (a Viewer, for example) is PII-masked, as a subscription delivers it, and says so. |
+| Error responses | Under `/beacon/api`, only Beacon's own `InvalidOperationException` answers 400 with its message. One thrown by a library, or by your own code on a Beacon route, answers 500 `Internal server error` ([Error responses](/integrate/host-setup/#error-responses)). |
+| Failure logs | Failures are logged by exception type, error code and stack frames, never by message: the message can carry SQL, values or connection details. |
+| Sign out everywhere | Also refuses the user's bearer tokens issued before it, on the REST API and `/beacon/mcp` ([Sign-in sessions](/security/user-management/#sign-in-sessions)). API keys are not affected. |
+| Password change | The new password must differ from the current one. |
+| MCP tool results | Every successful tool result ends with a text block saying its content is data, not instructions. `Beacon:Mcp:DataNotice: false` turns it off ([Connection details](/mcp/server/#connection-details)). |
+| MCP server card | `/.well-known/mcp/server-card.json` shows the major version only; the exact version reaches authenticated clients at `initialize`. |
+| Regulated profile | `Beacon:Profile: Regulated` requires more settings, among them a data-source host list, the approval workflow (not in the MCP gateway) and the browser protections, judged also when set in code ([Regulated profile](/getting-started/configuration/#regulated-profile-beaconprofile)). Without the profile, startup warns only on the settings it always judged and notes the others once (event 9133). |
+
+When you upgrade:
+
+- [ ] **Apply the `AddUserTokensValidAfter` migration before starting** the new version: it adds the column that sign
+      out everywhere writes and every bearer token is checked against.
+- [ ] **HTTP data sources on the Beacon host** (`localhost`, a sidecar or a tunnel): set
+      `Beacon:DataSources:Outbound:AllowLoopback` to `true`.
+- [ ] **Client certificate or key files in connection strings:** set `Beacon:DataSources:AllowHostCredentials` to
+      `true` for those sources.
+- [ ] **Regulated deployments:** run once without the profile, read the 9130 and 9133 report and set each key it names.
+
 ## Release notes
 
 The full list of changes is on the [5.0.0.0 release](https://github.com/moberghr/beacon/releases/tag/5.0.0.0).

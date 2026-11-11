@@ -127,7 +127,7 @@ Some settings are pinned by host configuration and bind Admins too. The UI shows
 
 Every MCP setting change is recorded in the settings history with who changed it.
 
-`Beacon:Profile: Regulated` requires the regulated values of these locks and of the audit, retention, row-data, ceiling, rate-limit, sign-in and access, browser-protection, approval-workflow, encryption and data-source connection settings: it fills the keys a host left unset where a safe value exists and requires the host to set the rest, and fails startup, listing each, on any key unset where it must be set or set weaker; it never overrides a host value. A startup report (event 9130) names every weaker setting, also without the profile. → [Regulated profile](/getting-started/configuration/#regulated-profile-beaconprofile)
+`Beacon:Profile: Regulated` requires the regulated values of these locks and of the audit, retention, row-data, ceiling, rate-limit, sign-in and access, browser-protection, approval-workflow, encryption and data-source connection settings: it fills the keys a host's configuration leaves unset where a safe value exists (raising a weaker value set in code) and requires the host to set the rest, and fails startup, listing each, on any key unset where it must be set or set weaker; it never overrides a configured value. A startup report names every weaker setting, also without the profile (event 9130, Warning; without the profile the settings it covered first, the others as one Information, 9133). → [Regulated profile](/getting-started/configuration/#regulated-profile-beaconprofile)
 
 ## 12. Audit and security events
 

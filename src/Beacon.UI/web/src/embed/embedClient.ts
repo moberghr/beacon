@@ -73,26 +73,31 @@ export function readFrameOrigins(doc: Document = document): string[] {
     .filter(x => originOf(x) === x);
 }
 
-/** What `framingOrigin` reads of the page it runs in. */
+/** What `expiryTargets` reads of the page it runs in. */
 export interface FramedPage {
   location: { ancestorOrigins?: ArrayLike<string> };
   document: { referrer: string };
 }
 
 /**
- * The origin to post to the framing page at: the grant's one origin; with several, the framing page's own origin
- * (`location.ancestorOrigins` where the browser has it, else the referrer's origin) when the grant lists it. Null when it
- * cannot be told, and then nothing is posted: a message never goes to any origin (`'*'`).
+ * The origins to post the expiry message at, each one the grant lists, never any origin (`'*'`): the grant's one origin;
+ * with several, the framing page's own origin (`location.ancestorOrigins` where the browser has it, else the referrer's
+ * origin) when the grant lists it, and none when it does not. When the framing page's origin cannot be told (a browser
+ * without `ancestorOrigins` and no referrer), each origin the grant lists: the browser delivers a message only at the
+ * origin the framing page has, and only those origins may frame the page.
  */
-export function framingOrigin(allowed: readonly string[], page: FramedPage = window): string | null {
+export function expiryTargets(allowed: readonly string[], page: FramedPage = window): string[] {
   if (allowed.length <= 1) {
-    return allowed[0] ?? null;
+    return [...allowed];
   }
 
   const ancestors = page.location.ancestorOrigins;
   const parent = ancestors != null && ancestors.length > 0 ? ancestors[0] : originOf(page.document.referrer);
+  if (parent == null) {
+    return [...allowed];
+  }
 
-  return parent != null && allowed.includes(parent) ? parent : null;
+  return allowed.includes(parent) ? [parent] : [];
 }
 
 /**
@@ -133,18 +138,20 @@ export function refusalMeansExpired(token: string, renderedBefore: boolean, now:
 /**
  * Tells the framing page, at most once per page load, that the token has expired, so a host that mints a new one on
  * the message cannot be driven into a loop. The message carries nothing but its type, and is posted only at
- * `targetOrigin` (an origin the grant lets frame the page, see `framingOrigin`); without one nothing is posted.
+ * `targetOrigins` (origins the grant lets frame the page, see `expiryTargets`); without one nothing is posted.
  */
-export function expiryNotifier(host: Pick<Window, 'postMessage'> | null, targetOrigin: string | null): () => void {
+export function expiryNotifier(host: Pick<Window, 'postMessage'> | null, targetOrigins: readonly string[]): () => void {
   let sent = false;
 
   return () => {
-    if (sent || host == null || targetOrigin == null) {
+    if (sent || host == null || targetOrigins.length === 0) {
       return;
     }
 
     sent = true;
-    host.postMessage(EXPIRED_MESSAGE, targetOrigin);
+    for (const origin of targetOrigins) {
+      host.postMessage(EXPIRED_MESSAGE, origin);
+    }
   };
 }
 

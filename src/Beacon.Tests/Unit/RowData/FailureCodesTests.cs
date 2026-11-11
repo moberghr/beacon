@@ -79,6 +79,50 @@ public class FailureCodesTests
         FailureCodes.Describe(new InvalidOperationException(Secret)).Should().Be("InvalidOperationException (error code none)");
     }
 
+    [Test]
+    public void StackOf_NamesEachExceptionsTypeAndFrames_NeverAMessageOrFile()
+    {
+        var exception = Caught(ThrowWrapped);
+
+        var stack = FailureCodes.StackOf(exception);
+
+        stack.Should().StartWith("InvalidOperationException at FailureCodesTests.ThrowWrapped, FailureCodesTests.Caught")
+            .And.Contain("; inner FakeDbException at FailureCodesTests.ThrowWrapped")
+            .And.EndWith("; inner IOException", "an exception that was never thrown has no frames");
+        stack.Should().NotContain(Secret).And.NotContain(".cs").And.NotContain("line ");
+    }
+
+    [Test]
+    public async Task StackOf_NamesAnAsyncMethodByItsOwnName_WithoutTheRuntimesHiddenFrames()
+    {
+        var exception = await CaughtAsync(ThrowFromAsyncAsync);
+
+        var stack = FailureCodes.StackOf(exception);
+
+        stack.Should().StartWith("FakeDbException at FailureCodesTests.ThrowFromAsyncAsync, ")
+            .And.Contain("FailureCodesTests.CaughtAsync");
+        stack.Should().NotContain("MoveNext").And.NotContain("ExceptionDispatchInfo").And.NotContain(Secret);
+    }
+
+    [Test]
+    public void StackOf_IsBoundedOverTheExceptionAndTheOnesItWraps()
+    {
+        var exception = Caught(() => Recurse(FailureCodes.MaxStackFrames * 2));
+
+        var stack = FailureCodes.StackOf(exception);
+
+        var frames = stack["InvalidOperationException at ".Length..].Split(" (+")[0].Split(", ");
+        frames.Should().HaveCount(FailureCodes.MaxStackFrames).And.OnlyContain(x => x == "FailureCodesTests.Recurse");
+        stack.Should().MatchRegex(@" \(\+\d+ frames\)$");
+        stack.Should().NotContain(Secret);
+    }
+
+    [Test]
+    public void StackOf_OfAnExceptionNeverThrown_IsItsType()
+    {
+        FailureCodes.StackOf(new InvalidOperationException(Secret, new IOException(Secret))).Should().Be("InvalidOperationException; inner IOException");
+    }
+
     // The branches as a query path logs them: SQL Server's number and a SQLSTATE through the database provider, an AWS
     // error code through the CloudWatch connector.
     [Test]
@@ -147,6 +191,17 @@ public class FailureCodesTests
         {
             throw new InvalidOperationException(Secret, ex);
         }
+    }
+
+    // Not a tail call, so every level keeps its frame.
+    private static int Recurse(int depth)
+    {
+        if (depth == 0)
+        {
+            throw new InvalidOperationException(Secret);
+        }
+
+        return Recurse(depth - 1) + 1;
     }
 
     private static async Task ThrowFromAsyncAsync()

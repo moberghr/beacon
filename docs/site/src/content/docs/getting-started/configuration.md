@@ -931,7 +931,7 @@ Other startup-validated keys (`Beacon:Authorization:*`, `Beacon:Authentication:*
 
 ## Regulated profile (`Beacon:Profile`)
 
-`Beacon:Profile: Regulated` turns on a preset of the settings a regulated deployment needs. Unset (or `None`) changes nothing; any other value fails startup. The profile reads the host's configuration keys: a key the host left unset is filled, a key the host set weaker than the profile requires is **never overridden** — the host fails to start with every such key listed in one message.
+`Beacon:Profile: Regulated` turns on a preset of the settings a regulated deployment needs. Unset (or `None`) changes nothing; any other value fails startup. The profile reads the host's configuration keys: a key the host's configuration leaves unset is filled, a key the host's configuration sets weaker than the profile requires is **never overridden** — the host fails to start with every such key listed in one message. For a key the profile fills, a weaker value the host sets in code (with the configuration key unset) is raised to the profile's value.
 
 | Key | Under the profile |
 |---|---|
@@ -944,20 +944,20 @@ Other startup-validated keys (`Beacon:Authorization:*`, `Beacon:Authentication:*
 | `Beacon:Audit:Required`, `Beacon:Audit:ExecutionLog:Required` | Unset: `true` (a sign-in whose audit event cannot be written gets no session; a statement whose execution log row cannot be written does not run). `false` fails startup |
 | `Beacon:Authentication:Cookie:SecureAlways` | Unset: `true` (the session cookie always carries the Secure flag). `false` fails startup |
 | `Beacon:UserManagement:MinimumPasswordLength` | Unset: `12`. A value below 12 fails startup |
-| `Beacon:Security:Csp` | Already `Enforce` by default; `ReportOnly` or `Off` fails startup |
+| `Beacon:Security:Csp` | Already `Enforce` by default; `ReportOnly` or `Off`, in configuration or in code (`BeaconHostSecurityOptions`), fails startup |
 | `Beacon:DataSources:Transport:AllowInsecure`, `Beacon:DataSources:AllowHostCredentials`, `Beacon:LLM:AllowInsecureEndpoint`, `Beacon:DataProtection:AllowUnencryptedKeys` | Already off by default; `true` fails startup |
 | `Beacon:UserManagement:LocalLogin:Enabled` | Must be set to `false`; never filled, since it ends password sign-in for every account but the break-glass ones (`BreakGlassUserNames` stay allowed) |
 | `Beacon:Authentication:Oidc:RequireMfa` | With single sign-on on, must be set to `true`; never filled, since your identity provider must send the `amr`/`acr` claims first |
 | `Beacon:Authorization:RequireProjectMembership` | Must be set to `true`; never filled, since every project becomes members-only and data sources no project links Admin-only |
 | `Beacon:ApiKeys:EnforceMaxLifetimeOnExistingKeys` | Must be set to `true`; never filled, since keys stored without an expiry stop working once they are older than `MaxLifetimeDays` |
-| `Beacon:Security:OriginGuard` | Must be set to `Enforce`; never filled, since a browser origin missing from `Beacon:Security:AllowedOrigins` is then refused (read what `LogOnly` logged first) |
+| `Beacon:Security:OriginGuard` | Must be `Enforce`, in configuration or in code (`BeaconHostSecurityOptions`); never filled, since a browser origin missing from `Beacon:Security:AllowedOrigins` is then refused (read what `LogOnly` logged first) |
 | `Beacon:PublicBaseUrl` | Must be set to Beacon's `https` address |
 | `Beacon:Audit:IntegrityKey` | Must be set, from your secret store (at least 32 characters) |
 | `Beacon:Encryption:AllowLegacyCbc` | Must be set to `false`; never filled, since values still in the legacy format become unreadable: wait until the re-encryption run reports none left (see [Encryption key configuration](#encryption-key-configuration-required)) |
 | `Beacon:DataSources:Transport:EnforceOnExisting` | Must be set to `true`; never filled, since a stored connection that does not authenticate its server stops connecting |
-| `Beacon:DataSources:AllowedHosts` or `Beacon:DataSources:Outbound:AllowPrivateNetworks` | The host list must name the hosts data sources may reach, or private networks must be closed (`false`) |
+| `Beacon:DataSources:AllowedHosts` | Must name the hosts data sources may reach (`Beacon:DataSources:Outbound:AllowPrivateNetworks` covers only the HTTP connectors and does not stand in for it) |
 | `EnableUserManagement` (code) | Must be on: per-user roles, functional permissions and project memberships need Beacon's user store |
-| `EnableApprovalWorkflow` (code) | Must be on, with every `Covers*` switch `true` (`CoversDataSourceConnections`, `CoversLlmConnection` and `CoversAdminRoleGrants` are off by default) and `AllowSelfApproval` `false` |
+| `EnableApprovalWorkflow` (code) | Must be on, with every `Covers*` switch `true` (`CoversDataSourceConnections`, `CoversLlmConnection` and `CoversAdminRoleGrants` are off by default) and `AllowSelfApproval` `false`. Not required in the Beacon MCP gateway (`AddBeaconMcpGateway`), which serves none of the changes the workflow governs |
 
 ```json
 {
@@ -995,9 +995,9 @@ builder.Services.AddBeaconServices(builder.Configuration, options =>
 });
 ```
 
-At startup Beacon logs one report of these checks (event 9130, Warning) naming each setting that is weaker than the profile requires, also when no profile is set; under the profile, once every check holds, one Information (9131) names the settings the profile filled, and another (9132) names the surfaces the profile allows that are on (`Beacon:Embed:Enabled`, `Beacon:Migrations:Enabled`), for review. The report and the startup failure carry configuration names only, never a value. LLM concurrency and rate limits are Admin settings stored at runtime (see [AI / LLM](#ai--llm)), outside the profile.
+At startup Beacon logs one report of these checks. Under the profile, event 9130 (Warning) names each setting that is weaker than the profile requires; without a profile, 9130 names only the MCP locks and ceilings, the retention lock, the request limits, the lockout, local login and MFA, and one Information (9133) names the other weak settings, so an alert on the Warning does not start firing at an upgrade. Under the profile, once every check holds, one Information (9131) names the settings the profile filled, and another (9132) names the surfaces the profile allows that are on (`Beacon:Embed:Enabled`, `Beacon:Migrations:Enabled`), for review. The report and the startup failure carry configuration names only, never a value. LLM concurrency and rate limits are Admin settings stored at runtime (see [AI / LLM](#ai--llm)), outside the profile.
 
-**Upgrading a regulated deployment.** The profile now also requires `Beacon:Authorization:RequireProjectMembership`, `Beacon:ApiKeys:EnforceMaxLifetimeOnExistingKeys`, `Beacon:Security:OriginGuard: Enforce`, an `https` `Beacon:PublicBaseUrl`, `Beacon:Audit:IntegrityKey`, `Beacon:Encryption:AllowLegacyCbc: false`, `Beacon:DataSources:Transport:EnforceOnExisting`, a data-source host list (or closed private networks), user management and the approval workflow over every kind. A host that set none of them fails to start with the full list: run once without the profile to read the 9130 report, set each key, then turn the profile back on. The Beacon MCP gateway (`AddBeaconMcpGateway`) owns Beacon's code configuration and does not turn the approval workflow on, so it cannot run under the profile today.
+**Upgrading a regulated deployment.** The profile now also requires `Beacon:Authorization:RequireProjectMembership`, `Beacon:ApiKeys:EnforceMaxLifetimeOnExistingKeys`, `Beacon:Security:OriginGuard: Enforce`, an `https` `Beacon:PublicBaseUrl`, `Beacon:Audit:IntegrityKey`, `Beacon:Encryption:AllowLegacyCbc: false`, `Beacon:DataSources:Transport:EnforceOnExisting`, a data-source host list (`Beacon:DataSources:AllowedHosts`; closed private networks no longer stand in for it), user management and the approval workflow over every kind. A host that set none of them fails to start with the full list: run once without the profile to read the 9130 and 9133 report, set each key, then turn the profile back on. The Beacon MCP gateway (`AddBeaconMcpGateway`) runs under the profile with the keys above set in its configuration; the approval workflow is not required there.
 
 ## MCP (`Beacon:Mcp`)
 
@@ -1021,6 +1021,7 @@ Validated at startup. Without the section, `ForceReadOnly` and `ForcePiiDetectio
 | Key | Type | Default | What it does |
 |---|---|---|---|
 | `ForceReadOnly`, `ForcePiiDetection`, `ForceNoContentRetention`, `ForbidRowDataToLlm` | bool | `true`, `true`, `false`, `false` | See [Deployment locks](#deployment-locks) |
+| `DataNotice` | bool | `true` | Ends every successful tool result with a text block saying its content is data, not instructions (see [Connection details](/mcp/server/#connection-details)). `false` leaves results as the tools built them, for a client that reads every content block as the answer; the server instructions say the same either way |
 | `Ceilings:MaxRowLimit` | int | none | Caps the row limit the MCP tools apply; must be greater than 0 when set |
 | `Ceilings:StatementTimeoutSeconds`, `MaxResultBytes`, `MaxConcurrentQueriesPerKey` | int | none | Clamp the MCP settings of the same names, shown on the MCP settings page; must be greater than 0 when set. The MCP tools apply the statement timeout to every statement, bound each tool result to the byte budget, and refuse a call when the caller already runs that many queries |
 | `Ceilings:LearningSignalRetentionDays` | int | none | Clamps the learning-signal retention (`LearningSignalRetentionDays`, global and per project) on the MCP settings page; greater than 0 when set. Under `Beacon:Retention:Locked` it is at most `Beacon:Retention:Days` |

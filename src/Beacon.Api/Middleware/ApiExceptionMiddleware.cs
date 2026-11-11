@@ -35,7 +35,13 @@ internal sealed class ApiExceptionMiddleware(RequestDelegate next, ILogger<ApiEx
 
         if (status >= 500)
         {
-            logger.LogError("Unhandled exception in {Method} {Path} ({Failure})", context.Request.Method, context.Request.Path, FailureCodes.Describe(ex));
+            // The stack's frames name types and methods only: never the message, an argument or a file path (§1.11).
+            logger.LogError(
+                "Unhandled exception in {Method} {Path} ({Failure}); stack: {Stack}",
+                context.Request.Method,
+                context.Request.Path,
+                FailureCodes.Describe(ex),
+                FailureCodes.StackOf(ex));
         }
         else
         {
@@ -71,7 +77,7 @@ public static class ApiExceptionMiddlewareExtensions
     /// response: an <see cref="InvalidOperationException"/> thrown by Beacon's code and a <see cref="BeaconException"/> as
     /// 400 with their message, <see cref="SettingLockedException"/> as 409, <see cref="BeaconForbiddenException"/> and
     /// <see cref="UnauthorizedAccessException"/> as 403, anything else (a library's <see cref="InvalidOperationException"/>
-    /// included) as a 500 without details, logged by its type and code only. Other paths are
+    /// included) as a 500 without details, logged by its type, code and stack frames (type and method names) only. Other paths are
     /// not touched, and neither is a response that has started or a request the client cancelled. <c>UseBeaconPipeline()</c>
     /// adds it first; a host wiring Beacon's middlewares itself calls it after <c>UseStaticFiles</c> and before
     /// <c>UseBeaconAuthentication</c>, so the exceptions of authentication, antiforgery and the redirects are mapped too.

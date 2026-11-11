@@ -105,7 +105,7 @@ Put the origin and `embedPath` in the iframe's `src`. The token travels in the U
   referrerpolicy="no-referrer"></iframe>
 ```
 
-When the token expires, the page shows "expired, reload" and posts this message to the host page so it can mint a new token and set a new `src`. The message carries no data, only its `type`. It goes only to an origin in the grant's list, never to `*`: with one origin, to that one; with several, to the framing page's origin, which the page reads from `location.ancestorOrigins` or, in a browser without it (Firefox), from the referrer. With several origins and `referrerpolicy="no-referrer"` on the iframe, such a browser gets no message; use `referrerpolicy="strict-origin"` if you rely on it:
+When the token expires, the page shows "expired, reload" and posts this message to the host page so it can mint a new token and set a new `src`. The message carries no data, only its `type`. It goes only to origins in the grant's list, never to `*`: with one origin, to that one; with several, to the framing page's origin, which the page reads from `location.ancestorOrigins` or, in a browser without it (Firefox), from the referrer. When neither tells it (several origins and `referrerpolicy="no-referrer"` on the iframe in such a browser), the page posts the message once to each origin in the list, and the browser delivers it only at the one the framing page has. Accept it only when `event.origin` is Beacon's origin, as below:
 
 ```js
 window.addEventListener('message', (event) => {
