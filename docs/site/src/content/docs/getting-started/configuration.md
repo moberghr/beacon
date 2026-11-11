@@ -464,9 +464,9 @@ stored ones keep working with a Warning. BigQuery sources whose service account 
 whose key names a token endpoint, universe or URL that is not Google's, stop connecting. New MySQL sources without a
 password are refused. PostgreSQL connections with a password no longer answer a server's Kerberos or SSPI request:
 set `Require Auth` yourself (and `AllowHostCredentials` for an Admin's source) if a password-carrying connection must
-sign in with Kerberos. New connections that name a client certificate, key or CA file on the Beacon host are refused
-unless `AllowHostCredentials` is `true` (add a private CA to the host's trust store instead); stored ones keep working
-with a Warning.
+sign in with Kerberos. New connections that name a client certificate or key file on the Beacon host are refused
+unless `AllowHostCredentials` is `true`; a CA file that only verifies the server needs no option. Stored ones keep
+working with a Warning.
 :::
 
 ## HTTP data-source addresses

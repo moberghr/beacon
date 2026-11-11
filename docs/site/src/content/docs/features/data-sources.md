@@ -121,8 +121,9 @@ synonyms and case do not matter.
 | API (OpenAPI) | **Base URL** and **OpenAPI spec URL** are absolute `https://` URLs. | Install the CA on the Beacon host. |
 | Databricks, BigQuery, AWS CloudWatch | Nothing to set: their clients always connect over HTTPS and check the certificate. | Not applicable |
 
-A CA file is read on the Beacon host, so it must exist there, and naming one needs
-`Beacon:DataSources:AllowHostCredentials` (see [Driver options and hosts](#driver-options-and-hosts)). A connection
+A CA file is read on the Beacon host, so it must exist there. It only verifies the server, so naming one needs no
+option; a client certificate or key file needs `Beacon:DataSources:AllowHostCredentials` (see
+[Driver options and hosts](#driver-options-and-hosts)). A connection
 Beacon cannot read, or whose type has no connector registered, is never verified.
 
 How Beacon applies the rule:
