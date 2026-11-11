@@ -85,7 +85,7 @@ jobs:
       run: npm install -g npm@11.11.0
 
     - name: Restore dependencies
-      run: dotnet restore
+      run: dotnet restore --locked-mode
 
     # No --no-build: a no-build pack skips static web asset discovery (see w-build.yml).
     - name: Pack packable projects
@@ -187,11 +187,11 @@ jobs:
         echo "Scanning $RANGE"
         "$RUNNER_TEMP/gitleaks/gitleaks" git --redact --no-banner --log-opts="--diff-merges=first-parent $RANGE" .
 
-  # Advisory: reports known vulnerabilities in dependencies and never fails the run.
+  # Fails on a known High or Critical vulnerability in a dependency (direct or transitive); lower severities are
+  # reported as warnings.
   audit:
-    name: "Dependency audit (advisory)"
+    name: "Dependency audit"
     runs-on: ubuntu-latest
-    continue-on-error: true
 
     steps:
     - name: Checkout
@@ -210,15 +210,21 @@ jobs:
         node-version: '22'
 
     - name: NuGet vulnerable packages
-      continue-on-error: true
       run: |
-        dotnet restore
+        set -euo pipefail
+        dotnet restore --locked-mode
         dotnet list Beacon.slnx package --vulnerable --include-transitive 2>&1 | tee nuget-audit.txt
+        if grep -qE '^\s*>.*\s(High|Critical)\s' nuget-audit.txt; then
+          echo "::error::NuGet reports a High or Critical vulnerability, see the step log."
+          exit 1
+        fi
         if grep -q "has the following vulnerable packages" nuget-audit.txt; then
-          echo "::warning::NuGet reports vulnerable packages, see the step log."
+          echo "::warning::NuGet reports vulnerable packages below High, see the step log."
         fi
 
     - name: npm audit
       working-directory: src/Beacon.UI/web
-      continue-on-error: true
-      run: npm audit --omit=dev
+      run: |
+        set -euo pipefail
+        npm audit --omit=dev --audit-level=high
+        npm audit --omit=dev || echo "::warning::npm reports vulnerabilities below High, see the step log."
