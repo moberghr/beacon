@@ -1,4 +1,5 @@
 using Beacon.Api.Authentication;
+using Beacon.Api.Middleware;
 using Beacon.Core.Helpers;
 using Microsoft.AspNetCore.Antiforgery;
 using Microsoft.AspNetCore.Http;
@@ -55,7 +56,7 @@ internal sealed class AntiforgeryEndpointFilter(
         }
         catch (AntiforgeryValidationException ex)
         {
-            logger.LogWarning("Antiforgery validation failed for {Method} {Path} ({Failure})", method, httpContext.Request.Path, FailureCodes.Describe(ex));
+            logger.LogWarning("Antiforgery validation failed for {Method} {Path} ({Failure})", RequestLogText.Method(httpContext.Request), RequestLogText.Path(httpContext.Request), FailureCodes.Describe(ex));
             return Results.Problem(
                 title: "Invalid antiforgery token.",
                 detail: ex.Message,

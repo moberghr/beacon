@@ -38,15 +38,15 @@ internal sealed class ApiExceptionMiddleware(RequestDelegate next, ILogger<ApiEx
             // The stack's frames name types and methods only: never the message, an argument or a file path (§1.11).
             logger.LogError(
                 "Unhandled exception in {Method} {Path} ({Failure}); stack: {Stack}",
-                context.Request.Method,
-                context.Request.Path,
+                RequestLogText.Method(context.Request),
+                RequestLogText.Path(context.Request),
                 FailureCodes.Describe(ex),
                 FailureCodes.StackOf(ex));
         }
         else
         {
             logger.LogInformation("Mapped {Exception} to HTTP {Status} for {Method} {Path}",
-                ex.GetType().Name, status, context.Request.Method, context.Request.Path);
+                ex.GetType().Name, status, RequestLogText.Method(context.Request), RequestLogText.Path(context.Request));
         }
 
         context.Response.StatusCode = status;

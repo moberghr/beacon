@@ -1,5 +1,6 @@
 using Beacon.Api.Authentication;
 using Beacon.Api.Endpoints;
+using Beacon.Api.Middleware;
 using Microsoft.AspNetCore.Authentication;
 using Microsoft.AspNetCore.Authentication.OpenIdConnect;
 using Microsoft.AspNetCore.Authorization;
@@ -81,8 +82,8 @@ internal sealed class OriginGuardMiddleware
         {
             _logger.LogWarning(
                 "The Beacon origin check would refuse {Method} {Path} ({Verdict}); the request was let through because Beacon:Security:OriginGuard is LogOnly. List the origins browsers use in Beacon:Security:AllowedOrigins or Beacon:PublicBaseUrl.",
-                context.Request.Method,
-                context.Request.Path.Value,
+                RequestLogText.Method(context.Request),
+                RequestLogText.Path(context.Request),
                 verdict);
             await _next(context);
             return;
@@ -90,8 +91,8 @@ internal sealed class OriginGuardMiddleware
 
         _logger.LogWarning(
             "The Beacon origin check refused {Method} {Path} ({Verdict}).",
-            context.Request.Method,
-            context.Request.Path.Value,
+            RequestLogText.Method(context.Request),
+            RequestLogText.Path(context.Request),
             verdict);
         await Results.Problem(
                 statusCode: StatusCodes.Status403Forbidden,
