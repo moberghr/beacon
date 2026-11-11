@@ -1,3 +1,4 @@
+using Beacon.Core.Helpers;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.DependencyInjection.Extensions;
 using Microsoft.Extensions.Logging;
@@ -133,7 +134,7 @@ internal sealed partial class BeaconHostProjectGate(
                 var failures = _state.Public.Failures + 1;
                 var delay = options.Value.RetryDelay(failures);
                 _state = new Snapshot(null, new BeaconHostSyncState(false, failures, ex.GetType().Name, timeProvider.GetUtcNow() + delay));
-                LogFailed(logger, ex, failures, delay);
+                LogFailed(logger, failures, delay, FailureCodes.Describe(ex));
 
                 return null;
             }
@@ -163,8 +164,8 @@ internal sealed partial class BeaconHostProjectGate(
     [LoggerMessage(Level = LogLevel.Information, Message = "Beacon host project {ProjectName} synced (id {ProjectId}).")]
     private static partial void LogSynced(ILogger logger, string projectName, int projectId);
 
-    [LoggerMessage(Level = LogLevel.Error, Message = "Beacon host sync failed ({Failures} in a row); callers that need the host project are refused until it succeeds. Next attempt after {Delay}.")]
-    private static partial void LogFailed(ILogger logger, Exception exception, int failures, TimeSpan delay);
+    [LoggerMessage(Level = LogLevel.Error, Message = "Beacon host sync failed ({Failures} in a row); callers that need the host project are refused until it succeeds. Next attempt after {Delay} ({Failure}).")]
+    private static partial void LogFailed(ILogger logger, int failures, TimeSpan delay, string failure);
 }
 
 /// <summary>Registers <see cref="IBeaconHostProjectGate"/>.</summary>

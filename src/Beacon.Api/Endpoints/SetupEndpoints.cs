@@ -5,6 +5,7 @@ using Microsoft.AspNetCore.Routing;
 using Beacon.Api.Authentication;
 using Beacon.Core.Authorization;
 using Beacon.Core.Handlers.Setup;
+using Beacon.Core.Helpers;
 using Beacon.Core.Models.UserManagement;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Security;
@@ -129,8 +130,8 @@ public static class SetupEndpoints
         catch (Exception ex)
         {
             logger.LogWarning(
-                ex,
-                "Could not check the first-run state at startup; the setup token is announced when setup is first requested.");
+                "Could not check the first-run state at startup; the setup token is announced when setup is first requested ({Failure}).",
+                FailureCodes.Describe(ex));
         }
     }
 }

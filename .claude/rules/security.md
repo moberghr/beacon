@@ -50,4 +50,4 @@
 
 ## Logging
 
-§1.11 **No PII in logs.** User-supplied query text, connection strings, full row payloads, and auth tokens NEVER reach `ILogger`. Log identifiers and counts only.
+§1.11 **No PII in logs.** User-supplied query text, connection strings, full row payloads, and auth tokens NEVER reach `ILogger`. Log identifiers and counts only. A failure is logged as `FailureCodes.Describe(ex)`, never as the exception object (exception argument, template argument or `[LoggerMessage]` parameter), pinned by `ExceptionLogConventionTests`.

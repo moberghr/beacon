@@ -1,5 +1,6 @@
 using Beacon.Api.Authentication;
 using Beacon.Core.Handlers.Embed;
+using Beacon.Core.Helpers;
 using Beacon.Core.Services.Embed;
 using MediatR;
 using Microsoft.AspNetCore.Mvc;
@@ -76,7 +77,7 @@ internal static class EmbedEndpoints
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogError(ex, "The embed page could not be served: the grant store could not be read");
+            logger.LogError("The embed page could not be served: the grant store could not be read ({Failure})", FailureCodes.Describe(ex));
             await EmbedTokenAuthMiddleware.UnavailableAsync(context);
             return;
         }

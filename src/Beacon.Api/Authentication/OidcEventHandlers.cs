@@ -10,6 +10,7 @@ using Beacon.Core;
 using Beacon.Core.Authentication;
 using Beacon.Core.Authorization;
 using Beacon.Core.Configuration;
+using Beacon.Core.Helpers;
 using Beacon.Core.Mcp;
 using Beacon.Core.Models;
 using Beacon.Core.Models.UserManagement;
@@ -139,7 +140,7 @@ internal static class OidcEventHandlers
             return Task.CompletedTask;
         }
 
-        logger.LogWarning(context.Failure, "OIDC remote failure");
+        logger.LogWarning("OIDC remote failure ({Failure})", context.Failure == null ? "none" : FailureCodes.Describe(context.Failure));
 
         context.Response.Redirect("/beacon/login?ssoError=1");
         context.HandleResponse();

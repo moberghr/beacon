@@ -1,3 +1,4 @@
+using Beacon.Core.Helpers;
 using Beacon.Core.SecurityAudit;
 using Beacon.Core.Services.Embed;
 using Microsoft.AspNetCore.Authentication;
@@ -87,7 +88,7 @@ public sealed class EmbedTokenAuthMiddleware(RequestDelegate next)
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogError(ex, "An embed credential could not be checked: the grant store could not be read");
+            logger.LogError("An embed credential could not be checked: the grant store could not be read ({Failure})", FailureCodes.Describe(ex));
             await UnavailableAsync(context);
             return;
         }
@@ -224,7 +225,7 @@ public sealed class EmbedTokenAuthMiddleware(RequestDelegate next)
             }
             catch (Exception ex) when (ex is not OperationCanceledException)
             {
-                logger.LogError(ex, "The refusal of an embed request could not be recorded in the security audit trail");
+                logger.LogError("The refusal of an embed request could not be recorded in the security audit trail ({Failure})", FailureCodes.Describe(ex));
             }
         }
 

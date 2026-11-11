@@ -2,6 +2,7 @@ using System.Data;
 using System.Data.Common;
 using Beacon.Core.Authorization;
 using Beacon.Core.Data;
+using Beacon.Core.Helpers;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
@@ -183,7 +184,7 @@ internal sealed class DatabaseHostSyncLock(
             catch (Exception ex)
             {
                 // Closing the session below releases a session-level lock anyway.
-                logger.LogWarning(ex, "Releasing the Beacon host-sync lock failed; it is released when the connection closes.");
+                logger.LogWarning("Releasing the Beacon host-sync lock failed; it is released when the connection closes ({Failure}).", FailureCodes.Describe(ex));
             }
             finally
             {

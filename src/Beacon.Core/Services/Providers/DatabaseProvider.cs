@@ -93,7 +93,7 @@ internal class DatabaseProvider(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Connection test failed for database data source {DataSourceId}", dataSource.Id);
+            logger.LogError("Connection test failed for database data source {DataSourceId} ({Failure})", dataSource.Id, FailureCodes.Describe(ex));
 
             stopwatch.Stop();
 

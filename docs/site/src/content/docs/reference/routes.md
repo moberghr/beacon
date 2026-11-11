@@ -140,7 +140,7 @@ Five lists predate paging and keep their original route and array response, and 
 | A conflicting change (a stale approval hash, a membership race, a locked setting) | `409` problem. A locked setting uses type `/errors/setting-locked`. |
 | Too many requests (sign-in, setup, forced metadata refresh) | `429`. |
 
-The sample host also maps unhandled exceptions under `/beacon/api` to problem responses: `400` for business-rule errors (types `/errors/invalid-operation`, `/errors/beacon`) and `500` (`/errors/internal`) otherwise. That mapping is sample code; an embedding host supplies its own.
+The sample host also maps unhandled exceptions under `/beacon/api` to problem responses: `400` for Beacon's own business-rule errors (types `/errors/invalid-operation`, `/errors/beacon`) and `500` (`/errors/internal`) otherwise, a library's `InvalidOperationException` included. That mapping is sample code; an embedding host supplies its own.
 
 ## Realtime hub
 

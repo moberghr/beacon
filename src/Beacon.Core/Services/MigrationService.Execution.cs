@@ -259,7 +259,7 @@ internal partial class MigrationService
             catch (Exception ex) when (ex is not MigrationRunFailedException)
             {
                 await transaction.RollbackAsync(CancellationToken.None);
-                throw new InvalidOperationException($"Failed to execute {mode} operation on table '{destinationTable}': {ex.Message}", ex);
+                throw new InvalidOperationException($"Failed to execute {mode} operation on table '{destinationTable}': {FailureText(ex, DestinationNames(schema, table, rows))}", ex);
             }
         }
         catch (Exception ex) when (ex is not MigrationRunFailedException && ex.Message.Contains("does not exist"))
@@ -268,11 +268,11 @@ internal partial class MigrationService
         }
         catch (Exception ex) when (ex is not MigrationRunFailedException && (ex.Message.Contains("connect") || ex.Message.Contains("connection")))
         {
-            throw new InvalidOperationException($"Unable to connect to destination database '{destinationDataSource.Name}': {ex.Message}", ex);
+            throw new InvalidOperationException($"Unable to connect to destination database '{destinationDataSource.Name}': {FailureText(ex)}", ex);
         }
         catch (Exception ex) when (ex is not InvalidOperationException)
         {
-            throw new InvalidOperationException($"Database operation failed for table '{destinationTable}': {ex.Message}", ex);
+            throw new InvalidOperationException($"Database operation failed for table '{destinationTable}': {FailureText(ex, DestinationNames(schema, table, rows))}", ex);
         }
         finally
         {

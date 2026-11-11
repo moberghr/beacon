@@ -7,6 +7,7 @@ using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Helpers;
 using Beacon.Core.Models.Providers;
 
 namespace Beacon.Core.Services;
@@ -168,22 +169,22 @@ internal sealed class SqlExecutionAudit(
         catch (Exception ex) when (!options.Value.ExecutionLog.Required)
         {
             logger.LogWarning(
-                ex,
-                "The execution log row of a {ExecutionContext} statement on data source {DataSourceId} could not be written; the statement runs without it ({Setting} is off)",
+                "The execution log row of a {ExecutionContext} statement on data source {DataSourceId} could not be written; the statement runs without it ({Setting} is off) ({Failure})",
                 start.ExecutionContext,
                 start.DataSourceId,
-                RequiredSetting);
+                RequiredSetting,
+                FailureCodes.Describe(ex));
 
             return SqlExecutionEntry.NotRecorded;
         }
         catch (Exception ex)
         {
             logger.LogError(
-                ex,
-                "The execution log row of a {ExecutionContext} statement on data source {DataSourceId} could not be written; the statement does not run ({Setting} is on)",
+                "The execution log row of a {ExecutionContext} statement on data source {DataSourceId} could not be written; the statement does not run ({Setting} is on) ({Failure})",
                 start.ExecutionContext,
                 start.DataSourceId,
-                RequiredSetting);
+                RequiredSetting,
+                FailureCodes.Describe(ex));
 
             throw new InvalidOperationException("The statement was not run: its execution log row could not be written.");
         }
@@ -227,7 +228,7 @@ internal sealed class SqlExecutionAudit(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "The end of logged statement {ExecutionLogId} could not be recorded; its row stays Started", entry.Id);
+            logger.LogWarning("The end of logged statement {ExecutionLogId} could not be recorded; its row stays Started ({Failure})", entry.Id, FailureCodes.Describe(ex));
         }
     }
 

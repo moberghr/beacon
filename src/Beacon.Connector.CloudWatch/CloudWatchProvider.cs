@@ -168,7 +168,7 @@ public class CloudWatchProvider(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Metadata retrieval failed for CloudWatch data source {DataSourceId}", dataSource.Id);
+            logger.LogError("Metadata retrieval failed for CloudWatch data source {DataSourceId} ({Failure})", dataSource.Id, FailureCodes.Describe(ex));
             throw;
         }
     }

@@ -33,7 +33,7 @@ internal class TeamsAdapter(NotificationHttpSender sender, BeaconConfiguration c
             }
             catch (Exception ex)
             {
-                logger.LogWarning(ex, "Failed to process custom Teams body template, falling back to default Adaptive Card");
+                logger.LogWarning("Failed to process custom Teams body template, falling back to default Adaptive Card ({Failure})", FailureCodes.Describe(ex));
                 jsonPayload = BuildDefaultAdaptiveCard(recipientQueryResult, queryResult);
             }
         }

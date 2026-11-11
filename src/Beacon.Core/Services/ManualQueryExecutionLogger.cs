@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Helpers;
 
 namespace Beacon.Core.Services;
 
@@ -60,7 +61,7 @@ internal sealed class ManualQueryExecutionLogger(
         catch (Exception ex)
         {
             // Don't throw - logging should not break the main flow
-            logger.LogWarning(ex, "Failed to log manual query execution");
+            logger.LogWarning("Failed to log manual query execution ({Failure})", FailureCodes.Describe(ex));
         }
     }
 }

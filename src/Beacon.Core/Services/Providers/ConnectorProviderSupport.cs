@@ -63,7 +63,7 @@ internal static class ConnectorProviderSupport
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Connection test failed for {Engine} data source {DataSourceId}", engine, dataSource.Id);
+            logger.LogError("Connection test failed for {Engine} data source {DataSourceId} ({Failure})", engine, dataSource.Id, FailureCodes.Describe(ex));
             stopwatch.Stop();
             return new ConnectionTestResult
             {

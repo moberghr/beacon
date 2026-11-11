@@ -1008,7 +1008,7 @@ internal class QueryVersionService(
         }
         catch (JsonException ex)
         {
-            logger.LogWarning(ex, "Failed to deserialize query version steps; treating as zero-step version");
+            logger.LogWarning("Failed to deserialize query version steps; treating as zero-step version ({Failure})", FailureCodes.Describe(ex));
             return 0;
         }
     }

@@ -2,6 +2,7 @@ using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Beacon.AI.Services.GitHub;
 using Beacon.Core.Handlers.Projects;
+using Beacon.Core.Helpers;
 
 namespace Beacon.AI.Handlers.Projects;
 
@@ -50,7 +51,7 @@ internal static class RepositoryScans
             }
             catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
             {
-                logger.LogError(ex, "Failed to scan repository {RepositoryId}", repoId);
+                logger.LogError("Failed to scan repository {RepositoryId} ({Failure})", repoId, FailureCodes.Describe(ex));
                 errors.Add($"Repository {repoId}: {ex.Message}");
             }
         }

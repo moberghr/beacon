@@ -1,3 +1,4 @@
+using System.Data.Common;
 using System.Text.Json;
 using Beacon.Connector.MySql;
 using Beacon.Connector.PostgreSql;
@@ -9,6 +10,7 @@ using Beacon.Core.Configuration;
 using Beacon.Core.Data.Entities.DataMigration;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.DataMigration;
+using Beacon.Core.Exceptions;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.DataMigration;
@@ -151,6 +153,69 @@ public class MigrationServiceWriterTests
         _destination.ExecutedCommands.Should().NotContain(x => x.Contains("INSERT", StringComparison.OrdinalIgnoreCase), "a failed write never falls back to row-by-row inserts");
         _destination.Commits.Should().Be(0);
         _destination.Rollbacks.Should().Be(1);
+    }
+
+    [Test]
+    public async Task ADatabaseErrorQuotingAValue_OnTheWrite_IsNeitherStoredNorReturned()
+    {
+        Job(MigrationMode.Truncate);
+        _writer.FailWritingWith = new FakeDbException(
+            "23505: duplicate key value violates unique constraint \"target_pkey\"\n\nDETAIL: Key (id)=(ssn-4711) already exists.",
+            "23505");
+
+        var result = await Service().ExecuteMigrationJob(Run(), CancellationToken.None);
+
+        result.Status.Should().Be(MigrationStatus.Failed);
+        result.ErrorMessage.Should().StartWith("Failed to execute Truncate operation on table 'target': Database error 23505");
+        result.ErrorMessage.Should().NotContain("ssn-4711");
+        StoredErrorMessage().Should().Be(result.ErrorMessage);
+    }
+
+    [Test]
+    public async Task ADatabaseErrorNamingTheServer_OnTheClear_IsNeitherStoredNorReturned()
+    {
+        Destination(new RecordingDbConnection
+        {
+            Scalar = OnSearchPath,
+            FailOnCommandText = x => x.StartsWith("TRUNCATE", StringComparison.Ordinal),
+            FailCommandWith = new FakeDbException("could not reach db-internal-7.corp:5432 as user loader", "08006")
+        });
+        Job(MigrationMode.Truncate);
+
+        var result = await Service().ExecuteMigrationJob(Run(), CancellationToken.None);
+
+        result.Status.Should().Be(MigrationStatus.Failed);
+        result.ErrorMessage.Should().Contain("Failed to execute Truncate operation on table 'target'");
+        result.ErrorMessage.Should().NotContain("db-internal-7").And.NotContain("loader");
+        StoredErrorMessage().Should().Be(result.ErrorMessage);
+        _destination.Commits.Should().Be(0);
+    }
+
+    [Test]
+    public async Task AFailedSourceRead_IsStoredAndReturnedAsItsRedactedText()
+    {
+        Job(MigrationMode.Truncate);
+        _storedPreview.TemporaryAnswer = _ => throw new QueryExecutionFailedException("invalid input syntax for type integer: \"ssn-4711\"")
+        {
+            LogMessage = "Database error 22P02 (invalid text representation): a value could not be converted."
+        };
+
+        var result = await Service().ExecuteMigrationJob(Run(), CancellationToken.None);
+
+        result.Status.Should().Be(MigrationStatus.Failed);
+        result.ErrorMessage.Should().Be("Source query execution failed: Database error 22P02 (invalid text representation): a value could not be converted.");
+        StoredErrorMessage().Should().Be(result.ErrorMessage);
+        _writer.Calls.Should().BeEmpty();
+    }
+
+    [Test]
+    public void ALibrarysInvalidOperationException_IsNotTakenAsBeaconsOwnText()
+    {
+        var libraryError = Caught(() => new List<string>().First());
+        var beaconError = Caught(() => SqlIdentifierGuard.Validate("bad;name", "table"));
+
+        MigrationService.FailureText(libraryError).Should().NotContain("Sequence contains no elements");
+        MigrationService.FailureText(beaconError).Should().Be(beaconError.Message);
     }
 
     [Test]
@@ -712,4 +777,29 @@ public class MigrationServiceWriterTests
     }
 
     private static ExecuteMigrationJobRequest Run() => new(JobId, IsManualExecution: true, ExecutionContext: "test");
+
+    // The error text the run's history row was saved with.
+    private string? StoredErrorMessage() => _world.Saved
+        .OfType<MigrationExecutionHistory>()
+        .Single()
+        .ErrorMessage;
+
+    private static Exception Caught(Action action)
+    {
+        try
+        {
+            action();
+        }
+        catch (Exception ex)
+        {
+            return ex;
+        }
+
+        throw new AssertionException("The action did not throw.");
+    }
+
+    private sealed class FakeDbException(string message, string sqlState) : DbException(message)
+    {
+        public override string SqlState => sqlState;
+    }
 }

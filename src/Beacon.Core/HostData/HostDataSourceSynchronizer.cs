@@ -6,6 +6,7 @@ using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Metadata;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Helpers;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Metadata;
 using Microsoft.EntityFrameworkCore;
@@ -335,7 +336,7 @@ internal sealed class HostDataSourceSynchronizer(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Schema relationship sync failed for host data source {DataSourceId}; metadata kept.", dataSourceId);
+            logger.LogWarning("Schema relationship sync failed for host data source {DataSourceId}; metadata kept ({Failure}).", dataSourceId, FailureCodes.Describe(ex));
         }
     }
 

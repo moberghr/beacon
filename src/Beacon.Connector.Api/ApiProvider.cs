@@ -212,7 +212,7 @@ public class ApiProvider(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Metadata retrieval failed for API data source {DataSourceId}", dataSource.Id);
+            logger.LogError("Metadata retrieval failed for API data source {DataSourceId} ({Failure})", dataSource.Id, FailureCodes.Describe(ex));
             throw;
         }
     }

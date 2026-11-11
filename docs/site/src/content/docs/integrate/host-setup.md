@@ -334,10 +334,10 @@ Beacon's handlers throw `InvalidOperationException` for business-rule violations
 | Exception | Status | `type` | `title` |
 |---|---|---|---|
 | `BeaconForbiddenException`, `UnauthorizedAccessException` | 403 | `/errors/forbidden` | `Forbidden` |
-| `InvalidOperationException` | 400 | `/errors/invalid-operation` | its message |
+| `InvalidOperationException` thrown by Beacon's code | 400 | `/errors/invalid-operation` | its message |
 | `SettingLockedException` | 409 | `/errors/setting-locked` | its message |
 | other `BeaconException` | 400 | `/errors/beacon` | its message |
-| anything else | 500 | `/errors/internal` | `Internal server error` (the exception is logged, never returned) |
+| anything else, a library's `InvalidOperationException` included | 500 | `/errors/internal` | `Internal server error` (the exception is logged by its type and error code, its message is never logged or returned) |
 
 Other paths of your application are not touched, and neither is a response that has already started or a request the client cancelled. Place it after `UseStaticFiles` and before the authentication middleware, so their exceptions are mapped too. `UseBeaconPipeline()` adds it as its first step.
 

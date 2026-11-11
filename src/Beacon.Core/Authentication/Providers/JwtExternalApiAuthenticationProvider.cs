@@ -6,6 +6,7 @@ using System.Text.Json;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Microsoft.IdentityModel.Tokens;
+using Beacon.Core.Helpers;
 using Beacon.Core.Services;
 
 namespace Beacon.Core.Authentication.Providers;
@@ -186,12 +187,12 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
         }
         catch (HttpRequestException ex)
         {
-            _logger.LogError(ex, "JWT login refused: the external login API at {Endpoint} could not be reached.", _options.ExternalLoginEndpoint);
+            _logger.LogError("JWT login refused: the external login API at {Endpoint} could not be reached ({Failure}).", _options.ExternalLoginEndpoint, FailureCodes.Describe(ex));
             return AuthenticationResult.Failed(LoginFailed);
         }
         catch (Exception ex)
         {
-            _logger.LogError(ex, "JWT login refused: unexpected error.");
+            _logger.LogError("JWT login refused: unexpected error ({Failure}).", FailureCodes.Describe(ex));
             return AuthenticationResult.Failed(LoginFailed);
         }
     }
@@ -278,7 +279,7 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
         }
         catch (SecurityTokenException ex)
         {
-            _logger.LogDebug(ex, "JWT token validation failed");
+            _logger.LogDebug("JWT token validation failed ({Failure})", FailureCodes.Describe(ex));
             return AuthenticationResult.Failed("Invalid token.");
         }
         catch (ArgumentException ex)
@@ -402,7 +403,7 @@ public class JwtExternalApiAuthenticationProvider : IBeaconAuthenticationProvide
         }
         catch (Exception ex) when (ex is not OperationCanceledException || !cancellationToken.IsCancellationRequested)
         {
-            _logger.LogError(ex, "Failed to fetch JWKS from {Endpoint}", jwksEndpoint);
+            _logger.LogError("Failed to fetch JWKS from {Endpoint} ({Failure})", jwksEndpoint, FailureCodes.Describe(ex));
             throw new SigningKeysUnavailableException(ex);
         }
     }

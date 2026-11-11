@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
+using Beacon.Core.Helpers;
 using Beacon.Core.Mcp;
 
 namespace Beacon.Core.Authorization.ProjectAccess;
@@ -548,7 +549,7 @@ internal sealed class ProjectAccessEvaluator(
         }
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
-            logger.LogError(ex, "The project membership source failed; restricted projects are denied for user {UserId}", actor.BeaconUserId);
+            logger.LogError("The project membership source failed; restricted projects are denied for user {UserId} ({Failure})", actor.BeaconUserId, FailureCodes.Describe(ex));
 
             return new Dictionary<int, ProjectRole>();
         }

@@ -7,6 +7,7 @@ using Beacon.Core.SecurityAudit;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Security;
 using Beacon.Core.Authorization;
+using Beacon.Core.Helpers;
 
 namespace Beacon.Core.Handlers.Setup;
 
@@ -82,13 +83,13 @@ internal sealed class CreateSuperAdminHandler(
         catch (Exception ex) when (DbSerializationConflict.IsSerializationConflict(ex))
         {
             // The database aborted this attempt in favour of a concurrent first-run request.
-            logger.LogWarning(ex, "First-run setup attempt conflicted with a concurrent setup request.");
+            logger.LogWarning("First-run setup attempt conflicted with a concurrent setup request ({Failure}).", FailureCodes.Describe(ex));
 
             return await AfterConflictAsync(cancellationToken);
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "First-run super admin setup failed.");
+            logger.LogError("First-run super admin setup failed ({Failure}).", FailureCodes.Describe(ex));
 
             return await AfterFailureAsync(cancellationToken);
         }
@@ -151,7 +152,7 @@ internal sealed class CreateSuperAdminHandler(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Could not re-read the first-run state after a failed setup attempt.");
+            logger.LogError("Could not re-read the first-run state after a failed setup attempt ({Failure}).", FailureCodes.Describe(ex));
             return null;
         }
     }

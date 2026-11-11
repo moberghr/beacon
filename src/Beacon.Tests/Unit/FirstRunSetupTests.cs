@@ -232,7 +232,8 @@ public class FirstRunSetupTests
 
         result.Conflict.Should().BeTrue();
         result.Failed.Should().BeFalse();
-        logs.Entries.Should().Contain(x => x.Level == LogLevel.Warning && x.Exception is PostgresException);
+        logs.Entries.Should().Contain(x => x.Level == LogLevel.Warning && x.Message.Contains("PostgresException (error code 40001"));
+        logs.Entries.Should().OnlyContain(x => x.Exception == null, "a failure is logged by its description, never as the exception");
     }
 
     [Test]
@@ -266,11 +267,12 @@ public class FirstRunSetupTests
         var result = await CreateHandler(users, logs).Handle(Command(ConfiguredToken), CancellationToken.None);
 
         result.Failed.Should().BeTrue();
-        logs.Entries
+        var first = logs.Entries
             .Where(x => x.Level == LogLevel.Error)
-            .Select(x => x.Exception)
-            .First()
-            .Should().BeSameAs(cause, "the original failure is logged before anything else is tried");
+            .First();
+        first.Message.Should().Contain("InvalidOperationException", "the original failure is logged before anything else is tried");
+        first.Message.Should().NotContain(cause.Message);
+        first.Exception.Should().BeNull();
     }
 
     [Test]
@@ -291,10 +293,13 @@ public class FirstRunSetupTests
         var result = await CreateHandler(users, logs).Handle(Command(ConfiguredToken), CancellationToken.None);
 
         result.Failed.Should().BeTrue();
-        logs.Entries
+        var errors = logs.Entries
             .Where(x => x.Level == LogLevel.Error)
-            .Select(x => x.Exception)
-            .Should().Equal(cause, recheck);
+            .ToList();
+        errors.Should().HaveCount(2);
+        errors[0].Message.Should().Contain(nameof(InvalidOperationException)).And.NotContain(cause.Message);
+        errors[1].Message.Should().Contain(nameof(TimeoutException)).And.NotContain(recheck.Message);
+        errors.Should().OnlyContain(x => x.Exception == null);
     }
 
     [Test]
