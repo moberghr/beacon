@@ -37,7 +37,7 @@ internal class WebhookAdapter(
             }
             catch (Exception ex)
             {
-                logger.LogError(ex, "Failed to process webhook body template, falling back to default payload");
+                logger.LogError("Failed to process webhook body template, falling back to default payload ({Failure})", FailureCodes.Describe(ex));
                 bodyContent = BuildDefaultPayload(recipientQueryResult, lastNotificationResultCount);
             }
         }

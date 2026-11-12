@@ -149,6 +149,26 @@ public class EmbedEndpointsTests
     }
 
     [Test]
+    public async Task ThePage_NamesTheOriginsThatMayFrameIt_ExactlyAsItsFrameAncestors()
+    {
+        var kit = new EmbedTestKit();
+        var (grant, _) = kit.Grant();
+        var mediator = new Mock<IMediator>();
+        mediator
+            .Setup(x => x.Send(It.IsAny<GetEmbedFrameQuery>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new GetEmbedFrameResult(true, [EmbedTestKit.Origin, "https://b.example.com:8443", "https://c.example.com\"><script>", EmbedTestKit.Origin]));
+        await using var host = await EmbedSurfaceHost.StartAsync(kit, mediator.Object, _webRoot);
+
+        var response = await host.SendAsync(HttpMethod.Get, BeaconEmbedPaths.FramePrefix + "/" + grant.PublicId);
+        var page = await response.Content.ReadAsStringAsync();
+
+        response.StatusCode.Should().Be(HttpStatusCode.OK);
+        response.Headers.GetValues("Content-Security-Policy").Single().Should().EndWith("frame-ancestors https://portal.example.com https://b.example.com:8443");
+        page.Should().Contain("<meta name=\"beacon-embed-origins\" content=\"https://portal.example.com https://b.example.com:8443\">");
+        page.Should().NotContain("<script>");
+    }
+
+    [Test]
     public async Task ThePage_OfAGrantThatIsNotLive_Is404_ThatNoSiteMayFrame()
     {
         var kit = new EmbedTestKit();

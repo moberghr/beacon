@@ -71,9 +71,9 @@ The full request shapes are in the OpenAPI document (`/openapi/v1.json`), once s
 
 ### Passwords
 
-Passwords are hashed with PBKDF2-SHA256 (600,000 iterations stored in the hash, 32-byte salt; older hashes are upgraded at the next successful sign-in, see [Password hashes](/security/user-management/#password-hashes)). Policy is code-configured: `MinimumPasswordLength` (default 8) and `RequirePasswordComplexity` (default `true`). A password an administrator sets must be changed at first sign-in. Users change their own password under **Settings**; there is no REST route that sets another user's password.
+Passwords are hashed with PBKDF2-SHA256 (600,000 iterations stored in the hash, 32-byte salt; older hashes are upgraded at the next successful sign-in, see [Password hashes](/security/user-management/#password-hashes)). Policy is code-configured: `MinimumPasswordLength` (default 8; `Beacon:UserManagement:MinimumPasswordLength` can raise it, never lower it) and `RequirePasswordComplexity` (default `true`). A password change must set a password different from the current one. A password an administrator sets must be changed at first sign-in. Users change their own password under **Settings**; there is no REST route that sets another user's password.
 
-Password sign-in is throttled to **10 attempts per 60 seconds per client IP** (429 with `Retry-After`), and an internal user is locked out for 15 minutes after 5 wrong passwords (the same generic answer, whatever password is sent; break-glass accounts are never locked, and `Beacon:RateLimits:Lockout:Enabled` `false` turns the lockout off). IPv6 clients are limited per `/64` block. Behind a proxy the per-IP limit only works if your host runs `UseForwardedHeaders` with the proxy listed. See [Production checklist](/integrate/production/#reverse-proxy) and [Request limits](/getting-started/configuration/#request-limits).
+Password sign-in is throttled to **10 attempts per 60 seconds per client IP** (429 with `Retry-After`), and an internal user is locked out for 15 minutes after 5 wrong passwords (the same generic answer, whatever password is sent; `Beacon:RateLimits:Lockout:Enabled` `false` turns the lockout off). Break-glass accounts are never locked and by default are limited only per client address; `Beacon:RateLimits:BreakGlassThrottle:Enabled` adds a per-account wait (30 seconds after the fifth wrong password, doubling up to 5 minutes), which anyone who knows the name can keep running. IPv6 clients are limited per `/64` block. Behind a proxy the per-IP limit only works if your host runs `UseForwardedHeaders` with the proxy listed. See [Production checklist](/integrate/production/#reverse-proxy) and [Request limits](/getting-started/configuration/#request-limits).
 
 ### Turning password sign-in off (break-glass)
 
@@ -162,7 +162,9 @@ app.UseBeaconAuthentication();   // judges the bearer token, the API key or the 
 | `EnableBearerAuthentication` | `false` | Turns the middleware on. |
 | `Validation.JwksEndpoint` or `Validation.SigningKey` | Required | One is required. The JWKS endpoint is an `https` URL (`http` to a loopback host in Development only); a signing key is at least 32 bytes. |
 | `Validation.ValidIssuer(s)`, `ValidAudience(s)` | Required | At least one of each; issuer, audience and lifetime validation must stay on. |
-| `Validation.ClockSkew` | 5 min | At most 5 minutes. |
+| `Validation.ClockSkew` | 5 min | At most 5 minutes. Not applied when a token's `iat` is compared with the user's last sign-out everywhere: a token issued before it is refused. |
+| `Validation.JwksRefreshInterval` | 1 hour | How long fetched signing keys are used before they are fetched again; 5 minutes to 24 hours. |
+| `Validation.JwksMaximumStaleness` | 24 hours | How long the last good keys are kept while the endpoint cannot be reached; at least the refresh interval, at most 7 days. |
 | `AccessTokenClaim` | None | For non-Entra providers: a claim that proves the token is an access token (ID-token claims such as `sub` or `nonce` are refused). |
 | `ClaimsMapping` | `sub`, `preferred_username`, `email`, `roles`, `name` | Which claims carry the user id, user name, email, roles and display name. |
 | `ExternalLoginEndpoint` | None | Let the login form validate credentials against your own token endpoint (an `https` URL). Internal users still sign in first. |
@@ -190,7 +192,7 @@ Send it as `Authorization: Bearer sk-sem_…`. Details: [API keys](/security/api
 | `Beacon:Authentication:Session:AbsoluteLifetimeHours` | `12` | A session ends this long after sign-in, however often it is renewed. "Remember me" cannot extend it. |
 | `Beacon:Authentication:Session:PersistSsoCookie` | `false` | A single sign-on session gets a browser-session cookie, dropped when the browser closes. `true` keeps the cookie until it expires (still within `AbsoluteLifetimeHours`). Password sign-in follows "remember me". |
 
-The `Beacon.Auth` cookie is HttpOnly, SameSite=Lax and Secure on HTTPS. Changing a user's roles, password, enabled state or archiving them renews their **security stamp**, which ends every session they have. Users can sign out everywhere themselves; a UserAdmin can do it for them (`POST /beacon/api/users/{id}/sign-out-everywhere`). Realtime connections close when the session ends, and the UI stops its connection and drops its cached data when it signs out or gets a `401`.
+The `Beacon.Auth` cookie is HttpOnly, SameSite=Lax and Secure on HTTPS. Changing a user's roles, password, enabled state or archiving them renews their **security stamp**, which ends every session they have. Users can sign out everywhere themselves; a UserAdmin can do it for them (`POST /beacon/api/users/{id}/sign-out-everywhere`). A sign-out everywhere also refuses the user's bearer tokens issued before it (their `iat`, with no clock-skew allowance; a token without `iat` is refused once the user has been signed out everywhere), on the REST API and on `/beacon/mcp`. The client must then obtain a new token; an identity provider whose clock runs behind Beacon's can have tokens it issues right after the sign-out refused for as long as that lag. Realtime connections close when the session ends, and the UI stops its connection and drops its cached data when it signs out or gets a `401`.
 
 ## Your app owns sign-in
 

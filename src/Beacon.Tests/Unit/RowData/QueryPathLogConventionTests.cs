@@ -52,14 +52,6 @@ public class QueryPathLogConventionTests
     // File and a fragment of the log call that may name the exception or a message, with why.
     private static readonly (string File, string Fragment, string Reason)[] Allowed =
     [
-        ("DatabaseProvider.cs", "Connection test failed for database data source", "a connection test reads no row"),
-        ("ApiProvider.cs", "Connection test failed", "a connection test reads no row"),
-        ("BigQueryProvider.cs", "Connection test failed", "a connection test reads no row"),
-        ("CloudWatchProvider.cs", "Connection test failed", "a connection test reads no row"),
-        ("DatabricksProvider.cs", "Connection test failed", "a connection test reads no row"),
-        ("DataSourceService.cs", "Failed to import API metadata", "metadata import reads the API's description, not rows"),
-        ("ApiProvider.cs", "Metadata retrieval failed", "metadata retrieval reads the API's description, not rows"),
-        ("CloudWatchProvider.cs", "Metadata retrieval failed", "metadata retrieval reads log group names, not log events"),
         ("AskSqlPipeline.cs", "Schema pre-validation failed", "the schema check's own message names the statement's columns, never a value"),
         ("CrossSourceQueryService.cs", "Schema pre-validation failed", "the schema check's own message names the statement's columns, never a value")
     ];

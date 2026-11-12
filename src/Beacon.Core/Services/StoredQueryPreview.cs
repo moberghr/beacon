@@ -47,14 +47,32 @@ internal interface IStoredQueryPreview
         int? maxRows,
         CancellationToken cancellationToken);
 
-    /// <summary>One page of the snapshot's result (steps summarised, final or single result paged).</summary>
-    Task<QueryPreviewResult> PreviewSnapshot(StoredQuerySnapshot snapshot, ListRequest paging, CancellationToken cancellationToken);
+    /// <summary>
+    /// One page of the snapshot's result (steps summarised, final or single result paged). With <paramref name="maskPii"/>
+    /// every row returned (the page and each step's first rows) is PII-masked as a subscription delivers it, under the
+    /// strictest PII settings of the projects linking the steps' data sources (<see cref="QueryPreviewResult.PiiMasked"/>).
+    /// </summary>
+    Task<QueryPreviewResult> PreviewSnapshot(StoredQuerySnapshot snapshot, ListRequest paging, bool maskPii, CancellationToken cancellationToken);
 
-    /// <summary>One page of the snapshot's step <paramref name="stepOrder"/>, run on its own.</summary>
+    /// <summary>One page of the snapshot's step <paramref name="stepOrder"/>, run on its own; masked as for <see cref="PreviewSnapshot"/>.</summary>
     Task<QueryPreviewResult> PreviewSnapshotStep(
         StoredQuerySnapshot snapshot,
         int stepOrder,
         List<ParameterValue>? parameters,
         ListRequest paging,
+        bool maskPii,
+        CancellationToken cancellationToken);
+
+    /// <summary>One page of the editor's unsaved <paramref name="draft"/> of query <paramref name="queryId"/>; masked as for <see cref="PreviewSnapshot"/>.</summary>
+    Task<QueryPreviewResult> PreviewDraft(int queryId, QueryDraft draft, ListRequest paging, bool maskPii, CancellationToken cancellationToken);
+
+    /// <summary>One page of the draft's step <paramref name="stepOrder"/>, run on its own; masked as for <see cref="PreviewSnapshot"/>.</summary>
+    Task<QueryPreviewResult> PreviewDraftStep(
+        int queryId,
+        int stepOrder,
+        List<ParameterValue>? parameters,
+        QueryDraft draft,
+        ListRequest paging,
+        bool maskPii,
         CancellationToken cancellationToken);
 }

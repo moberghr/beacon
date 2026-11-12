@@ -16,9 +16,9 @@ The token only proves **who** is calling. **What** the caller may do (which proj
 ## How a call is resolved
 
 1. The bearer token is validated (signature against the JWKS endpoint, issuer, audience and lifetime). The JWKS is
-   cached: it is fetched once and refreshed hourly, or earlier (at most once every 5 minutes) when a token is
+   cached: it is fetched once and refreshed hourly (`Validation.JwksRefreshInterval`), or earlier (at most once every 5 minutes) when a token is
    signed with a key id the cached set does not hold (key rotation). A failed refresh keeps the last good keys for at
-   most 24 hours after the last successful fetch; after that, bearer requests answer `503` until a fetch succeeds.
+   most 24 hours (`Validation.JwksMaximumStaleness`) after the last successful fetch; after that, bearer requests answer `503` until a fetch succeeds.
 2. On `/beacon/mcp`, Beacon passes the validated claims to `IMcpCallerMapper`. The default `ConfiguredMcpCallerMapper`
    first rejects the token unless:
    - its `tid` is one of `AllowedTenants` (a token without `tid` is rejected);
@@ -32,6 +32,10 @@ The token only proves **who** is calling. **What** the caller may do (which proj
    3. **User mode**, for delegated tokens, when it is enabled and the caller has one of the required roles or groups
       (or `AllowAnyTenantUser` is set).
 3. A matched caller gets the Beacon claims that API keys already use: `allowed_projects`, `scope` (`Read` or `Execute`), and the Beacon user id as the name identifier when the user is provisioned. It also gets `caller_kind` and `caller_hash`.
+   A token of a provisioned user issued before that user's last **sign out everywhere** (its `iat`, with no
+   clock-skew allowance) is refused with `401`; the mapping holds the user's sign-out time for up to a minute. After
+   a sign-out everywhere the client must obtain a new token, and an identity provider whose clock runs behind
+   Beacon's can have tokens it issues right after the sign-out refused for as long as that lag.
 4. The route's Execute-scope policy then applies to JWT callers exactly as it does to API keys. **`Read` callers and unknown callers get `403`**, and `Execute` callers pass.
 
 A caller that is neither a configured system nor an accepted user is **unknown**. It gets no projects and no scope, and it is rejected. This fails closed.
@@ -293,7 +297,8 @@ Things to check when the connection fails, none of which Beacon can see:
   requested scope belongs to another registration. Compare the `resource` in
   `/.well-known/oauth-protected-resource` with the registration's `identifierUris`.
 - **`401` with `error="invalid_token"`**: Beacon rejected the token: check `iss`/`aud` against `ValidIssuers` /
-  `ValidAudiences` (a v2 token's `aud` is the client id GUID). A malformed bearer value gets the same `401`, never a `500`.
+  `ValidAudiences` (a v2 token's `aud` is the client id GUID), or the user was signed out everywhere after the token was issued (get a
+  new token). A malformed bearer value gets the same `401`, never a `500`.
 - **`403`**: the token is valid but the user is not an accepted caller (`Users:Enabled`, `RequiredRoles` /
   `RequiredGroups`, `AllowedTenants`).
 - **`503` with `Retry-After`**: Beacon could not fetch the Entra JWKS and has no usable keys (none cached, or the last

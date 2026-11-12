@@ -35,7 +35,14 @@ public sealed record McpCaller(
     int? BeaconUserId,
     IReadOnlyList<int> AllowedProjectIds,
     McpCallerScope Scope,
-    IReadOnlyList<Claim> HostClaims);
+    IReadOnlyList<Claim> HostClaims)
+{
+    /// <summary>
+    /// When the caller's Beacon user was last signed out everywhere, as the mapper read it (null for a caller without a
+    /// Beacon user, or one never signed out everywhere): the bearer authentication refuses a token issued before it.
+    /// </summary>
+    public DateTime? TokensValidAfter { get; init; }
+}
 
 /// <summary>
 /// Claim types and values minted for mapped MCP callers. Token-supplied claims of these types are stripped

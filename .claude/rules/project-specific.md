@@ -26,4 +26,4 @@
 
 ## Error handling
 
-§9.8 **Throw `InvalidOperationException` for business-rule violations** (entity not found, duplicate name, invalid state). Throw a `BeaconException` derivative for domain-specific errors. Do NOT introduce FluentValidation; validate inline in the handler.
+§9.8 **Throw `InvalidOperationException` for business-rule violations** (entity not found, duplicate name, invalid state). Throw a `BeaconException` derivative for domain-specific errors. Only an `InvalidOperationException` Beacon's own code throws reaches the caller as a 400 with its message (`BeaconOwnErrors`); a library's is a 500 without it. Do NOT introduce FluentValidation; validate inline in the handler.

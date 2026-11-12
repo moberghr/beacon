@@ -95,7 +95,7 @@ Every action belongs to one category, the part of its name before the dot.
 | `auth.sso_signed_in` | A single sign-on was admitted. |
 | `auth.sso_refused` | A single sign-on was refused, with the reason; the subject only as its keyed hash. |
 | `auth.setup_token_refused` | First-run setup was attempted with a setup token that does not match. |
-| `auth.user_locked_out` | An internal user's password sign-in was locked after too many wrong passwords in a row (`Beacon:RateLimits:Lockout`); names the user, with the number of attempts, the lockout length in minutes and when it ends. |
+| `auth.user_locked_out` | An internal user's password sign-in was locked after too many wrong passwords in a row (`Beacon:RateLimits:Lockout`); names the user, with the number of attempts, the lockout length in minutes and when it ends. With `Beacon:RateLimits:BreakGlassThrottle` on, also a break-glass account's delay (`breakGlassDelay`, `delaySeconds`), recorded in place of that wrong password's `auth.password_sign_in_failed`. |
 
 **Identity** (`identity`)
 
@@ -230,6 +230,17 @@ audit table: `audit.mcp_audit_verified` and `audit.mcp_audit_sealing_started` ([
   have been stored with (`Beacon.Audit` 9107 at Error, `Persisted=False`), and is counted on the
   `beacon.security_audit.write_failures` counter (tagged `beacon.security_audit.action`). Alert on that counter: each
   increment is an event the database does not hold.
+- **Required sign-in events (`Beacon:Audit:Required`, off by default).** With it on, a *successful* sign-in (password or
+  single sign-on) whose event cannot be written is refused: the user gets the same generic failure as a wrong password
+  and no session, and every such refusal is logged at Error (`Beacon.Audit` 9115, `SecurityAuditRequiredEventNotWritten`,
+  with the action) next to the 9107 copy of the event. A failed or refused sign-in, and any other refusal, is refused
+  either way, so its event still falls back to the log stream as above. Turn it on when no one may hold a session the
+  trail does not show; while the audit table cannot be written, nobody can sign in, so alert on 9115. A **break-glass**
+  sign-in (local login off) is the exception: it is the way in when the rest is down, the audit database included, so it
+  is admitted without its event, and each such admission is logged at Error (`Beacon.Audit` 9116,
+  `SecurityAuditExemptEventNotWritten`, with the action) next to the 9107 copy; alert on 9116 too. When the refused
+  sign-in had just set a new password the user was required to choose, the password stays changed and the answer says
+  to sign in with the new password instead of the generic failure.
 - **Reads of audit data fail closed.** A read of the trail, of the MCP audit export or of a user's owned resources, and a
   verification, is recorded before anything is returned, and fails when its event cannot be written: audit data is never
   handed out without a record of who read it. An identical read (the same filters and page) by the same actor within 60
@@ -294,8 +305,8 @@ sealed.
 
 One verification runs at a time per Beacon process, the scheduled one included; another request answers `429` until it
 has finished. Every verification is recorded (`audit.verified`, and 9105) before its result is returned, and fails when
-it cannot be. A verification finds changed and forged events; **it cannot find a deleted one**, which leaves nothing to
-check; see the checkpoints below.
+it cannot be. A verification on demand finds changed and forged events; **it cannot find a deleted one**, which leaves
+nothing to check; the scheduled verification below counts the events it has checked and finds those that are gone.
 
 ### Scheduled verification
 
@@ -312,8 +323,21 @@ forged event is found within the schedule's period without anyone asking:
   it, already checked, are checked again by the next run, which also checks the late event once it is there. Once the
   nearest intact event above the missing id is an hour old, the id is taken as **never committed** (an insert that rolled
   back still consumes its id) and passed; the checkpoint records how many ids it passed this way and the first and last
-  of them, and the id still waited for, if any.
-- Events that fail are logged at Error (`Beacon.Audit` 9108, with the counts and the first failing ids) and counted on
+  of them, and the id still waited for, if any. Such an id stays informational in every later run: it never held an
+  event, so no count includes it.
+- **Events already checked are checked again.** Each run also re-checks up to 10,000 events below its starting point,
+  continuing where the last run's re-check stopped and starting over from the oldest once it reaches the checkpoint, so
+  an event changed after it was first checked fails a later run.
+- **Events already checked are counted.** Each checkpoint records how many events it holds up to its id (from the
+  oldest date a retention purge cannot reach yet, when `Beacon:Audit:RetentionDays` is set), the newest event id the run
+  read, and how many events lay between its id and that newest one. The next run counts the same ranges again: fewer
+  events below the checkpoint fail as `events_missing`, more as `events_added` (an event written below a checked id), and
+  fewer above it, or a newest event that is gone, as `tail_events_missing`. The purge deletes only events older than the
+  retention, which the count leaves out with two days to spare; while the retention has moved past the date the last
+  checkpoint counted from, the counts are not compared and the checkpoint log says so.
+- Events that fail are logged at Error (`Beacon.Audit` 9108, with the counts, the reason codes and the first failing
+  ids), recorded on the run's `audit.verified` event (its `failureReasons`: `modified`, `unknown_key`, `out_of_range`,
+  `events_missing`, `events_added`, `tail_events_missing`) and counted on
   `beacon.security_audit.verification_failures` (tagged with the action, `audit.verified`). Alert on that counter.
 - Every run writes a **checkpoint** to the log stream (9109: the event id it started after and its checkpoint id, how
   many it checked and how many failed, the signature and key id of the checkpoint event, and the ids passed as never
@@ -332,6 +356,13 @@ await recurringJobPublisher.AddOrUpdateRecurringJob(new VerifySecurityAuditEvent
 ```
 
 or by calling `ISecurityAuditVerificationService.VerifyNewEventsAsync(cancellationToken)` from its own scheduler.
+
+Beacon schedules none of its maintenance jobs itself. Each completed run is recorded (a heartbeat), and at startup the
+host logs a Warning for the verification when it has not run in the last six hours (and for each audit purge whose
+retention is set and that has not run in the last 36 hours). A new install is not warned until its first security
+audit event is older than that window. The outcome of the last verification that checked events is its `system`
+`audit.verified` event on the Security Audit page. See [Background jobs](/integrate/background-jobs/#jobs-a-host-must-schedule)
+for every job a host must schedule.
 
 ### Keys and rotation
 
@@ -430,9 +461,10 @@ data contract rule. (MCP calls have their own [audit](/mcp/observability-and-aud
 - **Read and export.** `GET /beacon/api/execution-log` (paged, newest first) and `GET /beacon/api/execution-log/export`
   (CSV, at most 10,000 rows; the `X-Beacon-Truncated` header says when more matched) take `from` and `to` (UTC, at most
   93 days apart) and optional `dataSourceId`, `triggeredByUserId`, `status` and `executionContext`. Both are an Auditor's
-  or a SecurityAdmin's, list only the data sources the caller may read, and record an `audit.execution_log_read` or
-  `audit.execution_log_exported` event (the filters' shape, the row count) before they return; they fail when the event
-  cannot be written.
+  or a SecurityAdmin's; an Auditor (or an Admin) reads every row, without project membership, as it reads the security
+  audit trail, while a SecurityAdmin who is no Auditor reads only the rows of the data sources its projects let it read.
+  Both record an `audit.execution_log_read` or `audit.execution_log_exported` event (the filters' shape, the row count)
+  before they return; they fail when the event cannot be written.
 - **Values masked on the way out.** The stored SQL keeps the values written into it (bind values are never stored); the
   read and the export replace its string literals and numbers with `?` and drop its comments, read with the data
   source's dialect (every quoted span and number when the source or its dialect is unknown). The export also cuts each
@@ -457,13 +489,15 @@ to keep a copy Beacon's database cannot change.
 | 9105 | `SecurityAuditRead` | Information | The trail was read or verified. | The window, which filters were used, the counts |
 | 9106 | `SecurityAuditPurged` | Information (Warning when it left expired events behind) | The retention purge ran. | Deleted and verified counts, cutoff, retention days, expired events left |
 | 9107 | `SecurityAuditWriteFailed` | Error | An event written on its own could not be stored. | The fields of 9104 with `Persisted=False` and no `AuditId`, and `Failure` (the failure's type and code) |
-| 9108 | `SecurityAuditVerificationFailed` | Error | The scheduled verification or the retention purge found stored events that fail verification (or a checkpoint that does). | The counts by verdict, the first failing ids |
-| 9109 | `SecurityAuditCheckpoint` | Information | Each run of the scheduled verification. | `FromEventId`, `MaxEventId`, `Checked`, `Failed`, `LastHmac`, `KeyId`, `NeverCommitted`, `FirstNeverCommittedId`, `LastNeverCommittedId`, `WaitingForEventId` |
+| 9108 | `SecurityAuditVerificationFailed` | Error | The scheduled verification or the retention purge found stored events that fail verification (or a checkpoint that does), or events missing from or added to the ranges an earlier checkpoint counted. | The counts by verdict, the missing and added counts, the reason codes, the first failing ids |
+| 9109 | `SecurityAuditCheckpoint` | Information | Each run of the scheduled verification. | `FromEventId`, `MaxEventId`, `Checked`, `Rechecked`, `RecheckedThroughEventId`, `Failed`, `LastHmac`, `KeyId`, `NeverCommitted`, `FirstNeverCommittedId`, `LastNeverCommittedId`, `WaitingForEventId`, `RetainedEventCount`, `NewestEventId`, `RetainedTailCount` |
 | 9110 | `SecurityAuditPurgeFailed` | Error | The retention purge did not run. | The cutoff, the failure's type and code |
 | 9111 | `McpAuditVerificationFailed` | Error | The scheduled verification found MCP audit rows that fail verification (or an MCP audit checkpoint that does). | The counts by verdict, the first failing row ids |
 | 9112 | `McpAuditCheckpoint` | Information | Each run of the MCP audit verification. | `FromAuditId`, `MaxAuditId`, `Checked`, `Failed`, `Unsealed`, `LastHmac`, `KeyId`, `SealedFromAuditId`, `NeverCommitted`, `WaitingForAuditId` |
 | 9113 | `AuditTableVerificationFailed` | Error | The scheduled verification found execution log or settings history rows that fail verification (or a checkpoint of theirs that does). | `Store`, the counts by verdict, the first failing row ids |
 | 9114 | `AuditTableCheckpoint` | Information | Each run of the verification, once per sealed table. | `Store`, `FromRowId`, `MaxRowId`, `Checked`, `Failed`, `Unsealed`, `LastHmac`, `KeyId`, `SealedFromRowId`, `NeverCommitted`, `WaitingForRowId` |
+| 9115 | `SecurityAuditRequiredEventNotWritten` | Error | While `Beacon:Audit:Required` is on, a successful sign-in was refused because its event could not be written. | `Action` |
+| 9116 | `SecurityAuditExemptEventNotWritten` | Error | While `Beacon:Audit:Required` is on, a break-glass sign-in was admitted although its event could not be written. | `Action` |
 
 Match a log-stream copy to its row by `EventGuid`. The copy holds the same identifiers, codes and digests as the row,
 nothing more.
@@ -482,10 +516,16 @@ disagree.
 ## What the trail does and does not prove
 
 - **Changes and forgeries are found.** An event whose fields were changed, or that was written without the integrity
-  key, fails verification: on request, every hour, and before the purge deletes it.
-- **Deletions are not found by verification.** Append-only is enforced inside Beacon: its data context refuses to change
-  or delete an event. A database account with write access to the table can still delete rows, and a deleted row leaves
-  nothing to verify. The checkpoints (9109) and the 9104 copies in your SIEM are the anchor outside the database. To make
+  key, fails verification: on request, every hour, again later by the scheduled run's rolling re-check, and before the
+  purge deletes it.
+- **Deletions of checked events are found by the count.** Append-only is enforced inside Beacon: its data context refuses
+  to change or delete an event. A database account with write access to the table can still delete rows. The scheduled
+  verification counts what its last checkpoint counted, so an event it had already read that is deleted later fails the
+  next run (`events_missing`, `tail_events_missing`), and so does an event inserted below a checked id
+  (`events_added`). An event deleted before any run read it, or deleted together with the checkpoint event that counted
+  it and every later event, leaves nothing in the database to compare: the checkpoints (9109) and the 9104 copies in
+  your SIEM are the anchor outside the database for those. The first run after an upgrade to this version records the
+  first counts; nothing is compared before it. To make
   the table append-only at the database itself, give Beacon's connection a role that may not update or delete
   `SecurityAuditEvents` rows other than through the purge, or add triggers; that is the host's to configure. A chain of
   signatures across events, which would make a deletion visible inside the trail, is not part of this version.
@@ -683,7 +723,7 @@ lets a deployment pin the MCP audit's content on. See
 - **Alert on two counters.** `beacon.security_audit.write_failures` (an event written on its own was not stored, and the
   log stream holds it as 9107 with `Persisted=False`; or a purge did not run, 9110) and
   `beacon.security_audit.verification_failures` (stored events failed verification, 9108). Ship the `Beacon.Audit` events
-  9104 to 9114 to your SIEM; the database stays the source of truth, the 9104 copy is best-effort.
+  9104 to 9116 to your SIEM; the database stays the source of truth, the 9104 copy is best-effort.
 - **Reads of audit data fail closed.** `GET /security-audit`, `POST /security-audit/verify`, `GET /mcp/audit` and
   `GET /users/{id}/owned-resources` are recorded in the trail before they return anything and fail when that record
   cannot be written (so they fail while the database cannot take writes). An identical read by the same actor within 60

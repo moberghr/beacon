@@ -48,6 +48,31 @@ public interface ISecurityAuditRecorder
     Task RecordAsync(SecurityAuditEntry entry, CancellationToken cancellationToken);
 
     /// <summary>
+    /// Writes <paramref name="entry"/> on its own, as <see cref="RecordAsync"/> does, for an action that must not go ahead
+    /// unrecorded while <c>Beacon:Audit:Required</c> is on (a successful sign-in): with the option on, an event that cannot
+    /// be written is logged as <see cref="RecordAsync"/> logs it, the refusal is logged at Error
+    /// (<see cref="SecurityAuditLogEvents.RequiredEventNotWritten"/>), and this throws
+    /// <see cref="SecurityAuditUnavailableException"/>, so the caller refuses the action. With the option off it never throws.
+    /// A recorder that does not implement it records as <see cref="RecordAsync"/> does.
+    /// </summary>
+    Task RecordRequiredAsync(SecurityAuditEntry entry, CancellationToken cancellationToken)
+    {
+        return RecordAsync(entry, cancellationToken);
+    }
+
+    /// <summary>
+    /// Writes <paramref name="entry"/> on its own, as <see cref="RecordAsync"/> does, for an action that goes ahead even while
+    /// <c>Beacon:Audit:Required</c> is on (a break-glass sign-in, the way in when the database is not answering): with the
+    /// option on, an event that cannot be written is logged as <see cref="RecordAsync"/> logs it, and the action admitted
+    /// without it is logged at Error (<see cref="SecurityAuditLogEvents.ExemptEventNotWritten"/>). Never throws. A recorder
+    /// that does not implement it records as <see cref="RecordAsync"/> does.
+    /// </summary>
+    Task RecordExemptAsync(SecurityAuditEntry entry, CancellationToken cancellationToken)
+    {
+        return RecordAsync(entry, cancellationToken);
+    }
+
+    /// <summary>
     /// The keyed hash a caller without a Beacon user is recorded by: the same keyed hash MCP caller audit rows carry for the
     /// same tenant (or issuer) and subject, never the subject itself.
     /// </summary>

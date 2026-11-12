@@ -2,6 +2,7 @@ using Beacon.Core.Authorization;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Helpers;
 using Beacon.Core.SecurityAudit;
 using Beacon.Core.Worker;
 using Microsoft.EntityFrameworkCore;
@@ -79,7 +80,7 @@ internal sealed class BackgroundTaskService(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Background task {TaskId} ({Kind}) could not be handed to the job runner.", task.Id, kind);
+            logger.LogError("Background task {TaskId} ({Kind}) could not be handed to the job runner ({Failure}).", task.Id, kind, FailureCodes.Describe(ex));
             await FinishAsync(task.Id, BackgroundTaskState.Queued, BackgroundTaskState.Failed, BackgroundTaskFailureCodes.EnqueueFailed, null);
             throw;
         }
@@ -186,7 +187,7 @@ internal sealed class BackgroundTaskService(
         catch (Exception ex)
         {
             var code = BackgroundTaskFailureCodes.Of(ex);
-            logger.LogWarning(ex, "Background task {TaskId} ({Kind}) failed: {FailureCode}.", taskId, kind, code);
+            logger.LogWarning("Background task {TaskId} ({Kind}) failed: {FailureCode} ({Failure}).", taskId, kind, code, FailureCodes.Describe(ex));
             await FinishAsync(taskId, BackgroundTaskState.Running, BackgroundTaskState.Failed, code, null);
             throw;
         }

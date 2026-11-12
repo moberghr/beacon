@@ -1,4 +1,5 @@
 using System.Text;
+using Beacon.Core.Authorization;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.ExecutionLog;
@@ -12,8 +13,9 @@ using NUnit.Framework;
 namespace Beacon.Tests.Unit.ExecutionLog;
 
 /// <summary>
-/// The execution log's paged read and CSV export: a bounded window, the rows of the data sources the caller may read, and
-/// a security audit event with the filters' shape before anything is handed out. Captured SQL; no database (§4.7).
+/// The execution log's paged read and CSV export: a bounded window, every row for an Auditor and the rows of the data
+/// sources the caller may read for anyone else, and a security audit event with the filters' shape before anything is
+/// handed out. Captured SQL; no database (§4.7).
 /// </summary>
 [TestFixture]
 public class ExecutionLogReadTests
@@ -127,9 +129,73 @@ public class ExecutionLogReadTests
         capture.Commands.Single().Should().Contain("substring(m0.query_text, 1, 4001)");
     }
 
-    private static GetExecutionLogHandler ReadHandler(SqlCapture capture, RecordingSecurityAudit audit) =>
-        new(capture.Factory(), TestProjectAccess.Evaluator(TestProjectAccess.FastPath), SecurityAuditTestKit.Reads(capture.Factory(), audit), Options.Create(new QueryExecutionOptions()), Clock);
+    // The Auditor reads the execution log as it reads the security audit trail: every row, those whose data source is gone
+    // included, without a project membership (a functional role grants no project data, so its project scope is empty).
+    [Test]
+    public async Task AnAuditorWithoutAProject_ReadsAndExportsEveryRow()
+    {
+        var auditor = TestPermissions.Holding(BeaconPermissions.Auditor);
+        var read = new SqlCapture().AnsweringCountsWithOne();
+        var export = new SqlCapture().ThenNoRows();
 
-    private static ExportExecutionLogHandler ExportHandler(SqlCapture capture, RecordingSecurityAudit audit) =>
-        new(capture.Factory(), TestProjectAccess.Evaluator(TestProjectAccess.FastPath), SecurityAuditTestKit.Reads(capture.Factory(), audit), Options.Create(new QueryExecutionOptions()), Clock);
+        await ReadHandler(read, new RecordingSecurityAudit(), ProjectAccessScope.None, auditor)
+            .Handle(new GetExecutionLogQuery { From = From, To = From.AddDays(7) }, CancellationToken.None);
+        await ExportHandler(export, new RecordingSecurityAudit(), ProjectAccessScope.None, auditor)
+            .Handle(new ExportExecutionLogQuery { From = From, To = From.AddDays(7) }, CancellationToken.None);
+
+        var statements = read.Commands.Concat(export.Commands).ToList();
+        statements.Should().HaveCount(3);
+        statements.Should().OnlyContain(x => WindowOnly(x), "nothing but the window narrows an Auditor's read");
+        statements.Should().NotContain(x => x.Contains("project_data_sources") || x.Contains("data_source_id IS NOT NULL"));
+    }
+
+    // A SecurityAdmin who is no Auditor keeps the read of the data sources it may read: without a project, no row.
+    [Test]
+    public async Task ASecurityAdminWhoIsNoAuditor_ReadsOnlyTheDataSourcesItMayRead()
+    {
+        var securityAdmin = TestPermissions.Holding(BeaconPermissions.SecurityAdmin);
+        var noProject = new SqlCapture().AnsweringCountsWithOne();
+        var restricted = new SqlCapture().AnsweringCountsWithOne();
+        var query = new GetExecutionLogQuery { From = From, To = From.AddDays(7) };
+
+        await ReadHandler(noProject, new RecordingSecurityAudit(), ProjectAccessScope.None, securityAdmin).Handle(query, CancellationToken.None);
+        await ReadHandler(restricted, new RecordingSecurityAudit(), TestProjectAccess.ReadableIn(1), securityAdmin).Handle(query, CancellationToken.None);
+
+        noProject.Commands.Should().NotBeEmpty().And.OnlyContain(x => !WindowOnly(x), "the read is narrowed to the readable sources");
+        restricted.Commands.Should().NotBeEmpty().And.OnlyContain(x => x.Contains("project_data_sources"));
+    }
+
+    // A statement whose only condition is the window.
+    private static bool WindowOnly(string sql)
+    {
+        const string window = "WHERE m.created_time >= @from AND m.created_time <= @to";
+
+        return sql.Contains(window + "\n") || sql.EndsWith(window, StringComparison.Ordinal);
+    }
+
+    private static GetExecutionLogHandler ReadHandler(
+        SqlCapture capture,
+        RecordingSecurityAudit audit,
+        ProjectAccessScope? scope = null,
+        IBeaconPermissionAccessor? permissions = null) =>
+        new(
+            capture.Factory(),
+            TestProjectAccess.Evaluator(scope ?? TestProjectAccess.FastPath),
+            permissions ?? TestPermissions.None,
+            SecurityAuditTestKit.Reads(capture.Factory(), audit),
+            Options.Create(new QueryExecutionOptions()),
+            Clock);
+
+    private static ExportExecutionLogHandler ExportHandler(
+        SqlCapture capture,
+        RecordingSecurityAudit audit,
+        ProjectAccessScope? scope = null,
+        IBeaconPermissionAccessor? permissions = null) =>
+        new(
+            capture.Factory(),
+            TestProjectAccess.Evaluator(scope ?? TestProjectAccess.FastPath),
+            permissions ?? TestPermissions.None,
+            SecurityAuditTestKit.Reads(capture.Factory(), audit),
+            Options.Create(new QueryExecutionOptions()),
+            Clock);
 }

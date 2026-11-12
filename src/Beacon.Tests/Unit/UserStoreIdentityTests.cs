@@ -92,7 +92,7 @@ public class UserStoreIdentityTests
     [Test]
     public async Task InternalLogin_PrefersAnExactUserName_InTheQueryItself()
     {
-        var capture = new SqlCapture().ThenNoRows().ThenRowsAffected(0).ThenRowsAffected(0);
+        var capture = new SqlCapture().ThenNoRows().ThenRowsAffected(0).ThenRowsAffected(0).ThenRowsAffected(0).ThenRowsAffected(0);
 
         var result = await Service(capture).AuthenticateInternalUserAsync("ana", "pw");
 
@@ -105,17 +105,21 @@ public class UserStoreIdentityTests
     [Test]
     public async Task FailedInternalLogin_OfAnUnknownName_RunsTheSameLockoutUpdates_Translates()
     {
-        var capture = new SqlCapture().ThenNoRows().ThenRowsAffected(0).ThenRowsAffected(0);
+        var capture = new SqlCapture().ThenNoRows().ThenRowsAffected(0).ThenRowsAffected(0).ThenRowsAffected(0);
 
         var result = await Service(capture).AuthenticateInternalUserAsync("nobody", "pw");
 
         result.Success.Should().BeFalse();
-        capture.Commands.Should().HaveCount(3, "a wrong password for an unknown name runs the lockout statements too, matching no row");
-        capture.Commands[1].Should().StartWith("UPDATE").And.Contain("failed_sign_in_count = CASE")
+        // The break-glass delay is off by default, so its statement does not run (SignInLockoutTests pin it switched on).
+        capture.Commands.Should().HaveCount(4, "a wrong password for an unknown name runs the claim and lockout statements too, matching no row");
+        capture.Commands[1].Should().StartWith("UPDATE").And.Contain("lockout_end_time = NULL,")
+            .And.Contain("last_failed_sign_in_time = NULL")
+            .And.Contain("lockout_end_time IS NULL OR");
+        capture.Commands[2].Should().StartWith("UPDATE").And.Contain("failed_sign_in_count = CASE")
             .And.Contain("ELSE u.failed_sign_in_count + 1")
             .And.Contain("last_failed_sign_in_time = @")
             .And.Contain("lockout_end_time IS NULL OR");
-        capture.Commands[2].Should().StartWith("UPDATE").And.Contain("lockout_end_time =").And.Contain("failed_sign_in_count >=")
+        capture.Commands[3].Should().StartWith("UPDATE").And.Contain("lockout_end_time =").And.Contain("failed_sign_in_count >=")
             .And.Contain("last_failed_sign_in_time = NULL");
     }
 

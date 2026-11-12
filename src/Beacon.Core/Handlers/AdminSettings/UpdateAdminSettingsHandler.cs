@@ -1,11 +1,13 @@
 using Beacon.Core.Authorization;
 using Beacon.Core.ChangeApprovals;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models.Settings;
 using Beacon.Core.Services;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Helpers;
 using Microsoft.Extensions.Hosting;
+using Microsoft.Extensions.Options;
 using MediatR;
 
 namespace Beacon.Core.Handlers.AdminSettings;
@@ -18,7 +20,8 @@ internal sealed class UpdateAdminSettingsHandler(
     ILlmProviderCatalog providerCatalog,
     LlmConnectionApproval llmConnections,
     ILogger<UpdateAdminSettingsHandler> logger,
-    IHostEnvironment? hostEnvironment = null)
+    IHostEnvironment? hostEnvironment = null,
+    IOptions<LlmEndpointOptions>? endpointOptions = null)
     : IRequestHandler<UpdateAdminSettingsCommand>
 {
     public const string BaseUrlAdminOnlyMessage = "Only an Admin can change the base URL.";
@@ -70,6 +73,19 @@ internal sealed class UpdateAdminSettingsHandler(
         LlmConnectionSettings.DemandAdminForChanges(permissions, actor, logger, connection, connectionRequest, nullKeepsStored: false);
         LlmConnectionSettings.DemandCredentialsForNewDestination(connection, connectionRequest);
 
+        // An endpoint the saved provider sends to must use https (http only for a loopback host, or where the host allows
+        // it) once it is new to that provider; a stored one it already used is judged when the provider is built, so a save
+        // of other settings never fails on it. A provider that does not read the endpoint is not held to it.
+        var endpointNewToProvider = !SameEndpoint(connection.LlmEndpoint, request.LlmEndpoint ?? string.Empty)
+            || !LlmEndpointRule.UsesEndpoint(connection.LlmProvider);
+        if (LlmEndpointRule.UsesEndpoint(request.LlmProvider)
+            && !string.IsNullOrWhiteSpace(request.LlmEndpoint)
+            && endpointNewToProvider
+            && !LlmEndpointRule.IsAllowed(request.LlmEndpoint, endpointOptions?.Value.AllowInsecureEndpoint ?? false))
+        {
+            throw new InvalidOperationException(LlmEndpointRule.Message);
+        }
+
         LlmProviderInstallation.DemandInstalled(providerCatalog, request.LlmProvider, connection.LlmProvider);
 
         var next = new AppSettingsData
@@ -104,6 +120,11 @@ internal sealed class UpdateAdminSettingsHandler(
             && request.LlmRequestsPerMinute == current.LlmRequestsPerMinute
             && request.LlmTokensPerMinute == current.LlmTokensPerMinute
             && rateLimitsEnabled == current.LlmRateLimitsEnabled;
+    }
+
+    private static bool SameEndpoint(string? stored, string requested)
+    {
+        return string.Equals(stored?.Trim(), requested.Trim(), StringComparison.Ordinal);
     }
 
     private static bool SameBaseUrl(string? stored, string? requested)

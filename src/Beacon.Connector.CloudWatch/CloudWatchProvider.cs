@@ -168,7 +168,7 @@ public class CloudWatchProvider(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Metadata retrieval failed for CloudWatch data source {DataSourceId}", dataSource.Id);
+            logger.LogError("Metadata retrieval failed for CloudWatch data source {DataSourceId} ({Failure})", dataSource.Id, FailureCodes.Describe(ex));
             throw;
         }
     }
@@ -278,17 +278,17 @@ public class CloudWatchProvider(
         catch (Amazon.CloudWatchLogs.Model.InvalidParameterException ex)
         {
             logger.LogError("Invalid parameter in CloudWatch query: {Failure}", FailureCodes.Describe(ex));
-            throw new BeaconException($"Invalid CloudWatch query parameter: {ex.Message}", ex);
+            throw new BeaconException($"Invalid CloudWatch query parameter: {FailureCodes.Describe(ex)}", ex);
         }
         catch (Amazon.CloudWatchLogs.Model.ResourceNotFoundException ex)
         {
             logger.LogError("CloudWatch resource not found: {Failure}", FailureCodes.Describe(ex));
-            throw new BeaconException($"CloudWatch log group not found: {ex.Message}", ex);
+            throw new BeaconException($"CloudWatch log group not found: {FailureCodes.Describe(ex)}", ex);
         }
         catch (AmazonCloudWatchLogsException ex)
         {
             logger.LogError("AWS CloudWatch service error: {Failure}", FailureCodes.Describe(ex));
-            throw new BeaconException($"CloudWatch service error: {ex.Message}", ex);
+            throw new BeaconException($"CloudWatch service error: {FailureCodes.Describe(ex)}", ex);
         }
 
         var queryId = startQueryResponse.QueryId;

@@ -2,6 +2,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Helpers;
 using Beacon.Core.HostData;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Shared;
@@ -266,7 +267,7 @@ internal sealed class HostDocsSynchronizer(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Doc-chunk embedding re-index failed for project {ProjectId}; imported documents stay keyword-searchable.", projectId);
+            logger.LogWarning("Doc-chunk embedding re-index failed for project {ProjectId}; imported documents stay keyword-searchable ({Failure}).", projectId, FailureCodes.Describe(ex));
         }
     }
 }

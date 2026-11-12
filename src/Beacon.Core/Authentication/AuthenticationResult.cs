@@ -62,6 +62,12 @@ public class AuthenticationResult
     public bool LockedOut { get; init; }
 
     /// <summary>
+    /// The break-glass delay this attempt's wrong password set, when it set one: recorded by whoever answers the attempt, in
+    /// place of its failed sign-in event. <see cref="Success"/> is false; for the security audit only.
+    /// </summary>
+    internal BreakGlassDelay? BreakGlassDelay { get; init; }
+
+    /// <summary>
     /// The credentials were right, but the user must choose a new password before signing in (an administrator set the
     /// current one). <see cref="Success"/> is false, so no session is issued; <see cref="ErrorMessage"/> says what to do.
     /// </summary>

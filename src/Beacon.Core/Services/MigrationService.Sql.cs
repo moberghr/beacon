@@ -38,7 +38,7 @@ internal partial class MigrationService
         }
         catch (Exception ex)
         {
-            throw new InvalidOperationException($"Failed to create database connection for data source '{dataSource.Name}': {ex.Message}", ex);
+            throw new InvalidOperationException($"Failed to create database connection for data source '{dataSource.Name}': {FailureText(ex)}", ex);
         }
     }
 
@@ -85,7 +85,7 @@ internal partial class MigrationService
         }
         catch (Exception ex) when (ex is not InvalidOperationException)
         {
-            throw new InvalidOperationException($"Failed to validate destination table '{tableName}': {ex.Message}", ex);
+            throw new InvalidOperationException($"Failed to validate destination table '{tableName}': {FailureText(ex, DestinationNames(schema, table))}", ex);
         }
     }
 
@@ -113,7 +113,7 @@ internal partial class MigrationService
         }
         catch (Exception ex)
         {
-            throw new InvalidOperationException($"Failed to resolve the schema of destination table '{table}': {ex.Message}", ex);
+            throw new InvalidOperationException($"Failed to resolve the schema of destination table '{table}': {FailureText(ex, DestinationNames(null, table))}", ex);
         }
 
         if (schema == null)
@@ -282,7 +282,7 @@ internal partial class MigrationService
         {
             var tableName = schema == null ? table : $"{schema}.{table}";
             logger.LogError("Failed to read the primary key of table {Table} ({Failure})", SqlIdentifierGuard.ForLog(tableName), FailureCodes.Describe(ex));
-            throw new InvalidOperationException($"Failed to read the primary key of table '{tableName}': {ex.Message}", ex);
+            throw new InvalidOperationException($"Failed to read the primary key of table '{tableName}': {FailureText(ex, DestinationNames(schema, table))}", ex);
         }
     }
 
@@ -301,17 +301,7 @@ internal partial class MigrationService
             : $"{SqlIdentifierGuard.Quote(SqlIdentifierGuard.Validate(schema, "schema"), dialect)}.{quotedTable}";
     }
 
-    private static string GetFullExceptionMessage(Exception ex)
-    {
-        var messages = new List<string>();
-        var currentException = ex;
-
-        while (currentException != null)
-        {
-            messages.Add(currentException.Message);
-            currentException = currentException.InnerException;
-        }
-
-        return string.Join(" --> ", messages);
-    }
+    // The destination's own names, which a redacted error about a name may keep (FailureText).
+    private static string[] DestinationNames(string? schema, string table, MigrationRows? rows = null) =>
+        [.. new[] { schema, table }.OfType<string>(), .. rows?.Columns ?? []];
 }

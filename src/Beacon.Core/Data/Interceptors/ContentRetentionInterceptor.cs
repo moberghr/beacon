@@ -5,6 +5,7 @@ using Microsoft.EntityFrameworkCore.Diagnostics;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Data.Entities.Base;
+using Beacon.Core.Helpers;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Retention;
 
@@ -128,10 +129,10 @@ public sealed class ContentRetentionInterceptor(
         catch (Exception exception)
         {
             logger.LogWarning(
-                exception,
-                "Content retention settings could not be resolved for {EntityType} {EntityId}; failing closed (content locked).",
+                "Content retention settings could not be resolved for {EntityType} {EntityId}; failing closed (content locked) ({Failure}).",
                 entityType.Name,
-                IdOf(entry));
+                IdOf(entry),
+                FailureCodes.Describe(exception));
 
             return new ContentRetentionDecision(false, false);
         }

@@ -20,6 +20,9 @@ public sealed class SqlReadOnlyAstValidator(
     ILogger<SqlReadOnlyAstValidator> logger,
     IOptions<McpDeploymentOptions>? deploymentOptions = null)
 {
+    internal const string LocationReferenceMessage =
+        "A stage, file or storage location, or a name written as a string, is not allowed where a table is read. Query a table instead.";
+
     // T-SQL table hints that take update, exclusive or table locks, or hold shared locks until the transaction ends — the
     // T-SQL counterpart of FOR UPDATE / FOR SHARE.
     private static readonly HashSet<string> TSqlLockingHints = new(StringComparer.OrdinalIgnoreCase)
@@ -280,6 +283,11 @@ public sealed class SqlReadOnlyAstValidator(
 
     private static string? RejectTable(TableFactor.Table table, Dialect dialect)
     {
+        if (IsLocationReference(table.Name, dialect))
+        {
+            return LocationReferenceMessage;
+        }
+
         // A table source with arguments is a table-valued function: OPENQUERY(...), read_files(...), EXTERNAL_QUERY(...).
         if (table.Args != null)
         {
@@ -342,12 +350,20 @@ public sealed class SqlReadOnlyAstValidator(
             && FileFormats.Contains(parts[0].Value);
     }
 
+    // A relation written as a string is never a table: Snowflake reads '@stage/path' as staged files, and no engine reads
+    // 'name' as a table. A Snowflake name starting with @ is a stage (@stage, @~, @%table). SqlCrossDatabaseRule refuses
+    // these too, with read-only enforcement off.
+    internal static bool IsLocationReference(ObjectName name, Dialect dialect)
+    {
+        return name.Values.Any(x => x.QuoteStyle == '\'' || (dialect is SnowflakeDialect && x.Value.StartsWith('@')));
+    }
+
     private static string? RejectDeniedFunction(ObjectName name, Dialect dialect)
     {
-        var lastPart = name.Values.Count > 0 ? name.Values[^1].Value : "";
+        var parts = SqlDeniedFunctions.PartsOf(name, dialect);
 
-        return SqlDeniedFunctions.IsDenied(lastPart, dialect)
-            ? $"The function {lastPart} is not allowed in read-only SQL: it reaches files, other servers or settings, or holds resources."
+        return SqlDeniedFunctions.IsDenied(parts, dialect)
+            ? $"The function {SqlDeniedFunctions.DisplayName(parts, dialect)} is not allowed in read-only SQL: it reaches files, other servers or settings, or holds resources."
             : null;
     }
 

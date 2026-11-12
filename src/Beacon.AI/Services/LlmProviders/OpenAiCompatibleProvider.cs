@@ -3,6 +3,7 @@ using System.Net;
 using System.Net.Http.Headers;
 using System.Text.Json;
 using System.Text.RegularExpressions;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Exceptions;
 
@@ -28,7 +29,7 @@ internal sealed partial class OpenAiCompatibleProvider : ILlmProvider
 
     internal const int MaxRetries = 3;
 
-    internal const long MaxResponseBytes = 8 * 1024 * 1024;
+    internal const long MaxResponseBytes = LlmHttpClients.MaxResponseBytes;
 
     internal static readonly TimeSpan MaxRetryAfter = TimeSpan.FromSeconds(60);
 
@@ -113,7 +114,8 @@ internal sealed partial class OpenAiCompatibleProvider : ILlmProvider
         string deployment,
         Func<TimeSpan, CancellationToken, Task>? delay = null,
         TimeProvider? timeProvider = null,
-        TimeSpan? attemptTimeout = null)
+        TimeSpan? attemptTimeout = null,
+        bool allowInsecureEndpoint = false)
     {
         ArgumentException.ThrowIfNullOrEmpty(deployment);
 
@@ -126,7 +128,7 @@ internal sealed partial class OpenAiCompatibleProvider : ILlmProvider
         return new OpenAiCompatibleProvider(
             httpClient,
             isAzure: true,
-            AzureChatCompletionsUri(endpoint, deployment),
+            AzureChatCompletionsUri(endpoint, deployment, allowInsecureEndpoint),
             apiKey,
             deployment,
             delay,
@@ -195,7 +197,7 @@ internal sealed partial class OpenAiCompatibleProvider : ILlmProvider
             or HttpStatusCode.GatewayTimeout;
     }
 
-    private static Uri AzureChatCompletionsUri(string endpoint, string deployment)
+    private static Uri AzureChatCompletionsUri(string endpoint, string deployment, bool allowInsecureEndpoint)
     {
         ArgumentException.ThrowIfNullOrEmpty(endpoint);
 
@@ -203,6 +205,12 @@ internal sealed partial class OpenAiCompatibleProvider : ILlmProvider
         if (endpointUri.Scheme != Uri.UriSchemeHttps && endpointUri.Scheme != Uri.UriSchemeHttp)
         {
             throw new ArgumentException("The Azure OpenAI endpoint must be an absolute http or https URI.", nameof(endpoint));
+        }
+
+        // The key and every prompt travel to this endpoint: plain http only to a loopback host or where the host allows it.
+        if (!LlmEndpointRule.IsAllowed(endpointUri, allowInsecureEndpoint))
+        {
+            throw new ArgumentException(LlmEndpointRule.Message, nameof(endpoint));
         }
 
         // Credentials in the endpoint would travel in every request URI; the key goes in its own header.
@@ -237,30 +245,6 @@ internal sealed partial class OpenAiCompatibleProvider : ILlmProvider
         }
 
         return requested <= MaxRetryAfter ? requested : null;
-    }
-
-    private static async Task<byte[]?> ReadCappedAsync(HttpContent content, long maxBytes, CancellationToken cancellationToken)
-    {
-        if (content.Headers.ContentLength > maxBytes)
-        {
-            return null;
-        }
-
-        await using var stream = await content.ReadAsStreamAsync(cancellationToken);
-        using var buffer = new MemoryStream();
-        var chunk = new byte[81920];
-        int read;
-        while ((read = await stream.ReadAsync(chunk, cancellationToken)) > 0)
-        {
-            if (buffer.Length + read > maxBytes)
-            {
-                return null;
-            }
-
-            buffer.Write(chunk, 0, read);
-        }
-
-        return buffer.ToArray();
     }
 
     private static string ContentOf(JsonElement choice)
@@ -324,7 +308,7 @@ internal sealed partial class OpenAiCompatibleProvider : ILlmProvider
 
         if (response.IsSuccessStatusCode)
         {
-            var completion = await ReadCappedAsync(response.Content, MaxResponseBytes, cancellationToken)
+            var completion = await LlmHttpClients.ReadCappedAsync(response.Content, MaxResponseBytes, cancellationToken)
                 ?? throw new AiServiceException($"{DisplayName} returned a response larger than {MaxResponseBytes} bytes.");
 
             return new Attempt(response.StatusCode, completion, null, null);
@@ -498,7 +482,7 @@ internal sealed partial class OpenAiCompatibleProvider : ILlmProvider
         using var read = CancellationTokenSource.CreateLinkedTokenSource(cancellationToken, timeout.Token);
         try
         {
-            var body = await ReadCappedAsync(content, MaxErrorBytes, read.Token);
+            var body = await LlmHttpClients.ReadCappedAsync(content, MaxErrorBytes, read.Token);
             if (body is null)
             {
                 return null;

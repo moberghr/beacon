@@ -94,6 +94,23 @@ One-off operator jobs:
 - While `Beacon:PreviousEncryptionKeys` lists a key, run `IStoredValueReEncryptionService.ReEncryptAsync` once per start (the reference host checks `Beacon.Core.ServiceConfiguration.HasPreviousEncryptionKeys(configuration)`). Remove the old key when it reports nothing left.
 - `IRecipientSecretEncryptionService.EncryptStoredSecretsAsync` encrypts recipient secrets stored before encryption existed. Run it once, by hand, after **every** instance runs the new version.
 
+### Jobs a host must schedule
+
+Beacon runs none of its maintenance itself: until the host schedules them, nothing is verified, purged or re-encrypted.
+Three of them carry the security guarantees, and an embedding host schedules them like the sample does:
+
+| What | Calls | The sample host |
+|---|---|---|
+| Audit verification (security events, MCP audit rows, execution log, settings history) | `ISecurityAuditVerificationService.VerifyNewEventsAsync` | Warp recurring job `security-audit-verify` (`VerifySecurityAuditEventsJob`, `15 * * * *`) |
+| Data retention | `IDataRetentionService.RunAsync` | Warp recurring job `data-retention` (`DataRetentionJob`, `50 3 * * *`) |
+| Stored-value re-encryption | `IStoredValueReEncryptionService.ReEncryptAsync` | `ReEncryptStoredValuesJob`, enqueued once on every start |
+
+At startup the host warns (Warning, job name and times only) when the audit verification has no recorded run within six
+hours, or an audit purge whose retention is set none within 36 hours; a new install is not warned until its first
+security audit event is older than that window. Stored values still under a previous key or in the legacy format are
+counted and warned about at startup by the encryption key check. See
+[Scheduled verification](/security/audit-trail/#scheduled-verification).
+
 ## The system-work rule
 
 Beacon decides project access from the caller. A background job has no HTTP request, so it must say that it is Beacon's own work:

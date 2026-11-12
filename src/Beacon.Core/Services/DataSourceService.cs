@@ -764,7 +764,7 @@ internal sealed class DataSourceService(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to import API metadata for data source {Id}. Can be retried via metadata refresh.", dataSource.Id);
+            logger.LogWarning("Failed to import API metadata for data source {Id}. Can be retried via metadata refresh ({Failure}).", dataSource.Id, FailureCodes.Describe(ex));
         }
     }
 

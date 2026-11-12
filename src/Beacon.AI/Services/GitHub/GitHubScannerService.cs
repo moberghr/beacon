@@ -5,6 +5,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.Projects;
+using Beacon.Core.Helpers;
 using Beacon.Core.Services;
 
 namespace Beacon.AI.Services.GitHub;
@@ -116,7 +117,7 @@ internal sealed class GitHubScannerService(
                         // Cut short by the scan's own time limit is reported once as the limit, not as a file failure
                         if (!scanToken.IsCancellationRequested)
                         {
-                            logger.LogWarning(ex, "Failed to analyze file {Path}", file.Path);
+                            logger.LogWarning("Failed to analyze file {Path} ({Failure})", file.Path, FailureCodes.Describe(ex));
                             Interlocked.Increment(ref filesFailed);
                         }
 
@@ -167,7 +168,7 @@ internal sealed class GitHubScannerService(
         }
         catch (Exception ex)
         {
-            logger.LogError(ex, "Failed to scan repository {RepoId}", repositoryId);
+            logger.LogError("Failed to scan repository {RepoId} ({Failure})", repositoryId, FailureCodes.Describe(ex));
 
             // Through a context of its own: nothing the scan staged on its context is written with the failure
             await using var failureContext = await contextFactory.CreateDbContextAsync(CancellationToken.None);

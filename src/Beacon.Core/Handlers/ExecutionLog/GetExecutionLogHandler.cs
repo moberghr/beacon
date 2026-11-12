@@ -14,8 +14,9 @@ namespace Beacon.Core.Handlers.ExecutionLog;
 
 /// <summary>
 /// A paged read of the execution log, newest first, over a window of at most <see cref="MaxRangeDays"/> days, for an
-/// Auditor or a SecurityAdmin. Only the statements on data sources the caller may read are listed (a row whose data source
-/// is gone only where the caller reads every project). Every read is recorded before it returns
+/// Auditor or a SecurityAdmin. An Auditor (or an Admin) reads every row; anyone else only the statements on data sources it
+/// may read (a row whose data source is gone only where it reads every project) (<see cref="ExecutionLogView.ReadableAsync"/>).
+/// Every read is recorded before it returns
 /// (<see cref="SecurityAuditActions.ExecutionLogRead"/>: the filters' shape, the page and how many rows it holds) and fails
 /// when the event cannot be written. The SQL text is shown with its literals masked, and a Started row older than the
 /// statement timeout plus a margin as Abandoned (<see cref="ExecutionLogView"/>).
@@ -23,6 +24,7 @@ namespace Beacon.Core.Handlers.ExecutionLog;
 internal sealed class GetExecutionLogHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IProjectAccessEvaluator projectAccess,
+    IBeaconPermissionAccessor permissionAccessor,
     SecurityAuditReads reads,
     IOptions<QueryExecutionOptions> queryOptions,
     TimeProvider timeProvider)
@@ -34,8 +36,7 @@ internal sealed class GetExecutionLogHandler(
     {
         var (from, to) = SecurityAuditWindow.Validate(request.From, request.To, MaxRangeDays);
 
-        var scope = await projectAccess.GetScopeAsync(cancellationToken);
-        var readable = scope.For(ProjectAction.Read);
+        var readable = await ExecutionLogView.ReadableAsync(projectAccess, permissionAccessor, cancellationToken);
         var abandonedBefore = ExecutionLogView.AbandonedBefore(timeProvider, queryOptions.Value);
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 

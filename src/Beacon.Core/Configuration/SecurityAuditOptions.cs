@@ -36,6 +36,15 @@ public sealed class SecurityAuditOptions
     /// </summary>
     public int? RetentionDays { get; set; }
 
+    /// <summary>
+    /// Off (the default): a successful sign-in whose event cannot be written still issues its session, and the event goes to
+    /// the log stream instead (9107). On: such a sign-in is refused with the generic failure and no session, and every
+    /// refusal is logged at Error (9115). A break-glass sign-in is never refused for its event: it is admitted and logged at
+    /// Error (9116). A failed or refused sign-in stays refused either way, its event falling back to
+    /// the log stream; reads of audit data are refused whenever their event cannot be written, whatever this says.
+    /// </summary>
+    public bool Required { get; set; }
+
     /// <summary>The execution log of the statements Beacon runs on data sources (<c>Beacon:Audit:ExecutionLog</c>).</summary>
     public ExecutionLogOptions ExecutionLog { get; set; } = new();
 }

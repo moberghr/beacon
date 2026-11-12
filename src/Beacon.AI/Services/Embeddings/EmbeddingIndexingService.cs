@@ -64,7 +64,7 @@ internal sealed class EmbeddingIndexingService(
             catch (Exception ex)
             {
                 failed++;
-                logger.LogWarning(ex, "Failed to index embeddings for data source {DataSourceId}", dataSourceId);
+                logger.LogWarning("Failed to index embeddings for data source {DataSourceId} ({Failure})", dataSourceId, FailureCodes.Describe(ex));
             }
         }
 

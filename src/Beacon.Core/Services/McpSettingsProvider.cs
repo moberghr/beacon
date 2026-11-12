@@ -6,6 +6,7 @@ using Microsoft.Extensions.Options;
 using Microsoft.Extensions.Primitives;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
+using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 
 namespace Beacon.Core.Services;
@@ -268,7 +269,7 @@ internal sealed class McpSettingsProvider(
             // A corrupt row must not silently drop protection; log the identifier (never the payload) so the
             // misconfiguration is discoverable. Global falls back to "no custom patterns", a project row falls
             // back to inheriting the global list.
-            logger.LogError(ex, "Failed to deserialize CustomPiiPatterns for {Owner} settings row {SettingsId}; custom PII patterns are disabled until fixed.", owner, id);
+            logger.LogError("Failed to deserialize CustomPiiPatterns for {Owner} settings row {SettingsId}; custom PII patterns are disabled until fixed ({Failure}).", owner, id, FailureCodes.Describe(ex));
 
             return null;
         }

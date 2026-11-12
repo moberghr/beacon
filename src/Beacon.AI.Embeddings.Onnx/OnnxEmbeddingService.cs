@@ -4,6 +4,7 @@ using Microsoft.Extensions.Logging;
 using Microsoft.ML.OnnxRuntime;
 using Microsoft.ML.OnnxRuntime.Tensors;
 using Microsoft.ML.Tokenizers;
+using Beacon.Core.Helpers;
 
 namespace Beacon.AI.Services.Embeddings;
 
@@ -128,7 +129,7 @@ internal sealed class OnnxEmbeddingService : IBeaconEmbeddingService, IDisposabl
         }
         catch (Exception ex)
         {
-            _logger.LogWarning(ex, "ONNX embedding warm-up inference failed; the first embedding will report the error if it persists.");
+            _logger.LogWarning("ONNX embedding warm-up inference failed; the first embedding will report the error if it persists ({Failure}).", FailureCodes.Describe(ex));
         }
     }
 

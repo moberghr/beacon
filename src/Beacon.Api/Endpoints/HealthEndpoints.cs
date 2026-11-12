@@ -2,6 +2,7 @@ using System.Diagnostics;
 using System.Globalization;
 using System.Threading.RateLimiting;
 using Beacon.Core.Data;
+using Beacon.Core.Helpers;
 using Microsoft.EntityFrameworkCore;
 
 namespace Beacon.Api.Endpoints;
@@ -57,7 +58,7 @@ internal static class HealthEndpoints
                     {
                         // Log server-side so a flapping readiness probe has a recorded cause; the response
                         // itself stays generic and must not leak connection details.
-                        loggerFactory.CreateLogger("Beacon.Health").LogError(ex, "Health check database connectivity failed.");
+                        loggerFactory.CreateLogger("Beacon.Health").LogError("Health check database connectivity failed ({Failure}).", FailureCodes.Describe(ex));
                     }
 
                     HealthProbeCache.Store(false);

@@ -1,7 +1,9 @@
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Exceptions;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Queries;
+using Beacon.Core.Services.Security;
 using Beacon.Core.Services.Validation;
 using Beacon.Core.Validators;
 using Microsoft.EntityFrameworkCore;
@@ -18,18 +20,19 @@ internal partial class QueryService : IStoredQueryPreview
 {
     private const int IntermediatePreviewRows = 10;
 
+    /// <summary>What a preview shows when it fails for a reason Beacon did not word itself.</summary>
+    internal const string PreviewFailedMessage = "The preview could not be run.";
+
     public async Task<QueryPreviewResult> PreviewQuery(int queryId, QueryDraft? draft, ListRequest paging, CancellationToken cancellationToken)
     {
         if (draft == null)
         {
             var snapshot = await LoadSnapshot(queryId, cancellationToken);
 
-            return await PreviewSnapshot(snapshot, paging, cancellationToken);
+            return await PreviewSnapshot(snapshot, paging, false, cancellationToken);
         }
 
-        var steps = await BuildDraftSteps(queryId, draft.Steps, cancellationToken);
-
-        return await PreviewSteps(steps, draft.FinalQuery, paging, cancellationToken);
+        return await PreviewDraft(queryId, draft, paging, false, cancellationToken);
     }
 
     public async Task<QueryPreviewResult> PreviewQueryStepPaged(
@@ -42,22 +45,43 @@ internal partial class QueryService : IStoredQueryPreview
     {
         if (draft != null)
         {
-            var draftStep = draft.Steps
-                .Where(x => x.StepOrder == stepOrder)
-                .ToList();
-
-            if (draftStep.Count == 0)
-            {
-                throw new InvalidOperationException($"The draft of query #{queryId} has no step {stepOrder}.");
-            }
-
-            var steps = await BuildDraftSteps(queryId, draftStep, cancellationToken);
-            return await PreviewSingleStep(steps[0], parameters, paging, cancellationToken);
+            return await PreviewDraftStep(queryId, stepOrder, parameters, draft, paging, false, cancellationToken);
         }
 
         var snapshot = await LoadSnapshot(queryId, cancellationToken);
 
-        return await PreviewSnapshotStep(snapshot, stepOrder, parameters, paging, cancellationToken);
+        return await PreviewSnapshotStep(snapshot, stepOrder, parameters, paging, false, cancellationToken);
+    }
+
+    public async Task<QueryPreviewResult> PreviewDraft(int queryId, QueryDraft draft, ListRequest paging, bool maskPii, CancellationToken cancellationToken)
+    {
+        var steps = await BuildDraftSteps(queryId, draft.Steps, cancellationToken);
+
+        return await PreviewSteps(steps, draft.FinalQuery, paging, maskPii, cancellationToken);
+    }
+
+    public async Task<QueryPreviewResult> PreviewDraftStep(
+        int queryId,
+        int stepOrder,
+        List<ParameterValue>? parameters,
+        QueryDraft draft,
+        ListRequest paging,
+        bool maskPii,
+        CancellationToken cancellationToken)
+    {
+        var draftStep = draft.Steps
+            .Where(x => x.StepOrder == stepOrder)
+            .ToList();
+
+        if (draftStep.Count == 0)
+        {
+            throw new InvalidOperationException($"The draft of query #{queryId} has no step {stepOrder}.");
+        }
+
+        var steps = await BuildDraftSteps(queryId, draftStep, cancellationToken);
+        var pii = await PreviewPiiAsync(draft.Steps.Select(x => x.DataSourceId), maskPii, cancellationToken);
+
+        return await PreviewSingleStep(steps[0], parameters, paging, pii, cancellationToken);
     }
 
     public async Task<StoredQuerySnapshot> LoadSnapshot(int queryId, CancellationToken cancellationToken)
@@ -84,40 +108,53 @@ internal partial class QueryService : IStoredQueryPreview
         };
     }
 
-    public Task<QueryPreviewResult> PreviewSnapshot(StoredQuerySnapshot snapshot, ListRequest paging, CancellationToken cancellationToken)
+    public Task<QueryPreviewResult> PreviewSnapshot(StoredQuerySnapshot snapshot, ListRequest paging, bool maskPii, CancellationToken cancellationToken)
     {
-        return PreviewSteps(snapshot.Steps.ToList(), snapshot.FinalQuery, paging, cancellationToken);
+        return PreviewSteps(snapshot.Steps.ToList(), snapshot.FinalQuery, paging, maskPii, cancellationToken);
     }
 
-    public Task<QueryPreviewResult> PreviewSnapshotStep(
+    public async Task<QueryPreviewResult> PreviewSnapshotStep(
         StoredQuerySnapshot snapshot,
         int stepOrder,
         List<ParameterValue>? parameters,
         ListRequest paging,
+        bool maskPii,
         CancellationToken cancellationToken)
     {
         var step = snapshot.Steps
             .Where(x => x.StepOrder == stepOrder)
             .FirstOrDefault()
             ?? throw new InvalidOperationException($"Query #{snapshot.QueryId} has no step {stepOrder}.");
+        var pii = await PreviewPiiAsync(snapshot.DataSourceIds, maskPii, cancellationToken);
 
-        return PreviewSingleStep(step, parameters, paging, cancellationToken);
+        return await PreviewSingleStep(step, parameters, paging, pii, cancellationToken);
     }
+
+    /// <summary>
+    /// The text a preview shows for <paramref name="exception"/>: Beacon's own message (<see cref="BeaconOwnErrors"/>), or a
+    /// database's error as the query path redacted it for the caller (<see cref="QueryExecutionFailedException"/>); a
+    /// driver's or a library's text, which can quote values, hosts or settings, is replaced by
+    /// <see cref="PreviewFailedMessage"/>, and its cause is logged by type and code only.
+    /// </summary>
+    internal static string PreviewFailureText(Exception exception) =>
+        IsShownToPreviewCaller(exception) ? exception.Message : PreviewFailedMessage;
 
     private async Task<QueryPreviewResult> PreviewSteps(
         List<QueryStep> steps,
         string? finalQuery,
         ListRequest paging,
+        bool maskPii,
         CancellationToken cancellationToken)
     {
+        var pii = await PreviewPiiAsync(steps.Select(x => x.DataSourceId), maskPii, cancellationToken);
         QueryPreviewResult result;
         if (steps.Count == 1 && string.IsNullOrEmpty(finalQuery))
         {
-            result = await PreviewSingleStep(steps[0], null, paging, cancellationToken);
+            result = await PreviewSingleStep(steps[0], null, paging, pii, cancellationToken);
         }
         else
         {
-            result = await PreviewMultiStep(steps, finalQuery, paging, cancellationToken);
+            result = await PreviewMultiStep(steps, finalQuery, paging, pii, cancellationToken);
         }
 
         await queryExecutionLogger.LogQueryExecutionAsync(
@@ -184,13 +221,34 @@ internal partial class QueryService : IStoredQueryPreview
         return steps;
     }
 
+    /// <summary>
+    /// The PII settings a masked preview applies (<paramref name="maskPii"/>): those a subscription delivering rows of
+    /// <paramref name="dataSourceIds"/> applies — the global settings tightened to the strictest live project linking any
+    /// of them. Null, no masking, otherwise.
+    /// </summary>
+    private async Task<McpSettingsData?> PreviewPiiAsync(IEnumerable<int> dataSourceIds, bool maskPii, CancellationToken cancellationToken)
+    {
+        if (!maskPii)
+        {
+            return null;
+        }
+
+        var ids = dataSourceIds
+            .Distinct()
+            .Order()
+            .ToList();
+
+        return await PiiSettingsAsync(ids, cancellationToken);
+    }
+
     private async Task<QueryPreviewResult> PreviewSingleStep(
         QueryStep step,
         List<ParameterValue>? parameters,
         ListRequest paging,
+        McpSettingsData? pii,
         CancellationToken cancellationToken)
     {
-        var (summary, page) = await ExecuteStepPaged(step, parameters, paging, cancellationToken);
+        var (summary, page) = await ExecuteStepPaged(step, parameters, paging, pii, cancellationToken);
 
         return new QueryPreviewResult
         {
@@ -200,13 +258,20 @@ internal partial class QueryService : IStoredQueryPreview
             DataSourcesInvolved = [summary.DataSourceName],
             Steps = [summary],
             Result = page == null ? null : ToResultPage(page, paging),
+            PiiMasked = pii != null,
         };
     }
 
+    /// <summary>
+    /// The steps run in full (they feed the final query as read, as on a subscription run); with <paramref name="pii"/>
+    /// each step's first rows are masked before they leave, by its SQL's PII columns and its result-column names and
+    /// aliases, and the final query's page by the lineage of those columns and its own matches (as a delivery is).
+    /// </summary>
     private async Task<QueryPreviewResult> PreviewMultiStep(
         List<QueryStep> steps,
         string? finalQuery,
         ListRequest paging,
+        McpSettingsData? pii,
         CancellationToken cancellationToken)
     {
         using var virtualTableManager = new VirtualTableManager(loggerFactory.CreateLogger<VirtualTableManager>())
@@ -215,12 +280,34 @@ internal partial class QueryService : IStoredQueryPreview
         };
         var summaries = new List<QueryPreviewStep>();
         var totalExecutionTime = 0.0;
+        var joinPiiColumns = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
         foreach (var step in steps)
         {
-            var (stepResult, _) = await ExecuteStep(step, null, null, null, cancellationToken);
+            var masking = pii == null ? null : new StepMasking(pii, ByResultColumns: true, FeedsJoin: true);
+            var (stepResult, run) = await ExecuteStep(step, null, masking, null, cancellationToken);
             totalExecutionTime += stepResult.ExecutionTimeMs;
-            summaries.Add(ToSummary(stepResult, stepResult.PreviewResults.Take(IntermediatePreviewRows).ToList()));
+            IReadOnlyList<IDictionary<string, object?>> previewRows = stepResult.PreviewResults
+                .Take(IntermediatePreviewRows)
+                .ToList();
+            if (pii != null && stepResult.Success)
+            {
+                var stepPiiColumns = PiiRowMasker.ResolvePiiColumns(
+                    guardrail,
+                    stepResult.AllResults.SelectMany(x => x.Keys),
+                    run.Report.PiiColumns,
+                    pii.EnablePiiDetection,
+                    CustomPatterns(pii),
+                    run.Report.FinalSql,
+                    run.Dialect);
+                joinPiiColumns.UnionWith(stepPiiColumns);
+                // Copies: the rows themselves feed the in-memory join as read.
+                previewRows = PiiRowMasker.Mask(guardrail, Copies(previewRows), stepPiiColumns, false, null)
+                    .Select(x => (IDictionary<string, object?>)x)
+                    .ToList();
+            }
+
+            summaries.Add(ToSummary(stepResult, previewRows));
 
             if (!stepResult.Success)
             {
@@ -242,15 +329,29 @@ internal partial class QueryService : IStoredQueryPreview
         QueryResultPage? result = null;
         if (failed == null && !string.IsNullOrEmpty(finalQuery))
         {
+            var joinMasking = pii == null
+                ? null
+                : new JoinMasking(
+                    pii,
+                    joinPiiColumns,
+                    gate.Evaluate(JoinGateRequest(InMemoryDatabaseManager.TranslateResultReferences(finalQuery), pii) with { MaxRows = null }));
+            var finalPaging = paging;
+            var sort = paging.SortCriteria().FirstOrDefault();
+            if (joinMasking != null && sort != null && JoinPiiColumns(joinMasking, [sort.SortColumn]).Contains(sort.SortColumn))
+            {
+                // Ordering by a masked column would leak the order of the values it hides.
+                finalPaging = new PreviewPaging { Page = paging.Page, PageSize = paging.PageSize };
+            }
+
             var stopwatch = System.Diagnostics.Stopwatch.StartNew();
             SqlResultPage page;
             try
             {
                 page = await virtualTableManager.ExecuteFinalQueryPagedAsync(
                     finalQuery,
-                    x => gate.Evaluate(JoinGateRequest(x, null) with { MaxRows = null }),
+                    x => gate.Evaluate(JoinGateRequest(x, pii) with { MaxRows = null }),
                     loggerFactory.CreateLogger<InMemoryDatabaseManager>(),
-                    paging,
+                    finalPaging,
                     cancellationToken);
             }
             catch (InMemoryJoinTimeoutException)
@@ -259,6 +360,13 @@ internal partial class QueryService : IStoredQueryPreview
             }
 
             totalExecutionTime += stopwatch.Elapsed.TotalMilliseconds;
+            if (joinMasking != null && page.Rows.Count > 0)
+            {
+                var rows = Copies(page.Rows);
+                var masked = PiiRowMasker.Mask(guardrail, rows, JoinPiiColumns(joinMasking, rows.SelectMany(x => x.Keys)), false, null);
+                page = page with { Rows = masked.Select(x => (IDictionary<string, object?>)x).ToList() };
+            }
+
             result = ToResultPage(page, paging);
         }
 
@@ -273,6 +381,7 @@ internal partial class QueryService : IStoredQueryPreview
                 .ToList(),
             Steps = summaries,
             Result = result,
+            PiiMasked = pii != null,
         };
     }
 
@@ -286,6 +395,7 @@ internal partial class QueryService : IStoredQueryPreview
         QueryStep step,
         List<ParameterValue>? parameters,
         ListRequest paging,
+        McpSettingsData? pii,
         CancellationToken cancellationToken)
     {
         if (!step.DataSource.DatabaseEngineType.HasValue)
@@ -298,17 +408,18 @@ internal partial class QueryService : IStoredQueryPreview
         var executedSql = StoredSql.Flatten(parameterizedSql, dialect);
         var rowSecurity = await rowSecurityResolver.ResolveAsync(step.DataSourceId, cancellationToken);
 
-        var original = new GatedSqlRequest(step.DataSource, executedSql, sqlParameters, ExecutionRowCeiling + 1, rowSecurity, ExecutionContext: SqlExecutionContexts.QueryStepPreview);
+        var original = new GatedSqlRequest(step.DataSource, executedSql, sqlParameters, ExecutionRowCeiling + 1, rowSecurity, pii, ExecutionContext: SqlExecutionContexts.QueryStepPreview);
         var report = sqlRunner.Evaluate(original);
         if (report.Blocked)
         {
             throw new InvalidOperationException(report.BlockReason ?? "The SQL was rejected.");
         }
 
-        // Ordering by a masked column would leak the order of the values it hides; on this path the gate reports only the
-        // host data source's masked columns.
+        // Ordering by a masked column would leak the order of the values it hides: without pii the gate reports only the
+        // host data source's masked columns; with it, also the SQL's PII columns, and a result column is masked by its
+        // name and aliases too.
         var sort = paging.SortCriteria().FirstOrDefault();
-        if (sort != null && report.PiiColumns.Contains(sort.SortColumn, StringComparer.OrdinalIgnoreCase))
+        if (sort != null && StepPiiColumns(report, pii, dialect, [sort.SortColumn]).Contains(sort.SortColumn))
         {
             paging = new PreviewPaging { Page = paging.Page, PageSize = paging.PageSize };
             sort = null;
@@ -323,13 +434,61 @@ internal partial class QueryService : IStoredQueryPreview
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             stopwatch.Stop();
-            return (StepSummary(step, false, ex.Message, stopwatch.Elapsed.TotalMilliseconds, 0, []), null);
+            if (!IsShownToPreviewCaller(ex))
+            {
+                // The type and error code only (§1.11): the text replaced can quote the SQL, row values or a host.
+                logger.LogWarning(
+                    "Preview of step {StepOrder} on data source {DataSourceId} failed: {Failure}",
+                    step.StepOrder,
+                    step.DataSourceId,
+                    FailureCodes.Describe(ex));
+            }
+
+            return (StepSummary(step, false, PreviewFailureText(ex), stopwatch.Elapsed.TotalMilliseconds, 0, []), null);
         }
 
         stopwatch.Stop();
+        if (pii != null && page.Rows.Count > 0)
+        {
+            // Masked as a delivered result step is: the SQL's PII columns, and its result-column names and aliases.
+            var rows = Copies(page.Rows);
+            var masked = PiiRowMasker.Mask(guardrail, rows, StepPiiColumns(report, pii, dialect, rows.SelectMany(x => x.Keys)), false, null);
+            page = page with { Rows = masked.Select(x => (IDictionary<string, object?>)x).ToList() };
+        }
 
         return (StepSummary(step, true, null, stopwatch.Elapsed.TotalMilliseconds, page.TotalCount, page.Rows), page);
     }
+
+    // The result columns a step's rows are masked on: the gate's PII columns, and with pii the result columns PII by
+    // their name or the SQL's aliasing (PII detection on).
+    private IReadOnlySet<string> StepPiiColumns(SqlGateReport report, McpSettingsData? pii, string? dialect, IEnumerable<string> resultColumns)
+    {
+        return pii == null
+            ? new HashSet<string>(report.PiiColumns, StringComparer.OrdinalIgnoreCase)
+            : PiiRowMasker.ResolvePiiColumns(guardrail, resultColumns, report.PiiColumns, pii.EnablePiiDetection, CustomPatterns(pii), report.FinalSql, dialect);
+    }
+
+    // The final query's result columns masked as a delivery masks them: the lineage of the steps' PII columns whatever the
+    // detection setting, and with detection on also the final SQL's own matches, PII-named columns and aliases.
+    private IReadOnlySet<string> JoinPiiColumns(JoinMasking masking, IEnumerable<string> resultColumns)
+    {
+        var columns = resultColumns.ToList();
+        var lineage = PiiRowMasker.ResolveLineage(columns, masking.StepPiiColumns, masking.Report.FinalSql, nameof(Data.Enums.DatabaseEngineType.SQLite));
+
+        return PiiRowMasker.ResolvePiiColumns(
+            guardrail,
+            columns,
+            masking.Report.PiiColumns.Concat(lineage),
+            masking.Settings.EnablePiiDetection,
+            CustomPatterns(masking.Settings),
+            masking.Report.FinalSql,
+            nameof(Data.Enums.DatabaseEngineType.SQLite));
+    }
+
+    private static List<Dictionary<string, object?>> Copies(IEnumerable<IDictionary<string, object?>> rows) =>
+        rows
+            .Select(x => new Dictionary<string, object?>(x))
+            .ToList();
 
     private async Task<SqlResultPage> ReadPageAsync(
         QueryStep step,
@@ -383,6 +542,9 @@ internal partial class QueryService : IStoredQueryPreview
             run.Rows.Count,
             false);
     }
+
+    private static bool IsShownToPreviewCaller(Exception exception) =>
+        exception is QueryExecutionFailedException || BeaconOwnErrors.IsOwnMessage(exception);
 
     private static QueryPreviewStep StepSummary(
         QueryStep step,
@@ -438,4 +600,7 @@ internal partial class QueryService : IStoredQueryPreview
     }
 
     private sealed record PreviewPaging : ListRequest;
+
+    /// <summary>How a masked preview's final query is masked: the steps' PII columns it may read back, and its gate report.</summary>
+    private sealed record JoinMasking(McpSettingsData Settings, IReadOnlySet<string> StepPiiColumns, SqlGateReport Report);
 }

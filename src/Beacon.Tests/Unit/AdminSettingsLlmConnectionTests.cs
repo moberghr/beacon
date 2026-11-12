@@ -2,7 +2,9 @@ using FluentAssertions;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using NUnit.Framework;
+using Microsoft.Extensions.Options;
 using Beacon.Core.Authorization;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.AdminSettings;
 using Beacon.Core.Models;
@@ -387,7 +389,103 @@ public class AdminSettingsLlmConnectionTests
         _settings.Verify(x => x.SaveSettingsAsync(It.Is<AppSettingsData>(y => y.LlmModel == "gpt-next"), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
-    private UpdateAdminSettingsHandler Update(IBeaconPermissionAccessor permissions)
+    [TestCase("http://llm.example")]
+    [TestCase("http://10.0.0.5:8080")]
+    [TestCase("HTTP://LLM.EXAMPLE/")]
+    public async Task ANewHttpEndpoint_OnAHostOtherThanLoopback_IsRefused_AndNothingIsSaved(string endpoint)
+    {
+        var act = () => Update(TestPermissions.Admin).Handle(Command() with { LlmEndpoint = endpoint, LlmApiKey = "new-key" }, CancellationToken.None);
+
+        await act.Should().ThrowExactlyAsync<InvalidOperationException>().WithMessage(LlmEndpointRule.Message);
+        _settings.Verify(x => x.SaveSettingsAsync(It.IsAny<AppSettingsData>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [TestCase("https://elsewhere.example")]
+    [TestCase("http://localhost:11434")]
+    [TestCase("http://127.0.0.1:8080/")]
+    [TestCase("http://[::1]:8080/")]
+    public async Task ANewHttpsEndpoint_OrAnHttpOneOnALoopbackHost_IsSaved(string endpoint)
+    {
+        await Update(TestPermissions.Admin).Handle(Command() with { LlmEndpoint = endpoint, LlmApiKey = "new-key" }, CancellationToken.None);
+
+        _settings.Verify(x => x.SaveSettingsAsync(It.Is<AppSettingsData>(y => y.LlmEndpoint == endpoint), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public async Task AllowInsecureEndpoint_LetsANewHttpEndpointBeSaved()
+    {
+        await Update(TestPermissions.Admin, allowInsecureEndpoint: true)
+            .Handle(Command() with { LlmEndpoint = "http://llm.internal", LlmApiKey = "new-key" }, CancellationToken.None);
+
+        _settings.Verify(x => x.SaveSettingsAsync(It.Is<AppSettingsData>(y => y.LlmEndpoint == "http://llm.internal"), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [TestCase(AiProvider.OpenAI)]
+    [TestCase(AiProvider.Claude)]
+    [TestCase(AiProvider.Bedrock)]
+    public async Task AnHttpEndpoint_SavedWithAProviderThatDoesNotSendToIt_IsNotHeldToTheRule(AiProvider provider)
+    {
+        await Update(TestPermissions.Admin).Handle(Command() with { LlmProvider = provider, LlmEndpoint = "http://llm.example", LlmApiKey = "new-key" }, CancellationToken.None);
+
+        _settings.Verify(x => x.SaveSettingsAsync(It.Is<AppSettingsData>(y => y.LlmProvider == provider && y.LlmEndpoint == "http://llm.example"), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public async Task AStoredHttpEndpoint_IsRefused_WhenTheSaveSwitchesToAProviderThatSendsToIt()
+    {
+        _settings
+            .Setup(x => x.GetSettingsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AppSettingsData { BaseUrl = "https://beacon.example", LlmProvider = AiProvider.OpenAI, LlmRegion = "westeurope", LlmEndpoint = "http://legacy.example", LlmApiKey = "stored-key" });
+
+        var act = () => Update(TestPermissions.Admin).Handle(Command() with { LlmEndpoint = "http://legacy.example", LlmApiKey = "new-key" }, CancellationToken.None);
+
+        await act.Should().ThrowExactlyAsync<InvalidOperationException>().WithMessage(LlmEndpointRule.Message);
+        _settings.Verify(x => x.SaveSettingsAsync(It.IsAny<AppSettingsData>(), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [TestCase(AiProvider.OpenAI)]
+    [TestCase(AiProvider.Claude)]
+    public async Task TestingAProviderThatDoesNotSendToTheEndpoint_IsNotHeldToTheRule(AiProvider provider)
+    {
+        var result = await Test(TestPermissions.Admin).Handle(TestCommand(provider) with { LlmEndpoint = "http://llm.example", LlmApiKey = "new-key" }, CancellationToken.None);
+
+        result.Error.Should().NotBe(LlmEndpointRule.Message);
+        _tester.Verify(x => x.TestAsync(It.IsAny<LlmConnectionTestParameters>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public async Task AStoredHttpEndpointThatPredatesTheRule_DoesNotBlockOtherSettings()
+    {
+        _settings
+            .Setup(x => x.GetSettingsAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new AppSettingsData { BaseUrl = "https://beacon.example", LlmProvider = AiProvider.AzureOpenAI, LlmRegion = "westeurope", LlmEndpoint = "http://legacy.example", LlmApiKey = "stored-key" });
+
+        await Update(TestPermissions.Admin).Handle(Command(model: "gpt-next") with { LlmEndpoint = "http://legacy.example" }, CancellationToken.None);
+
+        _settings.Verify(x => x.SaveSettingsAsync(It.Is<AppSettingsData>(y => y.LlmModel == "gpt-next"), It.IsAny<string?>(), It.IsAny<bool>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [Test]
+    public async Task TestingAnHttpAzureEndpoint_OnAHostOtherThanLoopback_FailsWithTheRule_WithoutDialling()
+    {
+        var result = await Test(TestPermissions.Admin).Handle(TestCommand(AiProvider.AzureOpenAI) with { LlmEndpoint = "http://llm.example", LlmApiKey = "new-key" }, CancellationToken.None);
+
+        result.Ok.Should().BeFalse();
+        result.Error.Should().Be(LlmEndpointRule.Message);
+        _tester.Verify(x => x.TestAsync(It.IsAny<LlmConnectionTestParameters>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    [TestCase(false, "http://localhost:8080")]
+    [TestCase(true, "http://llm.internal")]
+    public async Task TestingAnHttpAzureEndpoint_OnLoopback_OrWithAllowInsecureEndpoint_Dials(bool allowInsecureEndpoint, string endpoint)
+    {
+        var result = await Test(TestPermissions.Admin, allowInsecureEndpoint).Handle(TestCommand(AiProvider.AzureOpenAI) with { LlmEndpoint = endpoint, LlmApiKey = "new-key" }, CancellationToken.None);
+
+        result.Ok.Should().BeTrue();
+        _tester.Verify(x => x.TestAsync(It.Is<LlmConnectionTestParameters>(y => y.Endpoint == endpoint), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    private UpdateAdminSettingsHandler Update(IBeaconPermissionAccessor permissions, bool allowInsecureEndpoint = false)
     {
         // The settings the connection is judged against are read where they are stored: the same ones the mock serves.
         var store = new ChangeGovernance.ChangeApprovalStore();
@@ -400,10 +498,11 @@ public class AdminSettingsLlmConnectionTests
             permissions,
             _catalog,
             TestChangeApprovals.Llm(store.Factory(), settingsService: _settings.Object),
-            NullLogger<UpdateAdminSettingsHandler>.Instance);
+            NullLogger<UpdateAdminSettingsHandler>.Instance,
+            endpointOptions: Options.Create(new LlmEndpointOptions { AllowInsecureEndpoint = allowInsecureEndpoint }));
     }
 
-    private TestLlmConnectionHandler Test(IBeaconPermissionAccessor permissions)
+    private TestLlmConnectionHandler Test(IBeaconPermissionAccessor permissions, bool allowInsecureEndpoint = false)
     {
         return new TestLlmConnectionHandler(
             _settings.Object,
@@ -411,7 +510,8 @@ public class AdminSettingsLlmConnectionTests
             TestProjectAccess.Actors(),
             permissions,
             _catalog,
-            NullLogger<TestLlmConnectionHandler>.Instance);
+            NullLogger<TestLlmConnectionHandler>.Instance,
+            Options.Create(new LlmEndpointOptions { AllowInsecureEndpoint = allowInsecureEndpoint }));
     }
 
     private static TestLlmConnectionCommand TestCommand(AiProvider? provider)

@@ -7,6 +7,7 @@ using Beacon.Core.Models;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Retention;
 using Beacon.Core.Authorization;
+using Beacon.Core.Helpers;
 
 namespace Beacon.Core.Handlers.McpEval;
 
@@ -178,10 +179,10 @@ internal sealed class RecordQueryFeedbackHandler(
             // row looks identical to a normal call. Identifiers only (§1.11),
             // mirroring McpAuditService.RetainsContentAsync and ContentRetentionInterceptor.ResolveOrLockAsync.
             logger.LogWarning(
-                exception,
-                "Content retention policy could not be resolved for signal {SignalId} (project {ProjectId}); failing closed.",
+                "Content retention policy could not be resolved for signal {SignalId} (project {ProjectId}); failing closed ({Failure}).",
                 signalId,
-                projectId);
+                projectId,
+                FailureCodes.Describe(exception));
 
             return new ContentRetentionDecision(false, false);
         }

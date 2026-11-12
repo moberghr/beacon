@@ -16,6 +16,9 @@ export const FRAME_HEADER = 'X-Beacon-Embed-Frame';
 /** The meta element of the served page that carries the frame marker. */
 export const FRAME_MARKER_META = 'beacon-embed-frame';
 
+/** The meta element of the served page that lists the origins the grant lets frame it (its `frame-ancestors`). */
+export const FRAME_ORIGINS_META = 'beacon-embed-origins';
+
 /** The message posted to the host page when the token has expired, so it can mint a new one. */
 export const EXPIRED_MESSAGE = { type: 'beacon-embed:expired' } as const;
 
@@ -58,6 +61,46 @@ export function readFrameMarker(doc: Document = document): string | null {
 }
 
 /**
+ * The origins the grant lets frame the page, from the served page's meta element only (the same list as the response's
+ * `frame-ancestors`), never from the address or a message. A value that is not written as an origin is left out.
+ */
+export function readFrameOrigins(doc: Document = document): string[] {
+  const content = doc.querySelector(`meta[name="${FRAME_ORIGINS_META}"]`)?.getAttribute('content') ?? '';
+
+  return content
+    .split(/\s+/)
+    .filter(x => x !== '')
+    .filter(x => originOf(x) === x);
+}
+
+/** What `expiryTargets` reads of the page it runs in. */
+export interface FramedPage {
+  location: { ancestorOrigins?: ArrayLike<string> };
+  document: { referrer: string };
+}
+
+/**
+ * The origins to post the expiry message at, each one the grant lists, never any origin (`'*'`): the grant's one origin;
+ * with several, the framing page's own origin (`location.ancestorOrigins` where the browser has it, else the referrer's
+ * origin) when the grant lists it, and none when it does not. When the framing page's origin cannot be told (a browser
+ * without `ancestorOrigins` and no referrer), each origin the grant lists: the browser delivers a message only at the
+ * origin the framing page has, and only those origins may frame the page.
+ */
+export function expiryTargets(allowed: readonly string[], page: FramedPage = window): string[] {
+  if (allowed.length <= 1) {
+    return [...allowed];
+  }
+
+  const ancestors = page.location.ancestorOrigins;
+  const parent = ancestors != null && ancestors.length > 0 ? ancestors[0] : originOf(page.document.referrer);
+  if (parent == null) {
+    return [...allowed];
+  }
+
+  return allowed.includes(parent) ? [parent] : [];
+}
+
+/**
  * When the token expires (its `exp` claim), or null when it cannot be read. Only to word a refusal Beacon already gave:
  * the page never decides on its own clock that a token has expired, Beacon verifies it.
  */
@@ -94,18 +137,21 @@ export function refusalMeansExpired(token: string, renderedBefore: boolean, now:
 
 /**
  * Tells the framing page, at most once per page load, that the token has expired, so a host that mints a new one on
- * the message cannot be driven into a loop. The message carries nothing but its type, so any framing origin may read it.
+ * the message cannot be driven into a loop. The message carries nothing but its type, and is posted only at
+ * `targetOrigins` (origins the grant lets frame the page, see `expiryTargets`); without one nothing is posted.
  */
-export function expiryNotifier(host: Pick<Window, 'postMessage'> | null): () => void {
+export function expiryNotifier(host: Pick<Window, 'postMessage'> | null, targetOrigins: readonly string[]): () => void {
   let sent = false;
 
   return () => {
-    if (sent || host == null) {
+    if (sent || host == null || targetOrigins.length === 0) {
       return;
     }
 
     sent = true;
-    host.postMessage(EXPIRED_MESSAGE, '*');
+    for (const origin of targetOrigins) {
+      host.postMessage(EXPIRED_MESSAGE, origin);
+    }
   };
 }
 
@@ -156,5 +202,16 @@ export async function renderEmbed(token: string, frameMarker: string, signal?: A
     };
   } catch {
     return { kind: 'unavailable' };
+  }
+}
+
+/** The origin of an absolute http(s) URL, or null for anything else. */
+function originOf(url: string): string | null {
+  try {
+    const parsed = new URL(url);
+
+    return parsed.protocol === 'https:' || parsed.protocol === 'http:' ? parsed.origin : null;
+  } catch {
+    return null;
   }
 }

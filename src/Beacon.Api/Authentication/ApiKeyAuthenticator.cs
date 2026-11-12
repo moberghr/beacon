@@ -7,6 +7,7 @@ using Beacon.Core.Authentication;
 using Beacon.Core.Authorization;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Helpers;
 using Beacon.Core.Mcp;
 using Beacon.Core.Services.Security;
 
@@ -93,7 +94,7 @@ internal static class ApiKeyAuthenticator
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Failed to update last-used timestamp for API key {ApiKeyId}.", credential.Id);
+            logger.LogWarning("Failed to update last-used timestamp for API key {ApiKeyId} ({Failure}).", credential.Id, FailureCodes.Describe(ex));
         }
 
         // Build claims identity from API key

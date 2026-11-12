@@ -1,3 +1,4 @@
+using Beacon.Core.Helpers;
 using Beacon.Core.Models.Metadata;
 using Microsoft.Extensions.Logging;
 
@@ -30,7 +31,7 @@ internal sealed class ForcedMetadataRefresh(
         }
         catch (Exception ex)
         {
-            logger.LogWarning(ex, "Schema relationship sync failed for data source {DataSourceId}; metadata refresh kept.", dataSourceId);
+            logger.LogWarning("Schema relationship sync failed for data source {DataSourceId}; metadata refresh kept ({Failure}).", dataSourceId, FailureCodes.Describe(ex));
         }
 
         return snapshot;

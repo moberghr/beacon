@@ -1,9 +1,11 @@
 using System.Net;
 using System.Net.Http;
 using System.Net.Sockets;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Options;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Http;
 using IPNetwork = System.Net.IPNetwork;
 
 namespace Beacon.Core.Notifications;
@@ -24,58 +26,9 @@ namespace Beacon.Core.Notifications;
 /// </summary>
 internal sealed class OutboundAddressPolicy
 {
-    private static readonly IPNetwork[] NonPublicIPv4 =
-    [
-        IPNetwork.Parse("0.0.0.0/8"),
-        IPNetwork.Parse("10.0.0.0/8"),
-        IPNetwork.Parse("100.64.0.0/10"),
-        IPNetwork.Parse("127.0.0.0/8"),
-        IPNetwork.Parse("168.63.129.16/32"),
-        IPNetwork.Parse("169.254.0.0/16"),
-        IPNetwork.Parse("172.16.0.0/12"),
-        IPNetwork.Parse("192.0.0.0/24"),
-        IPNetwork.Parse("192.0.2.0/24"),
-        IPNetwork.Parse("192.88.99.0/24"),
-        IPNetwork.Parse("192.168.0.0/16"),
-        IPNetwork.Parse("198.18.0.0/15"),
-        IPNetwork.Parse("198.51.100.0/24"),
-        IPNetwork.Parse("203.0.113.0/24"),
-        IPNetwork.Parse("224.0.0.0/4"),
-        IPNetwork.Parse("240.0.0.0/4"),
-    ];
-    // IPv6 is public only inside global unicast (2000::/3), less these special blocks. Everything outside it is
-    // reserved or special: unspecified, loopback, IPv4-compatible and IPv4-translated (which fail closed rather than
-    // trusting the embedded address), discard, local-use NAT64, unique-local, link-local, site-local and multicast.
-    private static readonly IPNetwork GlobalUnicast = IPNetwork.Parse("2000::/3");
-    private static readonly IPNetwork[] NonPublicIPv6 =
-    [
-        // Teredo hides the client address; nothing legitimate is served from it.
-        IPNetwork.Parse("2001::/32"),
-        IPNetwork.Parse("2001:2::/48"),
-        IPNetwork.Parse("2001:10::/28"),
-        IPNetwork.Parse("2001:20::/28"),
-        IPNetwork.Parse("2001:db8::/32"),
-        IPNetwork.Parse("3fff::/20"),
-    ];
-    // Never a notification target, so a host-name allow-list entry cannot reach them (only an explicit address or range
-    // entry can): link-local, where cloud metadata services live, the Azure wire server and the AWS IPv6 metadata
-    // address; plus the IPv6 forms whose embedded address cannot be read (local-use NAT64, Teredo).
-    private static readonly IPNetwork[] MetadataRanges =
-    [
-        IPNetwork.Parse("169.254.0.0/16"),
-        IPNetwork.Parse("168.63.129.16/32"),
-        IPNetwork.Parse("fe80::/10"),
-        IPNetwork.Parse("fd00:ec2::254/128"),
-        IPNetwork.Parse("64:ff9b:1::/48"),
-        IPNetwork.Parse("2001::/32"),
-    ];
-    private static readonly IPNetwork WellKnownNat64 = IPNetwork.Parse("64:ff9b::/96");
-    private static readonly IPNetwork Translated = IPNetwork.Parse("::ffff:0:0:0/96");
-    private static readonly IPNetwork Compatible = IPNetwork.Parse("::/96");
-    private static readonly IPNetwork SixToFour = IPNetwork.Parse("2002::/16");
     private readonly Dictionary<NotificationType, List<IPNetwork>> _allowedNetworks = [];
     private readonly Dictionary<NotificationType, List<string>> _allowedHosts = [];
-    private readonly List<IPNetwork> _nat64Prefixes = [WellKnownNat64];
+    private readonly IReadOnlyList<IPNetwork> _nat64Prefixes;
     private readonly IHostAddressResolver _resolver;
 
     public OutboundAddressPolicy(IOptions<NotificationChannelOptions> options, IHostAddressResolver resolver)
@@ -100,13 +53,7 @@ internal sealed class OutboundAddressPolicy
             }
         }
 
-        foreach (var entry in options.Value.Nat64Prefixes)
-        {
-            if (TryParseNat64Prefix(entry, out var prefix))
-            {
-                _nat64Prefixes.Add(prefix);
-            }
-        }
+        _nat64Prefixes = Nat64PrefixesOf(options.Value);
     }
 
     /// <summary>The notification types that make HTTP calls, each with its own private-network allowances.</summary>
@@ -128,18 +75,31 @@ internal sealed class OutboundAddressPolicy
     }
 
     /// <summary>
+    /// The NAT64 prefixes of this network: the well-known one and the valid entries of
+    /// <c>Beacon:Notifications:Nat64Prefixes</c> (the startup validation refuses an invalid one). The data-source and LLM
+    /// clients' address checks judge an address under one of them by the IPv4 address it carries, as the notification
+    /// check does.
+    /// </summary>
+    public static IReadOnlyList<IPNetwork> ConfiguredNat64Prefixes(IServiceProvider? services)
+    {
+        var options = services?.GetService<IOptions<NotificationChannelOptions>>()?.Value;
+
+        return options == null ? OutboundAddresses.WellKnownNat64Prefixes : Nat64PrefixesOf(options);
+    }
+
+    /// <summary>
     /// True for an address on the public internet, judged with the well-known NAT64 prefix only. An IPv4 address carried
     /// in an IPv6 form (mapped, NAT64 or 6to4) is judged by the IPv4 address it carries.
     /// </summary>
     public static bool IsPublic(IPAddress address)
     {
-        return IsPublic(address, [WellKnownNat64]);
+        return OutboundAddresses.IsPublic(address, OutboundAddresses.WellKnownNat64Prefixes);
     }
 
     /// <summary>Like <see cref="IsPublic(IPAddress)"/>, with the configured NAT64 prefixes as well.</summary>
     public bool IsPublicAddress(IPAddress address)
     {
-        return IsPublic(address, _nat64Prefixes);
+        return OutboundAddresses.IsPublic(address, _nat64Prefixes);
     }
 
     /// <summary>Whether the type's <c>AllowedPrivateNetworks</c> names <paramref name="host"/> (exactly or by wildcard).</summary>
@@ -155,12 +115,12 @@ internal sealed class OutboundAddressPolicy
     /// </summary>
     public bool IsAllowed(NotificationType type, string host, IPAddress address)
     {
-        if (IsHostAllowed(type, host) && !IsMetadata(address))
+        if (IsHostAllowed(type, host) && !OutboundAddresses.IsMetadata(address, _nat64Prefixes))
         {
             return true;
         }
 
-        var embedded = EmbeddedIPv4(address, _nat64Prefixes);
+        var embedded = OutboundAddresses.EmbeddedIPv4(address, _nat64Prefixes);
         if (_allowedNetworks.TryGetValue(type, out var networks)
             && networks.Any(x => x.Contains(address) || (embedded != null && x.Contains(embedded))))
         {
@@ -219,9 +179,7 @@ internal sealed class OutboundAddressPolicy
     /// <summary>Whether a connection endpoint is the request's own host and port, rather than a proxy.</summary>
     internal static bool IsDestination(Uri? requestUri, DnsEndPoint endpoint)
     {
-        return requestUri != null
-            && requestUri.Port == endpoint.Port
-            && string.Equals(requestUri.IdnHost.Trim('[', ']'), endpoint.Host.Trim('[', ']'), StringComparison.OrdinalIgnoreCase);
+        return OutboundAddresses.IsDestination(requestUri, endpoint);
     }
 
     internal async ValueTask<Stream> ConnectAsync(NotificationType type, DnsEndPoint endpoint, bool checkAddresses, CancellationToken cancellationToken)
@@ -241,88 +199,21 @@ internal sealed class OutboundAddressPolicy
             throw new OutboundConnectionBlockedException();
         }
 
-        Exception? lastFailure = null;
-        foreach (var address in allowed)
+        return await OutboundAddresses.ConnectToFirstAsync(allowed, endpoint.Port, cancellationToken);
+    }
+
+    private static List<IPNetwork> Nat64PrefixesOf(NotificationChannelOptions options)
+    {
+        var prefixes = new List<IPNetwork> { OutboundAddresses.WellKnownNat64 };
+        foreach (var entry in options.Nat64Prefixes)
         {
-            var socket = new Socket(address.AddressFamily, SocketType.Stream, ProtocolType.Tcp) { NoDelay = true };
-            try
+            if (TryParseNat64Prefix(entry, out var prefix))
             {
-                await socket.ConnectAsync(new IPEndPoint(address, endpoint.Port), cancellationToken);
-                return new NetworkStream(socket, ownsSocket: true);
-            }
-            catch (SocketException ex)
-            {
-                socket.Dispose();
-                lastFailure = ex;
-            }
-            catch
-            {
-                socket.Dispose();
-                throw;
+                prefixes.Add(prefix);
             }
         }
 
-        throw lastFailure!;
-    }
-
-    private static bool IsPublic(IPAddress address, IReadOnlyList<IPNetwork> nat64Prefixes)
-    {
-        if (address.AddressFamily == AddressFamily.InterNetwork)
-        {
-            return !NonPublicIPv4.Any(x => x.Contains(address));
-        }
-
-        if (address.AddressFamily != AddressFamily.InterNetworkV6)
-        {
-            return false;
-        }
-
-        if (address.IsIPv4MappedToIPv6)
-        {
-            return IsPublic(address.MapToIPv4(), nat64Prefixes);
-        }
-
-        if (nat64Prefixes.Any(x => x.Contains(address)) || SixToFour.Contains(address))
-        {
-            return IsPublic(EmbeddedIPv4(address, nat64Prefixes)!, nat64Prefixes);
-        }
-
-        return GlobalUnicast.Contains(address)
-            && !NonPublicIPv6.Any(x => x.Contains(address));
-    }
-
-    private bool IsMetadata(IPAddress address)
-    {
-        var embedded = EmbeddedIPv4(address, _nat64Prefixes);
-
-        return MetadataRanges.Any(x => x.Contains(address) || (embedded != null && x.Contains(embedded)));
-    }
-
-    /// <summary>The IPv4 address an IPv6 address carries (mapped, translated, compatible, NAT64, 6to4), or null.</summary>
-    private static IPAddress? EmbeddedIPv4(IPAddress address, IReadOnlyList<IPNetwork> nat64Prefixes)
-    {
-        if (address.AddressFamily != AddressFamily.InterNetworkV6)
-        {
-            return null;
-        }
-
-        if (address.IsIPv4MappedToIPv6)
-        {
-            return address.MapToIPv4();
-        }
-
-        var bytes = address.GetAddressBytes();
-        if (Translated.Contains(address) || Compatible.Contains(address) || nat64Prefixes.Any(x => x.Contains(address)))
-        {
-            return new IPAddress(bytes[12..16]);
-        }
-
-        if (SixToFour.Contains(address))
-        {
-            return new IPAddress(bytes[2..6]);
-        }
-
-        return null;
+        return prefixes;
     }
 
     private static bool TryParseNat64Prefix(string? entry, out IPNetwork prefix)

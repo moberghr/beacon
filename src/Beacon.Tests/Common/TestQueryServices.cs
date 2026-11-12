@@ -169,7 +169,8 @@ internal static class TestQueryServices
 
     /// <summary>
     /// <see cref="QueryApprovalService"/> deciding as <paramref name="actors"/>' caller (a stored user, "ext-ada", by
-    /// default), with a save check that accepts every step unless one is given.
+    /// default), with a save check that accepts every step unless one is given, and the reviewer not read again inside the
+    /// decision unless <paramref name="reviewers"/> is given.
     /// </summary>
     public static QueryApprovalService ApprovalService(
         IDbContextFactory<BeaconContext> contextFactory,
@@ -177,7 +178,8 @@ internal static class TestQueryServices
         BeaconConfiguration? configuration = null,
         IStepSqlSaveCheck? saveCheck = null,
         IQueryVersionService? versions = null,
-        ISecurityAuditRecorder? audit = null)
+        ISecurityAuditRecorder? audit = null,
+        IReviewerAuthority? reviewers = null)
     {
         return new QueryApprovalService(
             contextFactory,
@@ -187,6 +189,7 @@ internal static class TestQueryServices
             saveCheck ?? Mock.Of<IStepSqlSaveCheck>(),
             configuration ?? new BeaconConfiguration { ApprovalWorkflow = new ApprovalWorkflowOptions { Enabled = true } },
             audit ?? new RecordingSecurityAudit(),
+            reviewers ?? TestChangeApprovals.ReviewerUnchanged,
             NullLogger<QueryApprovalService>.Instance);
     }
 

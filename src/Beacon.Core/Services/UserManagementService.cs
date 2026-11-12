@@ -30,6 +30,7 @@ internal class UserManagementService(
 {
     private const string InvalidCredentials = "Invalid username or password.";
     private const string CurrentPasswordIncorrect = "Current password is incorrect.";
+    private const string NewPasswordMustDiffer = "The new password must differ from the current one.";
     private const string NewPasswordRequired = "Your password was set by an administrator. Choose a new password to finish signing in.";
 
     private const string AdminGrantNotReviewable =
@@ -352,6 +353,7 @@ internal class UserManagementService(
                         IsEnabled = x.IsEnabled,
                         LastLoginAt = x.LastLoginAt,
                         CreatedTime = x.CreatedTime,
+                        TokensValidAfter = x.TokensValidAfter,
                         Roles = x.UserRoles.Select(y =>
                             new BeaconRoleData
                             {
@@ -513,6 +515,7 @@ internal class UserManagementService(
                     x.IsEnabled,
                     x.ArchivedTime,
                     x.CreatedTime,
+                    x.TokensValidAfter,
                     Roles = x.UserRoles.Select(y =>
                         new BeaconRoleData
                         {
@@ -555,6 +558,7 @@ internal class UserManagementService(
                 IsEnabled = existingData.IsEnabled,
                 LastLoginAt = now,
                 CreatedTime = existingData.CreatedTime,
+                TokensValidAfter = existingData.TokensValidAfter,
                 Roles = existingData.Roles
             };
         }
@@ -996,7 +1000,11 @@ internal class UserManagementService(
         var now = timeProvider.GetUtcNow().UtcDateTime;
         if (!passwordHasher.VerifyPassword(currentPassword, user.PasswordHash!, user.PasswordSalt!))
         {
-            await RecordFailedSignInAsync(context, user, now, ct);
+            // The caller is signed in as this user: no refused sign-in carries a break-glass delay here, so it is recorded now.
+            if (await RecordFailedSignInAsync(context, user, now, ct) is { } delay)
+            {
+                await securityAudit.RecordAsync(delay.AuditEntry(SecurityAuditActor.OfUser(user.Id)), ct);
+            }
 
             return new BaseResponse { Success = false, Message = CurrentPasswordIncorrect };
         }
@@ -1013,6 +1021,12 @@ internal class UserManagementService(
         catch (BeaconException ex)
         {
             return new BaseResponse { Success = false, Message = ex.Message };
+        }
+
+        // Checked against the stored hash, not the typed current password, so it holds however the current one was typed.
+        if (passwordHasher.VerifyPassword(newPassword, user.PasswordHash!, user.PasswordSalt!))
+        {
+            return new BaseResponse { Success = false, Message = NewPasswordMustDiffer };
         }
 
         // A new password signs out every session the user holds (the caller's own session is signed in again by the
@@ -1107,18 +1121,17 @@ internal class UserManagementService(
         var user = await FindInternalUserAsync(context, username, ct);
         var now = timeProvider.GetUtcNow().UtcDateTime;
         var passwordMatches = PasswordMatches(user, password);
-        if (!MaySignIn(user, passwordMatches, out var refusedByLocalLogin))
-        {
-            await RecordFailedSignInAsync(context, passwordMatches ? null : user, now, ct);
+        var maySignIn = MaySignIn(user, passwordMatches, out var refusedByLocalLogin);
 
-            return SignInRefused(user, refusedByLocalLogin, IsLockedOut(user, now));
-        }
-
-        // The lockout is decided after the password check by the statement that clears the count, never by the user as
-        // loaded before it: an attempt that raced a concurrent lock is refused like a wrong password.
-        if (!await TryClaimSignInAsync(context, user, now, ct))
+        // The lockout (or a break-glass delay) is decided after the password check by the statement that clears the count,
+        // never by the user as loaded before it: an attempt that raced a concurrent lock is refused like a wrong password.
+        // The claim and the counting statements run for every refused attempt, for nobody when no count applies.
+        var claimed = await TryClaimSignInAsync(context, maySignIn ? user : null, now, ct);
+        if (!maySignIn || !claimed)
         {
-            return SignInRefused(user, refusedByLocalLogin: false, lockedOut: true);
+            var delay = await RecordFailedSignInAsync(context, passwordMatches ? null : user, now, ct);
+
+            return SignInRefused(user, refusedByLocalLogin, maySignIn || IsLockedOut(user, now), delay);
         }
 
         if (user.MustChangePassword)
@@ -1148,16 +1161,18 @@ internal class UserManagementService(
         var user = await FindInternalUserAsync(context, username, ct);
         var now = timeProvider.GetUtcNow().UtcDateTime;
         var passwordMatches = PasswordMatches(user, currentPassword);
-        if (!MaySignIn(user, passwordMatches, out _) || !user.MustChangePassword)
+        var mayChange = MaySignIn(user, passwordMatches, out _) && user.MustChangePassword;
+        var claimed = await TryClaimSignInAsync(context, mayChange ? user : null, now, ct);
+        if (!mayChange || !claimed)
         {
-            await RecordFailedSignInAsync(context, passwordMatches ? null : user, now, ct);
+            var delay = await RecordFailedSignInAsync(context, passwordMatches ? null : user, now, ct);
 
-            return AuthenticationResult.Failed(InvalidCredentials);
-        }
-
-        if (!await TryClaimSignInAsync(context, user, now, ct))
-        {
-            return AuthenticationResult.Failed(InvalidCredentials);
+            return new AuthenticationResult
+            {
+                Success = false,
+                ErrorMessage = InvalidCredentials,
+                BreakGlassDelay = delay
+            };
         }
 
         try
@@ -1243,9 +1258,9 @@ internal class UserManagementService(
         };
     }
 
-    // A refused password sign-in: the generic answer; the user the name resolved to, for the security audit of the attempt
-    // only (the caller never sees it).
-    private static AuthenticationResult SignInRefused(BeaconUser? user, bool refusedByLocalLogin, bool lockedOut)
+    // A refused password sign-in: the generic answer; the user the name resolved to and the break-glass delay the attempt
+    // set, for the security audit of the attempt only (the caller never sees them).
+    private static AuthenticationResult SignInRefused(BeaconUser? user, bool refusedByLocalLogin, bool lockedOut, BreakGlassDelay? delay)
     {
         return new AuthenticationResult
         {
@@ -1253,7 +1268,8 @@ internal class UserManagementService(
             ErrorMessage = InvalidCredentials,
             BeaconUserId = user?.Id,
             LocalLoginRefused = refusedByLocalLogin,
-            LockedOut = lockedOut
+            LockedOut = lockedOut,
+            BreakGlassDelay = delay
         };
     }
 
@@ -1315,32 +1331,48 @@ internal class UserManagementService(
     // TryClaimSignInAsync.
     private bool IsLockedOut(BeaconUser? user, DateTime now)
     {
-        return LockoutApplies(user) && user?.LockoutEndTime > now;
+        return CountingFor(user) != AttemptCounting.None && user?.LockoutEndTime > now;
     }
 
-    // A break-glass account (Beacon:UserManagement:LocalLogin) is never locked or counted, so a third party cannot lock
-    // the emergency way in; it stays limited per client address by Beacon:RateLimits:Login.
-    private bool LockoutApplies([NotNullWhen(true)] BeaconUser? user)
+    // Which count a user's wrong passwords go to. A break-glass account (Beacon:UserManagement:LocalLogin) is never locked
+    // out, so the emergency way in always opens again: it stays limited per client address by Beacon:RateLimits:Login, and
+    // gets the shorter, growing delay of Beacon:RateLimits:BreakGlassThrottle only while a host turns that on.
+    private AttemptCounting CountingFor(BeaconUser? user)
     {
-        return LockoutSettings.IsEnabled
-            && user != null
-            && !configuration.UserManagement.LocalLogin.IsBreakGlass(user.UserName);
+        if (user == null)
+        {
+            return AttemptCounting.None;
+        }
+
+        if (configuration.UserManagement.LocalLogin.IsBreakGlass(user.UserName))
+        {
+            return ThrottleSettings.IsEnabled ? AttemptCounting.BreakGlassDelay : AttemptCounting.None;
+        }
+
+        return LockoutSettings.IsEnabled ? AttemptCounting.Lockout : AttemptCounting.None;
     }
+
+    private bool AnyCountEnabled => LockoutSettings.IsEnabled || ThrottleSettings.IsEnabled;
 
     private LockoutOptions LockoutSettings => rateLimits?.Value.Lockout ?? new LockoutOptions();
 
-    // After the right password: one atomic statement starts the count again only while no lockout holds, and zero rows means
-    // the user is locked out. Deciding here, not from the user loaded before the password check, refuses the attempts that
-    // were in flight when a concurrent one locked the user.
-    private async Task<bool> TryClaimSignInAsync(BeaconContext context, BeaconUser user, DateTime now, CancellationToken ct)
+    private BreakGlassThrottleOptions ThrottleSettings => rateLimits?.Value.BreakGlassThrottle ?? new BreakGlassThrottleOptions();
+
+    // After the right password: one atomic statement starts the count again only while no lockout or delay holds, and zero
+    // rows means the user is locked out or delayed. Deciding here, not from the user loaded before the password check,
+    // refuses the attempts that were in flight when a concurrent one locked the user. A refused attempt (no user) runs the
+    // same statement for nobody.
+    private async Task<bool> TryClaimSignInAsync(BeaconContext context, BeaconUser? user, DateTime now, CancellationToken ct)
     {
-        if (!LockoutApplies(user))
+        if (!AnyCountEnabled)
         {
             return true;
         }
 
+        var counted = CountingFor(user) != AttemptCounting.None;
+        var userId = counted ? user!.Id : 0;
         var claimed = await context.Users
-            .Where(x => x.Id == user.Id)
+            .Where(x => x.Id == userId)
             .Where(x => x.LockoutEndTime == null || x.LockoutEndTime <= now)
             .ExecuteUpdateAsync(
                 x => x
@@ -1349,30 +1381,38 @@ internal class UserManagementService(
                     .SetProperty(y => y.LastFailedSignInTime, (DateTime?)null),
                 ct);
 
-        return claimed > 0;
+        return !counted || claimed > 0;
     }
 
-    // Every refused password sign-in runs the same two statements, so a wrong password for an existing user costs what
-    // one for an unknown, locked-out, break-glass or refused account costs: the count goes up only for the user a wrong
-    // password was sent for (no row matches otherwise) and only while that user is not locked out; it starts again at one
-    // when the previous wrong password is a lockout duration old. The statement that reaches the threshold locks the user
-    // and starts the count again. Each is one atomic update, so concurrent attempts are all counted and exactly one of
-    // them locks.
-    private async Task RecordFailedSignInAsync(BeaconContext context, BeaconUser? wrongPasswordUser, DateTime now, CancellationToken ct)
+    // Every refused password sign-in runs the same statements (the count and the lock; with the break-glass delay on, also the
+    // delay and its read-back), so a wrong password for an existing user costs what one for an unknown, locked-out, delayed or
+    // refused account costs: the count goes up only
+    // for the user a wrong password was sent for (no row matches otherwise) and only while that user is neither locked out nor
+    // delayed; it starts again at one when the previous wrong password is a lockout duration (for a break-glass account, the
+    // throttle's reset time) old. For an account that can be locked, the statement that reaches the threshold locks it and
+    // starts the count again; for a break-glass account, every wrong password from the threshold on sets a delay that doubles
+    // with the count, up to the longest one, and keeps the count. Each is one atomic update, so concurrent attempts are all
+    // counted and exactly one of them locks or delays. A delay is returned, not recorded: the one security audit event every
+    // refused attempt writes carries it (BreakGlassDelay).
+    private async Task<BreakGlassDelay?> RecordFailedSignInAsync(BeaconContext context, BeaconUser? wrongPasswordUser, DateTime now, CancellationToken ct)
     {
-        var lockout = LockoutSettings;
-        if (!lockout.IsEnabled)
+        if (!AnyCountEnabled)
         {
-            return;
+            return null;
         }
 
-        var userId = LockoutApplies(wrongPasswordUser) ? wrongPasswordUser.Id : 0;
+        var lockout = LockoutSettings;
+        var throttle = ThrottleSettings;
+        var counting = CountingFor(wrongPasswordUser);
+        var countedUserId = counting == AttemptCounting.None ? 0 : wrongPasswordUser!.Id;
+        var lockoutUserId = counting == AttemptCounting.Lockout ? countedUserId : 0;
+        var delayedUserId = counting == AttemptCounting.BreakGlassDelay ? countedUserId : 0;
+        var countStartsAgainAt = now.Subtract(counting == AttemptCounting.BreakGlassDelay ? throttle.ResetAfter : lockout.Duration);
         var maxFailedAttempts = lockout.MaxFailedAttempts;
         var lockedUntil = now.Add(lockout.Duration);
-        var countStartsAgainAt = now.Subtract(lockout.Duration);
 
         await context.Users
-            .Where(x => x.Id == userId)
+            .Where(x => x.Id == countedUserId)
             .Where(x => x.LockoutEndTime == null || x.LockoutEndTime <= now)
             .ExecuteUpdateAsync(
                 x => x
@@ -1383,7 +1423,7 @@ internal class UserManagementService(
                 ct);
 
         var locked = await context.Users
-            .Where(x => x.Id == userId)
+            .Where(x => x.Id == lockoutUserId)
             .Where(x => x.FailedSignInCount >= maxFailedAttempts)
             .Where(x => x.LockoutEndTime == null || x.LockoutEndTime <= now)
             .ExecuteUpdateAsync(
@@ -1392,28 +1432,94 @@ internal class UserManagementService(
                     .SetProperty(y => y.FailedSignInCount, 0)
                     .SetProperty(y => y.LastFailedSignInTime, (DateTime?)null),
                 ct);
-        if (locked == 0)
+
+        // Decided by the configuration, never by the name: with the delay on, every refused attempt runs its statements.
+        var delay = throttle.IsEnabled ? await DelayBreakGlassAsync(context, delayedUserId, throttle, now, ct) : null;
+        if (locked > 0)
         {
-            return;
+            LogRefusedFor(lockoutUserId, lockout.Duration, maxFailedAttempts, breakGlass: false);
+
+            // No unit of work to join: the lock is already written by the statement before.
+            await securityAudit.RecordAsync(
+                new SecurityAuditEntry(SecurityAuditActions.UserLockedOut)
+                    .On(SecurityAuditResources.User, lockoutUserId)
+                    .By(SecurityAuditActor.Anonymous)
+                    .With(new SecurityAuditDetails()
+                        .Add("failedAttempts", maxFailedAttempts)
+                        .Add("lockoutMinutes", lockout.DurationMinutes)
+                        .Add("lockedUntil", lockedUntil)),
+                ct);
         }
 
+        if (delay != null)
+        {
+            LogRefusedFor(delay.UserId, TimeSpan.FromSeconds(delay.DelaySeconds), delay.FailedAttempts, breakGlass: true);
+        }
+
+        return delay;
+    }
+
+    // The break-glass delay: from the threshold on, the delay set by a wrong password doubles with every further one (the
+    // count is kept), up to the longest. One statement; the ladder of delays is sent as parameters. The row is read back for
+    // every attempt (none for nobody), whether a delay was set or not.
+    private static async Task<BreakGlassDelay?> DelayBreakGlassAsync(
+        BeaconContext context,
+        int userId,
+        BreakGlassThrottleOptions throttle,
+        DateTime now,
+        CancellationToken ct)
+    {
+        var threshold = Math.Max(throttle.FailedAttemptsBeforeDelay, 1);
+        var until0 = now.Add(throttle.DelayAfter(0));
+        var until1 = now.Add(throttle.DelayAfter(1));
+        var until2 = now.Add(throttle.DelayAfter(2));
+        var until3 = now.Add(throttle.DelayAfter(3));
+        var until4 = now.Add(throttle.DelayAfter(4));
+        var until5 = now.Add(throttle.DelayAfter(5));
+        var until6 = now.Add(throttle.DelayAfter(6));
+        var longest = now.Add(throttle.DelayAfter(BreakGlassThrottleOptions.MaxDoublings));
+        var delayed = await context.Users
+            .Where(x => x.Id == userId)
+            .Where(x => x.FailedSignInCount >= threshold)
+            .Where(x => x.LockoutEndTime == null || x.LockoutEndTime <= now)
+            .ExecuteUpdateAsync(
+                x => x.SetProperty(
+                    y => y.LockoutEndTime,
+                    y => y.FailedSignInCount >= threshold + 7 ? longest
+                        : y.FailedSignInCount >= threshold + 6 ? until6
+                        : y.FailedSignInCount >= threshold + 5 ? until5
+                        : y.FailedSignInCount >= threshold + 4 ? until4
+                        : y.FailedSignInCount >= threshold + 3 ? until3
+                        : y.FailedSignInCount >= threshold + 2 ? until2
+                        : y.FailedSignInCount >= threshold + 1 ? until1
+                        : until0),
+                ct);
+
+        var state = await context.Users
+            .Where(x => x.Id == userId)
+            .Select(x =>
+                new
+                {
+                    x.FailedSignInCount,
+                    x.LockoutEndTime
+                })
+            .FirstOrDefaultAsync(ct);
+
+        return delayed > 0 && state?.LockoutEndTime is { } until
+            ? new BreakGlassDelay(userId, state.FailedSignInCount, until, (int)(until - now).TotalSeconds)
+            : null;
+    }
+
+    // A lockout, or a break-glass account's delay, with its length in seconds; ids and counts only.
+    private void LogRefusedFor(int userId, TimeSpan duration, int failedAttempts, bool breakGlass)
+    {
         logger?.LogWarning(
             Authorization.ProjectAccess.ProjectAccessEvents.UserLockedOut,
-            "User {UserId} locked out of password sign-in for {LockoutMinutes} minutes after {FailedAttempts} wrong passwords",
+            "User {UserId} refused password sign-in for {LockoutSeconds} seconds after {FailedAttempts} wrong passwords (break-glass delay: {BreakGlassDelay})",
             userId,
-            lockout.DurationMinutes,
-            maxFailedAttempts);
-
-        // No unit of work to join: the lock is already written by the statement above.
-        await securityAudit.RecordAsync(
-            new SecurityAuditEntry(SecurityAuditActions.UserLockedOut)
-                .On(SecurityAuditResources.User, userId)
-                .By(SecurityAuditActor.Anonymous)
-                .With(new SecurityAuditDetails()
-                    .Add("failedAttempts", maxFailedAttempts)
-                    .Add("lockoutMinutes", lockout.DurationMinutes)
-                    .Add("lockedUntil", lockedUntil)),
-            ct);
+            (int)duration.TotalSeconds,
+            failedAttempts,
+            breakGlass);
     }
 
     private bool VerifyAgainstDummyCredential(string password)
@@ -1650,4 +1756,11 @@ internal class UserManagementService(
     }
 
     private sealed record NewUserRole(int Id, string Name);
+
+    private enum AttemptCounting
+    {
+        None,
+        Lockout,
+        BreakGlassDelay
+    }
 }

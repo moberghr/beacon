@@ -211,7 +211,7 @@ public class McpDynamicToolInstallerTests
 
         var result = await client.CallToolAsync("q_custom", new Dictionary<string, object?>());
 
-        HostEndpointDispatchTests.Text(result).Should().Be(AttributeAnswer);
+        HostEndpointDispatchTests.Text(result).Should().Be(AttributeAnswer + McpDataNoticeCallToolFilter.Notice, "the tool's own answer stays first and the data notice ends it");
         logs.Entries.Should().ContainSingle(x => x.Level == LogLevel.Warning && x.Message.Contains("q_custom") && x.Message.Contains("the saved-query tools"));
     }
 
@@ -225,7 +225,7 @@ public class McpDynamicToolInstallerTests
         var result = await client.CallToolAsync("api_custom", new Dictionary<string, object?>());
 
         host.Registry.Tools.Should().BeEmpty();
-        HostEndpointDispatchTests.Text(result).Should().Be(AttributeAnswer);
+        HostEndpointDispatchTests.Text(result).Should().Be(AttributeAnswer + McpDataNoticeCallToolFilter.Notice, "the tool's own answer stays first and the data notice ends it");
         logs.Entries.Should().NotContain(x => x.Level == LogLevel.Warning && x.Category == typeof(McpDynamicToolNameCheck).FullName);
     }
 
@@ -241,7 +241,7 @@ public class McpDynamicToolInstallerTests
 
         host.Registry.IsCatalogMode.Should().BeTrue();
         tools.Select(x => x.Name).Should().Contain(["search_api", "call_api", "api_custom"]);
-        HostEndpointDispatchTests.Text(result).Should().Be(AttributeAnswer);
+        HostEndpointDispatchTests.Text(result).Should().Be(AttributeAnswer + McpDataNoticeCallToolFilter.Notice, "the tool's own answer stays first and the data notice ends it");
         logs.Entries.Should().NotContain(x => x.Level == LogLevel.Warning && x.Category == typeof(McpDynamicToolNameCheck).FullName);
     }
 

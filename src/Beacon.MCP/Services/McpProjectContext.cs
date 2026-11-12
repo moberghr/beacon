@@ -5,6 +5,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Authorization;
 using Beacon.Core.Data;
+using Beacon.Core.Helpers;
 using Beacon.Core.Mcp;
 
 namespace Beacon.MCP.Services;
@@ -135,7 +136,7 @@ internal static class ProjectContextFactory
             context.AccessUndetermined = true;
             services.GetService<ILoggerFactory>()?
                 .CreateLogger(typeof(ProjectContextFactory))
-                .LogError(ex, "MCP project access could not be resolved for user {UserId}; the call is refused and reaches no project.", context.UserId);
+                .LogError("MCP project access could not be resolved for user {UserId}; the call is refused and reaches no project ({Failure}).", context.UserId, FailureCodes.Describe(ex));
         }
     }
 

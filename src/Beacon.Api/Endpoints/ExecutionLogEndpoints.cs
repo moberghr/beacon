@@ -10,8 +10,8 @@ internal static class ExecutionLogEndpoints
     public static RouteGroupBuilder MapExecutionLogEndpoints(this RouteGroupBuilder group)
     {
         // The execution log of the statements Beacon runs on data sources is an Auditor's or a SecurityAdmin's: a paged read
-        // and a CSV export, each over at most 93 days and only the data sources the caller may read. Both are recorded in the
-        // security audit trail.
+        // and a CSV export, each over at most 93 days; every row for an Auditor, only the data sources it may read for a
+        // SecurityAdmin who is no Auditor. Both are recorded in the security audit trail.
         var log = group.MapGroup("/execution-log").WithTags("ExecutionLog");
 
         log.MapGet("/", ([AsParameters] GetExecutionLogQuery query, IMediator m, CancellationToken ct) => m.Send(query, ct))

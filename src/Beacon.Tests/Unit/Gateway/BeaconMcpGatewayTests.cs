@@ -104,6 +104,24 @@ public class BeaconMcpGatewayTests
     }
 
     [Test]
+    public async Task UnderTheRegulatedProfile_AGatewayHostStartsWithACompliantConfiguration_WithoutTheApprovalWorkflow()
+    {
+        await using var app = await StartAsync(settings: Regulated());
+
+        var response = await PostInitializeAsync(app, token: null, hostSession: false, origin: "https://inventhor.example.com");
+
+        response.StatusCode.Should().Be(HttpStatusCode.Unauthorized);
+
+        var weaker = Regulated();
+        weaker.Remove("Beacon:Security:OriginGuard");
+        var start = () => StartAsync(settings: weaker);
+
+        var failure = (await start.Should().ThrowAsync<OptionsValidationException>()).Which.Message;
+        failure.Should().Contain("Beacon:Profile is Regulated, so Beacon:Security:OriginGuard must be Enforce")
+            .And.NotContain("ApprovalWorkflow", "the gateway serves none of the changes the approval workflow governs");
+    }
+
+    [Test]
     public void AGatewayWithoutItsEssentials_IsRefused_NamingWhatIsMissing()
     {
         var act = () => new ServiceCollection().AddBeaconMcpGateway(Configuration(), x => x.ProjectName = "inventhor");
@@ -238,6 +256,23 @@ public class BeaconMcpGatewayTests
 
         (await act.Should().ThrowAsync<InvalidOperationException>()).Which.Message.Should().Contain("Multiplexing is on");
     }
+
+    // The regulated profile's keys a gateway host sets in its configuration; Configuration() already sets an https public base URL.
+    private static Dictionary<string, string?> Regulated() => new()
+    {
+        ["Beacon:Profile"] = "Regulated",
+        ["Beacon:UserManagement:LocalLogin:Enabled"] = "false",
+        ["Beacon:Retention:Days"] = "90",
+        ["Beacon:Retention:ContentDays"] = "30",
+        ["Beacon:Mcp:Audit:RetentionDays"] = "365",
+        ["Beacon:Security:OriginGuard"] = "Enforce",
+        ["Beacon:Audit:IntegrityKey"] = Convert.ToBase64String(RandomNumberGenerator.GetBytes(32)),
+        ["Beacon:Encryption:AllowLegacyCbc"] = "false",
+        ["Beacon:DataSources:Transport:EnforceOnExisting"] = "true",
+        ["Beacon:DataSources:AllowedHosts:0"] = "db.example.test",
+        ["Beacon:Authorization:RequireProjectMembership"] = "true",
+        ["Beacon:ApiKeys:EnforceMaxLifetimeOnExistingKeys"] = "true"
+    };
 
     private static IConfiguration Configuration() =>
         new ConfigurationBuilder()

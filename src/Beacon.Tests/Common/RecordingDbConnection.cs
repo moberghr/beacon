@@ -83,13 +83,16 @@ internal sealed class RecordingDbConnection : DbConnection
     /// <summary>A command whose text this matches is recorded, then fails as a server error would.</summary>
     public Func<string, bool>? FailOnCommandText { get; init; }
 
+    /// <summary>What a command <see cref="FailOnCommandText"/> matches throws; null for a fixed server error.</summary>
+    public Exception? FailCommandWith { get; init; }
+
     public void Record(DbCommand command)
     {
         Executions.Add((command.CommandText, command.Transaction, command.Parameters.Cast<DbParameter>().ToList()));
         CommandTimeouts.Add(command.CommandTimeout);
         if (FailOnCommandText?.Invoke(command.CommandText) == true)
         {
-            throw new InvalidOperationException("The command failed on the server.");
+            throw FailCommandWith ?? new InvalidOperationException("The command failed on the server.");
         }
     }
 

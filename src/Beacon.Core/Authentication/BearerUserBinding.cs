@@ -17,7 +17,8 @@ internal enum BearerRefusal
     NoBeaconUser,
     DisabledUser,
     ArchivedUser,
-    NoUserStore
+    NoUserStore,
+    IssuedBeforeSignOut
 }
 
 /// <summary>
@@ -119,7 +120,8 @@ internal static class BearerUserBinding
     /// <c>sub</c>). It matches a user stored under the token issuer, as SSO sign-in stores users, and, only when exactly
     /// one issuer is configured, a user an administrator pre-registered without an identity provider. Internal
     /// (password) users and super admins never match. A disabled or archived match refuses the token even when another
-    /// row would match, so a disabled account is never reached by a second key.
+    /// row would match, so a disabled account is never reached by a second key. A token issued before the bound user was
+    /// last signed out everywhere is refused (<see cref="TokenIssueTime"/>).
     /// </summary>
     public static async Task<BearerBinding> BindAsync(
         IUserManagementService users,
@@ -170,6 +172,10 @@ internal static class BearerUserBinding
             .Where(x => x.User.IdentityProvider != null)
             .Select(x => x.User)
             .FirstOrDefault() ?? matches[0].User;
+        if (TokenIssueTime.IssuedBeforeSignOut(token, user.TokensValidAfter))
+        {
+            return BearerBinding.Refused(BearerRefusal.IssuedBeforeSignOut);
+        }
 
         return new BearerBinding(user, BearerRefusal.None);
     }

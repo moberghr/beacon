@@ -1,0 +1,20 @@
+# Secret-scan configuration (gitleaks). The default rules apply everywhere; the files below hold made-up values that
+# only look like credentials: fixtures that prove Beacon screens or seals such values, and documentation examples.
+# Add a file here only for a value that was never a real credential, and name the file exactly (no directories).
+[extend]
+useDefault = true
+
+[[allowlists]]
+description = "Test fixtures and documentation examples with credential-shaped placeholder values"
+paths = [
+  '''(^|/)src/Beacon\.Tests/Unit/ApiKeyServiceValidationTests\.cs$''',
+  '''(^|/)src/Beacon\.Tests/Unit/DocumentationEnumDiscoveryTests\.cs$''',
+  '''(^|/)src/Beacon\.Tests/Unit/ColumnValueSamplerTests\.cs$''',
+  '''(^|/)src/Beacon\.Tests/Unit/Metadata/MetadataRefreshTests\.cs$''',
+  '''(^|/)src/Beacon\.Tests/Unit/RowData/ColumnValueScreeningTests\.cs$''',
+  '''(^|/)src/Beacon\.Tests/Unit/SecurityAudit/AuditTableSealTests\.cs$''',
+  '''(^|/)src/Beacon\.Tests/Unit/SecurityAudit/GovernanceEventTests\.cs$''',
+  '''(^|/)src/Beacon\.Tests/Unit/SecurityAudit/McpAuditSealTests\.cs$''',
+  '''(^|/)src/Beacon\.Tests/Unit/SecurityAudit/SecurityAuditIntegrityTests\.cs$''',
+  '''(^|/)docs/site/src/content/docs/security/api-keys\.md$''',
+]

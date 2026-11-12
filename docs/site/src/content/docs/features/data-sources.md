@@ -88,6 +88,9 @@ An API data source's credentials go only to the API it names:
   `***` in what the API answers, before it becomes rows, also URL- or JSON-escaped.
 - **No redirects.** Beacon does not follow redirects: a `3xx` answer fails the query or the test and says so. Point the
   **Base URL** and the **OpenAPI spec URL** at their final addresses.
+- **Addresses.** The connector (and the Databricks connector) connects only to an address the host allows: never
+  link-local or cloud metadata addresses, loopback only on development hosts, private networks unless the host turns them
+  off. See [HTTP data-source addresses](/getting-started/configuration/#http-data-source-addresses).
 - **Paths stay under the base URL.** A query's path (after its path parameters are filled in) may not contain `.` or
   `..` segments, also percent-encoded or behind a backslash, nor a `#` or a control character, and the request URL keeps
   the base URL's scheme, host, port and path.
@@ -111,15 +114,17 @@ synonyms and case do not matter.
 
 | Engine | Required | Server certificate from a private CA |
 |---|---|---|
-| PostgreSQL | `SSL Mode=VerifyFull`. `Require` and `VerifyCA` do not check the host name, and the default (`Prefer`) may not encrypt at all. | `Root Certificate=/path/to/ca.pem` |
-| SQL Server, Azure Synapse | `Encrypt` set to `Mandatory` (`True`, the default) or `Strict`, and `TrustServerCertificate` left out or `false`. | Install the CA on the Beacon host, or pin it: `HostNameInCertificate=<name in the certificate>` when it differs from the server name, `ServerCertificate=/path/to/server.cer` to accept exactly that certificate. |
-| MySQL | `SslMode=VerifyFull`. `Required` and `VerifyCA` do not check the host name, and the default (`Preferred`) may not encrypt at all. | `SslCa=/path/to/ca.pem` |
+| PostgreSQL | `SSL Mode=VerifyFull`. `Require` and `VerifyCA` do not check the host name, and the default (`Prefer`) may not encrypt at all. | Install the CA on the Beacon host, or name it with `Root Certificate=/path/to/ca.pem` |
+| SQL Server, Azure Synapse | `Encrypt` set to `Mandatory` (`True`, the default) or `Strict`, and `TrustServerCertificate` left out or `false`. | Install the CA on the Beacon host, with `HostNameInCertificate=<name in the certificate>` when it differs from the server name; or `ServerCertificate=/path/to/server.cer` to accept exactly that certificate. |
+| MySQL | `SslMode=VerifyFull`. `Required` and `VerifyCA` do not check the host name, and the default (`Preferred`) may not encrypt at all. | Install the CA on the Beacon host, or name it with `SslCa=/path/to/ca.pem` (a PEM file: MySql.Data reads a `.pfx` file there as a client certificate) |
 | Snowflake | Nothing to set. `insecureMode=true`, a `certRevocationCheckMode` other than `ENABLED` and a `scheme` other than `https` are refused. | Not applicable |
 | API (OpenAPI) | **Base URL** and **OpenAPI spec URL** are absolute `https://` URLs. | Install the CA on the Beacon host. |
 | Databricks, BigQuery, AWS CloudWatch | Nothing to set: their clients always connect over HTTPS and check the certificate. | Not applicable |
 
-A CA file is read on the Beacon host, so it must exist there. A connection Beacon cannot read, or whose type has no
-connector registered, is never verified.
+A CA file is read on the Beacon host, so it must exist there. It only verifies the server, so naming one needs no
+option; a client certificate or key file needs `Beacon:DataSources:AllowHostCredentials` (see
+[Driver options and hosts](#driver-options-and-hosts)). A connection
+Beacon cannot read, or whose type has no connector registered, is never verified.
 
 How Beacon applies the rule:
 
@@ -147,9 +152,9 @@ the connection with its driver's own parser and refuses these options:
 
 | Engine | Refused | Signs in as the Beacon host (lifted by `AllowHostCredentials`) |
 |---|---|---|
-| PostgreSQL | `Options`, `Passfile`, `Include Error Detail=true`, `Log Parameters=true` | A Unix-socket `Host`, `GSS Encryption Mode=Require`, a `Require Auth` that admits `GSS` or `SSPI`, no `Password` and no `SSL Certificate` (the host's `PGPASSWORD` or pgpass file) |
+| PostgreSQL | `Options`, `Passfile`, `Include Error Detail=true`, `Log Parameters=true` | A Unix-socket `Host`, `GSS Encryption Mode=Require`, a `Require Auth` that admits `GSS` or `SSPI`, a client certificate or key file (`SSL Certificate`, `SSL Key`, `SSL Password`), no `Password` (the host's `PGPASSWORD` or pgpass file) |
 | SQL Server, Azure Synapse | `AttachDBFilename`, `User Instance=true`, `Authentication=Active Directory Interactive` or `Device Code Flow` | `Integrated Security` (`Trusted_Connection`), any `Authentication` other than `SqlPassword`, `Active Directory Password` or `Active Directory Service Principal`, `Column Encryption Setting=Enabled`, a named-pipe (`np:`), shared-memory (`lpc:`) or LocalDB `Data Source` |
-| MySQL | `AllowLoadLocalInfile=true`, `AllowLoadLocalInfileInPath`, `CommandInterceptors`, `ExceptionInterceptors` | `IntegratedSecurity`, a Kerberos, Windows or OCI `DefaultAuthenticationPlugin`, `OciConfigFile`, `CertificateStoreLocation`, a `ConnectionProtocol` other than TCP, no `Password` |
+| MySQL | `AllowLoadLocalInfile=true`, `AllowLoadLocalInfileInPath`, `CommandInterceptors`, `ExceptionInterceptors` | `IntegratedSecurity`, a Kerberos, Windows or OCI `DefaultAuthenticationPlugin`, `OciConfigFile`, `CertificateStoreLocation`, a client certificate or key file (a `.pfx` `CertificateFile`, also written `SslCa`, `CertificatePassword`, `SslCert`, `SslKey`), a `ConnectionProtocol` other than TCP, no `Password` |
 | Snowflake | `client_config_file`, `disable_saml_url_check=true`, `authenticator=externalbrowser` or `oauth_authorization_code` | `authenticator=workload_identity`, `private_key_file` (give the key with `private_key`) |
 | BigQuery | **Service account JSON** that is not a service account key (`"type": "service_account"`), or a key whose `token_uri` is not `https://oauth2.googleapis.com/token`, whose `universe_domain` is not `googleapis.com`, or whose other `*_uri`/`*_url` is not an https URL on `accounts.google.com` or below `googleapis.com` | No service account JSON (the host's application default credentials) |
 | AWS CloudWatch | An **AWS region** that is not a region name | An **AWS profile**, or no access key (the host's IAM role) |
@@ -157,7 +162,9 @@ the connection with its driver's own parser and refuses these options:
 
 The rule applies where the transport rule does: creating, changing and testing a connection refuse an option above
 (the message names the option, never a value); a stored source keeps working, with one Warning per data source per
-process, and is refused only under `Beacon:DataSources:Transport:EnforceOnExisting`. A host-managed source is the
+process, and is refused only under `Beacon:DataSources:Transport:EnforceOnExisting`. MySql.Data has no SSH tunnel
+options (`SshHostName` and the like): its parser refuses them, so such a connection cannot be read and is refused. A
+host-managed source is the
 host's own wiring and may sign in as the host: the option rule does not apply to it, only the host list below.
 BigQuery also builds its client from a service account key that reaches only Google, so a stored source with any other
 credential JSON fails when it connects. `Beacon:DataSources:Transport:AllowInsecure` lifts the option rule on
@@ -626,8 +633,9 @@ the transport option to change (see [Transport security (TLS)](#transport-securi
 actually runs (see [Engine check](#engine-check)).
 
 **Certificate errors.** The server's certificate must chain to a CA the Beacon host trusts and name the host in the
-connection string. Install the issuing CA on the Beacon host, or pin it in the connection (`Root Certificate` on
-PostgreSQL, `SslCa` on MySQL, `HostNameInCertificate` or `ServerCertificate` on SQL Server and Azure Synapse). Do not
+connection string. Install the issuing CA on the Beacon host (with `HostNameInCertificate` on SQL Server and Azure
+Synapse when the certificate names another host), or name a CA or certificate file on the Beacon host in the connection
+(`Root Certificate` on PostgreSQL, a PEM `SslCa` on MySQL, `ServerCertificate` on SQL Server and Azure Synapse). Do not
 turn certificate checks off: Beacon refuses such a connection.
 
 **Permission denied on a table.** Check the login's grants:

@@ -24,6 +24,9 @@ namespace Beacon.Api.Endpoints;
 public static partial class LoginEndpoints
 {
     private const string InvalidCredentials = "Invalid username or password.";
+
+    // A required password change was saved, but the session could not be issued: the old password no longer works.
+    private const string NewPasswordSavedNotSignedIn = "Your new password is saved, but you could not be signed in. Sign in with your new password.";
     private const string LoggerName = "Beacon.Api.Endpoints.LoginEndpoints";
 
     public static IEndpointRouteBuilder MapLoginEndpoints(
@@ -115,12 +118,14 @@ public static partial class LoginEndpoints
             var result = await authProvider.AuthenticateAsync(request.Username, request.Password);
 
             // An administrator set the password: the user signs in by choosing a new one in the same request.
+            var passwordChanged = false;
             if (result.PasswordChangeRequired && !string.IsNullOrEmpty(request.NewPassword))
             {
                 var users = context.RequestServices.GetService<IUserManagementService>().OrNull();
                 result = users == null
                     ? AuthenticationResult.Failed(InvalidCredentials)
                     : await users.CompleteRequiredPasswordChangeAsync(request.Username, request.Password, request.NewPassword, context.RequestAborted);
+                passwordChanged = result.Success;
             }
 
             if (result.PasswordChangeRequired)
@@ -184,7 +189,14 @@ public static partial class LoginEndpoints
                 return Results.Json(new LoginResponse { Success = false, Error = InvalidCredentials }, statusCode: StatusCodes.Status401Unauthorized);
             }
 
-            await SignInAudit.SignedInAsync(context, result, breakGlass: !localLogin.Enabled);
+            // Beacon:Audit:Required: no session without its event (the recorder logged why). A required password change is
+            // already committed by then, so the answer says to sign in with the new password rather than the generic failure.
+            if (!await SignInAudit.SignedInAsync(context, result, breakGlass: !localLogin.Enabled))
+            {
+                var error = passwordChanged ? NewPasswordSavedNotSignedIn : InvalidCredentials;
+
+                return Results.Json(new LoginResponse { Success = false, Error = error }, statusCode: StatusCodes.Status401Unauthorized);
+            }
 
             // Antiforgery tokens are bound to claims; the cookie issued
             // pre-login was minted for the anonymous user and won't validate

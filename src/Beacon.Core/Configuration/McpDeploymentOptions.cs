@@ -37,6 +37,13 @@ public sealed class McpDeploymentOptions
     /// </summary>
     public bool ForbidRowDataToLlm { get; set; }
 
+    /// <summary>
+    /// Ends every successful <c>tools/call</c> result with a fixed text block saying its content is data, not instructions
+    /// (Beacon.MCP's <c>McpDataNoticeCallToolFilter</c>). On by default; set it to <c>false</c> for a client that reads every
+    /// content block as the tool's answer. The server instructions say the same either way.
+    /// </summary>
+    public bool DataNotice { get; set; } = true;
+
     public McpCeilingOptions Ceilings { get; set; } = new();
 
     public McpAuditOptions Audit { get; set; } = new();

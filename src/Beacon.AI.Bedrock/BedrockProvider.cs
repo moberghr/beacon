@@ -6,11 +6,15 @@ using Amazon.BedrockRuntime;
 using Amazon.BedrockRuntime.Model;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Exceptions;
+using Beacon.Core.Helpers;
 
 namespace Beacon.AI.Services.LlmProviders;
 
 public class BedrockProvider : ILlmProvider
 {
+    /// <summary>The largest response body the provider reads (8 MiB, as the HTTP providers); a larger one fails the call.</summary>
+    internal const long MaxResponseBytes = 8 * 1024 * 1024;
+
     private static readonly JsonSerializerOptions ResponseJson = new() { PropertyNameCaseInsensitive = true };
 
     private readonly IAmazonBedrockRuntime _client;
@@ -86,7 +90,7 @@ public class BedrockProvider : ILlmProvider
         }
         catch (Exception ex)
         {
-            throw new InvalidOperationException($"Failed to initialize BedrockProvider: {ex.Message}", ex);
+            throw new InvalidOperationException($"Failed to initialize the AWS Bedrock client ({FailureCodes.Describe(ex)}).", ex);
         }
     }
 
@@ -185,7 +189,7 @@ public class BedrockProvider : ILlmProvider
         }
         catch (Exception ex) when (ex is not AiServiceException)
         {
-            throw new AiServiceException($"AWS Bedrock API request failed: {ex.Message}", ex);
+            throw new AiServiceException($"AWS Bedrock API request failed ({FailureCodes.Describe(ex)}).", ex);
         }
     }
 
@@ -220,9 +224,7 @@ public class BedrockProvider : ILlmProvider
             };
 
             var response = await _client.InvokeModelAsync(invokeRequest, cancellationToken);
-
-            using var reader = new StreamReader(response.Body);
-            var responseBody = await reader.ReadToEndAsync(cancellationToken);
+            var responseBody = await ReadBodyAsync(response, cancellationToken);
 
             return ParseClaudeResponse(responseBody);
         }
@@ -234,17 +236,18 @@ public class BedrockProvider : ILlmProvider
         {
             throw transient;
         }
+        // Beacon's wording and the failure's type and code only (FailureCodes), never the service's message.
         catch (Amazon.BedrockRuntime.Model.ValidationException vex)
         {
-            throw new AiServiceException($"Bedrock validation error: {vex.Message}", vex);
+            throw new AiServiceException($"AWS Bedrock refused the request as invalid ({FailureCodes.Describe(vex)}).", vex);
         }
         catch (Amazon.Runtime.AmazonServiceException asex)
         {
-            throw new AiServiceException($"AWS Bedrock service error: {asex.Message} (Status: {asex.StatusCode})", asex);
+            throw new AiServiceException($"AWS Bedrock returned HTTP {(int)asex.StatusCode} ({FailureCodes.Describe(asex)}).", asex);
         }
-        catch (Exception ex)
+        catch (Exception ex) when (ex is not AiServiceException)
         {
-            throw new AiServiceException($"Bedrock request failed: {ex.Message}", ex);
+            throw new AiServiceException($"AWS Bedrock request failed ({FailureCodes.Describe(ex)}).", ex);
         }
     }
 
@@ -288,9 +291,7 @@ public class BedrockProvider : ILlmProvider
         };
 
         var response = await _client.InvokeModelAsync(invokeRequest, cancellationToken);
-
-        using var reader = new StreamReader(response.Body);
-        var responseBody = await reader.ReadToEndAsync(cancellationToken);
+        var responseBody = await ReadBodyAsync(response, cancellationToken);
         var result = JsonSerializer.Deserialize<LlamaBedrockResponse>(responseBody, ResponseJson);
 
         if (result == null)
@@ -366,6 +367,37 @@ public class BedrockProvider : ILlmProvider
             CacheReadInputTokens = cacheReadTokens,
             CacheWriteInputTokens = cacheWriteTokens
         };
+    }
+
+    // The SDK reads the whole response body into memory before it returns (InvokeModel gives no stream to stop early), so
+    // the cap bounds what Beacon decodes and keeps: a body past it fails the call before it is decoded.
+    private static async Task<string> ReadBodyAsync(InvokeModelResponse response, CancellationToken cancellationToken)
+    {
+        await using var body = response.Body;
+        if (body.CanSeek && body.Length - body.Position > MaxResponseBytes)
+        {
+            throw TooLarge();
+        }
+
+        using var buffer = new MemoryStream();
+        var chunk = new byte[81920];
+        int read;
+        while ((read = await body.ReadAsync(chunk, cancellationToken)) > 0)
+        {
+            if (buffer.Length + read > MaxResponseBytes)
+            {
+                throw TooLarge();
+            }
+
+            buffer.Write(chunk, 0, read);
+        }
+
+        return System.Text.Encoding.UTF8.GetString(buffer.GetBuffer(), 0, (int)buffer.Length);
+    }
+
+    private static AiServiceException TooLarge()
+    {
+        return new AiServiceException($"AWS Bedrock returned a response larger than {MaxResponseBytes} bytes.");
     }
 
     private (decimal input, decimal output) GetPricing(string modelId)

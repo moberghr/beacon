@@ -9,7 +9,6 @@ using Microsoft.Extensions.Logging;
 namespace Beacon.Core.Handlers.Queries;
 
 internal sealed class ExecuteQueryPreviewHandler(
-    IQueryService queryService,
     IStoredQueryPreview storedPreview,
     ProjectRequestAuthorizer authorizer,
     ILogger<ExecuteQueryPreviewHandler> logger)
@@ -17,7 +16,7 @@ internal sealed class ExecuteQueryPreviewHandler(
 {
     public async Task<QueryPreviewResult> Handle(ExecuteQueryPreviewCommand request, CancellationToken cancellationToken)
     {
-        var result = await RunAsync(queryService, storedPreview, authorizer, logger, request.QueryId, request.Draft, request, cancellationToken);
+        var result = await RunAsync(storedPreview, authorizer, logger, request.QueryId, request.Draft, request, cancellationToken);
 
         if (result == null)
         {
@@ -28,11 +27,11 @@ internal sealed class ExecuteQueryPreviewHandler(
     }
 
     /// <summary>
-    /// One page of a query's result (the saved query, or the draft when given); a failure comes back as the result,
+    /// One page of a query's result (the saved query, or the draft when given), PII-masked for a caller who may not
+    /// write the query's project (<see cref="PreviewRunSupport.MaskPiiAsync"/>); a failure comes back as the result,
     /// with its cause, a cancellation as null.
     /// </summary>
     internal static async Task<QueryPreviewResult?> RunAsync(
-        IQueryService queryService,
         IStoredQueryPreview storedPreview,
         ProjectRequestAuthorizer authorizer,
         ILogger logger,
@@ -47,12 +46,15 @@ internal sealed class ExecuteQueryPreviewHandler(
         {
             if (draft != null)
             {
-                return await queryService.PreviewQuery(queryId, draft, paging, cancellationToken);
+                var maskDraft = await PreviewRunSupport.MaskPiiAsync(authorizer, draft.Steps?.Select(x => x.DataSourceId) ?? [], cancellationToken);
+
+                return await storedPreview.PreviewDraft(queryId, draft, paging, maskDraft, cancellationToken);
             }
 
             var snapshot = await PreviewRunSupport.LoadRunnableSnapshotAsync(storedPreview, authorizer, queryId, cancellationToken);
+            var maskPii = await PreviewRunSupport.MaskPiiAsync(authorizer, snapshot.DataSourceIds, cancellationToken);
 
-            return await storedPreview.PreviewSnapshot(snapshot, paging, cancellationToken);
+            return await storedPreview.PreviewSnapshot(snapshot, paging, maskPii, cancellationToken);
         }
         catch (OperationCanceledException)
         {

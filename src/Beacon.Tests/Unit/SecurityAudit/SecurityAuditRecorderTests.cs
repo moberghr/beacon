@@ -4,9 +4,11 @@ using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
 using Beacon.Core.Authorization;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Projects;
@@ -234,6 +236,93 @@ public class SecurityAuditRecorderTests
         capture.Commands.Should().ContainSingle().Which.Should().Contain("INSERT INTO beacon.security_audit_events");
     }
 
+    // Beacon:Audit:Required: an event that must be on record before its action goes ahead fails the action when it cannot
+    // be written, after both the event and the refusal are logged at Error; off, it fails open as any write on its own.
+    [TestCase(false, false, TestName = "ARequiredEvent_ThatCannotBeWritten_WhileTheAuditIsNotRequired_FailsOpen")]
+    [TestCase(true, true, TestName = "ARequiredEvent_ThatCannotBeWritten_WhileTheAuditIsRequired_RefusesTheAction")]
+    public async Task ARequiredEvent_ThatCannotBeWritten_RefusesItsActionOnlyWhileTheAuditIsRequired(bool required, bool refused)
+    {
+        var logs = new LogRecorder();
+        var factory = new Mock<IDbContextFactory<BeaconContext>>();
+        factory
+            .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("the database is down"));
+
+        var act = () => RecorderOver(factory.Object, logs, required).RecordRequiredAsync(
+            new SecurityAuditEntry(SecurityAuditActions.PasswordSignInSucceeded).By(SecurityAuditActor.OfUser(7)),
+            CancellationToken.None);
+
+        if (refused)
+        {
+            await act.Should().ThrowAsync<SecurityAuditUnavailableException>();
+        }
+        else
+        {
+            await act.Should().NotThrowAsync();
+        }
+
+        logs.Entries.Should().ContainSingle(x => x.EventId.Id == SecurityAuditLogEvents.WriteFailed.Id).Which.Level.Should().Be(LogLevel.Error);
+        var refusals = logs.Entries
+            .Where(x => x.EventId.Id == SecurityAuditLogEvents.RequiredEventNotWritten.Id)
+            .ToList();
+        refusals.Should().HaveCount(refused ? 1 : 0);
+        foreach (var refusal in refusals)
+        {
+            refusal.Level.Should().Be(LogLevel.Error);
+            refusal.Category.Should().Be(BeaconTelemetry.AuditLogCategory);
+            refusal.Message.Should().Contain(SecurityAuditActions.PasswordSignInSucceeded).And.NotContain("database is down");
+        }
+    }
+
+    // An action exempt from the refusal (a break-glass sign-in) is never refused for its event; while the audit is required,
+    // its admission without the event is logged at Error next to the event's own copy.
+    [TestCase(false, TestName = "AnExemptEvent_ThatCannotBeWritten_WhileTheAuditIsNotRequired_FailsOpen")]
+    [TestCase(true, TestName = "AnExemptEvent_ThatCannotBeWritten_WhileTheAuditIsRequired_IsAdmitted_AndLoggedAtError")]
+    public async Task AnExemptEvent_ThatCannotBeWritten_NeverRefusesItsAction(bool required)
+    {
+        var logs = new LogRecorder();
+        var factory = new Mock<IDbContextFactory<BeaconContext>>();
+        factory
+            .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("the database is down"));
+
+        var act = () => RecorderOver(factory.Object, logs, required).RecordExemptAsync(
+            new SecurityAuditEntry(SecurityAuditActions.BreakGlassSignedIn).By(SecurityAuditActor.OfUser(7)),
+            CancellationToken.None);
+
+        await act.Should().NotThrowAsync();
+        logs.Entries.Should().ContainSingle(x => x.EventId.Id == SecurityAuditLogEvents.WriteFailed.Id).Which.Level.Should().Be(LogLevel.Error);
+        logs.Entries.Should().NotContain(x => x.EventId.Id == SecurityAuditLogEvents.RequiredEventNotWritten.Id);
+        var admissions = logs.Entries
+            .Where(x => x.EventId.Id == SecurityAuditLogEvents.ExemptEventNotWritten.Id)
+            .ToList();
+        admissions.Should().HaveCount(required ? 1 : 0);
+        foreach (var admission in admissions)
+        {
+            admission.Level.Should().Be(LogLevel.Error);
+            admission.Category.Should().Be(BeaconTelemetry.AuditLogCategory);
+            admission.Message.Should().Contain(SecurityAuditActions.BreakGlassSignedIn).And.NotContain("database is down");
+        }
+    }
+
+    [Test]
+    public async Task ARequiredEvent_ThatIsWritten_IsWrittenAsAnyOther_WhileTheAuditIsRequired()
+    {
+        var saved = new List<object>();
+        var factory = new Mock<IDbContextFactory<BeaconContext>>();
+        factory
+            .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new RecordingBeaconContext(new Dictionary<Type, object> { [typeof(SecurityAuditEvent)] = RecordingBeaconContext.MemorySet(new List<SecurityAuditEvent>(), saved) }, saved));
+        var logs = new LogRecorder();
+
+        await RecorderOver(factory.Object, logs, required: true).RecordRequiredAsync(
+            new SecurityAuditEntry(SecurityAuditActions.SsoSignedIn).By(SecurityAuditActor.OfUser(7)),
+            CancellationToken.None);
+
+        saved.OfType<SecurityAuditEvent>().Should().ContainSingle().Which.Action.Should().Be(SecurityAuditActions.SsoSignedIn);
+        logs.Entries.Should().NotContain(x => x.Level >= LogLevel.Error);
+    }
+
     [Test]
     public void AnActionOutsideTheCatalogue_IsRefused()
     {
@@ -246,7 +335,7 @@ public class SecurityAuditRecorderTests
             .Should().OnlyContain(x => x.Length <= 32);
     }
 
-    private static Recorder RecorderOver(IDbContextFactory<BeaconContext> factory, LogRecorder logs)
+    private static Recorder RecorderOver(IDbContextFactory<BeaconContext> factory, LogRecorder logs, bool required = false)
     {
         return new Recorder(
             factory,
@@ -255,6 +344,7 @@ public class SecurityAuditRecorderTests
             SecurityAuditTestKit.CallerHasher,
             TimeProvider.System,
             LoggerFactory.Create(x => x.AddProvider(logs)),
-            TestRequestPrincipal.OffRequest());
+            TestRequestPrincipal.OffRequest(),
+            Options.Create(new SecurityAuditOptions { Required = required }));
     }
 }

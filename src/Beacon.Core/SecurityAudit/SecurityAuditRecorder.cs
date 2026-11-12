@@ -2,7 +2,9 @@ using System.Diagnostics;
 using System.Security.Claims;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Options;
 using Beacon.Core.Authorization;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Helpers;
@@ -28,7 +30,8 @@ internal sealed class SecurityAuditRecorder(
     McpCallerSubjectHasher callerHasher,
     TimeProvider timeProvider,
     ILoggerFactory loggerFactory,
-    IBeaconRequestPrincipal requestPrincipal) : ISecurityAuditRecorder
+    IBeaconRequestPrincipal requestPrincipal,
+    IOptions<SecurityAuditOptions>? options = null) : ISecurityAuditRecorder
 {
     /// <summary>The tenant a host session's presented id is hashed under, apart from any identity provider's tenants.</summary>
     internal const string SessionTenant = "beacon-session";
@@ -67,6 +70,42 @@ internal sealed class SecurityAuditRecorder(
 
     public async Task RecordAsync(SecurityAuditEntry entry, CancellationToken cancellationToken)
     {
+        await WriteAsync(entry);
+    }
+
+    public async Task RecordRequiredAsync(SecurityAuditEntry entry, CancellationToken cancellationToken)
+    {
+        if (await WriteAsync(entry) || options?.Value.Required != true)
+        {
+            return;
+        }
+
+        // Logged on every refusal, so a trail that cannot be written never refuses sign-ins unnoticed.
+        _auditLogger.LogError(
+            SecurityAuditLogEvents.RequiredEventNotWritten,
+            "Refused {Action}: its security audit event could not be written and Beacon:Audit:Required is on",
+            entry.Action);
+
+        throw new SecurityAuditUnavailableException();
+    }
+
+    public async Task RecordExemptAsync(SecurityAuditEntry entry, CancellationToken cancellationToken)
+    {
+        if (await WriteAsync(entry) || options?.Value.Required != true)
+        {
+            return;
+        }
+
+        // Logged on every such admission, so an action that went ahead without its required event never goes unnoticed.
+        _auditLogger.LogError(
+            SecurityAuditLogEvents.ExemptEventNotWritten,
+            "Admitted {Action} without its security audit event: Beacon:Audit:Required is on and the action is exempt from its refusal",
+            entry.Action);
+    }
+
+    // Writes entry on its own; false when it could not, after the event went to the log stream.
+    private async Task<bool> WriteAsync(SecurityAuditEntry entry)
+    {
         // What the log stream gets when the write fails: the event as far as it was built.
         SecurityAuditEvent? lost = null;
         try
@@ -81,12 +120,16 @@ internal sealed class SecurityAuditRecorder(
             lost = auditEvent;
             context.SecurityAuditEvents.Add(auditEvent);
             await context.SaveChangesAsync(timeout.Token);
+
+            return true;
         }
         catch (Exception ex)
         {
             // Fail open: the action the event records goes on; the event itself goes to the log stream (9107, Error,
             // Persisted=False) and is counted, so the gap is operationally visible and the stream still holds it.
             NotWritten(entry, lost, ex);
+
+            return false;
         }
     }
 

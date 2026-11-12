@@ -124,6 +124,12 @@ internal sealed class BeaconJwtAuthenticator(JwtAuthenticationOptions options, I
         claims.Add(new Claim(McpCallerClaimTypes.AuthMethod, McpCallerClaimTypes.McpCallerAuthMethod));
 
         var caller = await callerMapper.MapAsync(result.TokenPrincipal, context.RequestAborted);
+        if (caller != null && TokenIssueTime.IssuedBeforeSignOut(result.TokenPrincipal, caller.TokensValidAfter))
+        {
+            LogRefusal(BearerRefusal.IssuedBeforeSignOut, result.TokenPrincipal, detail: null);
+            return Reject(context);
+        }
+
         if (caller != null)
         {
             AddCallerClaims(claims, caller);

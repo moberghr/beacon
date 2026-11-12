@@ -44,7 +44,6 @@ public class QueryPathFailureLoggingTests
         var authorizer = TestProjectAccess.Authorizer(TestProjectAccess.Unrestricted);
 
         var query = await ExecuteQueryPreviewHandler.RunAsync(
-            Mock.Of<IQueryService>(),
             stored,
             authorizer,
             log.For<ExecuteQueryPreviewHandler>(),
@@ -53,7 +52,6 @@ public class QueryPathFailureLoggingTests
             FirstPage,
             CancellationToken.None);
         var step = await ExecuteStepPreviewHandler.RunAsync(
-            Mock.Of<IQueryService>(),
             stored,
             authorizer,
             log.For<ExecuteStepPreviewHandler>(),

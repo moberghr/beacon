@@ -1,4 +1,5 @@
 using Beacon.Api.Authentication;
+using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Services.Embed;
 
@@ -57,7 +58,7 @@ internal sealed class EmbedEndpointFilter(EmbedCredential credential) : IEndpoin
         catch (Exception ex) when (ex is not OperationCanceledException)
         {
             // Access that could not be determined, a store that cannot be read: try again, told nothing more.
-            logger.LogError(ex, "Embed request for grant {GrantId} could not be served", grantId);
+            logger.LogError("Embed request for grant {GrantId} could not be served ({Failure})", grantId, FailureCodes.Describe(ex));
             httpContext.Response.Headers.RetryAfter = "5";
 
             return Unavailable(StatusCodes.Status503ServiceUnavailable);

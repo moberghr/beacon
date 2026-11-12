@@ -43,7 +43,8 @@ public class HybridAuthenticationProvider : IBeaconAuthenticationProvider
             var jwtResult = await _jwtProvider.AuthenticateAsync(username, password, cancellationToken);
             if (!jwtResult.Success || jwtResult.User == null)
             {
-                return jwtResult;
+                // A break-glass delay the internal attempt set is recorded by whoever answers the attempt: keep it.
+                return internalResult.BreakGlassDelay == null ? jwtResult : internalResult;
             }
 
             // The JWT provider already bound the token to one Beacon user (and recorded the login); re-read exactly that

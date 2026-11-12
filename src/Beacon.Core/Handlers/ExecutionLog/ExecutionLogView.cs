@@ -1,3 +1,4 @@
+using Beacon.Core.Authorization;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
@@ -6,12 +7,34 @@ using Beacon.Core.Services.Validation;
 namespace Beacon.Core.Handlers.ExecutionLog;
 
 /// <summary>
-/// How the execution log's read and export show a row: a statement still Started long after any statement could have
-/// ended is shown as <see cref="QueryExecutionLogStatus.Abandoned"/> (nothing is written), and the SQL text has the values
-/// written into it masked (<see cref="SqlCommentStripper.MaskLiterals"/>; the stored text is unchanged).
+/// Which rows the execution log's read and export show, and how: every row to an Auditor, the rows of the data sources it
+/// reads to anyone else; a statement still Started long after any statement could have ended is shown as
+/// <see cref="QueryExecutionLogStatus.Abandoned"/> (nothing is written), and the SQL text has the values written into it
+/// masked (<see cref="SqlCommentStripper.MaskLiterals"/>; the stored text is unchanged).
 /// </summary>
 internal static class ExecutionLogView
 {
+    /// <summary>
+    /// Whose statements the caller reads: an Auditor (an Admin holds every permission) every row, data source or none, as
+    /// it reads the security audit trail (the permission read live, never granting project data elsewhere); anyone else,
+    /// a SecurityAdmin without the Auditor permission included, the rows of the data sources it may read.
+    /// </summary>
+    public static async Task<ProjectSet> ReadableAsync(
+        IProjectAccessEvaluator projectAccess,
+        IBeaconPermissionAccessor permissionAccessor,
+        CancellationToken cancellationToken)
+    {
+        var permissions = await permissionAccessor.GetCurrentAsync(cancellationToken);
+        if (permissions.Holds(BeaconPermissions.Auditor))
+        {
+            return ProjectSet.Unrestricted;
+        }
+
+        var scope = await projectAccess.GetScopeAsync(cancellationToken);
+
+        return scope.For(ProjectAction.Read);
+    }
+
     /// <summary>What is added to the statement timeout before a Started row counts as abandoned: the time a row's end
     /// takes to be written, and the shorter timeouts of the paths that set their own.</summary>
     internal static readonly TimeSpan AbandonedMargin = TimeSpan.FromMinutes(10);

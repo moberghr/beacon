@@ -179,6 +179,30 @@ public class ConfiguredMcpCallerMapperTests
     }
 
     [Test]
+    public async Task UserMode_AutoProvision_CarriesWhenTheUserWasLastSignedOutEverywhere()
+    {
+        var signedOut = new DateTime(2026, 11, 11, 9, 0, 0, DateTimeKind.Utc);
+        var userService = new Mock<IUserManagementService>();
+        userService
+            .Setup(x => x.GetOrCreateExternalUserAsync(
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string>(),
+                It.IsAny<string?>(),
+                It.IsAny<string?>(),
+                It.IsAny<string>(),
+                It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new BeaconUserData { Id = 17, ExternalId = UserOid, UserName = "ana", TokensValidAfter = signedOut });
+        var mapper = CreateMapper(UsersEnabled(x => x.AutoProvision = true), userService.Object);
+
+        var first = await mapper.MapAsync(UserToken(), CancellationToken.None);
+        var cached = await mapper.MapAsync(UserToken(), CancellationToken.None);
+
+        first!.TokensValidAfter.Should().Be(signedOut);
+        cached!.TokensValidAfter.Should().Be(signedOut, "the instant is cached with the user id");
+    }
+
+    [Test]
     public async Task UserMode_ProvisioningRefused_RejectsTheCaller()
     {
         var userService = new Mock<IUserManagementService>();

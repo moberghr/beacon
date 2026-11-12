@@ -8,8 +8,9 @@ namespace Beacon.Shared.SqlClient;
 /// and <c>User Instance</c> (a database file on the Beacon host), an interactive <c>Authentication</c> (a sign-in on the
 /// server), and signing in as the host: <c>Integrated Security</c>, an <c>Authentication</c> that uses the host's
 /// identity (integrated, managed, workload or default), <c>Column Encryption Setting=Enabled</c> (the host's column
-/// master key stores), and a named-pipe, shared-memory or LocalDB <c>Data Source</c>. The hosts are the server of
-/// <c>Data Source</c> and of <c>Failover Partner</c>. Compiled into each SqlClient connector as a linked file.
+/// master key stores), and a named-pipe, shared-memory or LocalDB <c>Data Source</c>. <c>ServerCertificate</c>, the
+/// certificate file the server is verified with, is accepted: SqlClient takes no client certificate. The hosts are the
+/// server of <c>Data Source</c> and of <c>Failover Partner</c>. Compiled into each SqlClient connector as a linked file.
 /// </summary>
 internal static class SqlClientConnectionOptionReader
 {

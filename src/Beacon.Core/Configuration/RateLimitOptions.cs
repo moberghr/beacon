@@ -63,6 +63,9 @@ public sealed class RateLimitOptions
 
     /// <summary>The password lockout of internal users.</summary>
     public LockoutOptions Lockout { get; set; } = new();
+
+    /// <summary>The growing, temporary delay of the break-glass accounts' password sign-in after wrong passwords.</summary>
+    public BreakGlassThrottleOptions BreakGlassThrottle { get; set; } = new();
 }
 
 /// <summary>A fixed-window limit: <see cref="PermitLimit"/> requests per <see cref="WindowSeconds"/>; 0 permits turns it off.</summary>
@@ -83,7 +86,8 @@ public sealed class RateLimitWindow
 /// password is still checked. A successful sign-in, a lockout and an administrator's password reset start the count again,
 /// and so does a wrong password sent <see cref="DurationMinutes"/> or more after the previous one. The break-glass accounts
 /// (<c>Beacon:UserManagement:LocalLogin:BreakGlassUserNames</c>) are never locked: they stay limited per client address by
-/// <see cref="RateLimitOptions.Login"/>.
+/// <see cref="RateLimitOptions.Login"/>, and get the shorter, growing delay of <see cref="BreakGlassThrottleOptions"/> only
+/// when a host turns it on.
 /// <para>
 /// The count is kept per user, not per client: anyone who knows a user name can lock that user's password sign-in by
 /// sending wrong passwords, again every time the lockout ends. That trades a denial of service against the account for
@@ -103,6 +107,58 @@ public sealed class LockoutOptions
     public bool IsEnabled => Enabled && MaxFailedAttempts > 0;
 
     public TimeSpan Duration => TimeSpan.FromMinutes(DurationMinutes);
+}
+
+/// <summary>
+/// The break-glass accounts (<c>Beacon:UserManagement:LocalLogin:BreakGlassUserNames</c>) are never locked out. After
+/// <see cref="FailedAttemptsBeforeDelay"/> wrong passwords their password sign-in is refused for a delay instead, whatever
+/// password is sent (the password is still checked and the answer stays the generic failure): <see cref="InitialDelaySeconds"/>
+/// first, doubling with every further wrong password sent after a delay ended, up to <see cref="MaxDelaySeconds"/>. Wrong
+/// passwords sent during a delay are not counted and do not lengthen it, so a delay always ends and the right password then
+/// signs in. A successful sign-in and an administrator's password reset start the count again, and so does a wrong password
+/// sent <see cref="ResetAfterMinutes"/> or more after the previous one. The count and the delay are stored on the user.
+/// <para>
+/// Off by default. On, the per-account delay limits guessing from many addresses, but anyone who knows a break-glass name can
+/// keep that account delayed. Off, only the per-address limit (<see cref="RateLimitOptions.Login"/>) applies, so the emergency
+/// way in is never held up by someone else's wrong passwords.
+/// </para>
+/// </summary>
+public sealed class BreakGlassThrottleOptions
+{
+    /// <summary>The most doublings of the delay; the delay after them is <see cref="MaxDelaySeconds"/>.</summary>
+    public const int MaxDoublings = 7;
+
+    /// <summary>The longest delay accepted, one hour.</summary>
+    public const int MaxDelaySecondsLimit = 3600;
+
+    /// <summary>The delay is applied. Default: false.</summary>
+    public bool Enabled { get; set; }
+
+    /// <summary>Wrong passwords before the first delay. Default 5.</summary>
+    public int FailedAttemptsBeforeDelay { get; set; } = 5;
+
+    /// <summary>The first delay. Default 30 seconds.</summary>
+    public int InitialDelaySeconds { get; set; } = 30;
+
+    /// <summary>The longest delay. Default 300 seconds.</summary>
+    public int MaxDelaySeconds { get; set; } = 300;
+
+    /// <summary>A wrong password sent this long after the previous one starts the count again. Default 60 minutes.</summary>
+    public int ResetAfterMinutes { get; set; } = 60;
+
+    public bool IsEnabled => Enabled && FailedAttemptsBeforeDelay > 0;
+
+    public TimeSpan ResetAfter => TimeSpan.FromMinutes(ResetAfterMinutes);
+
+    /// <summary>The delay after the given number of doublings: the first delay doubled, never longer than the longest.</summary>
+    public TimeSpan DelayAfter(int doublings)
+    {
+        var seconds = doublings >= MaxDoublings
+            ? MaxDelaySeconds
+            : Math.Min((long)InitialDelaySeconds << doublings, MaxDelaySeconds);
+
+        return TimeSpan.FromSeconds(seconds);
+    }
 }
 
 internal sealed class RateLimitOptionsValidator : IValidateOptions<RateLimitOptions>
@@ -132,7 +188,41 @@ internal sealed class RateLimitOptionsValidator : IValidateOptions<RateLimitOpti
             failures.Add($"{lockout}:{nameof(LockoutOptions.DurationMinutes)} must be between 1 and {RateLimitOptions.MaxLockoutMinutes}.");
         }
 
+        AddThrottleFailures(failures, options.BreakGlassThrottle);
+
         return failures.Count == 0 ? ValidateOptionsResult.Success : ValidateOptionsResult.Fail(failures);
+    }
+
+    private static void AddThrottleFailures(List<string> failures, BreakGlassThrottleOptions? throttle)
+    {
+        var prefix = $"{RateLimitOptions.SectionName}:{nameof(RateLimitOptions.BreakGlassThrottle)}";
+        if (throttle == null)
+        {
+            failures.Add($"{prefix} must be set.");
+            return;
+        }
+
+        if (throttle.FailedAttemptsBeforeDelay is < 0 or > RateLimitOptions.MaxFailedAttemptsLimit)
+        {
+            failures.Add($"{prefix}:{nameof(BreakGlassThrottleOptions.FailedAttemptsBeforeDelay)} must be between 0 and {RateLimitOptions.MaxFailedAttemptsLimit}.");
+        }
+
+        if (throttle.InitialDelaySeconds < 1 || throttle.InitialDelaySeconds > throttle.MaxDelaySeconds)
+        {
+            failures.Add($"{prefix}:{nameof(BreakGlassThrottleOptions.InitialDelaySeconds)} must be at least 1 and at most {nameof(BreakGlassThrottleOptions.MaxDelaySeconds)}.");
+        }
+
+        if (throttle.MaxDelaySeconds is < 1 or > BreakGlassThrottleOptions.MaxDelaySecondsLimit)
+        {
+            failures.Add($"{prefix}:{nameof(BreakGlassThrottleOptions.MaxDelaySeconds)} must be between 1 and {BreakGlassThrottleOptions.MaxDelaySecondsLimit}.");
+        }
+
+        if (throttle.ResetAfterMinutes < 1
+            || throttle.ResetAfterMinutes > RateLimitOptions.MaxLockoutMinutes
+            || throttle.ResetAfterMinutes * 60L <= throttle.MaxDelaySeconds)
+        {
+            failures.Add($"{prefix}:{nameof(BreakGlassThrottleOptions.ResetAfterMinutes)} must be between 1 and {RateLimitOptions.MaxLockoutMinutes} and longer than {nameof(BreakGlassThrottleOptions.MaxDelaySeconds)}.");
+        }
     }
 
     private static void AddWindowFailures(List<string> failures, string limit, RateLimitWindow? window)

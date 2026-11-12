@@ -8,7 +8,7 @@ description: "Send Beacon's MCP audit events and security log events to your log
 | **You end up with** | The `Beacon.Audit` log stream and the security log events in your SIEM, traces and metrics in your collector, retention and content locks set, and alerts on the signals that matter |
 | **Time** | about 30 minutes |
 | **You need** | A running Beacon host ([Integrate Beacon](/integrate/) or the [MCP gateway](/mcp/gateway/)), a log pipeline that reads container stdout (CloudWatch, a collector or a SIEM agent), and for traces an OpenTelemetry collector |
-| **Applies to** | Beacon 5.0 · Both. The MCP audit (events 9100 to 9103, the UI page, tracing and metrics) applies to the gateway too. The security audit trail (9104 to 9114) and its page are full Beacon: the gateway serves no security audit API or page |
+| **Applies to** | Beacon 5.0 · Both. The MCP audit (events 9100 to 9103, the UI page, tracing and metrics) applies to the gateway too. The security audit trail (9104 to 9116) and its page are full Beacon: the gateway serves no security audit API or page |
 
 :::tip[Let your AI do it]
 Paste this into Claude Code (or another coding agent) in your Beacon host's repository.
@@ -64,13 +64,15 @@ Ship the stream with whatever reads your container's stdout, such as the `awslog
 | 9105 | `SecurityAuditRead` | Information | The security trail was read or verified |
 | 9106 | `SecurityAuditPurged` | Information or Warning | The security trail's retention purge ran |
 | 9107 | `SecurityAuditWriteFailed` | Error | A security event could not be stored |
-| 9108 | `SecurityAuditVerificationFailed` | Error | Stored security events failed verification |
+| 9108 | `SecurityAuditVerificationFailed` | Error | Stored security events failed verification, or events counted at an earlier checkpoint are missing or were added |
 | 9109 | `SecurityAuditCheckpoint` | Information | One per scheduled verification run: keep these, they anchor the trail outside the database |
 | 9110 | `SecurityAuditPurgeFailed` | Error | The security trail's purge did not run |
 | 9111 | `McpAuditVerificationFailed` | Error | Stored MCP audit rows failed verification |
 | 9112 | `McpAuditCheckpoint` | Information | One per MCP audit verification run: keep these with the 9109 checkpoints |
 | 9113 | `AuditTableVerificationFailed` | Error | Stored execution log or settings history rows failed verification (`Store` names the table) |
 | 9114 | `AuditTableCheckpoint` | Information | One per sealed table per verification run: keep these with the 9109 checkpoints |
+| 9115 | `SecurityAuditRequiredEventNotWritten` | Error | A successful sign-in was refused because its event could not be written (`Beacon:Audit:Required` on): alert on it |
+| 9116 | `SecurityAuditExemptEventNotWritten` | Error | A break-glass sign-in was admitted although its event could not be written (`Beacon:Audit:Required` on): alert on it |
 
 The full field list is in [MCP observability and audit](/mcp/observability-and-audit/#the-beaconaudit-log-event-catalogue)
 and [Shipping to a SIEM](/security/audit-trail/#shipping-to-a-siem).

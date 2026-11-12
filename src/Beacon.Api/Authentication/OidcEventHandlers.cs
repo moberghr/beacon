@@ -10,6 +10,7 @@ using Beacon.Core;
 using Beacon.Core.Authentication;
 using Beacon.Core.Authorization;
 using Beacon.Core.Configuration;
+using Beacon.Core.Helpers;
 using Beacon.Core.Mcp;
 using Beacon.Core.Models;
 using Beacon.Core.Models.UserManagement;
@@ -20,6 +21,11 @@ namespace Beacon.Api.Authentication;
 internal static class OidcEventHandlers
 {
     private const string BeaconClaimPrefix = "beacon:";
+
+    // The failure ASP.NET Core's remote handler reports when the correlation cookie does not match.
+    private const string CorrelationFailedMessage = "Correlation failed.";
+
+    private const int MaxProtocolErrorLength = 64;
 
     private static readonly HashSet<string> AuthorizationClaimTypes = new(StringComparer.OrdinalIgnoreCase)
     {
@@ -109,7 +115,13 @@ internal static class OidcEventHandlers
         // A session cookie unless the host keeps SSO sessions across browser restarts (Session:PersistSsoCookie).
         context.Properties!.IsPersistent = services.GetService<IOptions<SessionLifetimeOptions>>()?.Value.PersistSsoCookie == true;
         AddIdpPermissions(context, roleMapping, idpPermissions, services.GetService<TimeProvider>() ?? TimeProvider.System);
-        await SignInAudit.SsoSignedInAsync(context.HttpContext, user.Id);
+        // Beacon:Audit:Required: no session without its event (the recorder logged why).
+        if (!await SignInAudit.SsoSignedInAsync(context.HttpContext, user.Id))
+        {
+            context.Fail(new OidcNotAdmittedException());
+            return;
+        }
+
         if (idpPermissions.Count > 0)
         {
             logger.LogInformation(
@@ -139,11 +151,38 @@ internal static class OidcEventHandlers
             return Task.CompletedTask;
         }
 
-        logger.LogWarning(context.Failure, "OIDC remote failure");
+        logger.LogWarning(
+            "OIDC remote failure ({Failure}, protocol error {ProtocolError})",
+            context.Failure == null ? "none" : FailureCodes.Describe(context.Failure),
+            ProtocolErrorOf(context.Failure));
 
         context.Response.Redirect("/beacon/login?ssoError=1");
         context.HandleResponse();
         return Task.CompletedTask;
+    }
+
+    /// <summary>
+    /// The protocol error a remote sign-in failed with, as a log may name it: the OAuth error code the identity provider
+    /// answered with (<c>access_denied</c>, <c>invalid_grant</c>, …), <c>correlation_failed</c> for the handler's own
+    /// correlation check, <c>none</c> otherwise. A code is repeated only when it is a plain token (ASCII letters, digits and
+    /// <c>_</c>, at most 64 characters), else <c>unreadable</c>; the error description and URI are never read.
+    /// </summary>
+    internal static string ProtocolErrorOf(Exception? failure)
+    {
+        for (var current = failure; current != null; current = current.InnerException)
+        {
+            if (current.Data["error"] is string error)
+            {
+                return IsPlainToken(error) ? error : "unreadable";
+            }
+
+            if (current is AuthenticationFailureException && string.Equals(current.Message, CorrelationFailedMessage, StringComparison.Ordinal))
+            {
+                return "correlation_failed";
+            }
+        }
+
+        return "none";
     }
 
     private static void EnrichBeaconClaims(TokenValidatedContext context, BeaconUserData user)
@@ -358,6 +397,12 @@ internal static class OidcEventHandlers
         }
 
         identity.AddClaim(new Claim(type, value));
+    }
+
+    private static bool IsPlainToken(string value)
+    {
+        return value.Length is > 0 and <= MaxProtocolErrorLength
+            && value.All(x => char.IsAsciiLetterOrDigit(x) || x == '_');
     }
 }
 

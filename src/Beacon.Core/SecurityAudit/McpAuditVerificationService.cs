@@ -422,12 +422,12 @@ internal sealed class McpAuditVerificationService(
         return intact;
     }
 
-    private static int? IntOf(JsonNode? details, string key)
+    internal static int? IntOf(JsonNode? details, string key)
     {
         return details?[key] is JsonValue value && value.TryGetValue<int>(out var number) ? number : null;
     }
 
-    private static DateTime? TimeOf(JsonNode? details, string key)
+    internal static DateTime? TimeOf(JsonNode? details, string key)
     {
         return details?[key] is JsonValue value
             && value.TryGetValue<string>(out var text)
@@ -437,7 +437,7 @@ internal sealed class McpAuditVerificationService(
     }
 
     // The details keep times to the second: rows are counted from the time the next run reads back.
-    private static DateTime WholeSeconds(DateTime time)
+    internal static DateTime WholeSeconds(DateTime time)
     {
         return new DateTime(time.Ticks - (time.Ticks % TimeSpan.TicksPerSecond), DateTimeKind.Utc);
     }

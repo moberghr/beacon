@@ -97,8 +97,9 @@ jobs:
         npm install -g npm@11.11.0
         echo "node $(node --version) / npm $(npm --version)"
 
+    # Locked mode: the release restores exactly the versions in the committed packages.lock.json files.
     - name: Restore dependencies
-      run: dotnet restore
+      run: dotnet restore --locked-mode
 
     - name: Build solution
       run: dotnet build --configuration Release --no-restore --property WarningLevel=0

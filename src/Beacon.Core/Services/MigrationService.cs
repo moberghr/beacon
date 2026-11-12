@@ -13,11 +13,13 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Entities.DataMigration;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.DataMigration;
+using Beacon.Core.Exceptions;
 using Beacon.Core.HostData;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models;
 using Beacon.Core.Models.DataMigration;
 using Beacon.Core.SecurityAudit;
+using Beacon.Core.Services.Security;
 
 namespace Beacon.Core.Services;
 
@@ -141,7 +143,7 @@ internal partial class MigrationService(
         catch (Exception ex)
         {
             logger.LogError("Error creating migration job {Name} ({Failure})", request.Name, FailureCodes.Describe(ex));
-            return new CreateMigrationJobResponse(0, false, ex.Message);
+            return new CreateMigrationJobResponse(0, false, FailureText(ex));
         }
     }
 
@@ -243,7 +245,7 @@ internal partial class MigrationService(
                 var reported = ReportedFailure(ex);
                 failureCode = reported?.ReasonCode ?? (timedOut ? "timed_out" : null);
                 execution.Status = MigrationStatus.Failed;
-                execution.ErrorMessage = CapErrorMessage(reported?.Message ?? (timedOut ? TimedOutMessage(timeout) : GetFullExceptionMessage(ex)));
+                execution.ErrorMessage = CapErrorMessage(reported?.Message ?? (timedOut ? TimedOutMessage(timeout) : FailureText(ex)));
 
                 logger.LogError("Failed migration job {Name} execution {ExecutionId} ({Failure}, timed out: {TimedOut})", migrationJob.Name, execution.Id, FailureCodes.Describe(ex), timedOut);
             }
@@ -269,7 +271,7 @@ internal partial class MigrationService(
         catch (Exception ex)
         {
             logger.LogError("Error executing migration job {MigrationJobId} ({Failure})", request.MigrationJobId, FailureCodes.Describe(ex));
-            return new ExecuteMigrationJobResponse(0, MigrationStatus.Failed, ErrorMessage: GetFullExceptionMessage(ex));
+            return new ExecuteMigrationJobResponse(0, MigrationStatus.Failed, ErrorMessage: CapErrorMessage(FailureText(ex)));
         }
     }
 
@@ -383,7 +385,7 @@ internal partial class MigrationService(
         catch (Exception ex)
         {
             logger.LogError("Error deleting migration job {Id} ({Failure})", id, FailureCodes.Describe(ex));
-            return new BaseResponse { Success = false, Message = ex.Message };
+            return new BaseResponse { Success = false, Message = FailureText(ex) };
         }
     }
 
@@ -657,6 +659,24 @@ internal partial class MigrationService(
         }
 
         return null;
+    }
+
+    /// <summary>
+    /// The text a run records and returns for <paramref name="exception"/>: Beacon's own message as written
+    /// (<see cref="BeaconOwnErrors"/>), a failed source read as its query path redacted it, and anything else — a driver's or
+    /// a library's text — redacted as the execution log redacts a database's error (a value it can quote is withheld; quoted
+    /// text survives only as one of <paramref name="knownNames"/> in an error about a name).
+    /// </summary>
+    internal static string FailureText(Exception exception, IReadOnlyCollection<string>? knownNames = null)
+    {
+        if (exception is QueryExecutionFailedException sourceFailure)
+        {
+            return $"Source query execution failed: {sourceFailure.LogMessage ?? DatabaseErrorRedactor.Redact(sourceFailure.Message, [])}";
+        }
+
+        return BeaconOwnErrors.IsOwnMessage(exception)
+            ? exception.Message
+            : DatabaseErrorRedactor.Redact(DatabaseErrorRedactor.TextOf(exception), knownNames ?? []);
     }
 
     // The error column holds 4,000 characters: a longer text would fail the save and leave a committed run recorded as failed

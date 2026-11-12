@@ -9,7 +9,6 @@ using Microsoft.Extensions.Logging;
 namespace Beacon.Core.Handlers.Queries;
 
 internal sealed class ExecuteStepPreviewHandler(
-    IQueryService queryService,
     IStoredQueryPreview storedPreview,
     ProjectRequestAuthorizer authorizer,
     ILogger<ExecuteStepPreviewHandler> logger)
@@ -18,7 +17,6 @@ internal sealed class ExecuteStepPreviewHandler(
     public async Task<QueryPreviewResult> Handle(ExecuteStepPreviewCommand request, CancellationToken cancellationToken)
     {
         var result = await RunAsync(
-            queryService,
             storedPreview,
             authorizer,
             logger,
@@ -39,11 +37,11 @@ internal sealed class ExecuteStepPreviewHandler(
     }
 
     /// <summary>
-    /// One page of a single step's result, run on its own; from the draft when given. A failure comes back as the
+    /// One page of a single step's result, run on its own; from the draft when given; PII-masked for a caller who may
+    /// not write the query's project (<see cref="PreviewRunSupport.MaskPiiAsync"/>). A failure comes back as the
     /// result, a cancellation as null.
     /// </summary>
     internal static async Task<QueryPreviewResult?> RunAsync(
-        IQueryService queryService,
         IStoredQueryPreview storedPreview,
         ProjectRequestAuthorizer authorizer,
         ILogger logger,
@@ -60,12 +58,15 @@ internal sealed class ExecuteStepPreviewHandler(
         {
             if (draft != null)
             {
-                return await queryService.PreviewQueryStepPaged(queryId, stepOrder, parameters, draft, paging, cancellationToken);
+                var maskDraft = await PreviewRunSupport.MaskPiiAsync(authorizer, draft.Steps?.Select(x => x.DataSourceId) ?? [], cancellationToken);
+
+                return await storedPreview.PreviewDraftStep(queryId, stepOrder, parameters, draft, paging, maskDraft, cancellationToken);
             }
 
             var snapshot = await PreviewRunSupport.LoadRunnableSnapshotAsync(storedPreview, authorizer, queryId, cancellationToken);
+            var maskPii = await PreviewRunSupport.MaskPiiAsync(authorizer, snapshot.DataSourceIds, cancellationToken);
 
-            return await storedPreview.PreviewSnapshotStep(snapshot, stepOrder, parameters, paging, cancellationToken);
+            return await storedPreview.PreviewSnapshotStep(snapshot, stepOrder, parameters, paging, maskPii, cancellationToken);
         }
         catch (OperationCanceledException)
         {

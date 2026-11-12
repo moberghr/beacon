@@ -1,5 +1,6 @@
 using Microsoft.Extensions.Logging;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Helpers;
 using Beacon.Core.Notifications;
 using System.Text;
 using System.Text.Json;
@@ -58,7 +59,7 @@ internal class SlackAdapter : IAdapter
             }
             catch (Exception ex)
             {
-                _logger.LogWarning(ex, "Failed to process custom Slack body template, falling back to default message");
+                _logger.LogWarning("Failed to process custom Slack body template, falling back to default message ({Failure})", FailureCodes.Describe(ex));
                 jsonPayload = BuildDefaultSlackMessage(recipientQueryResult, queryResult);
             }
         }

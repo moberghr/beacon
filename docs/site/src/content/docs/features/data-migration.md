@@ -94,8 +94,10 @@ in its query. Creating it, every run of it and deleting it need:
   never makes it readable to more people.
 
 The job list, a job and the run history show a MigrationOperator only jobs whose source and destination they can read
-(another job is not found, `404`). A failed run's error text, which can quote any data source the job reads, is replaced
-by a note unless the caller reads every one of them. An Admin is not checked. Refusals are logged with ids only.
+(another job is not found, `404`). A failed run's error text is Beacon's own wording; a database's or driver's error in it
+is redacted as in the execution log (an error that can quote row values keeps only its class and code, other errors lose
+their quoted text and values). It still names the job's tables and can describe any data source the job reads, so it is
+replaced by a note unless the caller reads every one of them. An Admin is not checked. Refusals are logged with ids only.
 
 The Home page's migration summary shows Admins the totals of every job, MigrationOperators the totals of the jobs their
 list shows, and zeros to everyone else.

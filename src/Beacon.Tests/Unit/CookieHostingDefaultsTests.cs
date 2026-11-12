@@ -25,12 +25,14 @@ namespace Beacon.Tests.Unit;
 [TestFixture]
 public class CookieHostingDefaultsTests
 {
-    [TestCase(null, CookieSecurePolicy.SameAsRequest)]
-    [TestCase("false", CookieSecurePolicy.SameAsRequest)]
-    [TestCase("true", CookieSecurePolicy.Always)]
-    public void CookieSecurePolicy_FollowsTheSecureAlwaysOption(string? value, CookieSecurePolicy expected)
+    [TestCase(null, null, CookieSecurePolicy.SameAsRequest)]
+    [TestCase(null, "false", CookieSecurePolicy.SameAsRequest)]
+    [TestCase(null, "true", CookieSecurePolicy.Always)]
+    [TestCase("Regulated", null, CookieSecurePolicy.Always)]
+    [TestCase("Regulated", "false", CookieSecurePolicy.SameAsRequest)]
+    public void CookieSecurePolicy_FollowsTheSecureAlwaysOption(string? profile, string? value, CookieSecurePolicy expected)
     {
-        var values = new Dictionary<string, string?>();
+        var values = new Dictionary<string, string?> { ["Beacon:Profile"] = profile };
         if (value != null)
         {
             values[BeaconCookieSecurity.SecureAlwaysKey] = value;
