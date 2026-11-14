@@ -4,17 +4,26 @@
     "net10.0": {
       "AWSSDK.BedrockRuntime": {
         "type": "Direct",
-        "requested": "[4.0.101.14, )",
-        "resolved": "4.0.101.14",
-        "contentHash": "a1/c/q6p5t4Pa7ioEzAdYF2KvrLbWK4Bg/ypAOW1E0y82Qd9WhQXKo1zQXKFgkEUkO1dHt1zzlus9cRklJnSig==",
+        "requested": "[4.1.0, )",
+        "resolved": "4.1.0",
+        "contentHash": "CtZebPnCpZaloXpP7dN2jdbtH9kkCDdqF1cT1Q2fLPGo38DzwmF8hxUyujfpSosACTVTvsr8YqyZ7oV6buBZrw==",
         "dependencies": {
-          "AWSSDK.Core": "[4.0.102.14, 5.0.0)"
+          "AWSSDK.Core": "[4.1.0, 5.0.0)"
         }
       },
       "AWSSDK.Core": {
         "type": "Transitive",
-        "resolved": "4.0.102.14",
-        "contentHash": "pRYOOIyj40UdQ6G9iq8AOU30sFPqWS/umM/sFTmAl4n1S6AVbVa67DJpJTxD+9qJFqweHPcyVW7Qb4BbUBLJdg=="
+        "resolved": "4.1.0",
+        "contentHash": "7a4eOI65Mn4dzc9kmRiI+y3EiS80NCMnu/j3ZR9H2dyO3d597eVPVV+ClzSFXnQkA0r8n2iig+Vg/Q/mozh5MQ==",
+        "dependencies": {
+          "AWSSDK.Extensions.Numerics": "[4.1.0, 5.0.0)",
+          "System.IO.Hashing": "11.0.0"
+        }
+      },
+      "AWSSDK.Extensions.Numerics": {
+        "type": "Transitive",
+        "resolved": "4.1.0",
+        "contentHash": "hhoiXT1aUyVgIiQbQoqG3L1EEneqXDh2GKyH5izUlO6Rzi9GAAi8S6mlLiVwow23+EGg77zHjdmUi+ia3RSUTg=="
       },
       "ClosedXML.Parser": {
         "type": "Transitive",
@@ -286,6 +295,11 @@
         "dependencies": {
           "SQLitePCLRaw.core": "2.1.13"
         }
+      },
+      "System.IO.Hashing": {
+        "type": "Transitive",
+        "resolved": "11.0.0",
+        "contentHash": "U+Bv2qCYt6eONi+arSP0QIp4uTO6os6uceBsqiAwruZ+Wo2HrRhO/0tj38M9URJtS+4DhAtT3ka2TGNFYsnhyQ=="
       },
       "System.IO.Packaging": {
         "type": "Transitive",
