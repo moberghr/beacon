@@ -4,11 +4,11 @@
     "net10.0": {
       "JsonPath.Net": {
         "type": "Direct",
-        "requested": "[3.0.3, )",
-        "resolved": "3.0.3",
-        "contentHash": "vWOcHJHws/sxbdJXBi/YByAF0clRyoxgyVdTp+Q//MLz5nGMx27M2br7poJtsqRrKMhNsmk3PKgpBmsIWcLQbQ==",
+        "requested": "[3.1.0, )",
+        "resolved": "3.1.0",
+        "contentHash": "S2zJIa6ej7hMdj0PT75w69HMa37CNcbhMZLDDfVDHouOftrvYxKQxaTw5DQT+cdhtRLAFRIsAPhECriKY2jKwQ==",
         "dependencies": {
-          "Json.More.Net": "3.0.1"
+          "Json.More.Net": "3.1.0"
         }
       },
       "Microsoft.OpenApi": {
@@ -55,8 +55,8 @@
       },
       "Json.More.Net": {
         "type": "Transitive",
-        "resolved": "3.0.1",
-        "contentHash": "fRctF2J2SILYG6wqP21drmeEODmCVkVQ/b3MndDu2fT1swfySyUgq7ePCk+aENGlDcIm05fyfjh9vcuqDEfv3w=="
+        "resolved": "3.1.0",
+        "contentHash": "7qGdCuzlojAC0u1a3aPoVyZTEmwnQaEThsTpeeMfMVjj3OmSzXwfY4mHvx8tDJbqr4xB1pMqh9PkjV/Dl7kHzA=="
       },
       "MediatR.Contracts": {
         "type": "Transitive",
