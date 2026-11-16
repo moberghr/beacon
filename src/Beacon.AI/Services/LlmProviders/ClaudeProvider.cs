@@ -56,14 +56,19 @@ public class ClaudeProvider : ILlmProvider
                 })
                 .ToList();
 
-            var requestBody = new
+            var requestBody = new Dictionary<string, object?>
             {
-                model = _model,
-                messages,
-                max_tokens = request.MaxTokens,
-                temperature = request.Temperature,
-                system = request.SystemPrompt
+                ["model"] = _model,
+                ["messages"] = messages,
+                ["max_tokens"] = request.MaxTokens,
+                ["system"] = request.SystemPrompt
             };
+
+            // A model that refuses sampling parameters gets no temperature at all, not a null one (ClaudeSampling).
+            if (ClaudeSampling.AcceptsTemperature(_model))
+            {
+                requestBody["temperature"] = request.Temperature;
+            }
 
             // Headers are set per request, never on the client: the client may be shared.
             using var httpRequest = new HttpRequestMessage(HttpMethod.Post, MessagesUri)

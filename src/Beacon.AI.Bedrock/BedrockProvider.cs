@@ -204,14 +204,19 @@ public class BedrockProvider : ILlmProvider
                 content = m.Content
             }).ToList();
 
-            var requestBody = new
+            var requestBody = new Dictionary<string, object?>
             {
-                anthropic_version = "bedrock-2023-05-31",
-                max_tokens = request.MaxTokens,
-                temperature = request.Temperature,
-                system = request.SystemPrompt ?? string.Empty,
-                messages
+                ["anthropic_version"] = "bedrock-2023-05-31",
+                ["max_tokens"] = request.MaxTokens,
+                ["system"] = request.SystemPrompt ?? string.Empty,
+                ["messages"] = messages
             };
+
+            // A model that refuses sampling parameters gets no temperature at all, not a null one (ClaudeSampling).
+            if (ClaudeSampling.AcceptsTemperature(_modelId))
+            {
+                requestBody["temperature"] = request.Temperature;
+            }
 
             var jsonRequest = JsonSerializer.Serialize(requestBody);
 
