@@ -22,7 +22,7 @@
     "dompurify": "^3.4.17",
     "lucide-react": "^1.66.0",
     "marked": "^18.1.2",
-    "mermaid": "^12.2.0",
+    "mermaid": "^12.3.0",
     "monaco-editor": "^0.57.0",
     "react": "^19.3.1",
     "react-dom": "^19.3.1",
