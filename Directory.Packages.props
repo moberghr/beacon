@@ -10,7 +10,7 @@
     <PackageVersion Include="ClosedXML" Version="0.105.1" />
     <PackageVersion Include="CronExpressionDescriptor" Version="2.51.0" />
     <PackageVersion Include="Cronos" Version="0.13.0" />
-    <PackageVersion Include="Dapper" Version="2.1.89" />
+    <PackageVersion Include="Dapper" Version="2.1.100" />
     <PackageVersion Include="EFCore.NamingConventions" Version="10.0.1" />
     <PackageVersion Include="FluentAssertions" Version="7.2.2" />
     <PackageVersion Include="Google.Cloud.BigQuery.V2" Version="3.12.0" />
