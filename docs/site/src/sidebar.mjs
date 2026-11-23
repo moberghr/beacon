@@ -158,9 +158,10 @@ export const SECTIONS = [
   {
     label: 'Security',
     slug: 'security',
-    summary: 'The security model: projects, permissions, approvals, users, API keys, the security audit trail and admin settings.',
+    summary: 'The security model, a hardening guide and a page per protection: sign-in, browser protections, limits, the SQL gate, data-source connections, keys, LLM safety, locks, the regulated profile, retention and every security setting.',
     items: [
       { label: 'Security model', slug: 'security' },
+      { label: 'Hardening guide', slug: 'security/hardening-guide' },
       { label: 'Authorization', slug: 'security/authorization' },
       { label: 'Approvals', slug: 'security/approvals' },
       { label: 'User management', slug: 'security/user-management' },
@@ -177,6 +178,7 @@ export const SECTIONS = [
       { label: 'Deployment locks', slug: 'security/deployment-locks' },
       { label: 'Regulated profile', slug: 'security/regulated-profile' },
       { label: 'Data retention', slug: 'security/data-retention' },
+      { label: 'Security settings reference', slug: 'security/settings-reference' },
     ],
   },
   {

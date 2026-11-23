@@ -32,12 +32,16 @@ flowchart TB
 - **Break-glass:** with password sign-in off, at most three named accounts may still use a password; each use is logged as a warning (7119).
 - **MFA** (`RequireMfa`) covers the interactive SSO sign-in. Bearer tokens, API keys, MCP callers and break-glass passwords are not MFA-protected. Protect them with short lifetimes, project lists and alerting.
 
+Every sign-in setting with examples: → [Sign-in and sessions](/security/sign-in-and-sessions/)
+
 ## 2. Sessions
 
 - The `Beacon.Auth` cookie is HttpOnly, SameSite=Lax and Secure on HTTPS; state-changing API calls need an antiforgery token.
 - Sessions are **revalidated on the server** every few minutes (user enabled, not archived, unchanged security stamp; roles reloaded) and end **12 hours** after sign-in however often they are renewed.
 - Changing a user's roles, password or status renews their security stamp and ends every session they have; realtime connections close with them.
 - The cookie's key ring (ASP.NET Core Data Protection) must be encrypted at rest outside Development, or the host does not start.
+
+Cookie flags, antiforgery, the content security policy and the origin check: → [Sign-in and sessions](/security/sign-in-and-sessions/) · [Browser protections](/security/browser-protections/). Request limits: → [Rate and request limits](/security/rate-and-request-limits/)
 
 ## 3. Projects are the access boundary
 
@@ -88,6 +92,8 @@ Then the statement runs on the data source's provider:
 
 The gate is the primary control and database-level read-only is defence in depth, so **every data source needs a read-only login**, on every engine. Data sources whose engine cannot refuse writes carry a badge, and Beacon warns at startup. Every statement has a timeout: `Beacon:Query:StatementTimeoutSeconds` (120 s by default) for scheduled runs, previews and Beacon's own reads, and the project's MCP statement timeout (30 s by default) for MCP `query`, `ask` and the saved-query tools. Every statement also honours the caller's cancellation.
 
+Every stage, its refusal code, the `Beacon:Query` settings and accepted and refused statements: → [SQL execution gate](/security/sql-execution-gate/)
+
 ## 7. Masking and what leaves Beacon
 
 - **PII masking** (on by default, pinned by `Beacon:Mcp:ForcePiiDetection`) masks columns detected as PII (and their aliases, renames and wildcard expansions) in results that reach MCP clients, recipients and attachments, and in query and step previews run by someone who may not write in the query's project (a Viewer, for example): they see the rows as a subscription would deliver them, and the preview says they are masked. Someone who may write there sees the rows as read. When Beacon cannot prove where a PII column went, it masks every column (fail closed). Host DbContext sources mask by output position.
@@ -95,12 +101,16 @@ The gate is the primary control and database-level read-only is defence in depth
 - **LLM providers receive schema, not rows**, unless a project turns on sample-value collection, value grounding or the eval judge (all off by default; `Beacon:Mcp:ForbidRowDataToLlm` pins them off). Every request that carries row-derived data is logged as event 7123 with the categories sent, never the values.
 - **Content retention:** a project (or the deployment, with `ForceNoContentRetention`) can keep MCP audit rows structural only (tool, tables, counts, timings, error class, keyed hashes), with no question, SQL or error text stored. A deployment that must keep that evidence pins retention on instead with `Beacon:Mcp:Audit:RequireContent`.
 
+What reaches an LLM provider, how prompts fence data and the endpoint rules: → [LLM and prompt safety](/security/llm-data-safety/). Retention windows and the content lock: → [Data retention](/security/data-retention/)
+
 ## 8. Secrets at rest
 
 - Data-source connection strings, tokens and recipient secrets are encrypted with **AES-256-GCM** (per-value nonce) under `Beacon:EncryptionKey`. The key is checked at startup in every environment and rotated through `Beacon:PreviousEncryptionKeys` and a re-encryption job.
 - API keys are stored as **SHA-256 hashes**; the raw key is shown once.
 - A host-exposed DbContext stores only the **name** of its connection string, never the string.
 - Secrets never reach logs; notification calls are excluded from HTTP tracing because their URLs can carry secrets.
+
+Key requirements, the rotation runbook and Data Protection: → [Secrets and keys](/security/secrets-and-keys/). TLS, refused driver options, allowed hosts and outbound addresses for data sources: → [Data-source connections](/security/data-source-connections/)
 
 ## 9. Outbound notifications
 
@@ -128,6 +138,8 @@ Some settings are pinned by host configuration and bind Admins too. The UI shows
 Every MCP setting change is recorded in the settings history with who changed it.
 
 `Beacon:Profile: Regulated` requires the regulated values of these locks and of the audit, retention, row-data, ceiling, rate-limit, sign-in and access, browser-protection, approval-workflow, encryption and data-source connection settings: it fills the keys a host's configuration leaves unset where a safe value exists (raising a weaker value set in code) and requires the host to set the rest, and fails startup, listing each, on any key unset where it must be set or set weaker; it never overrides a configured value. A startup report names every weaker setting, also without the profile (event 9130, Warning; without the profile the settings it covered first, the others as one Information, 9133). → [Regulated profile](/getting-started/configuration/#regulated-profile-beaconprofile)
+
+Each lock with examples and what a refused change looks like: → [Deployment locks](/security/deployment-locks/). What the profile fills and requires: → [Regulated profile](/security/regulated-profile/)
 
 ## 12. Audit and security events
 
@@ -170,4 +182,4 @@ Beacon's guarantees assume the host does its share:
 - security log events and the `Beacon.Audit` category (including the security audit trail's copies and verification checkpoints, 9104 to 9116) shipped to a monitored log store;
 - `Beacon:Audit:IntegrityKey` set from a secret store, and the security audit verification and retention jobs scheduled (the sample host schedules both).
 
-The [production checklist](/integrate/production/) collects all of these.
+The [production checklist](/integrate/production/) collects all of these. The [hardening guide](/security/hardening-guide/) gives complete development, production and regulated configurations, and the [security settings reference](/security/settings-reference/) lists every security setting in one table.
