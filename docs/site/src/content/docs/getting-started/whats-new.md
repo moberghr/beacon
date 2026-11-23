@@ -293,6 +293,8 @@ When you upgrade:
 
 ### Behaviour changes in the security hardening
 
+Each protection now has its own page with every setting and worked examples. Start with the [hardening guide](/security/hardening-guide/) or look a key up in the [security settings reference](/security/settings-reference/).
+
 | Area | Now |
 |---|---|
 | Outbound addresses | The REST API and Databricks connectors and the LLM clients resolve the host when they connect and never connect to a link-local or cloud metadata address. The two connectors also refuse loopback unless `Beacon:DataSources:Outbound:AllowLoopback` is `true`, and private networks while `Beacon:DataSources:Outbound:AllowPrivateNetworks` is `false` ([HTTP data-source addresses](/getting-started/configuration/#http-data-source-addresses)). An Azure OpenAI endpoint must be `https`, except on a loopback host or with `Beacon:LLM:AllowInsecureEndpoint` ([AI / LLM](/getting-started/configuration/#ai--llm)). |

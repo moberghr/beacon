@@ -141,6 +141,22 @@ Set in the `AddBeaconServices` lambda. None of these are read from configuration
 
 Bearer-token and external-login settings are code-only too, through `builder.Services.AddBeaconJwtAuthentication(jwt => …)` (see [JWT bearer](#jwt-bearer)).
 
+```csharp
+builder.Services.AddBeaconServices(builder.Configuration, options =>
+{
+    options.AddBeaconScheduler<BeaconScheduler>();           // required
+    options.AddEmailAdapter<MyEmailAdapter>();
+    options.BaseUrl = "https://beacon.example.com/beacon";
+    options.UseAI = true;
+    options.Authorization.Enabled = true;
+    options.Authentication.EnableLoginForm = true;
+    options.Authentication.CookieExpirationHours = 8;
+    options.Authentication.RememberMeExpirationDays = 14;
+    options.UserManagement.MinimumPasswordLength = 14;
+    options.SavedQueryTools.NamedToolLimit = 10;
+});
+```
+
 ## Core and database
 
 | Key | Type | Default | What it does |
@@ -156,6 +172,35 @@ Bearer-token and external-login settings are code-only too, through `builder.Ser
 | `Beacon:ForwardedHeaders:KnownProxies` | string[] | empty | Sample host: proxy IP addresses to trust; entries that are not IP addresses are skipped, and an empty list trusts none |
 | `AllowedHosts` | string | None | Standard ASP.NET Core host filtering |
 | `Logging:*` | n/a | n/a | Standard logging. For JSON console logs with trace ids: `Logging:Console:FormatterName=json`, `Logging:Console:FormatterOptions:IncludeScopes=true` |
+
+```json
+{
+  "ConnectionStrings": {
+    "BeaconContext": "Host=db.example.com;Database=beacon;Username=beacon_app;Password=REPLACE_ME;SSL Mode=VerifyFull",
+    "WarpContext": "Host=db.example.com;Database=beacon_warp;Username=warp_app;Password=REPLACE_ME;SSL Mode=VerifyFull"
+  },
+  "AllowedHosts": "beacon.example.com",
+  "Beacon": {
+    "PublicBaseUrl": "https://beacon.example.com",
+    "BaseUrl": "https://beacon.example.com/beacon",
+    "OpenApi": {
+      "Anonymous": false
+    },
+    "ForwardedHeaders": {
+      "Enabled": true,
+      "KnownProxies": [
+        "10.0.0.5"
+      ]
+    }
+  }
+}
+```
+
+The environment-variable form of the connection string, which keeps the password out of the file:
+
+```bash
+ConnectionStrings__BeaconContext="Host=db.example.com;Database=beacon;Username=beacon_app;Password=REPLACE_ME;SSL Mode=VerifyFull"
+```
 
 ### Schema configuration
 
@@ -218,6 +263,8 @@ export Beacon__EncryptionKey="<the generated value>"
 
 API keys are not encrypted: they are SHA-256-hashed, and the raw key is shown once.
 
+For the full guide with worked examples, see [Secrets and keys](/security/secrets-and-keys/).
+
 ### Replacing the key
 
 Values are always written with `Beacon:EncryptionKey`. To replace a key, set the new one and list the old one in `Beacon:PreviousEncryptionKeys` (as a list: `Beacon__PreviousEncryptionKeys__0`; a single value is read as one key, with a startup Warning). Previous keys only decrypt and are not strength-checked, since their purpose is to retire a weak key.
@@ -229,11 +276,31 @@ export Beacon__PreviousEncryptionKeys__0="<the key configured until now>"
 
 `IStoredValueReEncryptionService` re-encrypts every stored value only a previous key decrypts (conditional writes, so a concurrent save wins). It also rewrites, in the current AES-GCM format, every value still in the legacy format written before it (unauthenticated AES-CBC), under whichever configured key. The sample host enqueues it as `ReEncryptStoredValuesJob` at every start; a host with its own jobs does the same. Startup also logs how many values remain under a previous key, how many no key decrypts, how many recipient approval hashes cannot be recomputed, and how many values are still in the legacy format. Remove the previous keys once none remain.
 
+For the full guide with worked examples, see [Secrets and keys](/security/secrets-and-keys/).
+
 ### The legacy format
 
 Values in the legacy format stay readable while `Beacon:Encryption:AllowLegacyCbc` is `true` (the default); the first one read is logged once as a Warning. Once the re-encryption run reports none left in the legacy format (`StoredValueReEncryptionResult.LegacyFormatReadRemovable`), set it to `false`: a legacy value is then refused like one no key decrypts. The report covers Beacon's own stored values only (data sources, repository tokens, sensitive settings, recipients); values your host stored itself through `IEncryptionService` are not scanned, so check those before turning it off.
 
 Before changing the key, set `Beacon:Mcp:CallerHashKey` to the key in use now, so MCP audit rows keep grouping together across the change. The MCP audit's content hashes (`ContentHash`, `SqlHash`) come from the same secret and behave the same way. **Set `Beacon:Audit:IntegrityKey` before you change the key** too, so security audit events written from then on do not depend on it; events signed before keep verifying while their secret stays configured (see [Security audit trail](#security-audit-trail)).
+
+Once the re-encryption run reports no value left in the legacy format, turn the fallback off:
+
+```json
+{
+  "Beacon": {
+    "Encryption": {
+      "AllowLegacyCbc": false
+    }
+  }
+}
+```
+
+```bash
+Beacon__Encryption__AllowLegacyCbc=false
+```
+
+For the full guide with worked examples, see [Secrets and keys](/security/secrets-and-keys/).
 
 ## Data Protection (the keys behind the session cookie)
 
@@ -263,6 +330,8 @@ UPDATE beacon.users SET security_stamp = md5(random()::text || clock_timestamp()
 UPDATE beacon.Users SET SecurityStamp = LOWER(REPLACE(CONVERT(nvarchar(36), NEWID()), '-', ''));
 ```
 
+For the full guide with worked examples, see [Secrets and keys](/security/secrets-and-keys/).
+
 ## Authentication
 
 Beacon's sessions use the `Beacon.Auth` cookie (`HttpOnly`, `SameSite=Lax`, `SecurePolicy=SameAsRequest`, sliding; `Beacon:Authentication:Cookie:SecureAlways` set to `true` always issues it with the `Secure` flag; this covers the `Beacon.Auth` cookie only, not the antiforgery or OIDC cookies). There is no default account: [first-run setup](/security/user-management/#first-run-setup) creates the super admin. Register cookie authentication with the UI's base path:
@@ -270,6 +339,8 @@ Beacon's sessions use the `Beacon.Auth` cookie (`HttpOnly`, `SameSite=Lax`, `Sec
 ```csharp
 builder.Services.AddBeaconCookieAuthentication("/beacon");   // login page /beacon/login
 ```
+
+For the full guide with worked examples, see [Sign-in and sessions](/security/sign-in-and-sessions/).
 
 ### Where Beacon credentials apply
 
@@ -301,6 +372,27 @@ Beacon credentials no longer authenticate the host's own routes. A host route th
 
 `AddBeaconApiServices()` binds the section and `UseBeaconAuthentication()` applies it. See [Security headers and the origin check](/integrate/host-setup/#security-headers-and-the-origin-check).
 
+```json
+{
+  "Beacon": {
+    "Security": {
+      "Csp": "ReportOnly",
+      "OriginGuard": "Enforce",
+      "AllowedOrigins": [
+        "https://beacon.example.com",
+        "https://beacon.example.com:8443"
+      ]
+    }
+  }
+}
+```
+
+```bash
+Beacon__Security__OriginGuard=Enforce
+```
+
+Start with `OriginGuard` at `LogOnly`, read the log for refused origins, then switch to `Enforce`. For what each header does and how to roll it out, see [Browser protections](/security/browser-protections/).
+
 ### Session lifetime
 
 Bound from `Beacon:Authentication:Session`, validated at startup.
@@ -310,6 +402,26 @@ Bound from `Beacon:Authentication:Session`, validated at startup.
 | `RevalidateMinutes` | int | `5` | 0–1440 (`0` = every request) | How often, at most, a session is checked against the user store (user exists, enabled, not archived, same security stamp; roles replaced by the stored ones). Also how long a realtime connection lives before it is checked again (at least 1 minute) |
 | `AbsoluteLifetimeHours` | int | `12` | 1–8760 | A session ends this long after sign-in, however often it is renewed; caps the cookie's expiry and "remember me" |
 | `PersistSsoCookie` | bool | `false` | | A single sign-on session's cookie outlives the browser session. `false`: a session cookie, dropped when the browser closes; `true`: kept until it expires (within `AbsoluteLifetimeHours`) |
+
+```json
+{
+  "Beacon": {
+    "Authentication": {
+      "Session": {
+        "RevalidateMinutes": 2,
+        "AbsoluteLifetimeHours": 8,
+        "PersistSsoCookie": false
+      }
+    }
+  }
+}
+```
+
+```bash
+Beacon__Authentication__Session__AbsoluteLifetimeHours=8
+```
+
+See [Sign-in and sessions](/security/sign-in-and-sessions/) for what ends a session.
 
 ### Local password sign-in
 
@@ -321,6 +433,27 @@ Bound from `Beacon:UserManagement:LocalLogin`, validated at startup.
 | `BreakGlassUserNames` | string[] | empty | Up to 3 stored user names (exact, case-sensitive) that may still sign in with a password while `Enabled` is `false`, at `/beacon/login?local=1`. A blank entry or more than 3 fail startup; a name no enabled internal user has gets a startup Warning |
 
 See [User management → Local password sign-in](/security/user-management/#local-password-sign-in).
+
+```json
+{
+  "Beacon": {
+    "UserManagement": {
+      "LocalLogin": {
+        "Enabled": false,
+        "BreakGlassUserNames": [
+          "emergency-admin"
+        ]
+      }
+    }
+  }
+}
+```
+
+```bash
+Beacon__UserManagement__LocalLogin__BreakGlassUserNames__0=emergency-admin
+```
+
+With `Enabled` at `false`, startup still needs a way to sign in: SSO, a host-owned login page or a break-glass account, as above. See [Sign-in and sessions](/security/sign-in-and-sessions/).
 
 ### Optional: OIDC / SSO
 
@@ -362,6 +495,8 @@ Bound by `builder.Services.AddBeaconOidcAuthentication(builder.Configuration)` f
 
 Admission runs before anything is provisioned: tenant, then guest, then required role or group. See [User management → Single sign-on admission](/security/user-management/#single-sign-on-admission).
 
+For the full guide with worked examples, see [Sign-in and sessions](/security/sign-in-and-sessions/).
+
 ### JWT bearer
 
 Bearer tokens on the REST API and the external login API are configured in code; there is no configuration section:
@@ -391,6 +526,8 @@ builder.Services.AddBeaconJwtAuthentication(jwt =>
 
 With bearer or external login on, a missing or short key, a missing issuer or audience, a validation flag turned off, a skew above 5 minutes or an `http` endpoint stops the host. A token must be an access token and name an existing, enabled, external Beacon user; see [User management](/security/user-management/#jwtexternalapiauthenticationprovider). Entra callers on `/beacon/mcp` are configured separately (below).
 
+For the full guide with worked examples, see [Sign-in and sessions](/security/sign-in-and-sessions/).
+
 ### MCP callers from Entra ID (`Beacon:Mcp:Callers`)
 
 Validated at startup. Without the section, no JWT caller is admitted on `/beacon/mcp`. Active callers also need bearer JWT enabled with issuer and audience validation.
@@ -411,6 +548,50 @@ Validated at startup. Without the section, no JWT caller is admitted on `/beacon
 | `Systems[i]:ProjectIds`, `Scope`, `HostClaims[]` | | `Execute` | The system caller's projects, scope and host-endpoint claims |
 
 See [Entra ID callers](/mcp/entra-callers/).
+
+```json
+{
+  "Beacon": {
+    "Mcp": {
+      "Callers": {
+        "AllowedTenants": [
+          "00000000-0000-0000-0000-000000000000"
+        ],
+        "Users": {
+          "Enabled": true,
+          "RequiredGroups": [
+            "11111111-1111-1111-1111-111111111111"
+          ],
+          "ProjectIds": [
+            1
+          ],
+          "GroupProjects": {
+            "22222222-2222-2222-2222-222222222222": [
+              2,
+              3
+            ]
+          },
+          "Scope": "Read",
+          "AutoProvision": true,
+          "DefaultRoleName": "Viewer"
+        },
+        "Systems": [
+          {
+            "Name": "reporting-agent",
+            "ClientId": "33333333-3333-3333-3333-333333333333",
+            "ProjectIds": [
+              1
+            ],
+            "Scope": "Execute"
+          }
+        ]
+      }
+    }
+  }
+}
+```
+
+The host also needs `AddBeaconJwtAuthentication` with `EnableBearerAuthentication`, an issuer and an audience (see [JWT bearer](#jwt-bearer)), or startup fails. Replace the GUIDs with your tenant, group and app ids.
 
 ## Data-source transport security
 
@@ -440,6 +621,8 @@ refused. Replace each flagged connection, then set `EnforceOnExisting` to `true`
 local databases without TLS sets `AllowInsecure` in its Development configuration only.
 :::
 
+For the full guide with worked examples, see [Data-source connections](/security/data-source-connections/).
+
 ## Data-source driver options and hosts
 
 Each connector also refuses driver options that act on the Beacon host or sign in as it (the list per engine is in
@@ -468,6 +651,8 @@ sign in with Kerberos. New connections that name a client certificate or key fil
 unless `AllowHostCredentials` is `true`; a CA file that only verifies the server needs no option. Stored ones keep
 working with a Warning.
 :::
+
+For the full guide with worked examples, see [Data-source connections](/security/data-source-connections/).
 
 ## HTTP data-source addresses
 
@@ -500,6 +685,8 @@ connecting until `Beacon:DataSources:Outbound:AllowLoopback` is `true`, and one 
 to a link-local or cloud metadata address stops connecting everywhere.
 :::
 
+For the full guide with worked examples, see [Data-source connections](/security/data-source-connections/).
+
 ## Authorization
 
 Bound from `Beacon:Authorization`, validated at startup. Whether authorization is on at all is code-only (`options.Authorization.Enabled`). See [Authorization](/security/authorization/).
@@ -507,6 +694,22 @@ Bound from `Beacon:Authorization`, validated at startup. Whether authorization i
 | Key | Type | Default | What it does |
 |---|---|---|---|
 | `RequireProjectMembership` | bool | `false` | Restrict every project to its members and Admins; data sources no project links become Admin-only. Startup fails without a membership source (Beacon user management or a host `IProjectMembershipSource`) |
+
+```json
+{
+  "Beacon": {
+    "Authorization": {
+      "RequireProjectMembership": true
+    }
+  }
+}
+```
+
+```bash
+Beacon__Authorization__RequireProjectMembership=true
+```
+
+This needs Beacon user management or a host `IProjectMembershipSource`, or startup fails.
 
 ### Functional permissions: role names, identity-provider app roles, separation of duties
 
@@ -549,6 +752,23 @@ User management itself is code-only ([Code-only options](#code-only-options)); t
 
 Login attempts are throttled at 10 per 60 seconds per client address; the first-run setup endpoints have their own budget. Neither is configurable.
 
+```json
+{
+  "Beacon": {
+    "UserManagement": {
+      "SetupToken": "<at least 32 random characters>",
+      "MinimumPasswordLength": 12
+    }
+  }
+}
+```
+
+Supply the token as a secret, not in a file:
+
+```bash
+Beacon__UserManagement__SetupToken="<at least 32 random characters>"
+```
+
 ## API keys
 
 Bound from `Beacon:ApiKeys`, validated at startup. See [API keys](/security/api-keys/).
@@ -560,6 +780,18 @@ Bound from `Beacon:ApiKeys`, validated at startup. See [API keys](/security/api-
 | `MaxOwnerInactivityDays` | int | `0` (off) | 0–3650 | A key stops working (`401`) while its owner has not signed in with their own identity for this many days |
 
 Scopes are `Read` and `Execute`; a key stored with the retired `Admin` scope is read as `Execute`.
+
+```json
+{
+  "Beacon": {
+    "ApiKeys": {
+      "MaxLifetimeDays": 180,
+      "EnforceMaxLifetimeOnExistingKeys": true,
+      "MaxOwnerInactivityDays": 60
+    }
+  }
+}
+```
 
 ## Query execution row cap
 
@@ -580,6 +812,31 @@ Data migration reads use `Beacon:Migrations:MaxRows` instead. The MCP tools that
 | `Beacon:Metadata:ForcedRefreshCooldownMinutes` | int | `15` | 0–1440 (`0` = off) | After a successful forced metadata refresh of a data source, the next one answers `429` until this passes. Per process; Admins and DataSourceAdmins are not held to it. Validated at startup |
 | `Beacon:AiActors:ThinkCooldownMinutes` | int | `15` | 0–1440 (`0` = off) | An AI actor's think cycle starts at most once per this many minutes, from its last think time. Background cycles within it are skipped; an on-demand cycle is refused with the time left. Validated at startup |
 | `Beacon:AiActors:PlanExpiryDays` | int | `7` | 1–365 | An AI actor's plan awaiting approval expires this many days after it was proposed: it is no longer listed as pending, and approving, rejecting or revising it answers `409`. Computed when read. Validated at startup |
+
+```json
+{
+  "Beacon": {
+    "Query": {
+      "MaxExecutionRows": 50000,
+      "StatementTimeoutSeconds": 60,
+      "MaxResultBytes": 134217728
+    },
+    "Metadata": {
+      "ForcedRefreshCooldownMinutes": 30
+    },
+    "AiActors": {
+      "ThinkCooldownMinutes": 30,
+      "PlanExpiryDays": 3
+    }
+  }
+}
+```
+
+```bash
+Beacon__Query__MaxExecutionRows=50000
+```
+
+For how the gate caps and refuses statements, see [SQL execution gate](/security/sql-execution-gate/).
 
 ## Request limits
 
@@ -606,6 +863,53 @@ Bound from `Beacon:RateLimits`, validated at startup. Each limit is a fixed wind
 
 The lockout counts per user, not per client: anyone who knows a user name can lock that user's password sign-in by sending wrong passwords, and again each time the lock ends (the per-address `Login` limit slows this down, but several addresses get past it). That denial of service is the price of a hard cap on password guessing. Keep a break-glass account for emergencies (it is never locked; with `BreakGlassThrottle` on it is delayed for at most `MaxDelaySeconds` at a time), prefer single sign-on for everyday users, or set `Lockout:Enabled` to `false` when the denial of service weighs more for your deployment than the cap.
 
+```json
+{
+  "Beacon": {
+    "RateLimits": {
+      "Login": {
+        "PermitLimit": 5,
+        "WindowSeconds": 60
+      },
+      "Api": {
+        "PermitLimit": 300,
+        "WindowSeconds": 60
+      },
+      "Anonymous": {
+        "PermitLimit": 20
+      },
+      "Mcp": {
+        "PermitLimit": 120,
+        "WindowSeconds": 60
+      },
+      "Ask": {
+        "PermitLimit": 5,
+        "WindowSeconds": 60
+      },
+      "MaxPartitions": 20000,
+      "Lockout": {
+        "Enabled": true,
+        "MaxFailedAttempts": 5,
+        "DurationMinutes": 30
+      },
+      "BreakGlassThrottle": {
+        "Enabled": true,
+        "FailedAttemptsBeforeDelay": 3,
+        "InitialDelaySeconds": 30,
+        "MaxDelaySeconds": 300,
+        "ResetAfterMinutes": 60
+      }
+    }
+  }
+}
+```
+
+```bash
+Beacon__RateLimits__Api__PermitLimit=300
+```
+
+For every setting with examples and what a refusal looks like, see [Rate and request limits](/security/rate-and-request-limits/).
+
 ## Request size and time limits
 
 Bound from `Beacon:RequestLimits`, validated at startup. They apply to Beacon's own routes only (`/beacon/api`, the hub under it and `/beacon/mcp`), through `UseBeaconAuthentication()`, and a host's own limit wins where it is stricter: a lower Kestrel `MaxRequestBodySize` is never raised. `0` turns one bound off. They do not touch the 5-minute Kestrel keep-alive and header timeouts or the 5-minute `HttpClient` timeout that AI calls need (see [Host setup](/integrate/host-setup/)).
@@ -624,6 +928,30 @@ Bound from `Beacon:RequestLimits`, validated at startup. They apply to Beacon's 
 
 A host that configures SignalR (`BeaconApiOptions.ConfigureSignalR`, `AddHubOptions`) or `HttpServerTransportOptions` itself overrides the hub and idle-session values.
 
+```json
+{
+  "Beacon": {
+    "RequestLimits": {
+      "ApiMaxBodyBytes": 1048576,
+      "McpMaxBodyBytes": 2097152,
+      "ApiTimeoutSeconds": 120,
+      "HubMaxReceiveMessageBytes": 8192,
+      "HubMaxParallelInvocationsPerClient": 1,
+      "HubClientTimeoutSeconds": 30,
+      "McpMaxIdleSessions": 500,
+      "McpMaxInitializesPerCaller": 30,
+      "McpInitializeWindowSeconds": 60
+    }
+  }
+}
+```
+
+```bash
+Beacon__RequestLimits__ApiMaxBodyBytes=1048576
+```
+
+For every setting with examples and what a refusal looks like, see [Rate and request limits](/security/rate-and-request-limits/).
+
 ## Subscription limits
 
 Bound from `Beacon:Subscriptions`, validated at startup.
@@ -635,11 +963,32 @@ Bound from `Beacon:Subscriptions`, validated at startup.
 
 See [Subscriptions](/features/subscriptions/).
 
+```json
+{
+  "Beacon": {
+    "Subscriptions": {
+      "MinIntervalMinutes": 15,
+      "MaxAttachmentBytes": 5242880
+    }
+  }
+}
+```
+
 ### Reports (`Beacon:Reports`)
 
 | Key | Type | Default | What it does |
 |---|---|---|---|
 | `NeutralizeFormulas` | bool | `true` | A text cell of a CSV or XLSX attachment that starts with `=`, `+`, `-`, `@`, a tab or a carriage return is written so a spreadsheet reads it as text: a CSV cell gets a leading `'`, an XLSX cell the quote prefix. Numbers, dates and booleans are never touched. Set `false` only when the file is not opened in a spreadsheet |
+
+```json
+{
+  "Beacon": {
+    "Reports": {
+      "NeutralizeFormulas": true
+    }
+  }
+}
+```
 
 ## Data migration
 
@@ -651,6 +1000,21 @@ Bound from `Beacon:Migrations`, validated at startup. **A deployment lock**: onl
 | `MaxRows` | int | `100000` | 1–10,000,000. One run's read and write budget; a larger source fails before anything is written |
 
 See [Data migration](/features/data-migration/).
+
+```json
+{
+  "Beacon": {
+    "Migrations": {
+      "Enabled": true,
+      "MaxRows": 500000
+    }
+  }
+}
+```
+
+```bash
+Beacon__Migrations__Enabled=true
+```
 
 ## Approval workflow
 
@@ -759,6 +1123,8 @@ URL), and another when the provider cannot be built.
 
 At startup the provider is built from `Beacon:LLM`. Saving the AI provider in [Admin settings](/security/admin-settings/) swaps it immediately, without a restart; after a restart `Beacon:LLM` applies again until the settings are saved. Keep `Beacon:LLM` in step with Admin settings, or save them again after a restart. See [AI providers](/integrate/ai/).
 
+For the full guide with worked examples, see [LLM data safety](/security/llm-data-safety/).
+
 ### Local embeddings (`Beacon:Embeddings`)
 
 | Key | Type | Default | What it does |
@@ -768,6 +1134,18 @@ At startup the provider is built from `Beacon:LLM`. Saving the AI provider in [A
 | `TokenizerPath` | string | None | The WordPiece vocabulary file |
 
 These keys are read by the `Moberg.Beacon.AI.Embeddings.Onnx` package (`AddBeaconOnnxEmbeddings()`). The service is available only when `Enabled` is `true` and both files exist; otherwise retrieval falls back to lexical matching. On PostgreSQL the vectors live in a pgvector column, so the `vector` extension must be available to Beacon's migrations; on SQL Server they are compared in memory. The sample host re-indexes every 12 hours (`mcp-embedding-reindex`, `mcp-docchunk-reindex`).
+
+```json
+{
+  "Beacon": {
+    "Embeddings": {
+      "Enabled": true,
+      "ModelPath": "/opt/beacon/models/bge-small-en-v1.5.onnx",
+      "TokenizerPath": "/opt/beacon/models/vocab.txt"
+    }
+  }
+}
+```
 
 ## GitHub repository scan (`Beacon:GitHub`)
 
@@ -793,6 +1171,20 @@ records that it is still going; one silent for `TaskDeadline` plus `ScanTimeout`
 start, and its counts; `refused` with the reason when it was skipped). The
 in-request `POST /beacon/api/projects/{id}/scan` stays for Beacon 5.0 callers. The time limit also covers reading the repository's metadata and file list: a scan that reaches it before the file list is read fails. A scan replaces the repository's code references only when it finishes; one that fails or is cancelled by the caller keeps the previous references.
 
+```json
+{
+  "Beacon": {
+    "GitHub": {
+      "MaxFilesPerRepository": 2000,
+      "ScanTimeout": "00:03:00",
+      "MaxFileBytes": 500000,
+      "MaxTreeResponseBytes": 16777216,
+      "TaskDeadline": "02:00:00"
+    }
+  }
+}
+```
+
 ## Notification destinations (optional)
 
 Bound from `Beacon:Notifications`, validated at startup (each bad entry is named); the effective policy is logged once.
@@ -817,6 +1209,42 @@ Through a proxy, the proxy resolves the host name and connects to the address it
 
 Recipients saved by an older version keep working with unencrypted secrets until saved again or until `IRecipientSecretEncryptionService.EncryptStoredSecretsAsync` runs (the sample's `EncryptRecipientSecretsJob`, which the host enqueues once every node runs the new version; an earlier version cannot read the encrypted secrets). Then set `RequireEncryptedSecrets` to `true`. Notification URLs are secrets: leave notification calls out of HTTP tracing (`NotificationRequests.IsNotificationRequest`). See [Notifications](/features/notifications/).
 
+```json
+{
+  "Beacon": {
+    "Notifications": {
+      "AllowedHosts": {
+        "Slack": [],
+        "Teams": [
+          "*.webhook.example.com"
+        ],
+        "Jira": [],
+        "Webhook": [
+          "hooks.example.com"
+        ],
+        "Email": [
+          "example.com"
+        ]
+      },
+      "DisabledTypes": [
+        "Jira"
+      ],
+      "AllowedPrivateNetworks": {
+        "Webhook": [
+          "10.20.0.0/16"
+        ]
+      },
+      "AllowedHeaders": [
+        "X-Tenant-Id"
+      ],
+      "Nat64Prefixes": [],
+      "UseSystemProxy": false,
+      "RequireEncryptedSecrets": true
+    }
+  }
+}
+```
+
 ## Email adapter
 
 Beacon's libraries ship no email implementation. Register your own `IEmailAdapter` with `options.AddEmailAdapter<T>()`. The sample host's `BeaconMailSender` reads these keys, at send time:
@@ -831,6 +1259,26 @@ Beacon's libraries ship no email implementation. Register your own `IEmailAdapte
 | `Beacon:Smtp:FromAddress` | **required** | Sender address |
 
 A missing required key fails the send, not the startup. These keys belong to the sample's adapter; a host with its own adapter reads whatever it needs.
+
+```json
+{
+  "Beacon": {
+    "Smtp": {
+      "Host": "smtp.example.com",
+      "Port": 587,
+      "EnableSsl": true,
+      "Username": "beacon@example.com",
+      "FromAddress": "beacon@example.com"
+    }
+  }
+}
+```
+
+Supply the password as a secret:
+
+```bash
+Beacon__Smtp__Password="REPLACE_ME"
+```
 
 ## Data retention (`Beacon:Retention`)
 
@@ -909,6 +1357,8 @@ at startup (`RetentionUnconfigured`, 9123) naming these settings. Recommended: `
 `warp` schema, not Beacon data) after 7 days (`JobExpirationTimeout`).
 :::
 
+For the full guide with worked examples, see [Data retention](/security/data-retention/).
+
 ## Deployment locks
 
 Settings that bind Admins too and that nothing at runtime can change; only host configuration sets them:
@@ -928,6 +1378,40 @@ Settings that bind Admins too and that nothing at runtime can change; only host 
 A write that contradicts an MCP lock answers `409` (`/errors/setting-locked`), an Admin's included; the MCP settings page shows the locked settings disabled, and `GET /beacon/api/mcp/settings/locks` lists them (`lockedFields`) and each active lock with the setting it pins (`locks`: `fieldName`, `lockName`). Stored values a lock overrides are kept and listed in one startup warning; they apply again when the lock is lifted. Settings resolve as **lock → project override → global value → built-in default**, ceilings last.
 
 Other startup-validated keys (`Beacon:Authorization:*`, `Beacon:Authentication:*`, `Beacon:UserManagement:*`, `Beacon:ApiKeys:*`, `Beacon:Query:*`, `Beacon:Subscriptions:*`, `Beacon:Notifications:*`, `Beacon:EncryptionKey`, `Beacon:DataProtection:*`) have no runtime override either. Of the configuration values, only the base URL and the LLM settings can also be changed at runtime, in [Admin settings](/security/admin-settings/).
+
+```json
+{
+  "Beacon": {
+    "Mcp": {
+      "ForceReadOnly": true,
+      "ForcePiiDetection": true,
+      "ForbidRowDataToLlm": true,
+      "Audit": {
+        "Required": true,
+        "RetentionDays": 365
+      },
+      "Ceilings": {
+        "MaxRowLimit": 10000,
+        "StatementTimeoutSeconds": 60
+      }
+    },
+    "Migrations": {
+      "Enabled": false
+    },
+    "Retention": {
+      "Days": 90,
+      "ContentDays": 30,
+      "Locked": true
+    }
+  }
+}
+```
+
+```bash
+Beacon__Mcp__ForceReadOnly=true
+```
+
+For the full guide with worked examples, see [Deployment locks](/security/deployment-locks/).
 
 ## Regulated profile (`Beacon:Profile`)
 
@@ -999,6 +1483,8 @@ At startup Beacon logs one report of these checks. Under the profile, event 9130
 
 **Upgrading a regulated deployment.** The profile now also requires `Beacon:Authorization:RequireProjectMembership`, `Beacon:ApiKeys:EnforceMaxLifetimeOnExistingKeys`, `Beacon:Security:OriginGuard: Enforce`, an `https` `Beacon:PublicBaseUrl`, `Beacon:Audit:IntegrityKey`, `Beacon:Encryption:AllowLegacyCbc: false`, `Beacon:DataSources:Transport:EnforceOnExisting`, a data-source host list (`Beacon:DataSources:AllowedHosts`; closed private networks no longer stand in for it), user management and the approval workflow over every kind. A host that set none of them fails to start with the full list: run once without the profile to read the 9130 and 9133 report, set each key, then turn the profile back on. The Beacon MCP gateway (`AddBeaconMcpGateway`) runs under the profile with the keys above set in its configuration; the approval workflow is not required there.
 
+For the full guide with worked examples, see [Regulated profile](/security/regulated-profile/).
+
 ## MCP (`Beacon:Mcp`)
 
 Validated at startup. Without the section, `ForceReadOnly` and `ForcePiiDetection` are on, nothing else is locked, and only the built-in length caps apply.
@@ -1053,6 +1539,25 @@ Read at request time.
 
 Without the section, the authority published is `Beacon:Authentication:Oidc:Authority` when SSO is enabled. Startup warns about a derived issuer that is not absolute, and about an external server published without `ScopesSupported`.
 
+```json
+{
+  "Beacon": {
+    "Mcp": {
+      "ProtectedResource": {
+        "AuthorizationServers": [
+          "https://login.example.com/tenant-id/v2.0"
+        ],
+        "ScopesSupported": [
+          "api://beacon-client-id/mcp.access"
+        ],
+        "ResourceName": "Example Beacon MCP",
+        "ResourceDocumentation": "https://docs.example.com/beacon-mcp"
+      }
+    }
+  }
+}
+```
+
 ## Telemetry
 
 | Key | Type | Default | What it does |
@@ -1062,6 +1567,23 @@ Without the section, the authority published is `Beacon:Authentication:Oidc:Auth
 | `OTEL_SERVICE_NAME` | string | `beacon` | Sample host: the service name |
 
 Other standard `OTEL_*` variables are read by the OpenTelemetry SDK itself. The Beacon libraries choose no exporter.
+
+```json
+{
+  "Beacon": {
+    "Telemetry": {
+      "CaptureContent": false
+    }
+  }
+}
+```
+
+The sample host reads the OpenTelemetry variables from the environment:
+
+```bash
+OTEL_EXPORTER_OTLP_ENDPOINT=https://otel.example.com:4317
+OTEL_SERVICE_NAME=beacon
+```
 
 ## Embedding (`Beacon:Embed`)
 
@@ -1108,6 +1630,34 @@ the fallback policy without schemes, or exempt the embed paths from it.
 | `RateLimits:PagePerClientPerMinute` | int | `60` | Embed page loads per client address and grant; 1–10,000 |
 | `RateLimits:RefusalsPerIpPerMinute` | int | `30` | Refusals per client address; past it a refusal is answered 429 and not audited, and the exchange and page are 429 before any lookup. 1–10,000 |
 
+```json
+{
+  "Beacon": {
+    "Embed": {
+      "Enabled": true,
+      "SigningKey": "<base64 of 32 random bytes, not the encryption key>",
+      "TokenTtlSeconds": 300,
+      "MaxTokenTtlSeconds": 600,
+      "MaxGrantDays": 30,
+      "MaxRows": 500,
+      "MaxOrigins": 5,
+      "MaxConcurrentRenders": 8,
+      "MaxConcurrentRendersPerGrant": 2,
+      "RateLimits": {
+        "ExchangePerGrantPerMinute": 60,
+        "RenderPerGrantPerMinute": 120,
+        "PagePerClientPerMinute": 60,
+        "RefusalsPerIpPerMinute": 30
+      }
+    }
+  }
+}
+```
+
+```bash
+Beacon__Embed__SigningKey="<base64 of 32 random bytes>"
+```
+
 ## Embed tokens (`Beacon:EmbedToken`, obsolete)
 
 Read by `IEmbedTokenService` (obsolete, removed in 6.0), a host-facing service that mints and validates HS256 tokens for embeddable integrations; no Beacon route uses it, and the embed routes never accept its tokens. Validated at first use.
@@ -1118,6 +1668,8 @@ Read by `IEmbedTokenService` (obsolete, removed in 6.0), a host-facing service t
 | `Issuer` | string | `beacon` | Must not be blank |
 | `DefaultTtlSeconds` | int | `300` | Greater than 0, at most `MaxTtlSeconds` |
 | `MaxTtlSeconds` | int | `900` | Greater than 0 |
+
+New hosts use [`Beacon:Embed`](#embedding-beaconembed) instead of this section.
 
 ## Scheduling
 
@@ -1145,6 +1697,20 @@ Beacon calls `AddOrUpdate` when a subscription is created or its cron changes an
 ## Data-source connectors
 
 Register a connector per engine on the builder: `.AddPostgreSqlConnector()`, `.AddSqlServerConnector()`, `.AddMySqlConnector()`, `.AddBigQueryConnector()`, `.AddSnowflakeConnector()`, `.AddDatabricksConnector()`, `.AddAzureSynapseConnector()`, `.AddCloudWatchConnector()`, `.AddApiConnector()`. Data-source connections are entered in the UI and encrypted at rest. Give every data source Beacon reads a read-only login. On PostgreSQL and MySQL, Beacon also runs each read in a read-only transaction. See [Data-source connectors](/integrate/connectors/) and [Data sources](/features/data-sources/).
+
+```csharp
+builder.Services.AddBeaconServices(builder.Configuration, options =>
+{
+    options.AddBeaconScheduler<BeaconScheduler>();
+})
+    .AddPostgreSqlConnector()
+    .AddSqlServerConnector()
+    .AddMySqlConnector()
+    .AddApiConnector()
+    .UsePostgreSql();   // Beacon's own database: ConnectionStrings:BeaconContext
+```
+
+Register only the engines you use. Each data source's own connection is entered in the UI. See also [Data-source connections](/security/data-source-connections/) for the checks every connection passes.
 
 ### Warehouse cost limits
 

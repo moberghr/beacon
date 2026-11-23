@@ -3,11 +3,11 @@ title: Production checklist
 description: "What to set before Beacon faces real users and real data: secrets, Data Protection, reverse proxy, sign-in, locks, audit, MCP, scaling, observability and upgrades."
 ---
 
-Go through this list before the first real user signs in. Each line links to where it is explained.
+Go through this list before the first real user signs in. Each line links to where it is explained. For complete example configurations see the [hardening guide](/security/hardening-guide/); for every security setting in one table see the [security settings reference](/security/settings-reference/).
 
 ## Secrets and keys
 
-- [ ] `Beacon:EncryptionKey` comes from a secret store or environment variable, never a file in source control; its backup is stored separately from database backups. → [Configuration](/getting-started/configuration/)
+- [ ] `Beacon:EncryptionKey` comes from a secret store or environment variable, never a file in source control; its backup is stored separately from database backups. → [Secrets and keys](/security/secrets-and-keys/)
 - [ ] You know how to **rotate** it: move the old key to `Beacon:PreviousEncryptionKeys:0`, set the new one, set `Beacon:Mcp:CallerHashKey` to the old key first if you want MCP caller hashes to stay comparable, run the re-encryption job, then remove the old key once it reports nothing left under it: pending changes of recipients, data-source connections and the LLM connection made under the old key can keep it needed until they are decided. Set `Beacon:Audit:IntegrityKey` before the first rotation: while it is unset, security audit events are signed under a key derived from the caller hash key or the encryption key, and verify as *unknown key* once that secret leaves the configuration. → [Keys and rotation](/security/audit-trail/#keys-and-rotation)
 - [ ] `Beacon:DataProtection:ApplicationName` is set (one value per environment), and the key ring is **encrypted at rest** (`ProtectKeysWithCertificate` / `ProtectKeysWithAzureKeyVault`), otherwise the host does not start outside `Development`. → [Host wiring](/integrate/host-setup/#data-protection)
 - [ ] OIDC client secrets, LLM API keys and SMTP passwords come from the secret store.
@@ -35,7 +35,7 @@ app.UseForwardedHeaders(forwarded);
 ## Sign-in and access
 
 - [ ] Authorization is on (`options.Authorization.Enabled = true`).
-- [ ] SSO admission is narrow: `AllowedTenants`, `BlockGuests` (default on), `RequiredGroups` or `RequiredRoles`; `RequireMfa` if your provider issues `amr`/`acr`. → [Sign-in & identity](/integrate/authentication/#oidc--sso)
+- [ ] SSO admission is narrow: `AllowedTenants`, `BlockGuests` (default on), `RequiredGroups` or `RequiredRoles`; `RequireMfa` if your provider issues `amr`/`acr`. → [Sign-in & identity](/integrate/authentication/#oidc--sso) · [Sign-in and sessions](/security/sign-in-and-sessions/)
 - [ ] Local passwords off once SSO works, with one break-glass account in a vault; alert on event 7119 `BreakGlassSignIn`.
 - [ ] `Beacon:Authorization:RequireProjectMembership: true`; projects planned; data sources linked only where needed. → [Access control](/integrate/access-control/)
 - [ ] Few Admins; duties given as functional permissions; `SeparationOfDuties` on if your auditors expect it.
@@ -45,15 +45,16 @@ app.UseForwardedHeaders(forwarded);
 ## Data and SQL
 
 - [ ] Every data source uses a **read-only login**, including PostgreSQL and MySQL. → [Connectors](/integrate/connectors/#creating-read-only-logins)
-- [ ] Deployment locks reviewed: `Beacon:Mcp:ForceReadOnly` and `ForcePiiDetection` stay `true`; consider `ForbidRowDataToLlm` and `ForceNoContentRetention`. → [Access control](/integrate/access-control/#5-deployment-locks)
-- [ ] `Beacon:Query:MaxExecutionRows` (default 100,000) and `StatementTimeoutSeconds` (default 120) fit your workloads.
+- [ ] Deployment locks reviewed: `Beacon:Mcp:ForceReadOnly` and `ForcePiiDetection` stay `true`; consider `ForbidRowDataToLlm` and `ForceNoContentRetention`. → [Deployment locks](/security/deployment-locks/)
+- [ ] `Beacon:Query:MaxExecutionRows` (default 100,000) and `StatementTimeoutSeconds` (default 120) fit your workloads. → [SQL execution gate](/security/sql-execution-gate/)
 - [ ] `Beacon:Mcp:Ceilings:MaxRowLimit` set if project admins must not raise the MCP row limit.
+- [ ] Data-source connections verify the server over TLS, `Beacon:DataSources:AllowedHosts` lists the hosts they may name, and `Beacon:DataSources:Transport:EnforceOnExisting` is on once the stored connections pass. → [Data-source connections](/security/data-source-connections/)
 - [ ] `Beacon:Migrations:Enabled` stays `false` unless you need data migration. It is the only write path.
 - [ ] Notification destinations restricted as needed: `Beacon:Notifications:AllowedHosts:*`, `DisabledTypes`; private networks stay unreachable unless listed in `AllowedPrivateNetworks`. → [Notifications](/features/notifications/)
 
 ## Audit and observability
 
-- [ ] Data retention reviewed: `Beacon:Retention:Days` set (nothing is purged while it is `0`, the default; 90 recommended) and its targets match your policy, `ContentDays` set (30 recommended for regulated data), `Locked` on where no data may be kept forever, and `IDataRetentionService.RunAsync` scheduled daily. → [Data retention](/getting-started/configuration/#data-retention-beaconretention)
+- [ ] Data retention reviewed: `Beacon:Retention:Days` set (nothing is purged while it is `0`, the default; 90 recommended) and its targets match your policy, `ContentDays` set (30 recommended for regulated data), `Locked` on where no data may be kept forever, and `IDataRetentionService.RunAsync` scheduled daily. → [Data retention](/security/data-retention/)
 - [ ] `Beacon:Mcp:Audit:RetentionDays` set to your retention policy (kept forever while unset; 365 recommended) and the purge job scheduled; `Audit:Required: true` if a tool result must never be returned without its audit row. → [MCP observability & audit](/mcp/observability-and-audit/)
 - [ ] Security log events (structured log events 7101 to 7123: membership, roles, sessions, break-glass, access refused, row data to LLM) are shipped to your log pipeline and alerted on. The log events themselves are not stored in Beacon's database; the actions most of them report are also recorded in the security audit trail. → [Security model](/security/#12-audit-and-security-events)
 - [ ] Security audit trail: `Beacon:Audit:IntegrityKey` set from a secret store (before you change the encryption key or the caller hash key), the verification job (`ISecurityAuditVerificationService.VerifyNewEventsAsync`, hourly) and the retention purge (`ISecurityAuditRetentionService.PurgeExpiredAsync`) scheduled, `Beacon:Audit:RetentionDays` set to your retention policy (at least 365; events are kept forever while it is unset), the `Beacon.Audit` events 9104 to 9116 shipped to your SIEM, and alerts on any increment of `beacon.security_audit.write_failures` and `beacon.security_audit.verification_failures`. → [Security audit trail](/security/audit-trail/)
