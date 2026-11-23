@@ -228,7 +228,7 @@ What happens to a result that is larger than the cap depends on who asked.
 |--------|----------------|-----------------|
 | Previews, subscriptions, AI actor checks, ad-hoc queries, data contract rules (`GatedSqlRunner`, `QueryService`) | `Beacon:Query:MaxExecutionRows` (default 100,000) | The run **fails**. It is never cut short. |
 | Migration reads | `Beacon:Migrations:MaxRows` (default 100,000) | The run fails before anything is written. |
-| MCP `query` tool | `max_rows` argument (default 100), clamped to the project's `MaxRowLimit` (stored MCP setting, default 1000), which is itself bounded by `Beacon:Mcp:Ceilings:MaxRowLimit` | The SQL is cut at the cap. The tool says so: `Row cap of 1000 reached: the result set may be truncated.` |
+| MCP `query` tool | `max_rows` argument (default 100), clamped to the project's `MaxRowLimit` (stored MCP setting, default 1000), which is itself bounded by `Beacon:Mcp:Ceilings:MaxRowLimit` | The SQL is cut at the cap. The tool says so: `Row cap of 1000 reached — the result set may be truncated.` |
 
 The failing message for the first group names the setting:
 
