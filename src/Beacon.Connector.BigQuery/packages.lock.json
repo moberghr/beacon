@@ -377,9 +377,9 @@
         "type": "Project",
         "dependencies": {
           "ClosedXML": "[0.105.1, )",
-          "CronExpressionDescriptor": "[2.51.0, )",
+          "CronExpressionDescriptor": "[3.1.0, )",
           "Cronos": "[0.13.0, )",
-          "Dapper": "[2.1.89, )",
+          "Dapper": "[2.1.100, )",
           "MediatR": "[12.5.0, )",
           "Microsoft.AspNetCore.DataProtection.EntityFrameworkCore": "[10.0.14, )",
           "Microsoft.Data.Sqlite": "[10.0.14, )",
@@ -408,9 +408,9 @@
       },
       "CronExpressionDescriptor": {
         "type": "CentralTransitive",
-        "requested": "[2.51.0, )",
-        "resolved": "2.51.0",
-        "contentHash": "HL9DICwTMJBbGcQSQxDp0WmsrH5YOPWFRnAcGXnsFwKOy+7lHcXLQLU4urSNrVkIhySdtmdk4utsWmZ6FJ6flA=="
+        "requested": "[3.1.0, )",
+        "resolved": "3.1.0",
+        "contentHash": "llsgtFprhJa9DMpKVZXZYb3glT0sz7fsuvvQwMnRUEp9PThwrzR0JRuOzVpHvSgJBwg/Y3gx7YcsXzooIbOIBg=="
       },
       "Cronos": {
         "type": "CentralTransitive",
@@ -420,9 +420,9 @@
       },
       "Dapper": {
         "type": "CentralTransitive",
-        "requested": "[2.1.89, )",
-        "resolved": "2.1.89",
-        "contentHash": "1VjFE664wnxvuhlgP8kS4PeFFF4jqD3VkbIHW6Zlc52zuibgcz5ICnIHcQXlTp6pURpPNGLV0ZpNe5x9KePJnA=="
+        "requested": "[2.1.100, )",
+        "resolved": "2.1.100",
+        "contentHash": "zKwgGfxkDIVLGU2WIsl57DwTgj17+fa5v0u2eiVMxU92GXN2fRIn2M8QMGtyGFrPSbVOYKgGFxAxEFL6CB9tTw=="
       },
       "MediatR": {
         "type": "CentralTransitive",

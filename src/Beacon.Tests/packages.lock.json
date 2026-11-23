@@ -118,8 +118,17 @@
       },
       "AWSSDK.Core": {
         "type": "Transitive",
-        "resolved": "4.0.102.16",
-        "contentHash": "+Oka3HzrQdsHvsM0lLtJn+Zab7QE9TiPLV+dQ2usIuvCHa6PAcNhcvh6I6mbJZ4SsNBBoVQzeQv0tGmqIOKkNg=="
+        "resolved": "4.1.1.2",
+        "contentHash": "RETCWprYHiCwwL6mgLnhCF/w7gwpHaGVIKU+Th+xDs0yzs2b7rgz09nicLT5+k0qm7OJxze6fqiU4ZdmC3tu5A==",
+        "dependencies": {
+          "AWSSDK.Extensions.Numerics": "[4.1.0, 5.0.0)",
+          "System.IO.Hashing": "11.0.0"
+        }
+      },
+      "AWSSDK.Extensions.Numerics": {
+        "type": "Transitive",
+        "resolved": "4.1.0",
+        "contentHash": "hhoiXT1aUyVgIiQbQoqG3L1EEneqXDh2GKyH5izUlO6Rzi9GAAi8S6mlLiVwow23+EGg77zHjdmUi+ia3RSUTg=="
       },
       "AWSSDK.S3": {
         "type": "Transitive",
@@ -619,8 +628,8 @@
       },
       "System.IO.Hashing": {
         "type": "Transitive",
-        "resolved": "10.0.3",
-        "contentHash": "La6ICwsdTKhVX+LKN+pvFjQRR3LhLwq3uKdi2knjLzRyPYBSydF4cjXidYxIiTcDD6XVYdsBWQEI8ZxiZ/OdIg=="
+        "resolved": "11.0.0",
+        "contentHash": "U+Bv2qCYt6eONi+arSP0QIp4uTO6os6uceBsqiAwruZ+Wo2HrRhO/0tj38M9URJtS+4DhAtT3ka2TGNFYsnhyQ=="
       },
       "System.IO.Packaging": {
         "type": "Transitive",
@@ -688,7 +697,7 @@
       "Moberg.Beacon.AI.Bedrock": {
         "type": "Project",
         "dependencies": {
-          "AWSSDK.BedrockRuntime": "[4.0.101.14, )",
+          "AWSSDK.BedrockRuntime": "[4.1.1, )",
           "Moberg.Beacon.AI": "[1.0.0, )"
         }
       },
@@ -721,7 +730,7 @@
       "Moberg.Beacon.Connector.AzureSynapse": {
         "type": "Project",
         "dependencies": {
-          "Dapper": "[2.1.89, )",
+          "Dapper": "[2.1.100, )",
           "Microsoft.Data.SqlClient": "[7.1.1, )",
           "Moberg.Beacon.Core": "[1.0.0, )",
           "System.Security.Cryptography.Pkcs": "[10.0.14, )"
@@ -737,7 +746,7 @@
       "Moberg.Beacon.Connector.CloudWatch": {
         "type": "Project",
         "dependencies": {
-          "AWSSDK.CloudWatchLogs": "[4.0.107, )",
+          "AWSSDK.CloudWatchLogs": "[4.1.0.2, )",
           "Moberg.Beacon.Core": "[1.0.0, )"
         }
       },
@@ -750,7 +759,7 @@
       "Moberg.Beacon.Connector.MySql": {
         "type": "Project",
         "dependencies": {
-          "Dapper": "[2.1.89, )",
+          "Dapper": "[2.1.100, )",
           "Moberg.Beacon.Core": "[1.0.0, )",
           "MySql.Data": "[26.10.0, )"
         }
@@ -758,7 +767,7 @@
       "Moberg.Beacon.Connector.PostgreSql": {
         "type": "Project",
         "dependencies": {
-          "Dapper": "[2.1.89, )",
+          "Dapper": "[2.1.100, )",
           "Moberg.Beacon.Core": "[1.0.0, )",
           "Npgsql": "[10.0.3, )"
         }
@@ -766,7 +775,7 @@
       "Moberg.Beacon.Connector.Snowflake": {
         "type": "Project",
         "dependencies": {
-          "Dapper": "[2.1.89, )",
+          "Dapper": "[2.1.100, )",
           "Moberg.Beacon.Core": "[1.0.0, )",
           "Snowflake.Data": "[6.4.0, )"
         }
@@ -774,7 +783,7 @@
       "Moberg.Beacon.Connector.SqlServer": {
         "type": "Project",
         "dependencies": {
-          "Dapper": "[2.1.89, )",
+          "Dapper": "[2.1.100, )",
           "Microsoft.Data.SqlClient": "[7.1.1, )",
           "Moberg.Beacon.Core": "[1.0.0, )",
           "System.Security.Cryptography.Pkcs": "[10.0.14, )"
@@ -784,9 +793,9 @@
         "type": "Project",
         "dependencies": {
           "ClosedXML": "[0.105.1, )",
-          "CronExpressionDescriptor": "[2.51.0, )",
+          "CronExpressionDescriptor": "[3.1.0, )",
           "Cronos": "[0.13.0, )",
-          "Dapper": "[2.1.89, )",
+          "Dapper": "[2.1.100, )",
           "MediatR": "[12.5.0, )",
           "Microsoft.AspNetCore.DataProtection.EntityFrameworkCore": "[10.0.14, )",
           "Microsoft.Data.Sqlite": "[10.0.14, )",
@@ -878,20 +887,20 @@
       },
       "AWSSDK.BedrockRuntime": {
         "type": "CentralTransitive",
-        "requested": "[4.0.101.14, )",
-        "resolved": "4.0.101.14",
-        "contentHash": "a1/c/q6p5t4Pa7ioEzAdYF2KvrLbWK4Bg/ypAOW1E0y82Qd9WhQXKo1zQXKFgkEUkO1dHt1zzlus9cRklJnSig==",
+        "requested": "[4.1.1, )",
+        "resolved": "4.1.1",
+        "contentHash": "I0DBAKcOHKBD9rhGRNRiIK6s6rqqLpkJo3X7qp3zTF+rTA0rqZ+xsUXHz6/N+BmcNrdwR2eF3Of/E4eCpmxMWg==",
         "dependencies": {
-          "AWSSDK.Core": "[4.0.102.14, 5.0.0)"
+          "AWSSDK.Core": "[4.1.1.2, 5.0.0)"
         }
       },
       "AWSSDK.CloudWatchLogs": {
         "type": "CentralTransitive",
-        "requested": "[4.0.107, )",
-        "resolved": "4.0.107",
-        "contentHash": "M7iTXnFeOzhPWggY21A/e7Z5QqlQmumA9DIHO5cxnYgN3VhbSFXXDEamQYT3bdFuVPfVUI+wLarqvIvyAP3GvQ==",
+        "requested": "[4.1.0.2, )",
+        "resolved": "4.1.0.2",
+        "contentHash": "6moUgVXCK02HQ5PDg4qCnGAC3+PR2AhWzGdbTYdt/FEAjI+3v1RoSCyrqroynbdoonwormMMFLEW0Yv6SrpkLw==",
         "dependencies": {
-          "AWSSDK.Core": "[4.0.102.16, 5.0.0)"
+          "AWSSDK.Core": "[4.1.1.1, 5.0.0)"
         }
       },
       "ClosedXML": {
@@ -909,9 +918,9 @@
       },
       "CronExpressionDescriptor": {
         "type": "CentralTransitive",
-        "requested": "[2.51.0, )",
-        "resolved": "2.51.0",
-        "contentHash": "HL9DICwTMJBbGcQSQxDp0WmsrH5YOPWFRnAcGXnsFwKOy+7lHcXLQLU4urSNrVkIhySdtmdk4utsWmZ6FJ6flA=="
+        "requested": "[3.1.0, )",
+        "resolved": "3.1.0",
+        "contentHash": "llsgtFprhJa9DMpKVZXZYb3glT0sz7fsuvvQwMnRUEp9PThwrzR0JRuOzVpHvSgJBwg/Y3gx7YcsXzooIbOIBg=="
       },
       "Cronos": {
         "type": "CentralTransitive",
@@ -921,9 +930,9 @@
       },
       "Dapper": {
         "type": "CentralTransitive",
-        "requested": "[2.1.89, )",
-        "resolved": "2.1.89",
-        "contentHash": "1VjFE664wnxvuhlgP8kS4PeFFF4jqD3VkbIHW6Zlc52zuibgcz5ICnIHcQXlTp6pURpPNGLV0ZpNe5x9KePJnA=="
+        "requested": "[2.1.100, )",
+        "resolved": "2.1.100",
+        "contentHash": "zKwgGfxkDIVLGU2WIsl57DwTgj17+fa5v0u2eiVMxU92GXN2fRIn2M8QMGtyGFrPSbVOYKgGFxAxEFL6CB9tTw=="
       },
       "Google.Cloud.BigQuery.V2": {
         "type": "CentralTransitive",
