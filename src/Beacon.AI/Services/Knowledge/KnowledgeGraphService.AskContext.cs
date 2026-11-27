@@ -614,16 +614,18 @@ internal sealed partial class KnowledgeGraphService
 
             var termsById = terms.ToDictionary(x => x.Id);
 
+            // The active terms of the project, in similarity order; the boost only reorders them.
+            var selected = hits
+                .Where(x => termsById.ContainsKey(x.OwnerId))
+                .Select(x => termsById[x.OwnerId])
+                .ToList();
+            var ordered = await BoostedAsync(context, settings, projectId, McpKnowledgeItemKind.GlossaryTerm, selected, x => x.Id, ct);
+
             var sb = new StringBuilder();
             var items = new List<KnowledgeItemRef>();
             var leftOut = new List<int>();
-            foreach (var hit in hits)
+            foreach (var term in ordered)
             {
-                if (!termsById.TryGetValue(hit.OwnerId, out var term))
-                {
-                    continue;
-                }
-
                 if (sb.Length == 0)
                 {
                     sb.AppendLine("\n## Business Glossary\n");
@@ -754,9 +756,11 @@ internal sealed partial class KnowledgeGraphService
 
             var casesById = cases.ToDictionary(x => x.Id);
             var budget = Math.Max(0, settings.GoldenExemplarBudgetChars);
+            var heading = $"\n## Verified query examples (authoritative)\n{Environment.NewLine}";
 
-            var sb = new StringBuilder();
-            var items = new List<KnowledgeItemRef>();
+            // The cases the budget keeps, chosen in similarity order; the boost then only reorders them.
+            var selected = new List<(int Id, string Entry)>();
+            var selectedChars = heading.Length;
             var leftOut = new List<int>();
             foreach (var hit in hits)
             {
@@ -778,17 +782,27 @@ internal sealed partial class KnowledgeGraphService
                 // Budget guard: stop before exceeding the char budget so a large gold SQL can't blow the
                 // context. The first fitting entry is always emitted (better one verified example than none),
                 // so the guard only trims later entries.
-                if (budget > 0 && sb.Length > 0 && sb.Length + entry.Length > budget)
+                if (budget > 0 && selected.Count > 0 && selectedChars + entry.Length > budget)
                 {
                     break;
                 }
 
+                selected.Add((golden.Id, entry));
+                selectedChars += entry.Length;
+            }
+
+            var ordered = await BoostedAsync(context, settings, projectId, McpKnowledgeItemKind.GoldenCase, selected, x => x.Id, ct);
+
+            var sb = new StringBuilder();
+            var items = new List<KnowledgeItemRef>();
+            foreach (var golden in ordered)
+            {
                 if (sb.Length == 0)
                 {
-                    sb.AppendLine("\n## Verified query examples (authoritative)\n");
+                    sb.Append(heading);
                 }
 
-                sb.Append(entry);
+                sb.Append(golden.Entry);
                 items.Add(new KnowledgeItemRef(McpKnowledgeItemKind.GoldenCase, golden.Id, items.Count + 1));
             }
 
@@ -1105,7 +1119,10 @@ internal sealed partial class KnowledgeGraphService
                     context, patterns, lowerTables, questionVector ?? new MaskedQuestionVector(embeddingService, question!), dataSourceId, projectId, settings.ExemplarTopK, ct);
                 if (semanticRanked != null)
                 {
-                    return ApplyBudget(semanticRanked, maxPatterns, budgetChars);
+                    return ApplyBudget(
+                        await BoostedAsync(context, settings, projectId, McpKnowledgeItemKind.LearnedPattern, semanticRanked, x => x.Id, ct),
+                        maxPatterns,
+                        budgetChars);
                 }
                 // No exemplar vectors indexed / none mapped back — fall through to overlap behaviour.
             }
@@ -1120,7 +1137,10 @@ internal sealed partial class KnowledgeGraphService
         }
 
         // Behaviour-preserving fallback: the historical table-overlap ranking over ALL pattern types.
-        return ApplyBudget(RankByTableOverlap(patterns, lowerTables), maxPatterns, budgetChars);
+        return ApplyBudget(
+            await BoostedAsync(context, settings, projectId, McpKnowledgeItemKind.LearnedPattern, RankByTableOverlap(patterns, lowerTables), x => x.Id, ct),
+            maxPatterns,
+            budgetChars);
     }
 
     // Semantic path (§ Architecture ⑧): embed the masked question once, pull the nearest Exemplar embeddings
@@ -1251,6 +1271,58 @@ internal sealed partial class KnowledgeGraphService
         }
 
         return result;
+    }
+
+    // The bounded rank boost (KnowledgeItemBoost) over the items the project's retrieval selected, given in retrieval order.
+    // Off (EnableKnowledgeItemBoost, the default) the stats are not read and the items come back as they are. On, the stats
+    // rows of exactly these items are read once, of the caller's authorized project only (§1.12), never cached. A read that
+    // fails keeps the retrieval order and is logged by ids only (§1.11); cancellation propagates.
+    private async Task<List<T>> BoostedAsync<T>(
+        BeaconContext context, McpSettingsData settings, int projectId, McpKnowledgeItemKind kind, List<T> items, Func<T, int> idOf, CancellationToken ct)
+    {
+        if (!settings.EnableKnowledgeItemBoost || items.Count < 2)
+        {
+            return items;
+        }
+
+        var itemIds = items
+            .Select(idOf)
+            .Distinct()
+            .ToList();
+
+        try
+        {
+            var evidence = await context.McpKnowledgeItemStats
+                .Where(x => x.ProjectId == projectId)
+                .Where(x => x.Kind == kind)
+                .Where(x => itemIds.Contains(x.ItemId))
+                .Select(x =>
+                    new KnowledgeItemEvidence
+                    {
+                        ItemId = x.ItemId,
+                        HelpfulScore = x.HelpfulScore,
+                        HarmfulScore = x.HarmfulScore,
+                        SignalCount = x.SignalCount,
+                        CallerCount = x.CallerCount
+                    })
+                .ToListAsync(ct);
+
+            return KnowledgeItemBoost.Reorder(items, idOf, evidence);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                "Knowledge item stats of project {ProjectId} could not be read for {Kind} items; keeping the retrieval order ({Failure}).",
+                projectId,
+                kind,
+                FailureCodes.Describe(ex));
+
+            return items;
+        }
     }
 
     // The bank with each example as the prompt shows it: SQL without comments (the dialect read only when an example holds a
