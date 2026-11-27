@@ -446,14 +446,17 @@ The MCP server is self-improving. `McpSignalService` records a usage signal for 
 
 | Job | Schedule | What it does |
 |---|---|---|
-| `mcp-learning-aggregate` | Every 6 hours | Mines `ask` / `query` signals into learned patterns, retires stale ones, and runs replay verification |
+| `mcp-learning-aggregate` | Every 6 hours | Mines `ask` / `query` signals into learned patterns, recomputes the knowledge item counters, retires stale patterns, runs replay verification, and proposes documentation patches |
 | `mcp-learning-cleanup` | Daily 03:00 | Drops signals past the retention window |
 | `mcp-embedding-reindex` | Every 12 hours | Re-embeds schema metadata and exemplars |
 | `mcp-docchunk-reindex` | Every 12 hours | Re-chunks and re-embeds project documentation |
+| `mcp-eval-scheduled` | Daily 02:00 | Starts one eval run per project with `EnableScheduledEval` on and active golden cases; off by default |
 
-Two things are worth knowing about how patterns get promoted:
+Things worth knowing about how patterns get promoted:
 
-- A candidate pattern is not trusted on a confidence score alone. Before promotion, Beacon **replays the project's golden cases** with and without the candidate injected, and keeps it only if it flips at least one case from failing to passing.
+- A candidate pattern is not trusted on a confidence score alone. Before promotion, Beacon **replays the project's golden cases** with and without the candidate injected, and keeps it only if it flips at least one case from failing to passing. A candidate whose confidence is below `LearningAutoApproveThreshold` (default `0.7`) is not replayed and waits for a person. Installs that upgrade see this: candidates below the threshold that used to be replayed now wait. The replay verdict is stored on the pattern and shown in the pattern list.
+- The learning job also recomputes per-item counters (helpful and harmful scores, signal and caller counts) for golden cases, learned patterns and glossary terms. With `EnableKnowledgeItemBoost` on (off by default) they can reorder the items retrieval selected, by at most 2 places. Repeated `incorrect` verdicts with a reason on one table raise a documentation gap, and the job proposes documentation patches that a person applies. See the [Knowledge Base guide](/mcp/knowledge-base/#knowledge-item-counters-and-rank-boost).
+- Promoting an answer to a golden case runs its SQL once, read-only, and is refused when it does not run. A scheduled nightly eval (`EnableScheduledEval`, off by default) spends LLM calls.
 - `dry_run` signals are recorded for analytics but **excluded from mining**: their "question" is SQL, not natural language, and gate rejections would skew the failure statistics.
 
 Review the queue on the **MCP Learning** page (`/beacon/mcp-learning`), where pending patterns can be approved or rejected, and any stored documentation patch applied or rejected. The full mechanics (lesson extraction, decay, retention, and every setting) are in the [Knowledge Base guide](/mcp/knowledge-base/#the-learning-loop).
@@ -479,7 +482,7 @@ The tabs:
 - **PII detection**: enable/disable, plus custom PII regex patterns; detection is locked on by default (see below). A custom pattern that cannot be evaluated over a query (invalid, or not finished within its one-second timeout) refuses the query, naming the pattern by its position; as a column check it marks the column as PII. A new pattern is at most 500 characters and must not use lookarounds, backreferences or atomic groups (it runs on the linear-time regex engine); a save with one is rejected with `400`. A pattern stored before these checks keeps working, on the backtracking engine under the timeout, and does not block a save that leaves it in place
 - **Row data sent to the LLM provider**: sample-value collection and value grounding, both off by default (see [What reaches the LLM provider](#what-reaches-the-llm-provider))
 - **Execution**: the two retention switches, **Retain question and SQL text in signals and audit** and **Allow the feedback tool to store question and SQL text** (see [Content retention](#content-retention)); and **Statement timeout (s)** (default 30), **Max result size (bytes)** (default 262144), **Max EXPLAIN cost** (blank = no limit) and **Max concurrent queries per API key** (default 4). The statement timeout, result size and concurrent-query limit apply to the MCP SQL tools (see the guardrails table above); the EXPLAIN cost limit is enforced on PostgreSQL data sources, where a statement whose planner-estimated total cost exceeds it is refused before it runs, and other engines ignore it
-- **Learning**: **Enable learning**, auto-approve threshold (stored; auto-approval is decided by replay), injection budget, and signal retention
+- **Learning**: **Enable learning**, auto-approve threshold (a candidate below it is not replayed; replay still decides auto-approval), injection budget, and signal retention. `enableKnowledgeItemBoost` and `enableScheduledEval` (both off by default, overridable per project) have no screen yet: set them through the settings API
 
 **Ranges.** Every numeric setting is checked when it is saved, globally or as a project override (an empty override inherits and is not checked); a value outside its range is rejected with `400` and a message naming the field and the range. A save names the first field out of range; fix it first, then save again to see the next. A deployment ceiling is not a bound here: a value above it is saved and clamped when the settings are read.
 
