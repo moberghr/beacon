@@ -357,5 +357,8 @@ public class BeaconHostChainTests
             string? goldResultFingerprint,
             string? extraContext,
             CancellationToken ct) => throw new NotSupportedException();
+
+        public Task<GoldSqlReplay> ReplayGoldSqlAsync(int dataSourceId, int? projectId, string sql, CancellationToken ct) =>
+            throw new NotSupportedException();
     }
 }

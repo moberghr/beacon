@@ -119,7 +119,7 @@ public class GroundingConditionalWriteTranslationTests
     {
         var digest = GroundingContentHash.OfPattern(Content, Question, Sql);
         var capture = Capture(sqlServer)
-            .ThenRow(2, 7, (int)McpPatternStatus.Pending, Content, Question, Sql, digest)
+            .ThenRow(2, 7, (int)McpPatternStatus.Pending, Content, Question, Sql, digest, DBNull.Value)
             .ThenRowsAffected(1);
 
         await StatusHandler(capture).Handle(Decide(McpPatternStatus.Rejected, digest), CancellationToken.None);
@@ -140,7 +140,7 @@ public class GroundingConditionalWriteTranslationTests
     {
         var digest = GroundingContentHash.OfPattern(Content, Question, Sql);
         var capture = Capture(sqlServer)
-            .ThenRow(2, 7, (int)McpPatternStatus.Pending, Content, Question, Sql, DBNull.Value)
+            .ThenRow(2, 7, (int)McpPatternStatus.Pending, Content, Question, Sql, DBNull.Value, DBNull.Value)
             .ThenRowsAffected(1)
             .ThenRowsAffected(1);
 
@@ -163,7 +163,7 @@ public class GroundingConditionalWriteTranslationTests
     {
         var reviewed = GroundingContentHash.OfPattern(Content, Question, Sql);
         var capture = Capture(sqlServer)
-            .ThenRow(2, 7, (int)McpPatternStatus.Pending, Content, Question, Sql, reviewed)
+            .ThenRow(2, 7, (int)McpPatternStatus.Pending, Content, Question, Sql, reviewed, DBNull.Value)
             .ThenRowsAffected(0);
 
         var act = () => StatusHandler(capture).Handle(Decide(McpPatternStatus.Rejected, reviewed), CancellationToken.None);

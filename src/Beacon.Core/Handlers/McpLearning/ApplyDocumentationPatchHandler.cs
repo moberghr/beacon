@@ -21,6 +21,12 @@ namespace Beacon.Core.Handlers.McpLearning;
 /// patch's status in one conditional on it still being proposed, in one transaction with the audit event, so an apply
 /// racing another write changes nothing. The conditional statement compares under the database's collation; the exact
 /// comparison is made on the content read just before it.
+/// <para>
+/// A patch the learning job proposed from a learned pattern (<see cref="McpDocumentationPatch.SourcePatternId"/>) is refused
+/// (409) and stays proposed while that pattern, read in the patch's own project, failed its last replay
+/// (<see cref="McpLearnedPattern.LastReplayPassed"/> false) or was rejected. A patch without a source pattern, or whose
+/// pattern is gone or was never replayed, applies as before.
+/// </para>
 /// </summary>
 internal sealed class ApplyDocumentationPatchHandler(
     IDbContextFactory<BeaconContext> contextFactory,
@@ -31,6 +37,9 @@ internal sealed class ApplyDocumentationPatchHandler(
     internal const string TargetChangedMessage =
         "The target changed since the patch was proposed: reject the patch and let it be proposed again.";
 
+    internal const string SourcePatternFailedMessage =
+        "The learned pattern this patch was proposed from failed its replay or was rejected: reject the patch.";
+
     public async Task Handle(ApplyDocumentationPatchCommand request, CancellationToken cancellationToken)
     {
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
@@ -39,6 +48,25 @@ internal sealed class ApplyDocumentationPatchHandler(
 
         if (patch.Status != McpDocPatchStatus.Proposed)
             throw new InvalidOperationException($"Patch {request.PatchId} is already {patch.Status}");
+
+        if (patch.SourcePatternId is { } sourcePatternId)
+        {
+            // The pattern is read in the patch's own project only (§1.12): an id from elsewhere counts as gone.
+            var sourcePattern = await context.McpLearnedPatterns
+                .Where(x => x.Id == sourcePatternId)
+                .Where(x => x.ProjectId == patch.ProjectId)
+                .Select(x =>
+                    new
+                    {
+                        x.Status,
+                        x.LastReplayPassed
+                    })
+                .FirstOrDefaultAsync(cancellationToken);
+            if (sourcePattern != null && (sourcePattern.LastReplayPassed == false || sourcePattern.Status == McpPatternStatus.Rejected))
+            {
+                throw new BeaconConflictException(SourcePatternFailedMessage);
+            }
+        }
 
         if (patch.TargetType == McpDocPatchTarget.DocumentationSection)
         {

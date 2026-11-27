@@ -48,6 +48,27 @@ public interface IMcpEvalService
         string? goldResultFingerprint,
         string? extraContext,
         CancellationToken ct);
+
+    /// <summary>
+    /// Runs <paramref name="sql"/> once on the data source through the eval harness's own read-only executor — the
+    /// <c>ISqlExecutionGate</c> with read-only forced and the row security context from <c>IRowSecurityResolver</c>, then the
+    /// provider's read-only path, as an eval run executes a case's gold SQL (§1.5, §1.15; no new execution path) — and
+    /// fingerprints the result as the eval does. Used before a golden case is promoted, so a case whose gold SQL does not run
+    /// now is never created. A statement the gate refuses, one the data source answers with an error, and any failure on the
+    /// way (an unreachable, disabled or missing data source, the statement timeout) did not run; only the caller's
+    /// cancellation propagates. Runs no generation, no judge and stores nothing. <paramref name="projectId"/> picks the
+    /// effective settings (row cap, statement timeout); without one the global settings apply.
+    /// </summary>
+    Task<GoldSqlReplay> ReplayGoldSqlAsync(int dataSourceId, int? projectId, string sql, CancellationToken ct);
+}
+
+/// <summary>
+/// The outcome of running a gold SQL once (<see cref="IMcpEvalService.ReplayGoldSqlAsync"/>): whether it ran read-only, and
+/// the fingerprint of its result when it did (null when it did not).
+/// </summary>
+public readonly record struct GoldSqlReplay(bool Ran, string? ResultFingerprint)
+{
+    public static GoldSqlReplay DidNotRun { get; } = new(false, null);
 }
 
 /// <summary>

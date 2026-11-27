@@ -58,7 +58,8 @@ internal sealed class GetLearnedPatternsHandler(IDbContextFactory<BeaconContext>
                     .Where(x => x.Id == p.ReviewedByUserId)
                     .Select(UserLabel.OfUser)
                     .FirstOrDefault(),
-                ReviewedAt = p.ReviewedAt
+                ReviewedAt = p.ReviewedAt,
+                LastReplayPassed = p.LastReplayPassed
             })
             .ToPagedListAsync(request, cancellationToken, defaultSort: "-confidence,-signalCount");
 
@@ -117,6 +118,9 @@ public record LearnedPatternEntry
     public string? ReviewedByName { get; init; }
 
     public DateTime? ReviewedAt { get; init; }
+
+    /// <summary>Whether the pattern's example SQL gave the expected result when it was last replayed; null when it was never replayed.</summary>
+    public bool? LastReplayPassed { get; init; }
 
     /// <summary>Whether the caller may approve or reject the pattern: Curate in its project (the project admin role).</summary>
     public bool CanCurate { get; init; }

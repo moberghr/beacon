@@ -8,7 +8,7 @@ SELECT m.id AS "Id", m.project_id AS "ProjectId", m.data_source_id AS "DataSourc
     END
     FROM beacon.users AS u
     WHERE u.archived_time IS NULL AND u.id = m.reviewed_by_user_id
-    LIMIT 1) AS "ReviewedByName", m.reviewed_at AS "ReviewedAt"
+    LIMIT 1) AS "ReviewedByName", m.reviewed_at AS "ReviewedAt", m.last_replay_passed AS "LastReplayPassed"
 FROM beacon.mcp_learned_patterns AS m
 ORDER BY m.confidence DESC, m.signal_count DESC, m.id
 LIMIT @p3 OFFSET @p

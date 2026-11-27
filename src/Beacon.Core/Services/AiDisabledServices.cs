@@ -54,6 +54,11 @@ internal sealed class AiDisabledMcpEvalService : IMcpEvalService
     {
         throw new InvalidOperationException(AiDisabled.Message);
     }
+
+    public Task<GoldSqlReplay> ReplayGoldSqlAsync(int dataSourceId, int? projectId, string sql, CancellationToken ct)
+    {
+        throw new InvalidOperationException(AiDisabled.Message);
+    }
 }
 
 internal static class AiDisabled

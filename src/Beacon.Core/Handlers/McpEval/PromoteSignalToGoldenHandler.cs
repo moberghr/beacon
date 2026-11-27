@@ -31,10 +31,18 @@ namespace Beacon.Core.Handlers.McpEval;
 /// signal is missing, carries no SQL, is not scoped to a project + data source linked to it, or its SQL does not pass the
 /// check; refuses (403) a caller without a Beacon user, since who promoted is recorded.
 /// </para>
+/// <para>
+/// Before anything is written, the checked gold SQL runs once on its data source through the eval harness's read-only
+/// executor (<see cref="IMcpEvalService.ReplayGoldSqlAsync"/>: the SQL gate with the row security context from the
+/// resolver, §1.5, §1.15): SQL that does not run read-only now is refused (409, naming neither the SQL nor the database's
+/// error), and the case stores the fingerprint of the result (<see cref="McpEvalCase.GoldResultFingerprint"/>), which the
+/// eval compares with when the gold SQL cannot run later.
+/// </para>
 /// </summary>
 internal sealed class PromoteSignalToGoldenHandler(
     IDbContextFactory<BeaconContext> contextFactory,
     IGroundingSqlCheck groundingSqlCheck,
+    IMcpEvalService evalService,
     IBeaconActorAccessor actorAccessor,
     ISecurityAuditRecorder securityAudit,
     ILogger<PromoteSignalToGoldenHandler> logger)
@@ -44,6 +52,9 @@ internal sealed class PromoteSignalToGoldenHandler(
         "The answer changed since it was reviewed (its rating or its SQL): reload the golden candidates and review it again.";
 
     internal const string UnidentifiedCuratorMessage = "Promoting a golden case needs a signed-in Beacon user: who promoted it is recorded.";
+
+    internal const string GoldSqlDoesNotRunMessage =
+        "The answer's SQL does not run read-only on its data source now, so it cannot become a golden case: check the data source and try again.";
 
     // The tool of a signal that answers a natural-language question; a query or dry_run signal's "question" is SQL.
     private const string AskTool = "ask";
@@ -116,6 +127,13 @@ internal sealed class PromoteSignalToGoldenHandler(
             throw new InvalidOperationException($"Query signal {request.SignalId} cannot become a golden case: {check.Refusal}");
         }
 
+        // The gold SQL as it is stored runs once, read-only, before anything is written; the case keeps its result's fingerprint.
+        var replay = await evalService.ReplayGoldSqlAsync(dataSourceId, projectId, check.Sql, cancellationToken);
+        if (!replay.Ran)
+        {
+            throw new BeaconConflictException(GoldSqlDoesNotRunMessage);
+        }
+
         var reviewedSqlHash = GroundingContentHash.OfSql(signal.Sql);
         if (signal.SqlHash == null)
         {
@@ -154,6 +172,7 @@ internal sealed class PromoteSignalToGoldenHandler(
                 DataSourceId = dataSourceId,
                 Question = signal.Question,
                 GoldSql = check.Sql,
+                GoldResultFingerprint = replay.ResultFingerprint,
                 SourceSignalId = signal.Id,
                 Notes = request.Notes,
                 IsActive = true,
