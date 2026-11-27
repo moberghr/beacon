@@ -287,6 +287,66 @@ public class MetadataRefreshTests
         snapshot.Tables.Single(x => x.TableName == "orders").Description.Should().Be("Curated: one row per order", "the cached snapshot is what was stored");
     }
 
+    // A description item follows the refreshed catalog: stale once its table or column is gone or its table's structure
+    // changed, current while it matches (names compared as the curated descriptions are, ignoring case); never removed.
+    [Test]
+    public async Task Refresh_MarksDescriptionItemsStale_WhoseTableOrColumnIsGone_OrWhoseStructureChanged()
+    {
+        var world = new MetadataWorld();
+        var orders = StructureOf("id", "status");
+        world.DescriptionItems.Add(Item("sales", "orders", "", orders));
+        world.DescriptionItems.Add(Item("SALES", "Orders", "Status", orders));
+        world.DescriptionItems.Add(Item("sales", "orders", "total", orders));
+        world.DescriptionItems.Add(Item("sales", "refunds", "", StructureOf("id")));
+        world.DescriptionItems.Add(Item("sales", "invoices", "id", StructureOf("id")));
+        world.Extracted =
+        [
+            Extracted("sales", "orders", null, ("id", null), ("status", null)),
+            Extracted("sales", "invoices", null, ("id", null), ("amount", null))
+        ];
+
+        await world.Service().RefreshMetadataAsync(DataSourceId, forceRefresh: true);
+
+        world.DescriptionItems.Should().HaveCount(5, "an item is never removed");
+        world.DescriptionItems[0].StaleSince.Should().BeNull("the table is there with the structure the item recorded");
+        world.DescriptionItems[1].StaleSince.Should().BeNull("the column is there, its names written in another case");
+        world.DescriptionItems[2].StaleSince.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromMinutes(1), "the column is gone");
+        world.DescriptionItems[3].StaleSince.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromMinutes(1), "the table is gone");
+        world.DescriptionItems[4].StaleSince.Should().BeCloseTo(DateTime.UtcNow, TimeSpan.FromMinutes(1), "the table gained a column");
+        world.Saved.OfType<McpDescriptionItem>().Should().BeEmpty("the refresh changes items, it adds none");
+    }
+
+    [Test]
+    public async Task Refresh_KeepsWhenAnItemWentStale_AndMakesItCurrentOnceItsStructureMatchesAgain()
+    {
+        var world = new MetadataWorld();
+        var since = new DateTime(2026, 11, 1, 0, 0, 0, DateTimeKind.Utc);
+        world.DescriptionItems.Add(Item("sales", "orders", "status", StructureOf("id", "status"), since));
+        world.DescriptionItems.Add(Item("sales", "refunds", "", StructureOf("id"), since));
+        world.DescriptionItems.Add(Item("sales", "orders", "", StructureOf("status", "id"), since));
+        world.Extracted = [Extracted("sales", "orders", null, ("id", null), ("status", null))];
+
+        await world.Service().RefreshMetadataAsync(DataSourceId, forceRefresh: true);
+
+        world.DescriptionItems[0].StaleSince.Should().BeNull("the table's structure is the one recorded again");
+        world.DescriptionItems[1].StaleSince.Should().Be(since, "still gone: the first time it went stale is kept");
+        world.DescriptionItems[2].StaleSince.Should().Be(since, "the columns are in another order than recorded");
+    }
+
+    [Test]
+    public async Task Refresh_ReadsOnlyItsOwnDataSourcesItems()
+    {
+        var world = new MetadataWorld();
+        var other = Item("sales", "refunds", "", StructureOf("id"));
+        other.DataSourceId = DataSourceId + 1;
+        world.DescriptionItems.Add(other);
+        world.Extracted = [Extracted("sales", "orders", null, ("id", null))];
+
+        await world.Service().RefreshMetadataAsync(DataSourceId, forceRefresh: true);
+
+        other.StaleSince.Should().BeNull("another data source's catalog was not refreshed");
+    }
+
     // Beacon builds SQL from catalog names, so a name that could end its quoting in some dialect is never stored.
     [Test]
     public async Task Refresh_LeavesOutNamesCarryingQuotesBracketsSemicolonsOrControlCharacters()
@@ -675,6 +735,27 @@ public class MetadataRefreshTests
             description);
     }
 
+    // The structure hash of a table Extracted builds with these columns: data type "text", in this order.
+    private static string StructureOf(params string[] columns)
+    {
+        return DescriptionStructureHash.Of(columns.Select(x => (x, "text")));
+    }
+
+    private static McpDescriptionItem Item(string schema, string table, string column, string structureHash, DateTime? staleSince = null)
+    {
+        return new McpDescriptionItem
+        {
+            DataSourceId = DataSourceId,
+            SchemaName = schema,
+            TableName = table,
+            ColumnName = column,
+            Source = McpDescriptionSource.Curated,
+            WrittenAt = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc),
+            StructureHash = structureHash,
+            StaleSince = staleSince
+        };
+    }
+
     private static McpDocumentationPatch AppliedPatch(McpDocPatchTarget target, string identifier)
     {
         return new McpDocumentationPatch
@@ -718,6 +799,8 @@ public class MetadataRefreshTests
         public List<ColumnMetadata> StoredColumns { get; } = [];
 
         public List<McpDocumentationPatch> Patches { get; } = [];
+
+        public List<McpDescriptionItem> DescriptionItems { get; } = [];
 
         public IReadOnlyList<TableMetadataDto> Extracted { get; set; } = [];
 
@@ -796,6 +879,7 @@ public class MetadataRefreshTests
                 [typeof(DatabaseMetadata)] = RecordingBeaconContext.MemorySet(Stored, Saved),
                 [typeof(ColumnMetadata)] = RecordingBeaconContext.MemorySet(StoredColumns, Saved),
                 [typeof(McpDocumentationPatch)] = RecordingBeaconContext.MemorySet(Patches, Saved),
+                [typeof(McpDescriptionItem)] = RecordingBeaconContext.MemorySet(DescriptionItems, Saved),
                 [typeof(Beacon.Core.Data.Entities.DataMigration.MigrationJob)] = RecordingBeaconContext.MemorySet(new List<Beacon.Core.Data.Entities.DataMigration.MigrationJob>(), Saved)
             };
             var factory = new Mock<IDbContextFactory<BeaconContext>>();

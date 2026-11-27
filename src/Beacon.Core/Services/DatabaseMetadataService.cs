@@ -391,6 +391,12 @@ public class DatabaseMetadataService(
             context.DatabaseMetadata.Add(metadata);
         }
 
+        // The descriptions Beacon wrote are compared with the catalog as stored now, in the same save as the re-insert.
+        var descriptionItems = await context.McpDescriptionItems
+            .Where(x => x.DataSourceId == dataSourceId)
+            .ToListAsync(cancellationToken);
+        var (markedStale, current) = MarkDescriptionItems(descriptionItems, merged, DateTime.UtcNow);
+
         await context.SaveChangesAsync(cancellationToken);
 
         if (curated.Count > 0)
@@ -398,7 +404,77 @@ public class DatabaseMetadataService(
             logger.LogInformation("Kept {CuratedCount} curated descriptions for data source {DataSourceId} on refresh", curated.Count, dataSourceId);
         }
 
+        if (markedStale > 0 || current > 0)
+        {
+            logger.LogInformation(
+                "Description items of data source {DataSourceId} on refresh: {MarkedStale} marked stale, {Current} current again",
+                dataSourceId,
+                markedStale,
+                current);
+        }
+
         return merged;
+    }
+
+    // Marks each description item stale (from now, unless it already is) whose table or column the stored catalog no longer
+    // has, or whose table's structure changed since the description was written; an item whose table matches its recorded
+    // structure again is current again. Names are matched ignoring case, as curated descriptions are; no item is removed.
+    // Returns how many items were newly marked and how many were cleared.
+    private static (int MarkedStale, int Current) MarkDescriptionItems(
+        IReadOnlyList<McpDescriptionItem> items,
+        IReadOnlyList<TableMetadataDto> tables,
+        DateTime now)
+    {
+        if (items.Count == 0)
+        {
+            return (0, 0);
+        }
+
+        var bySchema = new Dictionary<string, Dictionary<string, TableMetadataDto>>(StringComparer.OrdinalIgnoreCase);
+        foreach (var table in tables)
+        {
+            if (!bySchema.TryGetValue(table.SchemaName, out var byTable))
+            {
+                byTable = new Dictionary<string, TableMetadataDto>(StringComparer.OrdinalIgnoreCase);
+                bySchema[table.SchemaName] = byTable;
+            }
+
+            byTable.TryAdd(table.TableName, table);
+        }
+
+        var hashes = new Dictionary<TableMetadataDto, string>(ReferenceEqualityComparer.Instance);
+        var markedStale = 0;
+        var current = 0;
+        foreach (var item in items)
+        {
+            var table = bySchema.GetValueOrDefault(item.SchemaName)?.GetValueOrDefault(item.TableName);
+            var present = table != null
+                && (item.ColumnName.Length == 0 || table.Columns.Any(x => string.Equals(x.ColumnName, item.ColumnName, StringComparison.OrdinalIgnoreCase)));
+            var matches = present && item.StructureHash == StructureHashOf(table!, hashes);
+            if (!matches && item.StaleSince == null)
+            {
+                item.StaleSince = now;
+                markedStale++;
+            }
+            else if (matches && item.StaleSince != null)
+            {
+                item.StaleSince = null;
+                current++;
+            }
+        }
+
+        return (markedStale, current);
+    }
+
+    private static string StructureHashOf(TableMetadataDto table, Dictionary<TableMetadataDto, string> hashes)
+    {
+        if (!hashes.TryGetValue(table, out var hash))
+        {
+            hash = DescriptionStructureHash.Of(table.Columns.Select(x => (x.ColumnName, x.DataType, x.OrdinalPosition)));
+            hashes[table] = hash;
+        }
+
+        return hash;
     }
 
     /// <summary>

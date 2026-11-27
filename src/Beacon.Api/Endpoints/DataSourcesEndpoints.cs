@@ -61,6 +61,11 @@ internal static class DataSourcesEndpoints
             })
             .WithName("GetDataSourceMetadataRefresh");
 
+        // The table and column descriptions Beacon wrote into the source's catalog: source, writer, time, staleness; paged.
+        ds.MapGet("/{dataSourceId:int}/description-items", ([AsParameters] GetDescriptionItemsQuery query, IMediator m, CancellationToken ct) =>
+                m.Send(query, ct))
+            .WithName("GetDescriptionItems");
+
         // Edits the source and replaces its connection (credential rotation). The stored connection is never sent: an omitted
         // connection keeps it. A connection that points somewhere else answers 409 unless the body confirms the change.
         ds.MapPut("/{id:int}", async (int id, UpdateDataSourceBody body, IMediator m, CancellationToken ct) =>

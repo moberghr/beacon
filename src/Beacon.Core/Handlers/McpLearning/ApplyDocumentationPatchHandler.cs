@@ -30,6 +30,13 @@ namespace Beacon.Core.Handlers.McpLearning;
 /// on the pattern made between the read and the write is not seen. A patch without a source pattern, or whose pattern is
 /// gone, applies as before.
 /// </para>
+/// <para>
+/// A column or table description applied is recorded as a <see cref="McpDescriptionItem"/> under the catalog's own names
+/// (an empty column name for the table): generated when the description generator proposed the patch
+/// (<see cref="McpDocumentationPatch.GeneratedByModel"/>), curated otherwise, with the applying user, the time, the patch and
+/// the table's structure (<see cref="DescriptionStructureHash"/>), and current (not stale). It is written after the patch's
+/// status, in the same transaction: a description written again replaces its record, and a refused apply writes none.
+/// </para>
 /// </summary>
 internal sealed class ApplyDocumentationPatchHandler(
     IDbContextFactory<BeaconContext> contextFactory,
@@ -120,6 +127,8 @@ internal sealed class ApplyDocumentationPatchHandler(
                     throw new BeaconConflictException($"Patch {request.PatchId} was decided meanwhile.");
                 }
 
+                await WriteDescriptionItemAsync(context, patch, target, request.AppliedByUserId, appliedAt, cancellationToken);
+
                 return changed;
             },
             changed => changed == 0
@@ -181,7 +190,14 @@ internal sealed class ApplyDocumentationPatchHandler(
             .Where(x => x.DatabaseMetadata.SchemaName == schema)
             .Where(x => x.DatabaseMetadata.TableName == table)
             .Where(x => x.ColumnName == column)
-            .Select(x => new DescriptionTarget(x.Id, x.Description))
+            .Select(x =>
+                new DescriptionTarget(
+                    x.Id,
+                    x.Description,
+                    x.DatabaseMetadataId,
+                    x.DatabaseMetadata.SchemaName,
+                    x.DatabaseMetadata.TableName,
+                    x.ColumnName))
             .FirstOrDefaultAsync(ct);
     }
 
@@ -201,7 +217,14 @@ internal sealed class ApplyDocumentationPatchHandler(
             .Where(x => x.DataSourceId == patch.DataSourceId)
             .Where(x => x.SchemaName == schema)
             .Where(x => x.TableName == table)
-            .Select(x => new DescriptionTarget(x.Id, x.TableDescription))
+            .Select(x =>
+                new DescriptionTarget(
+                    x.Id,
+                    x.TableDescription,
+                    x.Id,
+                    x.SchemaName,
+                    x.TableName,
+                    string.Empty))
             .FirstOrDefaultAsync(ct);
     }
 
@@ -220,6 +243,80 @@ internal sealed class ApplyDocumentationPatchHandler(
                 .Where(x => x.Id == targetId)
                 .Where(x => x.TableDescription == captured)
                 .ExecuteUpdateAsync(x => x.SetProperty(y => y.TableDescription, proposed), ct);
+    }
+
+    // Records the description just written under the catalog's names: an existing record is replaced (and current again),
+    // else one is added. The structure is read inside the apply's transaction, after its writes.
+    private static async Task WriteDescriptionItemAsync(
+        BeaconContext context,
+        McpDocumentationPatch patch,
+        DescriptionTarget target,
+        int? writtenByUserId,
+        DateTime writtenAt,
+        CancellationToken ct)
+    {
+        var columns = await context.ColumnMetadata
+            .Where(x => x.DatabaseMetadataId == target.TableId)
+            .Select(x =>
+                new
+                {
+                    x.ColumnName,
+                    x.DataType,
+                    x.OrdinalPosition
+                })
+            .ToListAsync(ct);
+        var structureHash = DescriptionStructureHash.Of(columns.Select(x => (x.ColumnName, x.DataType, x.OrdinalPosition)));
+        var source = patch.GeneratedByModel == null ? McpDescriptionSource.Curated : McpDescriptionSource.Generated;
+        var model = patch.GeneratedByModel;
+        int? patchId = patch.Id;
+        var dataSourceId = patch.DataSourceId;
+        var schemaName = target.SchemaName;
+        var tableName = target.TableName;
+        var columnName = target.ColumnName;
+
+        var replaced = await context.McpDescriptionItems
+            .Where(x => x.DataSourceId == dataSourceId)
+            .Where(x => x.SchemaName == schemaName)
+            .Where(x => x.TableName == tableName)
+            .Where(x => x.ColumnName == columnName)
+            .ExecuteUpdateAsync(
+                x => x
+                    .SetProperty(y => y.Source, source)
+                    .SetProperty(y => y.WrittenAt, writtenAt)
+                    .SetProperty(y => y.WrittenByUserId, writtenByUserId)
+                    .SetProperty(y => y.GeneratedByModel, model)
+                    .SetProperty(y => y.SourcePatchId, patchId)
+                    .SetProperty(y => y.StructureHash, structureHash)
+                    .SetProperty(y => y.StaleSince, (DateTime?)null),
+                ct);
+        if (replaced > 0)
+        {
+            return;
+        }
+
+        context.McpDescriptionItems.Add(new McpDescriptionItem
+        {
+            DataSourceId = dataSourceId,
+            SchemaName = schemaName,
+            TableName = tableName,
+            ColumnName = columnName,
+            Source = source,
+            WrittenAt = writtenAt,
+            WrittenByUserId = writtenByUserId,
+            GeneratedByModel = model,
+            SourcePatchId = patchId,
+            StructureHash = structureHash
+        });
+        try
+        {
+            await context.SaveChangesAsync(ct);
+        }
+        catch (DbUpdateException ex) when (DbUniqueViolation.IsUniqueViolation(ex))
+        {
+            // Another apply recorded the same description between the update above and this insert: the whole apply rolls
+            // back, as when the description changed under it.
+            throw new BeaconConflictException(TargetChangedMessage, ex);
+        }
     }
 
     private static async Task<ProjectDocumentationSection?> FindDocumentationSectionAsync(BeaconContext context, McpDocumentationPatch patch, CancellationToken ct)
@@ -242,7 +339,8 @@ internal sealed class ApplyDocumentationPatchHandler(
                 s.Title == patch.TargetIdentifier, ct);
     }
 
-    private sealed record DescriptionTarget(int Id, string? Content);
+    // The description's row and content, the table it belongs to, and the catalog's names (an empty column name: the table).
+    private sealed record DescriptionTarget(int Id, string? Content, int TableId, string SchemaName, string TableName, string ColumnName);
 }
 
 public record ApplyDocumentationPatchCommand : IRequest, IProjectAuthorizedRequest

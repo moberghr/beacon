@@ -199,6 +199,7 @@ public class ForbidRowDataToLlmLockTests
         world.Serve(new List<McpProjectSettings> { new() { Id = 1, ProjectId = ProjectId, EnableSampleValueCollection = true } });
         world.Serve(new List<DatabaseMetadata>());
         world.Serve(new List<McpDocumentationPatch>());
+        world.Serve(new List<McpDescriptionItem>());
         var settings = new McpSettingsProvider(world.Factory(), new MemoryCache(new MemoryCacheOptions()), Options.Create(Lock), NullLogger<McpSettingsProvider>.Instance);
         var shared = new SharedSourceSettings(world.Factory(), settings);
         // The sampler's reads: a sample would resolve the table's row security, then ask for its provider.

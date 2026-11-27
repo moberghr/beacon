@@ -98,6 +98,7 @@ public class ApiKeyScopeEnforcementTests
         "/beacon/api/data-quality/overview",
         "/beacon/api/data-quality/overview/paged",
         "/beacon/api/data-sources/",
+        "/beacon/api/data-sources/{dataSourceId:int}/description-items",
         "/beacon/api/data-sources/{dataSourceId:int}/relationships",
         "/beacon/api/data-sources/{dataSourceId:int}/schema-health",
         "/beacon/api/data-sources/{id:int}",

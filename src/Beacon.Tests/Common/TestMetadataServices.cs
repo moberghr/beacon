@@ -138,6 +138,7 @@ internal static class TestMetadataServices
             [typeof(DatabaseMetadata)] = RecordingBeaconContext.MemorySet(new List<DatabaseMetadata>(), saved),
             [typeof(ColumnMetadata)] = RecordingBeaconContext.MemorySet(new List<ColumnMetadata>(), saved),
             [typeof(McpDocumentationPatch)] = RecordingBeaconContext.MemorySet(new List<McpDocumentationPatch>(), saved),
+            [typeof(McpDescriptionItem)] = RecordingBeaconContext.MemorySet(new List<McpDescriptionItem>(), saved),
             [typeof(MigrationJob)] = RecordingBeaconContext.MemorySet(new List<MigrationJob>(), saved)
         };
         var factory = new Mock<IDbContextFactory<BeaconContext>>();

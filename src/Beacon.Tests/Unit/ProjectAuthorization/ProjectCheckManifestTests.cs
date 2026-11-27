@@ -58,6 +58,7 @@ public class ProjectCheckManifestTests
         ["GetAiActorThinkTaskQuery"] = ["AiActor(ActorId):Query"],
         ["GetDataSourceMetadataRefreshQuery"] = ["DataSource(DataSourceId):Manage:linking"],
         ["GetDataSourceQuery"] = ["DataSource(Id):Read"],
+        ["GetDescriptionItemsQuery"] = ["DataSource(DataSourceId):Read"],
         ["GetEvaluationHistoryQuery"] = ["DataContract(DataContractId):Read"],
         ["GetImportedDocumentQuery"] = ["Project(ProjectId):Read", "ImportedDocument(DocumentId):Read"],
         ["GetImportedDocumentsQuery"] = ["Project(ProjectId):Read"],
