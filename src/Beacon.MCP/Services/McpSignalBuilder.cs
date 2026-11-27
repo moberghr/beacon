@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Beacon.AI.Services.Knowledge;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Services;
 
@@ -29,16 +30,36 @@ internal sealed class McpSignalBuilder
     private int? _resultRowCount;
     private int _executionTimeMs;
     private bool _isSuccessful;
+    private List<KnowledgeItemRef> _knowledgeItems = [];
+    private string? _callerHash;
+    private int? _requestedParentId;
 
     // The SQL of record for the current ask flow — lets callers read it back without
     // building a throwaway signal entity.
     public string? GeneratedSql => _generatedSql;
+
+    /// <summary>The <c>ask</c> signal id the caller named (<c>signal_id</c>); unverified input, never a link by itself.</summary>
+    public int? RequestedParentId => _requestedParentId;
 
     public McpSignalBuilder SetTool(string tool) { _tool = tool; return this; }
     public McpSignalBuilder SetQuestion(string question) { _question = question; return this; }
     public McpSignalBuilder SetProjectId(int? projectId) { _projectId = projectId; return this; }
     public McpSignalBuilder SetDataSourceId(int? dataSourceId) { _dataSourceId = dataSourceId; return this; }
     public McpSignalBuilder SetUserId(int? userId) { _userId = userId; return this; }
+
+    // The MCP caller's keyed subject hash (IProjectContext.CallerHash, the caller_hash claim the audit row records); null without one.
+    public McpSignalBuilder SetCallerHash(string? callerHash)
+    {
+        _callerHash = string.IsNullOrEmpty(callerHash) ? null : callerHash;
+        return this;
+    }
+
+    // The ask signal the caller says this SQL comes from. Only a request: McpSignalService resolves the link.
+    public McpSignalBuilder SetRequestedParent(int? signalId)
+    {
+        _requestedParentId = signalId;
+        return this;
+    }
 
     public McpSignalBuilder SetIntent(string intent)
     {
@@ -110,6 +131,16 @@ internal sealed class McpSignalBuilder
         return this;
     }
 
+    // The knowledge items the prompt carried, saved as the signal's context items: one per kind and id, the first rank kept.
+    public McpSignalBuilder SetKnowledgeItems(IEnumerable<KnowledgeItemRef> items)
+    {
+        _knowledgeItems = items
+            .DistinctBy(x => (x.Kind, x.ItemId))
+            .ToList();
+
+        return this;
+    }
+
     public McpQuerySignal Build()
     {
         return new McpQuerySignal
@@ -137,7 +168,20 @@ internal sealed class McpSignalBuilder
             CandidateSqlHash = GroundingContentHash.OfCandidateSql(null, _correctedSql, _generatedSql),
             ResultRowCount = _resultRowCount,
             ExecutionTimeMs = _executionTimeMs,
-            IsSuccessful = _isSuccessful
+            IsSuccessful = _isSuccessful,
+            CallerHash = _callerHash,
+            // No parent here: the requested parent (RequestedParentId) is unverified input and never sits on the entity.
+            // McpSignalService.RecordSignalAsync takes it as its own argument and sets the parent it resolves inside the
+            // caller's own project and identity, or none.
+            ContextItems = _knowledgeItems
+                .Select(x =>
+                    new McpSignalContextItem
+                    {
+                        Kind = x.Kind,
+                        ItemId = x.ItemId,
+                        Rank = x.Rank
+                    })
+                .ToList()
         };
     }
 

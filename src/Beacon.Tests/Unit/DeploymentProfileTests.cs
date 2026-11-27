@@ -135,6 +135,7 @@ public class DeploymentProfileTests
     [TestCase("Beacon:RateLimits:Anonymous:PermitLimit", "0", "Beacon:RateLimits:Anonymous:PermitLimit")]
     [TestCase("Beacon:RateLimits:Mcp:PermitLimit", "0", "Beacon:RateLimits:Mcp:PermitLimit")]
     [TestCase("Beacon:RateLimits:Ask:PermitLimit", "0", "Beacon:RateLimits:Ask:PermitLimit")]
+    [TestCase("Beacon:RateLimits:Feedback:PermitLimit", "0", "Beacon:RateLimits:Feedback:PermitLimit")]
     [TestCase("Beacon:RateLimits:Lockout:Enabled", "false", "Beacon:RateLimits:Lockout")]
     [TestCase("Beacon:UserManagement:LocalLogin:Enabled", "true", "Beacon:UserManagement:LocalLogin:Enabled")]
     [TestCase("Beacon:Authorization:RequireProjectMembership", "false", "Beacon:Authorization:RequireProjectMembership")]

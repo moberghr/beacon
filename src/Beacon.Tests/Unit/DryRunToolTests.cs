@@ -40,12 +40,14 @@ public class DryRunToolTests
     private const int DataSourceId = 7;
     private const int ApiDataSourceId = 8;
     private const string ValidSql = "SELECT id, name FROM customers";
+    private const int CallerUserId = 1;
 
     private Mock<IQueryGuardrailService> _guardrail = null!;
     private Mock<IQueryExecutionService> _queryExecution = null!;
     private Mock<IKnowledgeGraphService> _knowledgeGraph = null!;
     private List<McpAuditLog> _auditLogs = null!;
     private List<McpQuerySignal> _signals = null!;
+    private List<McpQuerySignal> _storedSignals = null!;
     private RecordingSqlGate _gate = null!;
     private DataSourceType _warehouseType;
     private DatabaseEngineType? _warehouseEngine;
@@ -58,6 +60,7 @@ public class DryRunToolTests
         _knowledgeGraph = new Mock<IKnowledgeGraphService>();
         _auditLogs = [];
         _signals = [];
+        _storedSignals = [];
         _warehouseType = DataSourceType.Database;
         _warehouseEngine = DatabaseEngineType.PostgreSQL;
 
@@ -104,6 +107,34 @@ public class DryRunToolTests
 
         _signals.Should().ContainSingle()
             .Which.DryRunError.Should().Be("Database error 22P02 (data exception): a value could not be converted to integer. The database's message is withheld because it can quote row values.");
+    }
+
+    // The tool hands its signal_id to the signal service: the caller's own ask it names becomes the parent, even one the
+    // implicit link would not find (another data source, two hours ago). Without signal_id nothing links.
+    [TestCase(500, 500)]
+    [TestCase(null, null)]
+    public async Task SignalId_OfTheCallersOwnAsk_LinksTheDryRunSignalToIt(int? signalId, int? expectedParent)
+    {
+        _storedSignals.Add(StoredAsk(500, userId: CallerUserId, callerHash: null));
+
+        await TestToolCalls.InvokeAsync(CreateTool(), x => x.ExecuteAsync(
+            datasource_id: DataSourceId, sql: ValidSql, signal_id: signalId, cancellationToken: CancellationToken.None));
+
+        _signals.Should().ContainSingle().Which.ParentSignalId.Should().Be(expectedParent);
+    }
+
+    // A mapped caller's hash reaches the signal, and the signal_id lookup matches the caller by it (not by the user id).
+    [Test]
+    public async Task TheCallersHash_IsRecordedOnTheSignal_AndMatchesItsOwnAsk()
+    {
+        _storedSignals.Add(StoredAsk(500, userId: null, callerHash: "c0ffee"));
+
+        await TestToolCalls.InvokeAsync(CreateTool(callerHash: "c0ffee"), x => x.ExecuteAsync(
+            datasource_id: DataSourceId, sql: ValidSql, signal_id: 500, cancellationToken: CancellationToken.None));
+
+        var saved = _signals.Should().ContainSingle().Subject;
+        saved.CallerHash.Should().Be("c0ffee");
+        saved.ParentSignalId.Should().Be(500);
     }
 
     [Test]
@@ -511,18 +542,22 @@ public class DryRunToolTests
             .Returns(new QueryValidationResult(isValid, error, isValid, piiColumns));
     }
 
-    private DryRunTool CreateTool(Mock<IMcpSettingsProvider>? settingsProvider = null, ISharedSourceSettings? sharedSources = null, McpQueryConcurrencyLimiter? limiter = null)
+    private DryRunTool CreateTool(
+        Mock<IMcpSettingsProvider>? settingsProvider = null,
+        ISharedSourceSettings? sharedSources = null,
+        McpQueryConcurrencyLimiter? limiter = null,
+        string? callerHash = null)
     {
         // One factory serves both the tool (data-source resolution) and the audit service; each
         // CreateDbContextAsync call gets a fresh context over the same captured audit-log list
         // (§4.7 — async-queryable doubles, no DB). Mirrors FeedbackToolTests.
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory.Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(() => new DryRunTestContext(_auditLogs, _signals, _warehouseType, _warehouseEngine));
+            .ReturnsAsync(() => new DryRunTestContext(_auditLogs, _signals, _storedSignals, _warehouseType, _warehouseEngine));
 
         settingsProvider ??= SettingsProviderMock.Create();
 
-        var projectContext = new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId] };
+        var projectContext = new McpProjectContext { UserId = CallerUserId, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId], CallerHash = callerHash };
 
         var auditService = new McpAuditService(factory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog());
         var signalService = new McpSignalService(factory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance);
@@ -542,6 +577,22 @@ public class DryRunToolTests
             limiter ?? new McpQueryConcurrencyLimiter()), () => TestToolCalls.Recorder(auditService, signalService));
     }
 
+    // An ask of this project on the other data source, two hours old: only an explicit signal_id can link it.
+    private static McpQuerySignal StoredAsk(int id, int? userId, string? callerHash)
+    {
+        return new McpQuerySignal
+        {
+            Id = id,
+            Tool = "ask",
+            Question = "how many customers?",
+            ProjectId = ProjectId,
+            DataSourceId = ApiDataSourceId,
+            UserId = userId,
+            CallerHash = callerHash,
+            CreatedTime = DateTime.UtcNow.AddHours(-2)
+        };
+    }
+
     private static string GetText(CallToolResult result)
     {
         return result.Content.OfType<TextContentBlock>().Single().Text;
@@ -549,7 +600,8 @@ public class DryRunToolTests
 
     /// <summary>Serves the data-source resolution queries (ProjectDataSources membership + DataSources
     /// lookup) over async-queryable doubles — no DB, no UseInMemoryDatabase (§4.7) — and captures the
-    /// McpAuditLog rows the real McpAuditService writes, mirroring FeedbackToolTests.</summary>
+    /// McpAuditLog rows the real McpAuditService writes, mirroring FeedbackToolTests. The signal set reads the stored
+    /// signals (the parent lookup's) and records the added ones apart from them.</summary>
     private sealed class DryRunTestContext : BeaconContext
     {
         private static readonly DbContextOptions<DryRunTestContext> Options =
@@ -567,6 +619,7 @@ public class DryRunToolTests
         public DryRunTestContext(
             List<McpAuditLog> auditLogs,
             List<McpQuerySignal> signals,
+            List<McpQuerySignal> storedSignals,
             DataSourceType warehouseType,
             DatabaseEngineType? warehouseEngine)
             : base(Options, "beacon")
@@ -575,6 +628,16 @@ public class DryRunToolTests
             _warehouseEngine = warehouseEngine;
             _auditSet.Setup(x => x.Add(It.IsAny<McpAuditLog>()))
                 .Callback<McpAuditLog>(auditLogs.Add);
+            var stored = storedSignals.AsQueryable();
+            _signalSet.As<IAsyncEnumerable<McpQuerySignal>>()
+                .Setup(x => x.GetAsyncEnumerator(It.IsAny<CancellationToken>()))
+                .Returns(() => new TestAsyncEnumerator<McpQuerySignal>(stored.GetEnumerator()));
+            _signalSet.As<IQueryable<McpQuerySignal>>()
+                .Setup(x => x.Provider)
+                .Returns(new TestAsyncQueryProvider<McpQuerySignal>(stored.Provider));
+            _signalSet.As<IQueryable<McpQuerySignal>>().Setup(x => x.Expression).Returns(stored.Expression);
+            _signalSet.As<IQueryable<McpQuerySignal>>().Setup(x => x.ElementType).Returns(stored.ElementType);
+            _signalSet.As<IQueryable<McpQuerySignal>>().Setup(x => x.GetEnumerator()).Returns(() => stored.GetEnumerator());
             _signalSet.Setup(x => x.Add(It.IsAny<McpQuerySignal>()))
                 .Callback<McpQuerySignal>(signals.Add);
         }

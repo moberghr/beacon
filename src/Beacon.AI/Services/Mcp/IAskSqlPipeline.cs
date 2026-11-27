@@ -1,3 +1,4 @@
+using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
 using Beacon.Core.Models;
 using Beacon.Core.Services.Validation;
@@ -90,4 +91,10 @@ public sealed record AskSqlOutcome(
     /// so a caller that needs them does not build the same context again.
     /// </summary>
     public IReadOnlyList<string> RelevantTables { get; init; } = [];
+
+    /// <summary>
+    /// The golden cases, learned patterns and glossary terms the prompt's schema context carried (from
+    /// <c>SmartSchemaContext.KnowledgeItems</c>), so a caller can record them with its signal.
+    /// </summary>
+    public IReadOnlyList<KnowledgeItemRef> KnowledgeItems { get; init; } = [];
 }

@@ -18,7 +18,7 @@ namespace Beacon.Core.SqlServer.Data.Migrations
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("beacon")
-                .HasAnnotation("ProductVersion", "10.0.12")
+                .HasAnnotation("ProductVersion", "10.0.14")
                 .HasAnnotation("Relational:MaxIdentifierLength", 128);
 
             SqlServerModelBuilderExtensions.UseIdentityColumns(modelBuilder);
@@ -2509,6 +2509,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<string>("FeedbackNote")
                         .HasColumnType("nvarchar(max)");
 
+                    b.Property<int?>("FeedbackReason")
+                        .HasColumnType("int");
+
                     b.Property<string>("GeneratedSql")
                         .HasColumnType("nvarchar(max)");
 
@@ -2516,8 +2519,14 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasMaxLength(50)
                         .HasColumnType("nvarchar(50)");
 
+                    b.Property<bool>("IsEditedRerun")
+                        .HasColumnType("bit");
+
                     b.Property<bool>("IsSuccessful")
                         .HasColumnType("bit");
+
+                    b.Property<int?>("ParentSignalId")
+                        .HasColumnType("int");
 
                     b.Property<int?>("ProjectId")
                         .HasColumnType("int");
@@ -2576,6 +2585,8 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.HasIndex("DataSourceId");
 
                     b.HasIndex("IsSuccessful");
+
+                    b.HasIndex("ParentSignalId");
 
                     b.HasIndex("ProjectId");
 
@@ -2754,6 +2765,38 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.HasKey("Id");
 
                     b.ToTable("McpSettings", "beacon");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.McpSignalContextItem", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("ItemId")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("int");
+
+                    b.Property<int>("Rank")
+                        .HasColumnType("int");
+
+                    b.Property<int>("SignalId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("SignalId");
+
+                    b.HasIndex("Kind", "ItemId");
+
+                    b.ToTable("McpSignalContextItems", "beacon");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Metadata.ColumnMetadata", b =>
@@ -4881,6 +4924,17 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Navigation("Project");
                 });
 
+            modelBuilder.Entity("Beacon.Core.Data.Entities.McpSignalContextItem", b =>
+                {
+                    b.HasOne("Beacon.Core.Data.Entities.McpQuerySignal", "Signal")
+                        .WithMany("ContextItems")
+                        .HasForeignKey("SignalId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired();
+
+                    b.Navigation("Signal");
+                });
+
             modelBuilder.Entity("Beacon.Core.Data.Entities.Metadata.ColumnMetadata", b =>
                 {
                     b.HasOne("Beacon.Core.Data.Entities.Metadata.DatabaseMetadata", "DatabaseMetadata")
@@ -5391,6 +5445,11 @@ namespace Beacon.Core.SqlServer.Data.Migrations
             modelBuilder.Entity("Beacon.Core.Data.Entities.McpAuditLog", b =>
                 {
                     b.Navigation("Statements");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.McpQuerySignal", b =>
+                {
+                    b.Navigation("ContextItems");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Metadata.DatabaseMetadata", b =>

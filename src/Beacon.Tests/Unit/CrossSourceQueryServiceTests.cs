@@ -850,6 +850,53 @@ public class CrossSourceQueryServiceTests
             $"An LLM request carrying sample-values, value-matches read from data sources {CrmDataSourceId} of project {ProjectId} was handed to the provider for caller {TestRowDataEgress.CallerId}");
     }
 
+    // The one signal of the call records every source's knowledge items, an item two prompts carried once (its first rank).
+    [Test]
+    public async Task EverySourcesKnowledgeItems_AreRecordedOnTheSignal_OncePerItem()
+    {
+        GeneratesFor(WarehouseContext, "SELECT id FROM orders");
+        GeneratesFor(CrmContext, "SELECT city FROM addresses");
+        var service = CreateService();
+        CarriesKnowledgeItems(DataSourceId, new(McpKnowledgeItemKind.GoldenCase, 700, 1), new(McpKnowledgeItemKind.LearnedPattern, 800, 1));
+        CarriesKnowledgeItems(CrmDataSourceId, new(McpKnowledgeItemKind.GoldenCase, 700, 2), new(McpKnowledgeItemKind.GlossaryTerm, 900, 1));
+
+        var (text, succeeded) = await service.ExecuteAsync(
+            _llm.Object, TwoSources(), ProjectId, "q", Settings(), execute: false, _signal, null, CancellationToken.None);
+
+        succeeded.Should().BeTrue(text);
+        _signal.Build().ContextItems
+            .Select(x => (x.Kind, x.ItemId, x.Rank))
+            .Should()
+            .Equal(
+                (McpKnowledgeItemKind.GoldenCase, 700, 1),
+                (McpKnowledgeItemKind.LearnedPattern, 800, 1),
+                (McpKnowledgeItemKind.GlossaryTerm, 900, 1));
+    }
+
+    // A later source whose context fails does not cost the items of the sources before it: the signal recorded for the
+    // failed call still names what the earlier prompts carried.
+    [Test]
+    public async Task ALaterSourceThatThrows_KeepsTheEarlierSourcesKnowledgeItems()
+    {
+        GeneratesFor(WarehouseContext, "SELECT id FROM orders");
+        var service = CreateService();
+        CarriesKnowledgeItems(DataSourceId, new(McpKnowledgeItemKind.GoldenCase, 700, 1), new(McpKnowledgeItemKind.LearnedPattern, 800, 1));
+        _knowledgeGraph
+            .Setup(x => x.GetSmartContextForAskAsync(CrmDataSourceId, ProjectId, It.IsAny<string>(), true, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("the crm context failed"));
+
+        var act = () => service.ExecuteAsync(
+            _llm.Object, TwoSources(), ProjectId, "q", Settings(), execute: false, _signal, null, CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>();
+        _signal.Build().ContextItems
+            .Select(x => (x.Kind, x.ItemId, x.Rank))
+            .Should()
+            .Equal(
+                (McpKnowledgeItemKind.GoldenCase, 700, 1),
+                (McpKnowledgeItemKind.LearnedPattern, 800, 1));
+    }
+
     private const string ErrorQuotingAValue = "22P02: invalid input syntax for type integer: \"Ivan Horvat\"";
 
     private const string RedactedError = "Database error 22P02 (data exception): a value could not be converted to integer. The database's message is withheld because it can quote row values.";
@@ -875,6 +922,31 @@ public class CrossSourceQueryServiceTests
                 It.IsAny<ILlmProvider>(), schemaContext, It.IsAny<string>(),
                 It.IsAny<McpSettingsData>(), It.IsAny<CancellationToken>(), It.IsAny<decimal?>()))
             .ReturnsAsync(new SqlGenerationResult(sql, []));
+    }
+
+    // The source's ask context as CreateService sets it up, carrying these knowledge items.
+    private void CarriesKnowledgeItems(int dataSourceId, params KnowledgeItemRef[] items)
+    {
+        var context = dataSourceId == DataSourceId
+            ? new SmartSchemaContext
+            {
+                FullContext = WarehouseContext,
+                DatabaseDialect = _warehouseDialect,
+                SchemaCatalog = Catalog(),
+                RowDataCategories = [LlmRowDataCategories.SampleValues],
+                KnowledgeItems = items
+            }
+            : new SmartSchemaContext
+            {
+                FullContext = CrmContext,
+                DatabaseDialect = "PostgreSQL",
+                SchemaCatalog = CrmCatalog(),
+                RowDataCategories = [LlmRowDataCategories.SampleValues, LlmRowDataCategories.ValueMatches],
+                KnowledgeItems = items
+            };
+        _knowledgeGraph
+            .Setup(x => x.GetSmartContextForAskAsync(dataSourceId, ProjectId, It.IsAny<string>(), true, It.IsAny<CancellationToken>()))
+            .ReturnsAsync(context);
     }
 
     private void JoinsWith(string joinSql)

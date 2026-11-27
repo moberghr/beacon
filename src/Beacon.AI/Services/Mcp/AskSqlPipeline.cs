@@ -248,7 +248,8 @@ internal sealed class AskSqlPipeline(
                 validationError, null, null, repairs, false, votingNote, assumptions, clarificationHint, [],
                 null, [])
             {
-                RelevantTables = smartContext.RelevantTables
+                RelevantTables = smartContext.RelevantTables,
+                KnowledgeItems = smartContext.KnowledgeItems
             };
         }
 
@@ -412,7 +413,8 @@ internal sealed class AskSqlPipeline(
                 correctedSql, columnsUsed)
             {
                 UnrepairedFailures = unrepairedFailures,
-                RelevantTables = smartContext.RelevantTables
+                RelevantTables = smartContext.RelevantTables,
+                KnowledgeItems = smartContext.KnowledgeItems
             };
         }
 
@@ -487,7 +489,8 @@ internal sealed class AskSqlPipeline(
                         retriedSql, columnsUsed)
                     {
                         UnrepairedFailures = unrepairedFailures,
-                        RelevantTables = smartContext.RelevantTables
+                        RelevantTables = smartContext.RelevantTables,
+                        KnowledgeItems = smartContext.KnowledgeItems
                     };
                 }
             }
@@ -524,7 +527,8 @@ internal sealed class AskSqlPipeline(
                             emptyRetry, columnsUsed)
                         {
                             UnrepairedFailures = unrepairedFailures,
-                            RelevantTables = smartContext.RelevantTables
+                            RelevantTables = smartContext.RelevantTables,
+                            KnowledgeItems = smartContext.KnowledgeItems
                         };
                     }
 
@@ -557,7 +561,8 @@ internal sealed class AskSqlPipeline(
             correctedSql, columnsUsed)
         {
             UnrepairedFailures = unrepairedFailures,
-            RelevantTables = smartContext.RelevantTables
+            RelevantTables = smartContext.RelevantTables,
+            KnowledgeItems = smartContext.KnowledgeItems
         };
     }
 

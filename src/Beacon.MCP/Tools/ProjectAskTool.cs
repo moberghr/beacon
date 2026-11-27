@@ -52,7 +52,8 @@ internal sealed class ProjectAskTool(
         var signal = new McpSignalBuilder()
             .SetTool("ask")
             .SetQuestion(question ?? "")
-            .SetUserId(projectContext.UserId);
+            .SetUserId(projectContext.UserId)
+            .SetCallerHash(projectContext.CallerHash);
         recorder.WithSignal(signal);
 
         if (string.IsNullOrEmpty(question))
@@ -271,6 +272,7 @@ internal sealed class ProjectAskTool(
             llmProvider, dataSourceId, projectId, question, settings, askSqlExecutor,
             new AskSqlPipelineOptions(Execute: execute) { LlmBudget = llmBudget }, ct);
 
+        signal.SetKnowledgeItems(outcome.KnowledgeItems);
         signal.SetGeneratedSql(outcome.GeneratedSql, outcome.TablesUsed.ToList());
 
         if (outcome.ColumnsUsed.Count > 0)

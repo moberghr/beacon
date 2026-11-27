@@ -109,6 +109,7 @@ public static class RegulatedProfile
         RateLimitKey(nameof(RateLimitOptions.Anonymous)),
         RateLimitKey(nameof(RateLimitOptions.Mcp)),
         RateLimitKey(nameof(RateLimitOptions.Ask)),
+        RateLimitKey(nameof(RateLimitOptions.Feedback)),
         LockoutKey,
         LocalLoginEnabledKey,
         RequireMfaKey
@@ -136,6 +137,7 @@ public static class RegulatedProfile
         RateLimit(nameof(RateLimitOptions.Anonymous), x => x.Anonymous),
         RateLimit(nameof(RateLimitOptions.Mcp), x => x.Mcp),
         RateLimit(nameof(RateLimitOptions.Ask), x => x.Ask),
+        RateLimit(nameof(RateLimitOptions.Feedback), x => x.Feedback),
         new(LockoutKey, "must be on (Enabled true, MaxFailedAttempts greater than zero): password guessing is limited only per client address", x => x.RateLimits.Lockout?.IsEnabled == true),
 
         // Sign-in and access.

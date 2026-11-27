@@ -33,6 +33,24 @@ public abstract partial class BeaconContext
             entity.HasIndex(e => e.DataSourceId);
             entity.HasIndex(e => e.CreatedTime);
             entity.HasIndex(e => e.IsSuccessful);
+            // No foreign key: SQL Server refuses a self-referencing set-null, and a parent removed by retention leaves a
+            // harmless dangling id.
+            entity.HasIndex(e => e.ParentSignalId);
+        });
+
+        // The knowledge items an ask signal's prompt carried, deleted with their signal (so the retention job's bulk delete
+        // of signals removes them). Ids and enums only.
+        modelBuilder.Entity<McpSignalContextItem>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.HasOne(e => e.Signal)
+                .WithMany(e => e.ContextItems)
+                .HasForeignKey(e => e.SignalId)
+                .OnDelete(DeleteBehavior.Cascade);
+
+            entity.HasIndex(e => e.SignalId);
+            entity.HasIndex(e => new { e.Kind, e.ItemId });
         });
 
         modelBuilder.Entity<McpLearnedPattern>(entity =>

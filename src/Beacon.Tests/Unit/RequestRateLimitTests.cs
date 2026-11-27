@@ -25,6 +25,7 @@ using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.TestHost;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Configuration;
 using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
@@ -36,8 +37,8 @@ namespace Beacon.Tests.Unit;
 
 /// <summary>
 /// The request limits of Beacon:RateLimits: per caller on /beacon/api (an anonymous caller by its address), per address on
-/// the anonymous requests Beacon refuses with 401, per API key or caller on the MCP route, and per caller on the ask tool.
-/// Over a limit the answer is 429 as a problem with Retry-After (the ask tool answers an audited tool error).
+/// the anonymous requests Beacon refuses with 401, per API key or caller on the MCP route, and per caller on the ask and
+/// feedback tools. Over a limit the answer is 429 as a problem with Retry-After (the tools answer an audited tool error).
 /// </summary>
 [TestFixture]
 public class RequestRateLimitTests
@@ -153,6 +154,67 @@ public class RequestRateLimitTests
             x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()),
             Times.Exactly(3),
             "every call, the refused one included, writes its audit row");
+    }
+
+    [Test]
+    public async Task FeedbackTool_IsLimitedPerCaller_WithAnAuditedRefusal()
+    {
+        var limiter = new McpRateLimiter(Options.Create(new RateLimitOptions { Feedback = new RateLimitWindow { PermitLimit = 1 } }));
+        var auditFactory = new Mock<IDbContextFactory<BeaconContext>>();
+
+        var first = await FeedbackAsync(limiter, apiKeyId: 3, auditFactory.Object);
+        var second = await FeedbackAsync(limiter, apiKeyId: 3, auditFactory.Object);
+        var otherKey = await FeedbackAsync(limiter, apiKeyId: 4, auditFactory.Object);
+
+        TextOf(first).Should().Be("Query signal 5 not found.", "a call within the limit goes on to look its signal up");
+        (second.IsError ?? false).Should().BeTrue();
+        TextOf(second).Should().MatchRegex("^Too many feedback calls for this credential; retry in [0-9]+ seconds\\.$");
+        TextOf(otherKey).Should().Be("Query signal 5 not found.", "another credential has its own budget");
+        auditFactory.Verify(
+            x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()),
+            Times.Exactly(3),
+            "every call, the refused one included, writes its audit row");
+    }
+
+    [Test]
+    public void FeedbackWindow_DefaultsToThirtyAMinute_AndIsKeptApartFromTheAskWindow()
+    {
+        var options = new RateLimitOptions();
+        using var limiter = new McpRateLimiter();
+
+        options.Feedback.PermitLimit.Should().Be(30);
+        options.Feedback.WindowSeconds.Should().Be(60);
+        Enumerable.Range(0, 30).Select(x => limiter.Feedback.TryAcquire("caller", out _)).ToList().Should().AllSatisfy(x => x.Should().BeTrue());
+        limiter.Feedback.TryAcquire("caller", out var retryAfter).Should().BeFalse("the default feedback limit is 30 a minute");
+        retryAfter.Should().BeGreaterThanOrEqualTo(TimeSpan.FromSeconds(1));
+        limiter.Feedback.TryAcquire("other-caller", out _).Should().BeTrue("each caller has its own partition");
+        limiter.Ask.TryAcquire("caller", out _).Should().BeTrue("feedback calls do not spend the ask budget");
+    }
+
+    [Test]
+    public void FeedbackWindow_IsBoundFromConfiguration_AndValidatedLikeTheOthers()
+    {
+        var configuration = new ConfigurationBuilder()
+            .AddInMemoryCollection(new Dictionary<string, string?>
+            {
+                ["Beacon:RateLimits:Feedback:PermitLimit"] = "2",
+                ["Beacon:RateLimits:Feedback:WindowSeconds"] = "120"
+            })
+            .Build();
+        var options = configuration.GetSection(RateLimitOptions.SectionName).Get<RateLimitOptions>()!;
+        using var limiter = new McpRateLimiter(Options.Create(options));
+
+        options.Feedback.PermitLimit.Should().Be(2);
+        options.Feedback.WindowSeconds.Should().Be(120);
+        options.Ask.PermitLimit.Should().Be(10, "the other windows keep their defaults");
+        limiter.Feedback.TryAcquire("caller", out _).Should().BeTrue();
+        limiter.Feedback.TryAcquire("caller", out _).Should().BeTrue();
+        limiter.Feedback.TryAcquire("caller", out _).Should().BeFalse("Beacon:RateLimits:Feedback applies");
+        var refused = new RateLimitOptionsValidator().Validate(null, new RateLimitOptions { Feedback = new RateLimitWindow { PermitLimit = -1, WindowSeconds = 0 } });
+        refused.Failed.Should().BeTrue();
+        refused.Failures.Should().BeEquivalentTo(
+            "Beacon:RateLimits:Feedback:PermitLimit must be between 0 and 100000.",
+            "Beacon:RateLimits:Feedback:WindowSeconds must be between 1 and 3600.");
     }
 
     [TestCase("2001:db8:1:2::1", "2001:db8:1:2:ffff:ee:dd:9")]
@@ -369,6 +431,37 @@ public class RequestRateLimitTests
             NullLogger<ProjectAskTool>.Instance);
 
         return await TestToolCalls.InvokeAsync(recorder, () => tool.ExecuteAsync("How many orders were placed?", cancellationToken: CancellationToken.None));
+    }
+
+    // The feedback tool over an empty signal store: a call that passes the limit answers that signal 5 is not found.
+    private static async Task<ModelContextProtocol.Protocol.CallToolResult> FeedbackAsync(
+        McpRateLimiter limiter,
+        int apiKeyId,
+        IDbContextFactory<BeaconContext> auditFactory)
+    {
+        var serviceProvider = new Mock<IServiceProvider>();
+        serviceProvider.Setup(x => x.GetService(typeof(McpRateLimiter))).Returns(limiter);
+        var saved = new List<object>();
+        var factory = new Mock<IDbContextFactory<BeaconContext>>();
+        factory
+            .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new RecordingBeaconContext(
+                new Dictionary<Type, object>
+                {
+                    [typeof(Beacon.Core.Data.Entities.McpQuerySignal)] = RecordingBeaconContext.MemorySet(new List<Beacon.Core.Data.Entities.McpQuerySignal>(), saved)
+                },
+                saved));
+        var recorder = TestToolCalls.Recorder(
+            new McpAuditService(auditFactory, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog()));
+        var tool = new FeedbackTool(
+            factory.Object,
+            new McpProjectContext { UserId = 1, ApiKeyId = apiKeyId, AllowedProjectIds = [7], QueryProjectIds = [7] },
+            recorder,
+            Mock.Of<IMediator>(),
+            TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted),
+            serviceProvider.Object);
+
+        return await TestToolCalls.InvokeAsync(recorder, () => tool.ExecuteAsync(5, "correct", cancellationToken: CancellationToken.None));
     }
 
     private static string TextOf(ModelContextProtocol.Protocol.CallToolResult result)

@@ -215,8 +215,11 @@ Execute a direct SQL query against a specific data source. Use this when you alr
 | `api_query` | string | No | None | JSON query definition for REST API sources |
 | `max_rows` | integer | No | `100` | Maximum rows to return, capped at the project's max row limit (default 1000). A value of 0 or below is raised to 1. |
 | `project_id` | integer | No | None | Specify project if needed |
+| `signal_id` | integer | No | None | The `signal_id` of the `ask` answer this SQL comes from |
 
 *Either `datasource_name` or `datasource_id` is required.
+
+`signal_id` links this call to that `ask` answer; see [Episodes](/mcp/knowledge-base/#episodes). An id that is not an `ask` signal of the same project and the same caller is ignored without an error.
 
 `query` checks every column against the project's catalog and refuses one it does not know. A data source with no
 extracted metadata has no catalog to check against, so `query` refuses it with *This data source has no extracted
@@ -267,8 +270,11 @@ Validate a SQL query through all of Beacon's safety gates **without executing it
 | `datasource_id` | integer | No* | ID of the data source (alternative to name) |
 | `sql` | string | **Yes** | The SQL query to validate (SELECT only) |
 | `project_id` | integer | No | Specify project if needed |
+| `signal_id` | integer | No | The `signal_id` of the `ask` answer this SQL comes from |
 
 *Either `datasource_name` or `datasource_id` is required.
+
+`signal_id` works as it does for `query`: an id that is not an `ask` signal of the same project and the same caller is ignored without an error.
 
 **The gates**, in order: the `gate` value of each issue:
 
@@ -331,10 +337,13 @@ The tool's description, its answer, the server instructions and the playground's
 | `verdict` | string | **Yes** | `correct` or `incorrect` |
 | `corrected_sql` | string | No | The corrected SQL, if you fixed it |
 | `note` | string | No | A short note, **only when the user explicitly asked to record one**, never a summary of the conversation |
+| `reason` | string | No | For an `incorrect` verdict: why the answer was wrong. One of `wrong_table`, `wrong_column`, `wrong_join`, `wrong_filter`, `wrong_aggregation`, `wrong_time_range`, `misunderstood_question`, `other` |
 
 Every `ask` response that ran a data query ends with a `_signal_id: N_` marker. Pass that value back here. Conceptual answers from the knowledge base do not record a query signal and carry no marker.
 
 A signal is rated only in its own project: the signal must belong to a project, that project must be the one the call resolves to (in the playground, the selected project; on the transport, one of the caller's projects), and the caller needs Query there. Anything else answers "Query signal N not found.", the same as a signal that does not exist, and is audited. Within its project, a verdict is recorded only by the caller who asked, a project admin of that project, or an Admin; anyone else gets an error saying so, and the refusal is audited too. `POST /beacon/api/eval/feedback` is Admin-only: the whole `/beacon/api/eval` group requires an Admin.
+
+An unknown `reason` is refused with the list of allowed values, and nothing is recorded. A `reason` sent with a `correct` verdict is not stored. The audit row records the reason code only. `feedback` has its own limit per caller, `Beacon:RateLimits:Feedback` (default 30 a minute, MCP and playground together); over it the tool answers an error with the seconds to wait, and the refusal is audited. `POST /beacon/api/eval/feedback` accepts `reason` too, as the number of the enum like `verdict`.
 
 `corrected_sql` is at most 100,000 characters and `note` at most 2,000; a longer one is refused and nothing is recorded. The verdict is always recorded, with the user who recorded it. Whether `corrected_sql` and `note` are *stored* depends on the project's **Allow the feedback tool to store question and SQL text** setting. See [Content retention](#content-retention) below. When that setting is off, the verdict still lands and the rest is dropped.
 

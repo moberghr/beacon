@@ -74,4 +74,19 @@ public class McpQuerySignal : BaseEntity
     /// Populated from Wave 2.1; stored now so the schema changes once per wave.
     /// </summary>
     public string? CallerHash { get; set; }
+
+    /// <summary>
+    /// The <c>ask</c> signal a <c>query</c> or <c>dry_run</c> signal followed, when Beacon could tell. No foreign key: the parent
+    /// may be removed by retention first, and a dangling id is harmless.
+    /// </summary>
+    public int? ParentSignalId { get; set; }
+
+    /// <summary>True when the signal ran other SQL than its parent proposed (their <see cref="CandidateSqlHash"/> values differ).</summary>
+    public bool IsEditedRerun { get; set; }
+
+    /// <summary>Why the caller marked the answer wrong; null without a reason.</summary>
+    public McpFeedbackReason? FeedbackReason { get; set; }
+
+    /// <summary>The knowledge items the signal's prompt carried, deleted with the signal.</summary>
+    public ICollection<McpSignalContextItem> ContextItems { get; set; } = new List<McpSignalContextItem>();
 }

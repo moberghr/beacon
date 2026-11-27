@@ -40,6 +40,7 @@ public class ProjectQueryToolSchemaGateTests
     private Mock<IDataSourceProvider> _provider = null!;
     private Mock<IKnowledgeGraphService> _knowledgeGraph = null!;
     private List<McpQuerySignal> _signals = null!;
+    private List<McpQuerySignal> _storedSignals = null!;
     private List<McpAuditLog> _auditLogs = null!;
     private RecordingSqlGate _gate = null!;
     private DataSourceType _warehouseType;
@@ -70,6 +71,7 @@ public class ProjectQueryToolSchemaGateTests
 
         _knowledgeGraph = new Mock<IKnowledgeGraphService>();
         _signals = [];
+        _storedSignals = [];
         _auditLogs = [];
         _warehouseType = DataSourceType.Database;
         _warehouseEngine = DatabaseEngineType.PostgreSQL;
@@ -400,6 +402,36 @@ public class ProjectQueryToolSchemaGateTests
         _auditLogs.Should().ContainSingle().Which.Should().Match<McpAuditLog>(x => x.UserId == CallerUserId && x.ErrorMessage == null);
     }
 
+    // The tool hands its signal_id to the signal service: the caller's own ask it names becomes the parent, even one the
+    // implicit link would not find (another data source, two hours ago). Without signal_id nothing links.
+    [TestCase(500, 500)]
+    [TestCase(null, null)]
+    public async Task SignalId_OfTheCallersOwnAsk_LinksTheQuerySignalToIt(int? signalId, int? expectedParent)
+    {
+        WithScannedCatalog();
+        _storedSignals.Add(StoredAsk(500, userId: CallerUserId, callerHash: null));
+
+        await TestToolCalls.InvokeAsync(CreateTool(), x => x.ExecuteAsync(
+            datasource_id: DataSourceId, sql: "SELECT id FROM orders", signal_id: signalId, cancellationToken: CancellationToken.None));
+
+        _signals.Should().ContainSingle().Which.ParentSignalId.Should().Be(expectedParent);
+    }
+
+    // A mapped caller's hash reaches the signal, and the signal_id lookup matches the caller by it (not by the user id).
+    [Test]
+    public async Task TheCallersHash_IsRecordedOnTheSignal_AndMatchesItsOwnAsk()
+    {
+        WithScannedCatalog();
+        _storedSignals.Add(StoredAsk(500, userId: null, callerHash: "c0ffee"));
+
+        await TestToolCalls.InvokeAsync(CreateTool(callerHash: "c0ffee"), x => x.ExecuteAsync(
+            datasource_id: DataSourceId, sql: "SELECT id FROM orders", signal_id: 500, cancellationToken: CancellationToken.None));
+
+        var saved = _signals.Should().ContainSingle().Subject;
+        saved.CallerHash.Should().Be("c0ffee");
+        saved.ParentSignalId.Should().Be(500);
+    }
+
     [Test]
     public async Task ARefusedQuery_RecordsTheCallersBeaconUser_OnItsSignalAndAuditRow()
     {
@@ -651,12 +683,33 @@ public class ProjectQueryToolSchemaGateTests
             .ReturnsAsync(catalog);
     }
 
-    private ProjectQueryTool CreateTool(Mock<IMcpSettingsProvider>? settingsProvider = null, ISharedSourceSettings? sharedSources = null, McpQueryConcurrencyLimiter? limiter = null, IQueryCostLimit? costLimit = null)
+    // An ask of this project on another data source, two hours old: only an explicit signal_id can link it.
+    private static McpQuerySignal StoredAsk(int id, int? userId, string? callerHash)
+    {
+        return new McpQuerySignal
+        {
+            Id = id,
+            Tool = "ask",
+            Question = "how many orders?",
+            ProjectId = ProjectId,
+            DataSourceId = DataSourceId + 1,
+            UserId = userId,
+            CallerHash = callerHash,
+            CreatedTime = DateTime.UtcNow.AddHours(-2)
+        };
+    }
+
+    private ProjectQueryTool CreateTool(
+        Mock<IMcpSettingsProvider>? settingsProvider = null,
+        ISharedSourceSettings? sharedSources = null,
+        McpQueryConcurrencyLimiter? limiter = null,
+        IQueryCostLimit? costLimit = null,
+        string? callerHash = null)
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>();
         factory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
-            .ReturnsAsync(() => new SchemaGateTestContext(_signals, _auditLogs, _warehouseType, _warehouseEngine, _hostManagedKey));
+            .ReturnsAsync(() => new SchemaGateTestContext(_signals, _storedSignals, _auditLogs, _warehouseType, _warehouseEngine, _hostManagedKey));
 
         var providerFactory = new Mock<IDataSourceProviderFactory>();
         providerFactory
@@ -665,7 +718,7 @@ public class ProjectQueryToolSchemaGateTests
 
         settingsProvider ??= SettingsProviderMock.Create();
 
-        var projectContext = new McpProjectContext { UserId = CallerUserId, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId] };
+        var projectContext = new McpProjectContext { UserId = CallerUserId, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId], CallerHash = callerHash };
         var guardrail = new QueryGuardrailService();
         _gate = new RecordingSqlGate(TestSqlGate.Create(guardrail, _hostGuard, _deployment));
 
@@ -688,7 +741,10 @@ public class ProjectQueryToolSchemaGateTests
             NullLogger<ProjectQueryTool>.Instance), () => TestToolCalls.Recorder(auditService, signalService));
     }
 
-    /// <summary>Data-source resolution over async-queryable doubles plus signal capture — no DB (§4.7).</summary>
+    /// <summary>
+    /// Data-source resolution over async-queryable doubles plus signal capture — no DB (§4.7). The signal set reads the
+    /// stored signals (the parent lookup's) and records the added ones apart from them.
+    /// </summary>
     private sealed class SchemaGateTestContext : BeaconContext
     {
         private static readonly DbContextOptions<SchemaGateTestContext> Options =
@@ -705,6 +761,7 @@ public class ProjectQueryToolSchemaGateTests
 
         public SchemaGateTestContext(
             List<McpQuerySignal> signals,
+            List<McpQuerySignal> storedSignals,
             List<McpAuditLog> auditLogs,
             DataSourceType warehouseType,
             DatabaseEngineType? warehouseEngine,
@@ -714,6 +771,16 @@ public class ProjectQueryToolSchemaGateTests
             _warehouseType = warehouseType;
             _warehouseEngine = warehouseEngine;
             _hostManagedKey = hostManagedKey;
+            var stored = storedSignals.AsQueryable();
+            _signalSet.As<IAsyncEnumerable<McpQuerySignal>>()
+                .Setup(x => x.GetAsyncEnumerator(It.IsAny<CancellationToken>()))
+                .Returns(() => new TestAsyncEnumerator<McpQuerySignal>(stored.GetEnumerator()));
+            _signalSet.As<IQueryable<McpQuerySignal>>()
+                .Setup(x => x.Provider)
+                .Returns(new TestAsyncQueryProvider<McpQuerySignal>(stored.Provider));
+            _signalSet.As<IQueryable<McpQuerySignal>>().Setup(x => x.Expression).Returns(stored.Expression);
+            _signalSet.As<IQueryable<McpQuerySignal>>().Setup(x => x.ElementType).Returns(stored.ElementType);
+            _signalSet.As<IQueryable<McpQuerySignal>>().Setup(x => x.GetEnumerator()).Returns(() => stored.GetEnumerator());
             _signalSet.Setup(x => x.Add(It.IsAny<McpQuerySignal>()))
                 .Callback<McpQuerySignal>(signals.Add);
             _auditSet.Setup(x => x.Add(It.IsAny<McpAuditLog>()))

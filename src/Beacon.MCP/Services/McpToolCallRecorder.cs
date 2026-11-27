@@ -255,7 +255,7 @@ internal sealed class McpToolCallRecorder(
         }
 
         _signal.SetResult(_signalCountsRows ? ResultRowCount : null, ExecutionTimeMs, _signalSucceeded);
-        _signalId = await signalService.RecordSignalAsync(_signal.Build(), cancellationToken);
+        _signalId = await signalService.RecordSignalAsync(_signal.Build(), _signal.RequestedParentId, cancellationToken);
 
         return _signalId;
     }

@@ -45,6 +45,8 @@ internal sealed class DryRunTool(
         string? sql = null,
         [Description("Optional. Specify project if your API key has access to multiple projects.")]
         int? project_id = null,
+        [Description("Optional: the signal_id of the ask answer this SQL comes from")]
+        int? signal_id = null,
         CancellationToken cancellationToken = default)
     {
         // Written by McpAuditCallToolFilter after the tool returns or throws (§1.7).
@@ -53,11 +55,14 @@ internal sealed class DryRunTool(
         // dry_run IS part of the SQL-learning loop (unlike the read tools — see GetContextTool): the
         // caller-authored SQL passing or failing the gates is exactly the outcome McpQuerySignal models
         // (Question = GeneratedSql = the SQL under validation). §9.5 — recorded on every path, failures
-        // included (codex PR-11 R4).
+        // included (codex PR-11 R4). signal_id is only a request: the signal service links the ask signal it names
+        // when it belongs to this caller and project, and ignores it otherwise, so the answer never depends on it.
         var signal = new McpSignalBuilder()
             .SetTool("dry_run")
             .SetQuestion(sql ?? "")
-            .SetUserId(projectContext.UserId);
+            .SetUserId(projectContext.UserId)
+            .SetCallerHash(projectContext.CallerHash)
+            .SetRequestedParent(signal_id);
         recorder.WithSignal(signal, sql);
 
         if (string.IsNullOrEmpty(sql))

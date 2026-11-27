@@ -849,6 +849,7 @@ Bound from `Beacon:RateLimits`, validated at startup. Each limit is a fixed wind
 | `Anonymous` | `30` a minute | client address | Anonymous requests to Beacon's routes answered `401` (no credential, an unknown or expired API key or bearer token); over it they get `429` instead |
 | `Mcp` | `60` a minute | API key or MCP caller | Every request to `/beacon/mcp` |
 | `Ask` | `10` a minute | caller | The `ask` tool, through MCP and the playground; over it the tool answers an error (audited like every refusal) |
+| `Feedback` | `30` a minute | caller | The `feedback` tool, through MCP and the playground; over it the tool answers an error with a retry time (audited like every refusal) |
 
 | Key | Type | Default | Range | What it does |
 |---|---|---|---|---|
@@ -884,6 +885,10 @@ The lockout counts per user, not per client: anyone who knows a user name can lo
       },
       "Ask": {
         "PermitLimit": 5,
+        "WindowSeconds": 60
+      },
+      "Feedback": {
+        "PermitLimit": 30,
         "WindowSeconds": 60
       },
       "MaxPartitions": 20000,
@@ -1424,7 +1429,7 @@ For the full guide with worked examples, see [Deployment locks](/security/deploy
 | `Beacon:Mcp:ForbidRowDataToLlm` | Unset: `true` (no sample values, value grounding or eval judge). `false` fails startup |
 | `Beacon:Mcp:Ceilings:MaxRowLimit`, `StatementTimeoutSeconds`, `MaxResultBytes`, `MaxConcurrentQueriesPerKey` | Unset: the built-in MCP settings defaults (1,000 rows, 30 s, 262,144 bytes, 4 queries per key), so an Admin cannot raise them. A value the host sets is kept |
 | `Beacon:Retention:Locked` | Unset: `true`, so `Beacon:Retention:Days`, `ContentDays`, every target and `Beacon:Mcp:Audit:RetentionDays` must be configured above zero (see [Data retention](#data-retention-beaconretention)). `false` fails startup. The profile sets no window itself: nothing is deleted that the host did not configure |
-| `Beacon:RateLimits:*:PermitLimit` (`Login`, `Api`, `Anonymous`, `Mcp`, `Ask`) and `Beacon:RateLimits:Lockout` | Already on by default; a limit of `0`, or the lockout turned off, fails startup (see [Request limits](#request-limits)). The break-glass delay (`BreakGlassThrottle`) is not required: it would let anyone who knows the name keep the emergency account delayed |
+| `Beacon:RateLimits:*:PermitLimit` (`Login`, `Api`, `Anonymous`, `Mcp`, `Ask`, `Feedback`) and `Beacon:RateLimits:Lockout` | Already on by default; a limit of `0`, or the lockout turned off, fails startup (see [Request limits](#request-limits)). The break-glass delay (`BreakGlassThrottle`) is not required: it would let anyone who knows the name keep the emergency account delayed |
 | `Beacon:Audit:Required`, `Beacon:Audit:ExecutionLog:Required` | Unset: `true` (a sign-in whose audit event cannot be written gets no session; a statement whose execution log row cannot be written does not run). `false` fails startup |
 | `Beacon:Authentication:Cookie:SecureAlways` | Unset: `true` (the session cookie always carries the Secure flag). `false` fails startup |
 | `Beacon:UserManagement:MinimumPasswordLength` | Unset: `12`. A value below 12 fails startup |

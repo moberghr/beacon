@@ -39,7 +39,7 @@ public class SignalIdSurfacingTests
 
         var service = new McpSignalService(factory.Object, settings.Object, NullLogger<McpSignalService>.Instance);
 
-        var result = await service.RecordSignalAsync(signal, CancellationToken.None);
+        var result = await service.RecordSignalAsync(signal, null, CancellationToken.None);
 
         result.Should().Be(assignedId, "the persisted signal's DB-assigned id is returned for the ask tool to surface");
         context.Added.Should().ContainSingle().Which.Should().BeSameAs(signal);
@@ -60,7 +60,7 @@ public class SignalIdSurfacingTests
 
         var service = new McpSignalService(factory.Object, settings.Object, NullLogger<McpSignalService>.Instance);
 
-        var result = await service.RecordSignalAsync(signal, CancellationToken.None);
+        var result = await service.RecordSignalAsync(signal, null, CancellationToken.None);
 
         result.Should().BeNull("no signal is persisted when learning is disabled, so there is no id to surface");
         factory.Verify(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()), Times.Never);

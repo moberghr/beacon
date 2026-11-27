@@ -30,7 +30,7 @@ internal static class EvalEndpoints
 
         // The answer says whether the corrected SQL was kept, and why not.
         eval.MapPost("/feedback", (RecordQueryFeedbackBody body, IMediator m, CancellationToken ct) =>
-                m.Send(new RecordQueryFeedbackCommand(body.SignalId, body.Verdict, body.CorrectedSql, body.Note), ct))
+                m.Send(new RecordQueryFeedbackCommand(body.SignalId, body.Verdict, body.CorrectedSql, body.Note, body.Reason), ct))
             .WithName("RecordQueryFeedback");
 
         eval.MapGet("/golden", (
@@ -105,6 +105,6 @@ internal static class EvalEndpoints
 /// <param name="ReviewedSqlHash">The candidate's <c>sqlHash</c> from the golden candidates list, as reviewed.</param>
 /// <param name="Notes">Notes stored on the golden case.</param>
 internal sealed record PromoteSignalToGoldenBody(int SignalId, string ReviewedSqlHash, string? Notes);
-internal sealed record RecordQueryFeedbackBody(int SignalId, McpUserVerdict Verdict, string? CorrectedSql, string? Note);
+internal sealed record RecordQueryFeedbackBody(int SignalId, McpUserVerdict Verdict, string? CorrectedSql, string? Note, McpFeedbackReason? Reason = null);
 internal sealed record RunEvalBody(int? ProjectId);
 internal sealed record UpdateGoldenCaseBody(string? Question, string? GoldSql, bool? IsActive, string? Notes);

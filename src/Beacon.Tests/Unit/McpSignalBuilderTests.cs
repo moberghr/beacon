@@ -43,6 +43,47 @@ public class McpSignalBuilderTests
         new McpSignalBuilder().SetQuestion("q").Build().CandidateSqlHash.Should().BeNull();
     }
 
+    // SC6: the MCP caller's hash reaches the signal; a caller without one leaves it null.
+    [TestCase("9f2c1ab0", "9f2c1ab0")]
+    [TestCase(null, null)]
+    [TestCase("", null)]
+    public void Build_WritesTheCallerHash(string? callerHash, string? expected)
+    {
+        var signal = new McpSignalBuilder()
+            .SetTool("query")
+            .SetQuestion("q")
+            .SetCallerHash(callerHash)
+            .Build();
+
+        signal.CallerHash.Should().Be(expected);
+    }
+
+    // The requested parent is read from the builder for the signal service to verify; it never sits on the built entity.
+    [Test]
+    public void Build_KeepsTheRequestedParentOffTheEntity()
+    {
+        var builder = new McpSignalBuilder()
+            .SetTool("query")
+            .SetQuestion("q")
+            .SetRequestedParent(812);
+
+        builder.RequestedParentId.Should().Be(812);
+        var signal = builder.Build();
+        signal.ParentSignalId.Should().BeNull("the unverified signal_id is never put on the entity's parent link");
+        signal.IsEditedRerun.Should().BeFalse("the builder never decides whether the SQL was edited");
+    }
+
+    [Test]
+    public void Build_WithoutRequestedParent_CarriesNone()
+    {
+        var builder = new McpSignalBuilder()
+            .SetTool("query")
+            .SetQuestion("q");
+
+        builder.RequestedParentId.Should().BeNull();
+        builder.Build().ParentSignalId.Should().BeNull();
+    }
+
     [Test]
     public void SetColumnsUsed_EmptyList_StaysNull()
     {

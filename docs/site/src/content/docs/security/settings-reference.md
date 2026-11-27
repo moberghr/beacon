@@ -111,6 +111,8 @@ Each limit under `Beacon:RateLimits` is a window with two keys. `PermitLimit` is
 | `Beacon:RateLimits:Mcp:WindowSeconds` | int | `60` | 1 to 3600 | Window of the MCP limit. | not judged |
 | `Beacon:RateLimits:Ask:PermitLimit` | int | `10` | 0 to 100000 | Calls of the `ask` tool (MCP and playground) per caller. | requires greater than 0 |
 | `Beacon:RateLimits:Ask:WindowSeconds` | int | `60` | 1 to 3600 | Window of the `ask` limit. | not judged |
+| `Beacon:RateLimits:Feedback:PermitLimit` | int | `30` | 0 to 100000 | Calls of the `feedback` tool (MCP and playground) per caller. | requires greater than 0 |
+| `Beacon:RateLimits:Feedback:WindowSeconds` | int | `60` | 1 to 3600 | Window of the `feedback` limit. | not judged |
 | `Beacon:RateLimits:MaxPartitions` | int | `10000` | 100 to 1000000 | The most callers or addresses each limit tracks in memory. | not judged |
 | `Beacon:RateLimits:Lockout:Enabled` | bool | `true` | `true`, `false` | Locks an internal user after repeated wrong passwords. | requires on (with `MaxFailedAttempts` above 0) |
 | `Beacon:RateLimits:Lockout:MaxFailedAttempts` | int | `5` | 0 to 100 | Wrong passwords in a row before the lock; 0 turns the lockout off. | requires greater than 0 |

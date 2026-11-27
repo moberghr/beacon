@@ -511,7 +511,8 @@ public partial class McpAuditTelemetryTests
                 x.GetRequiredService<IProjectContext>(),
                 x.GetRequiredService<McpToolCallRecorder>(),
                 mediator.Object,
-                TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted)));
+                TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted),
+                x));
 
             return services.BuildServiceProvider();
         }

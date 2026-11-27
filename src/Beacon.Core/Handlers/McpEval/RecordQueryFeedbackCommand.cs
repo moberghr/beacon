@@ -23,6 +23,9 @@ namespace Beacon.Core.Handlers.McpEval;
 /// the corrected SQL; the SQL is not kept — and the result says so, with the reason
 /// (<see cref="RecordQueryFeedbackResult"/>) — when the project's content retention does not allow it, when the answer did
 /// not run on a single data source (there is no dialect to check it in), or when the check refuses it.
+/// The reason code (<see cref="Data.Entities.McpQuerySignal.FeedbackReason"/>) is stored only with an
+/// <see cref="McpUserVerdict.Incorrect"/> verdict; any other verdict stores none, and an incorrect verdict without a reason
+/// clears an earlier one (the verdict is recorded as given). A value outside <see cref="McpFeedbackReason"/> is refused.
 /// Throws (§9.8) when the signal is missing. Explicit feedback content
 /// (<see cref="Data.Entities.McpQuerySignal.UserCorrectedSql"/>, <see cref="Data.Entities.McpQuerySignal.FeedbackNote"/>)
 /// is persisted only when the project's content-retention decision allows it. Only the signal's own caller, a
@@ -54,6 +57,11 @@ internal sealed class RecordQueryFeedbackHandler(
             throw new BeaconValidationException($"The note is longer than {InputLimits.FeedbackNoteMaxLength} characters.");
         }
 
+        if (request.Reason != null && !Enum.IsDefined(request.Reason.Value))
+        {
+            throw new BeaconValidationException("The reason is not one of the feedback reasons.");
+        }
+
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
 
         var signal = await context.McpQuerySignals
@@ -78,6 +86,7 @@ internal sealed class RecordQueryFeedbackHandler(
         }
 
         signal.UserVerdict = request.Verdict;
+        signal.FeedbackReason = request.Verdict == McpUserVerdict.Incorrect ? request.Reason : null;
         signal.UserCorrectedSql = corrected.Sql;
         signal.FeedbackNote = decision.AllowExplicitFeedbackContent ? request.Note : null;
         signal.FeedbackByUserId = actor.BeaconUserId;
@@ -189,7 +198,7 @@ internal sealed class RecordQueryFeedbackHandler(
     }
 }
 
-public record RecordQueryFeedbackCommand(int SignalId, McpUserVerdict Verdict, string? CorrectedSql = null, string? Note = null) : IRequest<RecordQueryFeedbackResult>, IProjectAuthorizedRequest
+public record RecordQueryFeedbackCommand(int SignalId, McpUserVerdict Verdict, string? CorrectedSql = null, string? Note = null, McpFeedbackReason? Reason = null) : IRequest<RecordQueryFeedbackResult>, IProjectAuthorizedRequest
 {
     IEnumerable<ProjectCheck> IProjectAuthorizedRequest.ProjectChecks =>
     [
