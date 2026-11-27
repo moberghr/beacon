@@ -345,7 +345,7 @@ public class BeaconHostChainTests
 
     private sealed class HostEvalService : IMcpEvalService
     {
-        public Task<int> StartRunAsync(int? projectId, int? userId, CancellationToken ct) => Task.FromResult(0);
+        public Task<int> StartRunAsync(int? projectId, int? userId, Beacon.Core.Data.Enums.McpEvalRunTrigger trigger, CancellationToken ct) => Task.FromResult(0);
 
         public Task RunAsync(int runId, CancellationToken ct) => Task.CompletedTask;
 

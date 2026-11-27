@@ -17,4 +17,8 @@ public interface IJobService
     Task ReindexDocChunks(CancellationToken cancellationToken);
 
     Task RunMcpEval(int runId, CancellationToken cancellationToken);
+
+    // The nightly scheduled eval: one Scheduled run per project whose effective EnableScheduledEval is on and that has an
+    // active golden case, one project after another.
+    Task RunScheduledEvals(CancellationToken cancellationToken);
 }

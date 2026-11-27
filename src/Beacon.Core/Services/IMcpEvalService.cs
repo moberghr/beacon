@@ -1,3 +1,5 @@
+using Beacon.Core.Data.Enums;
+
 namespace Beacon.Core.Services;
 
 /// <summary>
@@ -13,10 +15,12 @@ public interface IMcpEvalService
     /// <summary>
     /// Creates a new eval run row (status "Running") for the project and returns its id; a null
     /// <paramref name="projectId"/> is refused (<see cref="InvalidOperationException"/>) and creates nothing.
-    /// The actual case-by-case execution happens in <see cref="RunAsync"/>, typically enqueued as a
-    /// background job so the API call returns immediately.
+    /// <paramref name="trigger"/> is stored on the run: <see cref="McpEvalRunTrigger.Manual"/> for a run a person
+    /// started (<paramref name="userId"/>), <see cref="McpEvalRunTrigger.Scheduled"/> for the nightly scheduled eval,
+    /// which has no requester. The actual case-by-case execution happens in <see cref="RunAsync"/>, typically enqueued
+    /// as a background job so the API call returns immediately.
     /// </summary>
-    Task<int> StartRunAsync(int? projectId, int? userId, CancellationToken ct);
+    Task<int> StartRunAsync(int? projectId, int? userId, McpEvalRunTrigger trigger, CancellationToken ct);
 
     /// <summary>
     /// Executes the run: for each active golden case, generates SQL, executes both the gold and the

@@ -1,4 +1,5 @@
 using MediatR;
+using Beacon.Core.Data.Enums;
 using Beacon.Core.Services;
 using Beacon.Core.Worker;
 using Beacon.Core.Authorization;
@@ -25,7 +26,11 @@ internal sealed class RunEvalHandler(IMcpEvalService evalService, IBeaconSchedul
             throw new InvalidOperationException(ProjectRequiredMessage);
         }
 
-        var runId = await evalService.StartRunAsync(request.ProjectId, request.TriggeredByUserId, cancellationToken);
+        var runId = await evalService.StartRunAsync(
+            request.ProjectId,
+            request.TriggeredByUserId,
+            McpEvalRunTrigger.Manual,
+            cancellationToken);
         await scheduler.EnqueueMcpEval(runId);
 
         return new RunEvalResult(runId);

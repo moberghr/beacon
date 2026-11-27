@@ -62,7 +62,7 @@ internal sealed class McpEvalService(
         return triggeredByUserId?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "eval-run";
     }
 
-    public async Task<int> StartRunAsync(int? projectId, int? userId, CancellationToken ct)
+    public async Task<int> StartRunAsync(int? projectId, int? userId, McpEvalRunTrigger trigger, CancellationToken ct)
     {
         // Golden cases are project-scoped grounding (§1.12): a run without a project is refused before it is created.
         if (projectId == null)
@@ -79,7 +79,8 @@ internal sealed class McpEvalService(
             ProjectId = projectId,
             TriggeredByUserId = userId,
             Status = "Running",
-            JudgeEnabled = JudgeAllowed(settings)
+            JudgeEnabled = JudgeAllowed(settings),
+            Trigger = trigger
         };
 
         context.McpEvalRuns.Add(run);
