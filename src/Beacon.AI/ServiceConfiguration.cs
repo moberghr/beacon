@@ -196,7 +196,11 @@ public static class ServiceConfiguration
         // measurably help against the golden set; executes SQL read-only via IMcpEvalService (no new path).
         services.TryAddTransient<Core.Services.IPatternReplayVerifier, Services.Learning.PatternReplayVerifier>();
 
-        // MCP Learning Aggregation (resolves the optional ILessonExtractor + IPatternReplayVerifier via its ctor).
+        // Per-project knowledge item counters, recomputed by the learning aggregation from the project's ask signals.
+        services.TryAddTransient<Core.Services.IKnowledgeItemStatsService, Services.Learning.KnowledgeItemStatsService>();
+
+        // MCP Learning Aggregation (resolves the optional ILessonExtractor, IPatternReplayVerifier and
+        // IKnowledgeItemStatsService via its ctor).
         services.TryAddTransient<Core.Services.IMcpLearningAggregationService, Services.Learning.McpLearningAggregationService>();
 
         // Writes the DB-managed pgvector column that the PostgreSQL nearest-neighbor search orders by

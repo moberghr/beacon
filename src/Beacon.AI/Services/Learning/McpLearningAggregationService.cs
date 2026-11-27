@@ -15,7 +15,8 @@ internal sealed class McpLearningAggregationService(
     IGroundingSqlCheck groundingSqlCheck,
     ILogger<McpLearningAggregationService> logger,
     ILessonExtractor? lessonExtractor = null,
-    IPatternReplayVerifier? replayVerifier = null) : IMcpLearningAggregationService
+    IPatternReplayVerifier? replayVerifier = null,
+    IKnowledgeItemStatsService? knowledgeItemStats = null) : IMcpLearningAggregationService
 {
     // The tool of a signal that answers a natural-language question.
     private const string AskTool = "ask";
@@ -99,6 +100,10 @@ internal sealed class McpLearningAggregationService(
             {
                 logger.LogWarning("Failed to aggregate patterns for project {ProjectId} ({Failure})", projectId, FailureCodes.Describe(ex));
             }
+
+            // The counters come from the project's signals, not from its patterns: they are recomputed whether or not the
+            // pattern aggregation above succeeded (a project with learning switched off was skipped by the continue).
+            await RecomputeKnowledgeItemStatsAsync(projectId, ct);
         }
 
         // LLM-primary path health: if the extractor was tried at least once but returned null EVERY time,
@@ -198,6 +203,33 @@ internal sealed class McpLearningAggregationService(
         // Replay-verification gate (§ Architecture ⑥): candidates were upserted as NeedsEvidence above;
         // promote only those that MEASURABLY help against the golden set. Confidence alone never promotes.
         await PromoteVerifiedCandidatesAsync(context, projectId, settings, extraction, ct);
+    }
+
+    // A failure to recompute a project's knowledge item counters is logged by ids only and leaves the pattern aggregation
+    // as it is; the caller's cancellation still unwinds the run. Without the stats service (a test double of the job), there
+    // are no counters to recompute.
+    private async Task RecomputeKnowledgeItemStatsAsync(int projectId, CancellationToken ct)
+    {
+        if (knowledgeItemStats is null)
+        {
+            return;
+        }
+
+        try
+        {
+            await knowledgeItemStats.RecomputeAsync(projectId, ct);
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                "Failed to recompute the knowledge item stats for project {ProjectId} ({Failure})",
+                projectId,
+                FailureCodes.Describe(ex));
+        }
     }
 
     // Promotes NeedsEvidence candidates for the project via the replay verifier: a candidate becomes
