@@ -350,12 +350,17 @@ public class DocumentationCurationEffectTests
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("Patch 99 not found");
     }
 
-    // A patch the learning job proposed from a pattern that failed its last replay, or that a person rejected, is refused
-    // and stays proposed, whatever its target: nothing is written and nothing is recorded.
+    // A patch the learning job proposed from a pattern that is not approved (rejected, pending, waiting for evidence), or
+    // whose last replay failed (also when a person approved it despite that), is refused and stays proposed, whatever its
+    // target: nothing is written and nothing is recorded.
     [TestCase(McpDocPatchTarget.ColumnDescription, "public.orders.status", false, McpPatternStatus.Approved)]
+    [TestCase(McpDocPatchTarget.ColumnDescription, "public.orders.status", false, McpPatternStatus.AutoApproved)]
     [TestCase(McpDocPatchTarget.TableDescription, "public.orders", true, McpPatternStatus.Rejected)]
     [TestCase(McpDocPatchTarget.DocumentationSection, "Overview", null, McpPatternStatus.Rejected)]
     [TestCase(McpDocPatchTarget.DocumentationSection, "Overview", false, McpPatternStatus.NeedsEvidence)]
+    [TestCase(McpDocPatchTarget.ColumnDescription, "public.orders.status", null, McpPatternStatus.NeedsEvidence)]
+    [TestCase(McpDocPatchTarget.TableDescription, "public.orders", true, McpPatternStatus.Pending)]
+    [TestCase(McpDocPatchTarget.DocumentationSection, "Overview", null, McpPatternStatus.Pending)]
     public async Task APatchFromAPatternThatFailedItsReplayOrWasRejected_IsRefused_AndStaysProposed(
         McpDocPatchTarget target, string targetIdentifier, bool? lastReplayPassed, McpPatternStatus patternStatus)
     {
@@ -375,12 +380,13 @@ public class DocumentationCurationEffectTests
         audit.Events.Should().BeEmpty();
     }
 
-    // A pattern whose replay passed, or that was never replayed, and is not rejected leaves its patch to apply as before.
+    // An approved pattern (by a person or by its replay) whose replay passed, or that was never replayed, leaves its patch to
+    // apply as before.
     [TestCase(McpDocPatchTarget.ColumnDescription, "public.orders.status", true, McpPatternStatus.Approved)]
-    [TestCase(McpDocPatchTarget.ColumnDescription, "public.orders.status", null, McpPatternStatus.NeedsEvidence)]
+    [TestCase(McpDocPatchTarget.ColumnDescription, "public.orders.status", null, McpPatternStatus.Approved)]
     [TestCase(McpDocPatchTarget.DocumentationSection, "Overview", null, McpPatternStatus.AutoApproved)]
-    [TestCase(McpDocPatchTarget.TableDescription, "public.orders", true, McpPatternStatus.Pending)]
-    public async Task APatchFromAPatternThatPassedOrWasNeverReplayed_Applies(
+    [TestCase(McpDocPatchTarget.TableDescription, "public.orders", true, McpPatternStatus.AutoApproved)]
+    public async Task APatchFromAnApprovedPatternThatPassedOrWasNeverReplayed_Applies(
         McpDocPatchTarget target, string targetIdentifier, bool? lastReplayPassed, McpPatternStatus patternStatus)
     {
         var store = new Store();

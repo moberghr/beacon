@@ -87,6 +87,19 @@ internal sealed class McpLearningAggregationService(
                 .Select(x => x.ProjectId!.Value)
                 .Distinct()
                 .ToListAsync(ct);
+
+            // A project whose signals were all purged still holds the counters they gave: it gets its recompute too, which
+            // deletes them. Without the stats service there are no counters to recompute.
+            if (knowledgeItemStats is not null)
+            {
+                var statsProjectIds = await context.McpKnowledgeItemStats
+                    .Select(x => x.ProjectId)
+                    .Distinct()
+                    .ToListAsync(ct);
+                projectIds = projectIds
+                    .Union(statsProjectIds)
+                    .ToList();
+            }
         }
 
         // Tallies LLM-extraction attempts vs. null results across every cluster this run so a persistently
@@ -120,8 +133,10 @@ internal sealed class McpLearningAggregationService(
                 logger.LogWarning("Failed to aggregate patterns for project {ProjectId} ({Failure})", projectId, FailureCodes.Describe(ex));
             }
 
-            // The counters come from the project's signals, not from its patterns: they are recomputed whether or not the
-            // pattern aggregation above succeeded (a project with learning switched off was skipped by the continue).
+            // The counters are recomputed after the aggregation, whether or not it succeeded, for every project with learning
+            // on, including one that only holds counters (its aggregation finds no signals and stops). A project with
+            // learning switched off was skipped by the continue: neither aggregated nor recomputed, its counters stay as
+            // they are, and retrieval does not read them while learning is off.
             await RecomputeKnowledgeItemStatsAsync(projectId, ct);
         }
 
@@ -258,9 +273,10 @@ internal sealed class McpLearningAggregationService(
     // is a separate path and untouched. A candidate whose confidence is below the project's LearningAutoApproveThreshold
     // is not replayed (a confidence equal to it is) and stays NeedsEvidence. Like a human approval, a candidate's example SQL
     // passes the grounding SQL check again first (stored without comments); a candidate whose SQL the check refuses is not
-    // replayed and stays NeedsEvidence, counted and logged by id. A replay that measured at least one relevant case stores
-    // its verdict (LastReplayPassed) with LastVerifiedAt, pass or fail; one that measured none (no relevant golden case, or
-    // every one errored) is no verdict and stores nothing. Internal so it can be unit-tested in isolation.
+    // replayed and stays NeedsEvidence, counted and logged by id. A passed replay that measured at least one relevant case
+    // stores its verdict (LastReplayPassed) with LastVerifiedAt; a failed one stores it only when no relevant case errored.
+    // One that measured none (no relevant golden case, or every one errored), or failed with errored cases, is no verdict
+    // and stores nothing. Internal so it can be unit-tested in isolation.
     internal async Task PromoteVerifiedCandidatesAsync(
         BeaconContext context, int projectId, McpSettingsData settings, ExtractionStats? extraction, CancellationToken ct)
     {
@@ -341,6 +357,13 @@ internal sealed class McpLearningAggregationService(
                 // A replay that measured no relevant case (none, or every one errored) is no verdict on the candidate:
                 // nothing is stored, and it stays NeedsEvidence.
                 if (verdict.RelevantCases - verdict.Errored <= 0)
+                {
+                    continue;
+                }
+
+                // A failed replay with errored cases is no failed verdict either: the cases that did not run might have
+                // passed. Nothing is stored, and the candidate stays NeedsEvidence for the next run.
+                if (!verdict.Passed && verdict.Errored > 0)
                 {
                     continue;
                 }
@@ -983,7 +1006,8 @@ internal sealed class McpLearningAggregationService(
     // check refuses is not stored (a new pattern gets none, an existing one keeps the example it has), counted and logged
     // by identifiers only (§1.11). A decision binds to the content it was made on: a pattern a person approved or
     // rejected keeps its content, question and example SQL (only its statistics refresh), and an auto-approved pattern
-    // whose content changes goes back to NeedsEvidence, for the replay gate to measure again. Content is compared exactly
+    // whose content changes goes back to NeedsEvidence, for the replay gate to measure again; any content change clears
+    // the stored replay verdict (LastReplayPassed, LastVerifiedAt), which measured the old content. Content is compared exactly
     // but for the statistics the detectors write into their own sentences (WithoutCounts), and SQL exactly but for its
     // comments and the whitespace between its tokens (SameSql), so a count that moves, or SQL stored before comments were
     // removed, is no change; a changed number, literal or identifier is. Every write stores the content's digest with it
@@ -1062,7 +1086,9 @@ internal sealed class McpLearningAggregationService(
             || !SameSql(existing.ExampleSql, refreshedSql, check?.Dialect);
 
         // Promotion is decided by the replay-verification gate, NOT confidence: a refresh leaves
-        // Pending/NeedsEvidence as they are, and sends an auto-approval whose content changed back for evidence.
+        // Pending/NeedsEvidence as they are, and sends an auto-approval whose content changed back for evidence. A replay
+        // verdict measured the content it was written with: changed content clears it (and its time) in the same statement,
+        // unchanged content keeps both.
         var demoted = contentChanged && existing.Status == McpPatternStatus.AutoApproved;
         var status = demoted ? McpPatternStatus.NeedsEvidence : existing.Status;
         var refreshedHash = GroundingContentHash.OfPattern(content, refreshedQuestion, refreshedSql);
@@ -1070,15 +1096,22 @@ internal sealed class McpLearningAggregationService(
             .Where(x => x.Id == existing.Id)
             .Where(x => x.Status == existing.Status)
             .ExecuteUpdateAsync(
-                x => x
-                    .SetProperty(y => y.PatternContent, content)
-                    .SetProperty(y => y.ExampleQuestion, refreshedQuestion)
-                    .SetProperty(y => y.ExampleSql, refreshedSql)
-                    .SetProperty(y => y.ContentHash, refreshedHash)
-                    .SetProperty(y => y.SignalCount, signalCount)
-                    .SetProperty(y => y.Confidence, confidence)
-                    .SetProperty(y => y.LastRefreshedAt, refreshedAt)
-                    .SetProperty(y => y.Status, status),
+                x =>
+                {
+                    x.SetProperty(y => y.PatternContent, content);
+                    x.SetProperty(y => y.ExampleQuestion, refreshedQuestion);
+                    x.SetProperty(y => y.ExampleSql, refreshedSql);
+                    x.SetProperty(y => y.ContentHash, refreshedHash);
+                    x.SetProperty(y => y.SignalCount, signalCount);
+                    x.SetProperty(y => y.Confidence, confidence);
+                    x.SetProperty(y => y.LastRefreshedAt, refreshedAt);
+                    x.SetProperty(y => y.Status, status);
+                    if (contentChanged)
+                    {
+                        x.SetProperty(y => y.LastReplayPassed, (bool?)null);
+                        x.SetProperty(y => y.LastVerifiedAt, (DateTime?)null);
+                    }
+                },
                 ct);
         if (written > 0 && demoted)
         {
@@ -1177,7 +1210,8 @@ internal sealed class McpLearningAggregationService(
 
         // Patches are proposed project by project, each from that project's own patterns (§1.12): a data source shared
         // by two projects never carries one project's learned patterns into the other project's patches. A patch names the
-        // pattern it is proposed from (SourcePatternId) and is only proposed: a person applies it, never this method.
+        // pattern it is proposed from (SourcePatternId) and is only proposed: a person applies it, never this method. A
+        // project whose effective settings switch learning off gets no proposals, as it gets no aggregation.
         var projectIds = await context.McpLearnedPatterns
             .Where(x => x.Status == McpPatternStatus.Approved || x.Status == McpPatternStatus.AutoApproved)
             .Where(x => x.PatternType == McpPatternType.SchemaCorrection || x.PatternType == McpPatternType.DocumentationGap)
@@ -1188,6 +1222,12 @@ internal sealed class McpLearningAggregationService(
         var patchCount = 0;
         foreach (var projectId in projectIds)
         {
+            var projectSettings = await settingsProvider.GetEffectiveSettingsAsync(projectId, ct);
+            if (!projectSettings.EnableLearning)
+            {
+                continue;
+            }
+
             patchCount += await AddDocumentationPatchesForProjectAsync(context, projectId, ct);
         }
 

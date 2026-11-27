@@ -90,6 +90,58 @@ public class KnowledgeItemBoostInjectionTests
         patterns.Select(x => x.Id).Should().Equal(801, 802, 803);
     }
 
+    // With the project's learning switched off the learning job no longer recomputes the counters, so they may be stale:
+    // the boost, though on, reads no stats and every block keeps its retrieval order.
+    [Test]
+    public async Task GoldenCases_BoostOnButLearningOff_ReadsNoStats_AndKeepTheSimilarityOrder()
+    {
+        var embedder = new FakeEmbeddingService();
+        var scenario = await GoldenScenarioAsync(embedder);
+        var context = new BoostTestContext(
+            scenario.Embeddings,
+            cases: scenario.Cases,
+            stats: [Stat(ProjectId, McpKnowledgeItemKind.GoldenCase, scenario.Order[2], helpful: 40)]);
+        var settings = GoldenSettings(boost: true);
+        settings.EnableLearning = false;
+
+        var block = await Service(embedder, context, settings).BuildGoldenExemplarBlockWithItemsAsync(DataSourceId, ProjectId, Question, settings, Dialect, CancellationToken.None);
+
+        context.StatsReads.Should().Be(0, "with learning off the stats table is not read");
+        block.Items.Select(x => x.ItemId).Should().Equal(scenario.Order);
+        CaseIdsIn(block.Text).Should().Equal(scenario.Order);
+    }
+
+    [Test]
+    public async Task LearnedPatterns_BoostOnButLearningOff_ReadsNoStats_AndKeepTheRanking()
+    {
+        var context = new BoostTestContext([], patterns: RankedPatterns(), stats: [Stat(ProjectId, McpKnowledgeItemKind.LearnedPattern, 803, helpful: 40)]);
+        var settings = PatternSettings(boost: true);
+        settings.EnableLearning = false;
+
+        var patterns = await Service(new FakeEmbeddingService(), context, settings).GetRelevantPatternsAsync(
+            DataSourceId, ProjectId, ["public.orders"], Question, maxPatterns: 10, budgetChars: 1_500, Dialect, CancellationToken.None);
+
+        context.StatsReads.Should().Be(0);
+        patterns.Select(x => x.Id).Should().Equal(801, 802, 803);
+    }
+
+    // A single selected item has nothing to be reordered against: the stats are not read.
+    [Test]
+    public async Task LearnedPatterns_BoostOn_ASinglePattern_ReadsNoStats()
+    {
+        var context = new BoostTestContext(
+            [],
+            patterns: RankedPatterns().Take(1).ToList(),
+            stats: [Stat(ProjectId, McpKnowledgeItemKind.LearnedPattern, 801, helpful: 40)]);
+        var settings = PatternSettings(boost: true);
+
+        var patterns = await Service(new FakeEmbeddingService(), context, settings).GetRelevantPatternsAsync(
+            DataSourceId, ProjectId, ["public.orders"], Question, maxPatterns: 10, budgetChars: 1_500, Dialect, CancellationToken.None);
+
+        context.StatsReads.Should().Be(0, "one item is never reordered, so its stats are not read");
+        patterns.Select(x => x.Id).Should().Equal(801);
+    }
+
     // The whole ask context: with the boost off, stats that would reorder it change nothing, byte for byte, and are not read.
     [Test]
     public async Task SmartContext_BoostOff_IsByteIdenticalToAContextWithoutStats_AndReadsNone()
@@ -290,6 +342,51 @@ public class KnowledgeItemBoostInjectionTests
             .Select(x => (x.ItemId, x.Rank))
             .Should()
             .Equal((801, 1), (803, 2), (802, 3));
+    }
+
+    // With semantic retrieval on the patterns take the exemplar-similarity order, set here to 803, 802, 801 (the reverse
+    // of the overlap ranking, so the overlap fallback cannot pass this test); 801's evidence moves it up one place.
+    [Test]
+    public async Task LearnedPatterns_BoostOn_SemanticRetrieval_ReordersTheSemanticRanking()
+    {
+        var embedder = new FakeEmbeddingService();
+        var queryVector = await QueryVectorAsync(embedder);
+        var vectors = new List<float[]>();
+        foreach (var text in new[] { "refunded orders count", "revenue by region", "late shipments by carrier" })
+        {
+            vectors.Add(await embedder.EmbedAsync(text, CancellationToken.None));
+        }
+
+        var nearestFirst = vectors
+            .OrderByDescending(x => EmbeddingCodec.Cosine(queryVector, x))
+            .ToList();
+        var embeddings = new List<McpEmbedding>
+        {
+            NewEmbedding(803, McpEmbeddingOwnerType.Exemplar, 1, nearestFirst[0], ProjectId),
+            NewEmbedding(802, McpEmbeddingOwnerType.Exemplar, 2, nearestFirst[1], ProjectId),
+            NewEmbedding(801, McpEmbeddingOwnerType.Exemplar, 3, nearestFirst[2], ProjectId)
+        };
+        var settings = PatternSettings(boost: true);
+        settings.EnableSemanticRetrieval = true;
+        settings.ExemplarTopK = 5;
+        var withoutStats = new BoostTestContext(embeddings, patterns: RankedPatterns());
+        var context = new BoostTestContext(
+            embeddings,
+            patterns: RankedPatterns(),
+            stats:
+            [
+                Stat(ProjectId, McpKnowledgeItemKind.LearnedPattern, 801, helpful: 40),
+                Stat(OtherProjectId, McpKnowledgeItemKind.LearnedPattern, 802, helpful: 1e6)
+            ]);
+
+        var semantic = await Service(embedder, withoutStats, settings).GetRelevantPatternsAsync(
+            DataSourceId, ProjectId, ["public.orders"], Question, maxPatterns: 10, budgetChars: 1_500, Dialect, CancellationToken.None);
+        var patterns = await Service(embedder, context, settings).GetRelevantPatternsAsync(
+            DataSourceId, ProjectId, ["public.orders"], Question, maxPatterns: 10, budgetChars: 1_500, Dialect, CancellationToken.None);
+
+        semantic.Select(x => x.Id).Should().Equal([803, 802, 801], "without stats the semantic ranking stands");
+        context.StatsReads.Should().Be(1);
+        patterns.Select(x => x.Id).Should().Equal(803, 801, 802);
     }
 
     // The boost orders the ranked patterns before the budget, which then keeps the first ones as before: a pattern of

@@ -9,6 +9,8 @@ using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Metadata;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Models;
+using Beacon.Core.Services;
 using Beacon.Tests.Common;
 
 namespace Beacon.Tests.Unit;
@@ -116,6 +118,27 @@ public class DocumentationPatchProjectScopingTests
         added.Should().ContainSingle().Which.ProjectId.Should().Be(ProjectA);
     }
 
+    // A project whose effective settings switch learning off gets no proposals (as it gets no aggregation): only the
+    // project with learning on is proposed a patch, and the other project's patterns are never read.
+    [Test]
+    public async Task GenerateDocumentationPatches_AProjectWithLearningOff_GetsNone()
+    {
+        var patterns = new List<McpLearnedPattern> { Correction(ProjectA, ContentA), Correction(ProjectB, ContentB) };
+        var added = new List<McpDocumentationPatch>();
+        var settings = SettingsProviderMock.Create(projectSettings: new Dictionary<int, McpSettingsData>
+        {
+            [ProjectB] = new() { EnableLearning = false }
+        });
+        var service = BuildService(new PatchContextFactory(patterns, [], added, [Link(ProjectA), Link(ProjectB)]), settings.Object);
+
+        await service.GenerateDocumentationPatchesAsync(CancellationToken.None);
+
+        var patch = added.Should().ContainSingle().Subject;
+        patch.ProjectId.Should().Be(ProjectA);
+        patch.ProposedContent.Should().Be(ContentA);
+        settings.Verify(x => x.GetEffectiveSettingsAsync(ProjectB, It.IsAny<CancellationToken>()), Times.Once());
+    }
+
     // The per-project link read carries the project and live-project predicates, and the pattern read the project and the
     // linked data sources, on both providers.
     [TestCase(false, "p.project_id = @projectId", "archived_time IS NULL", "m.project_id = @projectId", "m.data_source_id = ANY (@linkedDataSourceIds)")]
@@ -137,11 +160,11 @@ public class DocumentationPatchProjectScopingTests
         capture.CommandParameters[2].Values.Should().Contain(ProjectB);
     }
 
-    private static McpLearningAggregationService BuildService(IDbContextFactory<BeaconContext> factory)
+    private static McpLearningAggregationService BuildService(IDbContextFactory<BeaconContext> factory, IMcpSettingsProvider? settings = null)
     {
         return new McpLearningAggregationService(
             factory,
-            SettingsProviderMock.Create().Object,
+            settings ?? SettingsProviderMock.Create().Object,
             TestGroundingSqlChecks.PassThrough().Object,
             NullLogger<McpLearningAggregationService>.Instance,
             lessonExtractor: null,

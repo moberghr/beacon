@@ -100,6 +100,23 @@ public class KnowledgeItemStatsCalculatorTests
     }
 
     [Test]
+    public void Compute_OneCallersOwnVerdictAndImplicitOutcomes_ShareOneCapOfTwo()
+    {
+        // One own Correct verdict (1) and six unrated successes (6 x 0.25 = 1.5) of the same caller: 2.5, capped at 2.
+        var signals = Enumerable.Range(0, 6)
+            .Select(_ => Signal(callerHash: "caller-a"))
+            .Append(Signal(verdict: McpUserVerdict.Correct, callerHash: "caller-a"))
+            .ToList();
+
+        var score = KnowledgeItemStatsCalculator.Compute(signals).Should().ContainSingle().Subject;
+
+        score.HelpfulScore.Should().Be(2, "a caller's own verdicts and implicit outcomes share one cap");
+        score.HarmfulScore.Should().Be(0);
+        score.SignalCount.Should().Be(7);
+        score.CallerCount.Should().Be(1);
+    }
+
+    [Test]
     public void Compute_CuratorVerdictsOnOneCallersSignals_AddAtMostSix()
     {
         var signals = Enumerable.Range(0, 3)

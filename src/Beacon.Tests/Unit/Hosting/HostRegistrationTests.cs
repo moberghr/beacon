@@ -1,15 +1,18 @@
 using Beacon.AI;
 using Beacon.AI.Services.GitHub;
+using Beacon.AI.Services.Learning;
 using Beacon.Api;
 using Beacon.Core;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.HostData;
 using Beacon.Core.Mcp;
 using Beacon.Core.PostgreSql;
+using Beacon.Core.Services;
 using Beacon.Core.Worker;
 using Beacon.Gateway;
 using Beacon.MCP;
 using Beacon.Tests.Common;
+using System.Reflection;
 using FluentAssertions;
 using Microsoft.AspNetCore.Http;
 using Microsoft.AspNetCore.SignalR;
@@ -110,6 +113,30 @@ public class HostRegistrationTests
         Count<IUserIdProvider>(services).Should().Be(1);
         using var provider = services.BuildServiceProvider();
         provider.GetRequiredService<IUserIdProvider>().Should().BeOfType<HostUserIdProvider>();
+    }
+
+    // The learning job takes the knowledge item counters service as an optional constructor argument: resolved from the
+    // real AI registration it must receive one, or the job silently stops recomputing the counters.
+    [Test]
+    public void TheLearningAggregation_ResolvedFromTheAiRegistration_GetsTheKnowledgeItemStatsService()
+    {
+        var services = new ServiceCollection();
+        services.AddLogging();
+        services.AddBeaconServices(Configuration(), x => x.AddBeaconScheduler<NoOpScheduler>())
+            .UsePostgreSql("Host=localhost;Database=unused");
+        services.AddBeaconAI(Configuration());
+        using var provider = services.BuildServiceProvider(new ServiceProviderOptions { ValidateScopes = true });
+        using var scope = provider.CreateScope();
+
+        var aggregation = scope.ServiceProvider.GetRequiredService<IMcpLearningAggregationService>();
+
+        aggregation.Should().BeOfType<McpLearningAggregationService>();
+        var statsField = typeof(McpLearningAggregationService)
+            .GetFields(BindingFlags.Instance | BindingFlags.NonPublic)
+            .Should()
+            .ContainSingle(x => x.FieldType == typeof(IKnowledgeItemStatsService))
+            .Subject;
+        statsField.GetValue(aggregation).Should().BeOfType<KnowledgeItemStatsService>();
     }
 
     private static int Count<T>(IServiceCollection services) =>

@@ -230,6 +230,36 @@ public class GroundingConditionalWriteTranslationTests
         capture.CommandParameters[1].Values.Should().Contain(GroundingContentHash.OfPattern(Content, Question, Sql));
     }
 
+    // A refresh that changes the content clears the stored replay verdict and its time in the same conditional statement;
+    // one that changes nothing but counts leaves both columns out of it.
+    [TestCase(false, "older content", true, "last_replay_passed = NULL", "last_verified_at = NULL")]
+    [TestCase(true, "older content", true, "[m].[LastReplayPassed] = NULL", "[m].[LastVerifiedAt] = NULL")]
+    [TestCase(false, Content, false, "last_replay_passed", "last_verified_at")]
+    [TestCase(true, Content, false, "[LastReplayPassed]", "[LastVerifiedAt]")]
+    public async Task ARefresh_ClearsTheReplayVerdictOnlyWithAContentChange_Translates(
+        bool sqlServer, string storedContent, bool cleared, string verdictWritten, string timeWritten)
+    {
+        var capture = Capture(sqlServer)
+            .ThenRow(31, (int)McpPatternStatus.NeedsEvidence, storedContent, Question, Sql)
+            .ThenRowsAffected(1);
+
+        await Aggregation().DetectCommonQueriesAsync(
+            await capture.Factory().CreateDbContextAsync(), 1, 7, Signals(), new McpLearningAggregationService.ExtractionStats(), CancellationToken.None);
+
+        capture.Commands.Should().HaveCount(2, "the pattern, then its refresh: one statement");
+        var setClause = capture.Commands[1][..capture.Commands[1].LastIndexOf("WHERE", StringComparison.Ordinal)];
+        if (cleared)
+        {
+            setClause.Should().Contain(verdictWritten).And.Contain(timeWritten);
+        }
+        else
+        {
+            setClause.Should().NotContainAny(verdictWritten, timeWritten);
+        }
+
+        WhereClauseOf(capture.Commands[1]).Should().ContainAny("status = @", "[m].[Status] = @");
+    }
+
     // The value a command's WHERE compares `column` with: the parameter it names there.
     private static object? ComparedWith(SqlCapture capture, int command, string column)
     {

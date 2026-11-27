@@ -1274,13 +1274,14 @@ internal sealed partial class KnowledgeGraphService
     }
 
     // The bounded rank boost (KnowledgeItemBoost) over the items the project's retrieval selected, given in retrieval order.
-    // Off (EnableKnowledgeItemBoost, the default) the stats are not read and the items come back as they are. On, the stats
-    // rows of exactly these items are read once, of the caller's authorized project only (§1.12), never cached. A read that
-    // fails keeps the retrieval order and is logged by ids only (§1.11); cancellation propagates.
+    // Off (EnableKnowledgeItemBoost, the default), or with the project's learning switched off (the learning job no longer
+    // recomputes its counters, so they may be stale), the stats are not read and the items come back as they are. On, the
+    // stats rows of exactly these items are read once, of the caller's authorized project only (§1.12), never cached. A
+    // read that fails keeps the retrieval order and is logged by ids only (§1.11); cancellation propagates.
     private async Task<List<T>> BoostedAsync<T>(
         BeaconContext context, McpSettingsData settings, int projectId, McpKnowledgeItemKind kind, List<T> items, Func<T, int> idOf, CancellationToken ct)
     {
-        if (!settings.EnableKnowledgeItemBoost || items.Count < 2)
+        if (!settings.EnableKnowledgeItemBoost || !settings.EnableLearning || items.Count < 2)
         {
             return items;
         }

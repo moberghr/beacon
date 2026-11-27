@@ -164,6 +164,45 @@ public class ReplayGatedPromotionTests
     }
 
     [Test]
+    public async Task PromoteVerifiedCandidatesAsync_FailedReplayWithSomeCasesErrored_StoresNoVerdict()
+    {
+        // Two of three relevant cases ran and the replay failed, but the case that errored might have passed: that is no
+        // failed verdict. Nothing is stored (a stored false would refuse the pattern's documentation patches) and the
+        // candidate stays NeedsEvidence for the next run.
+        var candidate = NeedsEvidencePattern();
+        var verifier = new Mock<IPatternReplayVerifier>();
+        verifier
+            .Setup(x => x.VerifyAsync(It.IsAny<McpLearnedPattern>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ReplayVerdict(RelevantCases: 3, BaselineFailing: 2, Flipped: 0, Regressions: 0, Errored: 1, Passed: false));
+        var (service, context) = BuildService(new[] { candidate }, verifier.Object);
+
+        await service.PromoteVerifiedCandidatesAsync(context, ProjectId, EnabledSettings(), null, CancellationToken.None);
+
+        candidate.Status.Should().Be(McpPatternStatus.NeedsEvidence);
+        candidate.LastReplayPassed.Should().BeNull("a failed replay with errored cases is no failed verdict");
+        candidate.LastVerifiedAt.Should().BeNull();
+    }
+
+    [Test]
+    public async Task PromoteVerifiedCandidatesAsync_PassedReplayWithSomeCasesErrored_StoresThePassAndPromotes()
+    {
+        // A pass keeps its rule: the verifier passed it on the cases that ran, so the verdict is stored and the candidate
+        // is auto-approved.
+        var candidate = NeedsEvidencePattern();
+        var verifier = new Mock<IPatternReplayVerifier>();
+        verifier
+            .Setup(x => x.VerifyAsync(It.IsAny<McpLearnedPattern>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ReplayVerdict(RelevantCases: 3, BaselineFailing: 2, Flipped: 1, Regressions: 0, Errored: 1, Passed: true));
+        var (service, context) = BuildService(new[] { candidate }, verifier.Object);
+
+        await service.PromoteVerifiedCandidatesAsync(context, ProjectId, EnabledSettings(), null, CancellationToken.None);
+
+        candidate.Status.Should().Be(McpPatternStatus.AutoApproved);
+        candidate.LastReplayPassed.Should().BeTrue();
+        candidate.LastVerifiedAt.Should().NotBeNull();
+    }
+
+    [Test]
     public async Task PromoteVerifiedCandidatesAsync_NoVerifierWired_StaysNeedsEvidence()
     {
         var candidate = NeedsEvidencePattern();

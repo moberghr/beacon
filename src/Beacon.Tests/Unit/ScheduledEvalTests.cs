@@ -12,6 +12,7 @@ using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Handlers.McpEval;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
@@ -275,6 +276,29 @@ public class ScheduledEvalTests
         run.TriggeredByUserId.Should().Be(userId);
         run.Trigger.Should().Be(trigger);
         run.Status.Should().Be("Running");
+    }
+
+    // The run list carries each run's trigger, so a scheduled run can be told from one a person started.
+    [Test]
+    public async Task GetEvalRuns_ReturnsEachRunsTrigger()
+    {
+        var runs = new List<McpEvalRun>
+        {
+            new() { Id = 1, ProjectId = 5, TriggeredByUserId = 3, Trigger = McpEvalRunTrigger.Manual, CreatedTime = DateTime.UtcNow.AddHours(-2) },
+            new() { Id = 2, ProjectId = 5, Trigger = McpEvalRunTrigger.Scheduled, CreatedTime = DateTime.UtcNow.AddHours(-1) }
+        };
+        var factory = new Mock<IDbContextFactory<BeaconContext>>();
+        factory
+            .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new RecordingBeaconContext(
+                new Dictionary<Type, object> { [typeof(McpEvalRun)] = RecordingBeaconContext.MemorySet(runs, []) },
+                []));
+
+        var items = await new GetEvalRunsHandler(factory.Object).Handle(new GetEvalRunsQuery { ProjectId = 5 }, CancellationToken.None);
+
+        items.Select(x => (x.Id, x.Trigger, x.TriggeredByUserId))
+            .Should()
+            .Equal((2, McpEvalRunTrigger.Scheduled, (int?)null), (1, McpEvalRunTrigger.Manual, (int?)3));
     }
 
     private static McpEvalCase ActiveCase(int projectId)

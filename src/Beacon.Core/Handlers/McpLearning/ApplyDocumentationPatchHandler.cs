@@ -22,10 +22,13 @@ namespace Beacon.Core.Handlers.McpLearning;
 /// racing another write changes nothing. The conditional statement compares under the database's collation; the exact
 /// comparison is made on the content read just before it.
 /// <para>
-/// A patch the learning job proposed from a learned pattern (<see cref="McpDocumentationPatch.SourcePatternId"/>) is refused
-/// (409) and stays proposed while that pattern, read in the patch's own project, failed its last replay
-/// (<see cref="McpLearnedPattern.LastReplayPassed"/> false) or was rejected. A patch without a source pattern, or whose
-/// pattern is gone or was never replayed, applies as before.
+/// A patch the learning job proposed from a learned pattern (<see cref="McpDocumentationPatch.SourcePatternId"/>) is checked
+/// against that pattern, read in the patch's own project just before the write: unless the pattern is approved (by a
+/// person or by its replay) and its last replay did not fail (<see cref="McpLearnedPattern.LastReplayPassed"/> true or
+/// never replayed), the patch is refused (409) and stays proposed. A pattern approved despite a failed replay is refused
+/// too, until a later replay passes or its content changes. The check is a read before the write, not a lock: a decision
+/// on the pattern made between the read and the write is not seen. A patch without a source pattern, or whose pattern is
+/// gone, applies as before.
 /// </para>
 /// </summary>
 internal sealed class ApplyDocumentationPatchHandler(
@@ -38,7 +41,7 @@ internal sealed class ApplyDocumentationPatchHandler(
         "The target changed since the patch was proposed: reject the patch and let it be proposed again.";
 
     internal const string SourcePatternFailedMessage =
-        "The learned pattern this patch was proposed from failed its replay or was rejected: reject the patch.";
+        "The learned pattern this patch was proposed from failed its replay, was rejected or is no longer approved: reject the patch.";
 
     public async Task Handle(ApplyDocumentationPatchCommand request, CancellationToken cancellationToken)
     {
@@ -62,7 +65,9 @@ internal sealed class ApplyDocumentationPatchHandler(
                         x.LastReplayPassed
                     })
                 .FirstOrDefaultAsync(cancellationToken);
-            if (sourcePattern != null && (sourcePattern.LastReplayPassed == false || sourcePattern.Status == McpPatternStatus.Rejected))
+            var usable = sourcePattern is { Status: McpPatternStatus.Approved or McpPatternStatus.AutoApproved }
+                && sourcePattern.LastReplayPassed != false;
+            if (sourcePattern != null && !usable)
             {
                 throw new BeaconConflictException(SourcePatternFailedMessage);
             }

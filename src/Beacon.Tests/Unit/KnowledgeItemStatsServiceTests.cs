@@ -215,6 +215,49 @@ public class KnowledgeItemStatsServiceTests
         stats.Verify(x => x.RecomputeAsync(3, It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    // A project whose signals were all purged still holds counters: it is recomputed too (learning on), while a project
+    // with learning off is neither aggregated nor recomputed, whether it has signals or only counters.
+    [Test]
+    public async Task AggregateLearnedPatterns_AProjectWithOnlyCounters_IsRecomputed_UnlessItsLearningIsOff()
+    {
+        _signals.Add(Ask(1, items: [Golden]));
+        _stats.AddRange([Stat(OtherProjectId, Golden), Stat(3, Golden), Stat(3, Term)]);
+        var stats = new Mock<IKnowledgeItemStatsService>();
+        var settings = SettingsProviderMock.Create(projectSettings: new Dictionary<int, McpSettingsData>
+        {
+            [3] = new() { EnableLearning = false }
+        });
+
+        await BuildJob(stats.Object, new LogRecorder(), settings.Object).AggregateLearnedPatternsAsync(CancellationToken.None);
+
+        stats.Verify(x => x.RecomputeAsync(ProjectId, It.IsAny<CancellationToken>()), Times.Once);
+        stats.Verify(x => x.RecomputeAsync(OtherProjectId, It.IsAny<CancellationToken>()), Times.Once, "its signals were purged, its counters were not");
+        stats.Verify(x => x.RecomputeAsync(3, It.IsAny<CancellationToken>()), Times.Never, "learning is off in project 3");
+    }
+
+    // Through the real stats service: the counters of a project without signals are deleted, a project with learning off
+    // keeps its counters, and neither breaks the run.
+    [Test]
+    public async Task AggregateLearnedPatterns_ThePurgedProjectsCounters_AreDeleted_AndTheRunGoesOn()
+    {
+        _signals.Add(Ask(1, items: [Golden]));
+        var purged = Stat(OtherProjectId, Golden);
+        var learningOff = Stat(3, Golden);
+        _stats.AddRange([purged, learningOff]);
+        var settings = SettingsProviderMock.Create(projectSettings: new Dictionary<int, McpSettingsData>
+        {
+            [3] = new() { EnableLearning = false }
+        });
+        var logs = new LogRecorder();
+
+        await BuildJob(BuildService(), logs, settings.Object).AggregateLearnedPatternsAsync(CancellationToken.None);
+
+        _stats.Should().NotContain(purged, "no signal in the window carried the item any more");
+        _stats.Should().Contain(learningOff, "a project with learning off keeps its last counters");
+        AddedRows().Should().ContainSingle().Which.ProjectId.Should().Be(ProjectId, "project 1's signal gives its golden case a row");
+        logs.Entries.Should().NotContain(x => x.Level >= LogLevel.Warning);
+    }
+
     [Test]
     public async Task AggregateLearnedPatterns_ARecomputeFailure_IsAWarningByIdsOnly_AndTheRunGoesOn()
     {
