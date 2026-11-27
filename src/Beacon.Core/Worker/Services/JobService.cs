@@ -598,6 +598,24 @@ internal class JobService(
         }
 
         await mcpLearningService.AggregateLearnedPatternsAsync(cancellationToken);
+
+        // Documentation patches are proposed from the approved patterns once the aggregation is done, and only proposed: a
+        // person reviews and applies each one. A failure to propose them is logged by its failure code and leaves the
+        // aggregation's result as it is; the caller's cancellation still ends the job.
+        try
+        {
+            await mcpLearningService.GenerateDocumentationPatchesAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(
+                "Documentation patches were not proposed after the learned pattern aggregation ({Failure})",
+                FailureCodes.Describe(ex));
+        }
     }
 
     public async Task CleanupOldSignals(CancellationToken cancellationToken)

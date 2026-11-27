@@ -756,6 +756,225 @@ public class McpLearningDetectionTests
         extraction.CappedExtractions.Should().Be(0);
     }
 
+    [Test]
+    public async Task DetectDocumentationGapsAsync_RepeatedFeedbackReasons_RaiseAFeedbackGap_WithCodesAndCountsOnly()
+    {
+        var signals = new List<McpQuerySignal>
+        {
+            FeedbackSignal(raterId: 10, McpFeedbackReason.WrongColumn),
+            FeedbackSignal(raterId: 10, McpFeedbackReason.WrongFilter),
+            FeedbackSignal(raterId: 11, McpFeedbackReason.WrongColumn),
+            GapSignal(ProjectId, isSuccessful: true)
+        };
+        signals[3].TablesUsed = "[\"public.orders\"]";
+        var saved = new List<object>();
+        var (service, context) = BuildRecordingService(Mock.Of<ILessonExtractor>(), [], saved);
+
+        await service.DetectDocumentationGapsAsync(context, ProjectId, DataSourceId, signals, new McpLearningAggregationService.ExtractionStats(), CancellationToken.None);
+
+        var gap = saved.OfType<McpLearnedPattern>().Should().ContainSingle().Subject;
+        gap.PatternType.Should().Be(McpPatternType.DocumentationGap);
+        gap.SchemaName.Should().Be("public");
+        gap.TableName.Should().Be("orders");
+        gap.ColumnName.Should().Be(McpLearningAggregationService.FeedbackGapColumn);
+        gap.PatternContent.Should().Be(
+            "Table 'public.orders' was used in 3 answers marked incorrect by 2 raters. Reasons: WrongColumn (2), WrongFilter (1).");
+        gap.SignalCount.Should().Be(3);
+        gap.Confidence.Should().Be(0.75, "three of the table's four ask answers were marked incorrect with a reason");
+        gap.Status.Should().Be(McpPatternStatus.NeedsEvidence);
+        gap.ExampleQuestion.Should().BeNull();
+        gap.ExampleSql.Should().BeNull();
+        gap.PatternContent.Should().NotContain("secret").And.NotContain("SELECT").And.NotContain("rater note");
+    }
+
+    [TestCase("two signals")]
+    [TestCase("one rater")]
+    [TestCase("correct verdict")]
+    [TestCase("no reason")]
+    [TestCase("no rater")]
+    [TestCase("query tool")]
+    public async Task DetectDocumentationGapsAsync_TooFewRatedSignalsOrRaters_RaiseNoFeedbackGap(string third)
+    {
+        // Two counted signals from two raters, and a third that must not count: no gap. ("one rater" counts three signals
+        // from a single rater.)
+        var signals = new List<McpQuerySignal>
+        {
+            FeedbackSignal(raterId: 10, McpFeedbackReason.WrongColumn),
+            FeedbackSignal(raterId: third == "one rater" ? 10 : 11, McpFeedbackReason.WrongColumn)
+        };
+        var extra = FeedbackSignal(raterId: 10, McpFeedbackReason.WrongJoin);
+        switch (third)
+        {
+            case "correct verdict":
+                extra.UserVerdict = McpUserVerdict.Correct;
+                break;
+            case "no reason":
+                extra.FeedbackReason = null;
+                break;
+            case "no rater":
+                extra.FeedbackByUserId = null;
+                break;
+            case "query tool":
+                extra.Tool = "query";
+                break;
+        }
+
+        if (third != "two signals")
+        {
+            signals.Add(extra);
+        }
+
+        var saved = new List<object>();
+        var (service, context) = BuildRecordingService(Mock.Of<ILessonExtractor>(), [], saved);
+
+        await service.DetectDocumentationGapsAsync(context, ProjectId, DataSourceId, signals, new McpLearningAggregationService.ExtractionStats(), CancellationToken.None);
+
+        saved.OfType<McpLearnedPattern>().Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task DetectDocumentationGapsAsync_ATableListedTwiceInOneAnswer_CountsThatAnswerOnce()
+    {
+        var signals = new List<McpQuerySignal>
+        {
+            FeedbackSignal(raterId: 10, McpFeedbackReason.WrongColumn),
+            FeedbackSignal(raterId: 11, McpFeedbackReason.WrongColumn)
+        };
+        signals[1].TablesUsed = "[\"public.orders\", \"public.orders\"]";
+        var saved = new List<object>();
+        var (service, context) = BuildRecordingService(Mock.Of<ILessonExtractor>(), [], saved);
+
+        await service.DetectDocumentationGapsAsync(context, ProjectId, DataSourceId, signals, new McpLearningAggregationService.ExtractionStats(), CancellationToken.None);
+
+        saved.OfType<McpLearnedPattern>().Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task DetectDocumentationGapsAsync_ARerun_RefreshesTheSameFeedbackGap_AndLeavesTheErrorRateGap()
+    {
+        var feedbackGap = StoredGap(51, McpLearningAggregationService.FeedbackGapColumn,
+            "Table 'public.orders' was used in 3 answers marked incorrect by 2 raters. Reasons: WrongColumn (3).", signalCount: 3, McpPatternStatus.NeedsEvidence);
+        var errorRateGap = StoredGap(52, null,
+            "Table 'public.orders' has a 50% error rate across 10 queries. Schema descriptions may be missing or misleading.", signalCount: 10, McpPatternStatus.NeedsEvidence);
+        var signals = new List<McpQuerySignal>
+        {
+            FeedbackSignal(raterId: 10, McpFeedbackReason.WrongColumn),
+            FeedbackSignal(raterId: 11, McpFeedbackReason.WrongColumn),
+            FeedbackSignal(raterId: 11, McpFeedbackReason.WrongColumn),
+            FeedbackSignal(raterId: 12, McpFeedbackReason.WrongTable)
+        };
+        var saved = new List<object>();
+        var (service, context) = BuildRecordingService(Mock.Of<ILessonExtractor>(), [feedbackGap, errorRateGap], saved);
+
+        await service.DetectDocumentationGapsAsync(context, ProjectId, DataSourceId, signals, new McpLearningAggregationService.ExtractionStats(), CancellationToken.None);
+
+        saved.OfType<McpLearnedPattern>().Should().BeEmpty("the stored feedback gap is refreshed, not added again");
+        feedbackGap.PatternContent.Should().Be(
+            "Table 'public.orders' was used in 4 answers marked incorrect by 3 raters. Reasons: WrongTable (1), WrongColumn (3).");
+        feedbackGap.SignalCount.Should().Be(4);
+        feedbackGap.Confidence.Should().Be(1.0);
+        errorRateGap.PatternContent.Should().Be(
+            "Table 'public.orders' has a 50% error rate across 10 queries. Schema descriptions may be missing or misleading.");
+        errorRateGap.SignalCount.Should().Be(10);
+        errorRateGap.Confidence.Should().Be(0.5);
+    }
+
+    [Test]
+    [SetCulture("")]
+    public async Task DetectDocumentationGapsAsync_ErrorRateAndFeedbackOnOneTable_RaiseTwoPatterns()
+    {
+        var signals = new List<McpQuerySignal>
+        {
+            FeedbackSignal(raterId: 10, McpFeedbackReason.WrongFilter),
+            FeedbackSignal(raterId: 11, McpFeedbackReason.WrongFilter),
+            FeedbackSignal(raterId: 11, McpFeedbackReason.WrongFilter)
+        };
+        for (var i = 0; i < 3; i++)
+        {
+            var failed = GapSignal(ProjectId, isSuccessful: false);
+            failed.TablesUsed = "[\"public.orders\"]";
+            signals.Add(failed);
+        }
+
+        var saved = new List<object>();
+        var (service, context) = BuildRecordingService(Mock.Of<ILessonExtractor>(), [], saved);
+
+        await service.DetectDocumentationGapsAsync(context, ProjectId, DataSourceId, signals, new McpLearningAggregationService.ExtractionStats(), CancellationToken.None);
+
+        var gaps = saved.OfType<McpLearnedPattern>().ToList();
+        gaps.Should().HaveCount(2);
+        gaps.Should().OnlyContain(x => x.PatternType == McpPatternType.DocumentationGap && x.TableName == "orders");
+        gaps.Single(x => x.ColumnName == null).PatternContent.Should().Be(
+            "Table 'public.orders' has a 50 % error rate across 6 queries. Schema descriptions may be missing or misleading.");
+        var feedback = gaps.Single(x => x.ColumnName == McpLearningAggregationService.FeedbackGapColumn);
+        feedback.PatternContent.Should().Be(
+            "Table 'public.orders' was used in 3 answers marked incorrect by 2 raters. Reasons: WrongFilter (3).");
+        feedback.Confidence.Should().Be(0.5);
+    }
+
+    [TestCase(McpFeedbackReason.WrongFilter, McpPatternStatus.AutoApproved)]
+    [TestCase(McpFeedbackReason.WrongJoin, McpPatternStatus.NeedsEvidence)]
+    public async Task DetectDocumentationGapsAsync_AnAutoApprovedFeedbackGap_KeepsItsStatusWhenOnlyCountsMove(
+        McpFeedbackReason added, McpPatternStatus expected)
+    {
+        // Moved counts are no new content; a new reason code is, and sends the gap back for evidence.
+        var stored = StoredGap(61, McpLearningAggregationService.FeedbackGapColumn,
+            "Table 'public.orders' was used in 3 answers marked incorrect by 2 raters. Reasons: WrongColumn (2), WrongFilter (1).", signalCount: 3, McpPatternStatus.AutoApproved);
+        var signals = new List<McpQuerySignal>
+        {
+            FeedbackSignal(raterId: 10, McpFeedbackReason.WrongColumn),
+            FeedbackSignal(raterId: 11, McpFeedbackReason.WrongColumn),
+            FeedbackSignal(raterId: 12, McpFeedbackReason.WrongColumn),
+            FeedbackSignal(raterId: 12, added)
+        };
+        var saved = new List<object>();
+        var (service, context) = BuildRecordingService(Mock.Of<ILessonExtractor>(), [stored], saved);
+        var extraction = new McpLearningAggregationService.ExtractionStats();
+
+        await service.DetectDocumentationGapsAsync(context, ProjectId, DataSourceId, signals, extraction, CancellationToken.None);
+
+        stored.Status.Should().Be(expected);
+        stored.PatternContent.Should().Be(
+            $"Table 'public.orders' was used in 4 answers marked incorrect by 3 raters. Reasons: WrongColumn (3), {added} (1).");
+        extraction.Demotions.Should().Be(expected == McpPatternStatus.NeedsEvidence ? 1 : 0);
+    }
+
+    private static McpLearnedPattern StoredGap(int id, string? column, string content, int signalCount, McpPatternStatus status) =>
+        new()
+        {
+            Id = id,
+            ProjectId = ProjectId,
+            DataSourceId = DataSourceId,
+            SchemaName = "public",
+            TableName = "orders",
+            ColumnName = column,
+            PatternType = McpPatternType.DocumentationGap,
+            PatternContent = content,
+            SignalCount = signalCount,
+            Confidence = 0.5,
+            Status = status
+        };
+
+    // An ask answer on public.orders marked incorrect with a reason by the rater; its question, SQL and note must never reach
+    // a pattern.
+    private static McpQuerySignal FeedbackSignal(int raterId, McpFeedbackReason reason)
+    {
+        return new McpQuerySignal
+        {
+            Tool = "ask",
+            Question = "secret question about orders",
+            ProjectId = ProjectId,
+            DataSourceId = DataSourceId,
+            GeneratedSql = "SELECT secret_amount FROM public.orders",
+            TablesUsed = "[\"public.orders\"]",
+            IsSuccessful = true,
+            UserVerdict = McpUserVerdict.Incorrect,
+            FeedbackReason = reason,
+            FeedbackNote = "rater note naming a secret",
+            FeedbackByUserId = raterId
+        };
+    }
+
     private static McpLearnedPattern StoredLesson(int id, string column, string content, int signalCount, McpPatternStatus status) =>
         new()
         {

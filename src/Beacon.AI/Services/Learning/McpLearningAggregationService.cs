@@ -1,3 +1,4 @@
+using System.Globalization;
 using System.Text.Json;
 using System.Text.RegularExpressions;
 using Microsoft.EntityFrameworkCore;
@@ -54,6 +55,24 @@ internal sealed class McpLearningAggregationService(
     private static readonly Regex WordPattern = new(@"\w+", RegexOptions.CultureInvariant | RegexOptions.Compiled, RegexMatchTimeout);
 
     private const RegexOptions CountedSentenceOptions = RegexOptions.Compiled | RegexOptions.CultureInvariant | RegexOptions.Singleline;
+
+    // The column of a documentation gap raised from feedback reasons. A pattern is keyed by its table, column and type, so the
+    // feedback gap is its own pattern beside the table's error-rate gap (no column), and a re-run refreshes each. Brackets
+    // are never in a column name Beacon ingests (SqlIdentifierGuard.HasUnsafeCharacters): no real column shares it.
+    internal const string FeedbackGapColumn = "[feedback]";
+
+    // A feedback gap needs this many ask answers on the table marked incorrect with a reason, from this many raters.
+    internal const int FeedbackGapMinSignals = 3;
+    internal const int FeedbackGapMinRaters = 2;
+
+    // The sentence a feedback gap is written in (FeedbackGapContent): the table, then the statistics — the number of answers
+    // and raters, and each reason code with its count. Every number after the table is a statistic (WithoutCounts).
+    private static readonly Regex FeedbackGapSentence = new(
+        @"\A(Table '.+' was used in )([0-9]+ answers marked incorrect by [0-9]+ raters\. Reasons: [A-Za-z]+ \([0-9]+\)(?:, [A-Za-z]+ \([0-9]+\))*\.)\z",
+        CountedSentenceOptions,
+        RegexMatchTimeout);
+
+    private static readonly Regex CountPattern = new("[0-9]+", RegexOptions.Compiled | RegexOptions.CultureInvariant, RegexMatchTimeout);
 
     public async Task AggregateLearnedPatternsAsync(CancellationToken ct = default)
     {
@@ -236,9 +255,12 @@ internal sealed class McpLearningAggregationService(
     // AutoApproved ONLY when injecting it flips ≥ LearningReplayMinFlips of its relevant failing golden
     // cases with zero relevant regressions. When replay is disabled or no verifier is wired, candidates
     // stay NeedsEvidence (safe default — never auto-approve without measured evidence). Human Approve/Reject
-    // is a separate path and untouched. Like a human approval, a candidate's example SQL passes the grounding SQL check
-    // again first (stored without comments); a candidate whose SQL the check refuses is not replayed and stays
-    // NeedsEvidence, counted and logged by id. Internal so it can be unit-tested in isolation.
+    // is a separate path and untouched. A candidate whose confidence is below the project's LearningAutoApproveThreshold
+    // is not replayed (a confidence equal to it is) and stays NeedsEvidence. Like a human approval, a candidate's example SQL
+    // passes the grounding SQL check again first (stored without comments); a candidate whose SQL the check refuses is not
+    // replayed and stays NeedsEvidence, counted and logged by id. A replay that measured at least one relevant case stores
+    // its verdict (LastReplayPassed) with LastVerifiedAt, pass or fail; one that measured none (no relevant golden case, or
+    // every one errored) is no verdict and stores nothing. Internal so it can be unit-tested in isolation.
     internal async Task PromoteVerifiedCandidatesAsync(
         BeaconContext context, int projectId, McpSettingsData settings, ExtractionStats? extraction, CancellationToken ct)
     {
@@ -257,10 +279,12 @@ internal sealed class McpLearningAggregationService(
             return;
         }
 
+        var threshold = settings.LearningAutoApproveThreshold;
         var candidates = await context.McpLearnedPatterns
             .AsNoTracking()
             .Where(x => x.ProjectId == projectId)
             .Where(x => x.Status == McpPatternStatus.NeedsEvidence)
+            .Where(x => x.Confidence >= threshold)
             .ToListAsync(ct);
 
         if (candidates.Count == 0)
@@ -274,7 +298,7 @@ internal sealed class McpLearningAggregationService(
         {
             try
             {
-                // What the replay measures, as read: the auto-approval is written only while the row still holds it.
+                // What the replay measures, as read: the verdict is written only while the row still holds it.
                 var measured = new MeasuredContent(candidate.PatternContent, candidate.ExampleQuestion, candidate.ExampleSql);
                 var replayed = candidate;
                 if (!string.IsNullOrWhiteSpace(candidate.ExampleSql))
@@ -314,7 +338,21 @@ internal sealed class McpLearningAggregationService(
                         candidate.Id, verdict.RelevantCases);
                 }
 
-                if (verdict.Passed && await AutoApproveAsync(context, candidate.Id, candidate.ContentHash, measured, replayed.ExampleSql, ct))
+                // A replay that measured no relevant case (none, or every one errored) is no verdict on the candidate:
+                // nothing is stored, and it stays NeedsEvidence.
+                if (verdict.RelevantCases - verdict.Errored <= 0)
+                {
+                    continue;
+                }
+
+                var measuredHash = await StoreMeasuredHashAsync(context, candidate.Id, candidate.ContentHash, measured, ct);
+                if (!verdict.Passed)
+                {
+                    await RecordFailedReplayAsync(context, candidate.Id, measuredHash, ct);
+                    continue;
+                }
+
+                if (await AutoApproveAsync(context, candidate.Id, measuredHash, measured, replayed.ExampleSql, ct))
                 {
                     promoted++;
                 }
@@ -338,12 +376,11 @@ internal sealed class McpLearningAggregationService(
         }
     }
 
-    // Auto-approval only from NeedsEvidence, and only of the content the replay measured, compared by its stored digest
-    // (exact under any database collation): a person's decision, or a refresh, between the read and this write leaves the
-    // row as it is (false). A pattern stored before Beacon kept the digest has it stored first, only while it still holds no
+    // The digest of the content the replay measured, which the verdict's conditional write compares (exact under any
+    // database collation). A pattern stored before Beacon kept the digest has it stored first, only while it still holds no
     // digest and the content read.
-    private static async Task<bool> AutoApproveAsync(
-        BeaconContext context, int patternId, string? storedHash, MeasuredContent measured, string? exampleSql, CancellationToken ct)
+    private static async Task<string> StoreMeasuredHashAsync(
+        BeaconContext context, int patternId, string? storedHash, MeasuredContent measured, CancellationToken ct)
     {
         var measuredHash = GroundingContentHash.OfPattern(measured.PatternContent, measured.ExampleQuestion, measured.ExampleSql);
         if (storedHash == null)
@@ -357,6 +394,15 @@ internal sealed class McpLearningAggregationService(
                 .ExecuteUpdateAsync(x => x.SetProperty(y => y.ContentHash, measuredHash), ct);
         }
 
+        return measuredHash;
+    }
+
+    // Auto-approval only from NeedsEvidence, and only of the content the replay measured, compared by its digest: a person's
+    // decision, or a refresh, between the read and this write leaves the row as it is (false). The passed replay is stored
+    // with it.
+    private static async Task<bool> AutoApproveAsync(
+        BeaconContext context, int patternId, string measuredHash, MeasuredContent measured, string? exampleSql, CancellationToken ct)
+    {
         var approvedHash = GroundingContentHash.OfPattern(measured.PatternContent, measured.ExampleQuestion, exampleSql);
         var verifiedAt = DateTime.UtcNow;
         var written = await context.McpLearnedPatterns
@@ -368,10 +414,27 @@ internal sealed class McpLearningAggregationService(
                     .SetProperty(y => y.Status, McpPatternStatus.AutoApproved)
                     .SetProperty(y => y.ExampleSql, exampleSql)
                     .SetProperty(y => y.ContentHash, approvedHash)
-                    .SetProperty(y => y.LastVerifiedAt, verifiedAt),
+                    .SetProperty(y => y.LastVerifiedAt, verifiedAt)
+                    .SetProperty(y => y.LastReplayPassed, true),
                 ct);
 
         return written > 0;
+    }
+
+    // A replay that measured the candidate and did not pass is stored with its time, under the same condition as an
+    // auto-approval: only while the row is still the NeedsEvidence content the replay measured.
+    private static async Task RecordFailedReplayAsync(BeaconContext context, int patternId, string measuredHash, CancellationToken ct)
+    {
+        var verifiedAt = DateTime.UtcNow;
+        await context.McpLearnedPatterns
+            .Where(x => x.Id == patternId)
+            .Where(x => x.Status == McpPatternStatus.NeedsEvidence)
+            .Where(x => x.ContentHash == measuredHash)
+            .ExecuteUpdateAsync(
+                x => x
+                    .SetProperty(y => y.LastVerifiedAt, verifiedAt)
+                    .SetProperty(y => y.LastReplayPassed, false),
+                ct);
     }
 
     // The candidate as the replay sees it: with its example SQL as the check returned it. A copy, so the row read stays the
@@ -399,7 +462,8 @@ internal sealed class McpLearningAggregationService(
             ReviewedAt = pattern.ReviewedAt,
             LastRefreshedAt = pattern.LastRefreshedAt,
             SupersededAt = pattern.SupersededAt,
-            LastVerifiedAt = pattern.LastVerifiedAt
+            LastVerifiedAt = pattern.LastVerifiedAt,
+            LastReplayPassed = pattern.LastReplayPassed
         };
     }
 
@@ -789,6 +853,62 @@ internal sealed class McpLearningAggregationService(
                 McpPatternType.DocumentationGap, content, null, null,
                 tableStats.Total, confidence, extraction, ct);
         }
+
+        // Repeated feedback reasons: per table, the ask answers marked incorrect with a reason, counted only with the rater
+        // recorded, at least FeedbackGapMinSignals of them from at least FeedbackGapMinRaters raters. The gap is its own
+        // pattern (FeedbackGapColumn) holding the table, the reason codes and their counts — never a note, question or SQL
+        // (§1.11, §1.16). Its confidence is the share of the table's ask answers so marked.
+        var feedbackGaps = signals
+            .Where(x => x.Tool == AskTool)
+            .Where(x => !string.IsNullOrEmpty(x.TablesUsed))
+            .SelectMany(x => TryDeserializeJsonArray(x.TablesUsed!)
+                .Distinct(StringComparer.Ordinal)
+                .Select(y =>
+                    new
+                    {
+                        Table = y,
+                        Signal = x
+                    }))
+            .GroupBy(x => x.Table, x => x.Signal)
+            .Select(x =>
+                new
+                {
+                    Table = x.Key,
+                    Answers = x.Count(),
+                    Rated = x
+                        .Where(y => y.UserVerdict == McpUserVerdict.Incorrect)
+                        .Where(y => y.FeedbackReason != null)
+                        .Where(y => y.FeedbackByUserId != null)
+                        .ToList()
+                })
+            .Where(x => x.Rated.Count >= FeedbackGapMinSignals)
+            .Select(x =>
+                new
+                {
+                    x.Table,
+                    x.Answers,
+                    x.Rated,
+                    Raters = x.Rated
+                        .Select(y => y.FeedbackByUserId)
+                        .Distinct()
+                        .Count()
+                })
+            .Where(x => x.Raters >= FeedbackGapMinRaters)
+            .ToList();
+
+        foreach (var gap in feedbackGaps)
+        {
+            var parts = gap.Table.Split('.');
+            var schema = parts.Length > 1 ? parts[0] : "public";
+            var table = parts.Length > 1 ? parts[1] : parts[0];
+
+            var content = FeedbackGapContent(gap.Table, gap.Raters, gap.Rated);
+            var confidence = Math.Min(1.0, (double)gap.Rated.Count / gap.Answers);
+
+            await UpsertPatternAsync(context, projectId, dataSourceId, schema, table, FeedbackGapColumn,
+                McpPatternType.DocumentationGap, content, null, null,
+                gap.Rated.Count, confidence, extraction, ct);
+        }
     }
 
     // The deterministic content of a schema correction: the one text the fallback branch writes, and the only text
@@ -1005,8 +1125,9 @@ internal sealed class McpLearningAggregationService(
         return signal.Tool == AskTool ? GroundingText.Question(signal.Question) : null;
     }
 
-    // Pattern content with only the statistics the detectors write into their own sentences left out (CountedSentences): a
-    // pattern whose count or error rate moved is the same pattern. Any other content is compared as written.
+    // Pattern content with only the statistics the detectors write into their own sentences left out (CountedSentences, and
+    // every count after the table in a feedback gap's sentence): a pattern whose count or error rate moved is the same
+    // pattern, while a feedback gap with another reason code is not. Any other content is compared as written.
     private static string WithoutCounts(string content)
     {
         foreach (var (sentence, withoutCounts) in CountedSentences)
@@ -1015,6 +1136,12 @@ internal sealed class McpLearningAggregationService(
             {
                 return sentence.Replace(content, withoutCounts);
             }
+        }
+
+        var feedbackGap = FeedbackGapSentence.Match(content);
+        if (feedbackGap.Success)
+        {
+            return feedbackGap.Groups[1].Value + CountPattern.Replace(feedbackGap.Groups[2].Value, "#");
         }
 
         return content;
@@ -1049,7 +1176,8 @@ internal sealed class McpLearningAggregationService(
         await using var context = await contextFactory.CreateDbContextAsync(ct);
 
         // Patches are proposed project by project, each from that project's own patterns (§1.12): a data source shared
-        // by two projects never carries one project's learned patterns into the other project's patches.
+        // by two projects never carries one project's learned patterns into the other project's patches. A patch names the
+        // pattern it is proposed from (SourcePatternId) and is only proposed: a person applies it, never this method.
         var projectIds = await context.McpLearnedPatterns
             .Where(x => x.Status == McpPatternStatus.Approved || x.Status == McpPatternStatus.AutoApproved)
             .Where(x => x.PatternType == McpPatternType.SchemaCorrection || x.PatternType == McpPatternType.DocumentationGap)
@@ -1214,7 +1342,8 @@ internal sealed class McpLearningAggregationService(
                             ProposedContent = pattern.PatternContent,
                             Reasoning = $"Learned from {pattern.SignalCount} query signals (confidence: {pattern.Confidence:P0}). {pattern.PatternContent}",
                             SupportingSignalCount = pattern.SignalCount,
-                            Status = McpDocPatchStatus.Proposed
+                            Status = McpDocPatchStatus.Proposed,
+                            SourcePatternId = pattern.Id
                         });
                         existingSet.Add(key);
                         patchCount++;
@@ -1242,7 +1371,8 @@ internal sealed class McpLearningAggregationService(
                             ProposedContent = proposed,
                             Reasoning = $"Learned from {pattern.SignalCount} query signals. {pattern.PatternContent}",
                             SupportingSignalCount = pattern.SignalCount,
-                            Status = McpDocPatchStatus.Proposed
+                            Status = McpDocPatchStatus.Proposed,
+                            SourcePatternId = pattern.Id
                         });
                         existingSet.Add(key);
                         patchCount++;
@@ -1531,6 +1661,21 @@ internal sealed class McpLearningAggregationService(
         "DATE_TRUNC", "GENERATE_SERIES", "LAG", "LEAD",
         "ROW_NUMBER", "RANK", "DENSE_RANK"
     };
+
+    // A feedback gap's content: the table, the number of answers and raters, and each reason code with its count, the codes
+    // in their declared order — never a note, question or SQL (§1.11, §1.16). Invariant, so it does not depend on the host's
+    // culture.
+    private static string FeedbackGapContent(string table, int raters, List<McpQuerySignal> rated)
+    {
+        var reasons = rated
+            .GroupBy(x => x.FeedbackReason!.Value)
+            .OrderBy(x => x.Key)
+            .Select(x => string.Create(CultureInfo.InvariantCulture, $"{x.Key} ({x.Count()})"));
+
+        return string.Create(
+            CultureInfo.InvariantCulture,
+            $"Table '{table}' was used in {rated.Count} answers marked incorrect by {raters} raters. Reasons: {string.Join(", ", reasons)}.");
+    }
 
     private sealed record StoredLesson(int Id, McpPatternStatus Status, int SignalCount, string Content);
 

@@ -258,7 +258,7 @@ public class PatternRefreshRaceTests
             ExampleQuestion = question,
             ExampleSql = sql,
             SignalCount = 1,
-            Confidence = 0.5,
+            Confidence = 0.9, // above the default auto-approve threshold (0.7): a candidate below it is not replayed
             Status = status
         };
     }

@@ -61,6 +61,31 @@ public class DocumentationPatchProjectScopingTests
         patch.ProjectId.Should().Be(ProjectB);
         patch.ProposedContent.Should().Be(ContentB);
         patch.Reasoning.Should().NotContain(ContentA);
+        patch.SourcePatternId.Should().Be(patterns[1].Id, "a patch names the pattern it was proposed from");
+        patch.Status.Should().Be(McpDocPatchStatus.Proposed);
+        patch.AppliedAt.Should().BeNull();
+    }
+
+    [Test]
+    public async Task GenerateDocumentationPatches_ADocumentationGap_ProposesATableDescriptionThatNamesItsPattern()
+    {
+        var gap = Correction(ProjectA, "Table 'public.orders' was used in 3 answers marked incorrect by 2 raters. Reasons: WrongColumn (3).");
+        gap.Id = 73;
+        gap.PatternType = McpPatternType.DocumentationGap;
+        gap.ColumnName = McpLearningAggregationService.FeedbackGapColumn;
+        var added = new List<McpDocumentationPatch>();
+        var service = BuildService(new PatchContextFactory([gap], [], added, [Link(ProjectA)]));
+
+        await service.GenerateDocumentationPatchesAsync(CancellationToken.None);
+
+        var patch = added.Should().ContainSingle().Subject;
+        patch.TargetType.Should().Be(McpDocPatchTarget.TableDescription);
+        patch.TargetIdentifier.Should().Be("public.orders");
+        patch.ProposedContent.Should().Be($"[Auto-generated] {gap.PatternContent}");
+        patch.SourcePatternId.Should().Be(73);
+        patch.Status.Should().Be(McpDocPatchStatus.Proposed, "patches are only proposed: a person reviews and applies each");
+        patch.AppliedAt.Should().BeNull();
+        gap.Status.Should().Be(McpPatternStatus.Approved);
     }
 
     [Test]
@@ -76,6 +101,7 @@ public class DocumentationPatchProjectScopingTests
         var patch = added.Should().ContainSingle().Subject;
         patch.ProjectId.Should().Be(ProjectA);
         patch.ProposedContent.Should().Be(ContentA);
+        patch.SourcePatternId.Should().Be(patterns[0].Id);
     }
 
     [Test]
@@ -136,6 +162,7 @@ public class DocumentationPatchProjectScopingTests
     {
         return new McpLearnedPattern
         {
+            Id = 40 + projectId,
             ProjectId = projectId,
             DataSourceId = SharedDataSourceId,
             SchemaName = "public",

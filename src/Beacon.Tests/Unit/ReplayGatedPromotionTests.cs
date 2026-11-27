@@ -37,21 +37,108 @@ public class ReplayGatedPromotionTests
 
         candidate.Status.Should().Be(McpPatternStatus.AutoApproved);
         candidate.LastVerifiedAt.Should().NotBeNull();
+        candidate.LastReplayPassed.Should().BeTrue();
         verifier.Verify(
             x => x.VerifyAsync(candidate, It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Once);
     }
 
     [Test]
-    public async Task PromoteVerifiedCandidatesAsync_VerdictFails_StaysNeedsEvidence()
+    public async Task PromoteVerifiedCandidatesAsync_VerdictFails_StaysNeedsEvidence_AndStoresTheFailedReplay()
     {
         var candidate = NeedsEvidencePattern();
         var verifier = VerifierReturning(passed: false);
+        var (service, context) = BuildService(new[] { candidate }, verifier.Object);
+        var before = DateTime.UtcNow;
+
+        await service.PromoteVerifiedCandidatesAsync(context, ProjectId, EnabledSettings(), null, CancellationToken.None);
+
+        candidate.Status.Should().Be(McpPatternStatus.NeedsEvidence);
+        candidate.LastReplayPassed.Should().BeFalse();
+        candidate.LastVerifiedAt.Should().NotBeNull().And.BeOnOrAfter(before);
+        candidate.ContentHash.Should().Be(
+            GroundingContentHash.OfPattern(candidate.PatternContent, candidate.ExampleQuestion, candidate.ExampleSql),
+            "a pattern stored without a digest gets the measured one first, and the verdict is written against it");
+    }
+
+    [Test]
+    public async Task PromoteVerifiedCandidatesAsync_NoRelevantGoldenCase_StoresNoVerdict()
+    {
+        // Nothing was measured: the verdict says nothing about the candidate, so it is not stored as a failed replay.
+        var candidate = NeedsEvidencePattern();
+        var verifier = new Mock<IPatternReplayVerifier>();
+        verifier
+            .Setup(x => x.VerifyAsync(It.IsAny<McpLearnedPattern>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new ReplayVerdict(RelevantCases: 0, BaselineFailing: 0, Flipped: 0, Regressions: 0, Errored: 0, Passed: false));
         var (service, context) = BuildService(new[] { candidate }, verifier.Object);
 
         await service.PromoteVerifiedCandidatesAsync(context, ProjectId, EnabledSettings(), null, CancellationToken.None);
 
         candidate.Status.Should().Be(McpPatternStatus.NeedsEvidence);
         candidate.LastVerifiedAt.Should().BeNull();
+        candidate.LastReplayPassed.Should().BeNull();
+        verifier.Verify(x => x.VerifyAsync(candidate, It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Once);
+    }
+
+    [TestCase(0.9, 0.95, false)]
+    [TestCase(0.9, 0.9, true)]
+    [TestCase(0.9, 0.0, true)]
+    public async Task PromoteVerifiedCandidatesAsync_ACandidateBelowTheThreshold_IsNotReplayed_AndStaysNeedsEvidence(
+        double confidence, double threshold, bool replayed)
+    {
+        var candidate = NeedsEvidencePattern();
+        candidate.Confidence = confidence;
+        var verifier = VerifierReturning(passed: true);
+        var (service, context) = BuildService(new[] { candidate }, verifier.Object);
+        var settings = EnabledSettings();
+        settings.LearningAutoApproveThreshold = threshold;
+
+        await service.PromoteVerifiedCandidatesAsync(context, ProjectId, settings, null, CancellationToken.None);
+
+        verifier.Verify(
+            x => x.VerifyAsync(It.IsAny<McpLearnedPattern>(), It.IsAny<int>(), It.IsAny<CancellationToken>()),
+            replayed ? Times.Once() : Times.Never());
+        candidate.Status.Should().Be(replayed ? McpPatternStatus.AutoApproved : McpPatternStatus.NeedsEvidence);
+        candidate.LastReplayPassed.Should().Be(replayed ? true : null);
+        (candidate.LastVerifiedAt != null).Should().Be(replayed);
+    }
+
+    [TestCase(McpPatternStatus.Rejected)]
+    [TestCase(McpPatternStatus.Approved)]
+    public async Task PromoteVerifiedCandidatesAsync_ADecisionDuringTheReplay_KeepsTheFailedVerdictOffTheRow(McpPatternStatus decided)
+    {
+        // A person decides while the replay runs: the failed verdict is written only while the row is still NeedsEvidence.
+        var candidate = NeedsEvidencePattern();
+        var verifier = new Mock<IPatternReplayVerifier>();
+        verifier
+            .Setup(x => x.VerifyAsync(It.IsAny<McpLearnedPattern>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .Callback(() => candidate.Status = decided)
+            .ReturnsAsync(new ReplayVerdict(RelevantCases: 2, BaselineFailing: 1, Flipped: 0, Regressions: 1, Errored: 0, Passed: false));
+        var (service, context) = BuildService(new[] { candidate }, verifier.Object);
+
+        await service.PromoteVerifiedCandidatesAsync(context, ProjectId, EnabledSettings(), null, CancellationToken.None);
+
+        candidate.Status.Should().Be(decided);
+        candidate.LastVerifiedAt.Should().BeNull();
+        candidate.LastReplayPassed.Should().BeNull();
+    }
+
+    [Test]
+    public async Task PromoteVerifiedCandidatesAsync_ARefreshDuringTheReplay_KeepsTheFailedVerdictOffTheNewContent()
+    {
+        // The detection pass refreshes the content while the replay runs: the verdict was measured on the old content.
+        var candidate = NeedsEvidencePattern();
+        var verifier = new Mock<IPatternReplayVerifier>();
+        verifier
+            .Setup(x => x.VerifyAsync(It.IsAny<McpLearnedPattern>(), It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .Callback(() => candidate.PatternContent = "NEVER use 'created_at' on public.loans — correct column is 'opened_time'")
+            .ReturnsAsync(new ReplayVerdict(RelevantCases: 1, BaselineFailing: 1, Flipped: 0, Regressions: 0, Errored: 0, Passed: false));
+        var (service, context) = BuildService(new[] { candidate }, verifier.Object);
+
+        await service.PromoteVerifiedCandidatesAsync(context, ProjectId, EnabledSettings(), null, CancellationToken.None);
+
+        candidate.Status.Should().Be(McpPatternStatus.NeedsEvidence);
+        candidate.LastVerifiedAt.Should().BeNull();
+        candidate.LastReplayPassed.Should().BeNull();
     }
 
     [Test]
@@ -71,6 +158,7 @@ public class ReplayGatedPromotionTests
 
         candidate.Status.Should().Be(McpPatternStatus.NeedsEvidence);
         candidate.LastVerifiedAt.Should().BeNull();
+        candidate.LastReplayPassed.Should().BeNull("an unmeasured replay is no failed verdict");
         verifier.Verify(
             x => x.VerifyAsync(candidate, It.IsAny<int>(), It.IsAny<CancellationToken>()), Times.Once);
     }
