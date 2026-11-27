@@ -13,17 +13,25 @@ public class ClaudeProvider : ILlmProvider
     private readonly string _apiKey;
     private readonly string _model;
     private readonly TimeProvider _timeProvider;
-    private const decimal InputCostPerMillionTokens = 3.00m;
-    private const decimal OutputCostPerMillionTokens = 15.00m;
-    private const decimal CachedInputCostPerMillionTokens = 0.30m; // 90% discount
-    private const decimal CacheWriteCostPerMillionTokens = 3.75m; // 25% surcharge
+    private const decimal DefaultInputCostPerMillionTokens = 3.00m;
+    private const decimal DefaultOutputCostPerMillionTokens = 15.00m;
+
+    // Per million tokens, matched by the model id containing the name. Any other model is costed at the default.
+    private static readonly (string Name, decimal Input, decimal Output)[] ModelPricing =
+    [
+        ("claude-opus-5-5", 4.00m, 20.00m),
+        ("claude-sonnet-5-5", 2.00m, 10.00m),
+        ("claude-haiku-5-5", 0.10m, 0.50m),
+        ("claude-fable-5-2", 8.00m, 40.00m)
+    ];
+
     private const string AnthropicVersion = "2023-06-01";
 
     internal const long MaxResponseBytes = LlmHttpClients.MaxResponseBytes;
 
     private static readonly Uri MessagesUri = new("https://api.anthropic.com/v1/messages");
 
-    public ClaudeProvider(string apiKey, string model = "claude-sonnet-4-20250514")
+    public ClaudeProvider(string apiKey, string model = "claude-sonnet-5-5")
         : this(LlmHttpClients.Shared, apiKey, model)
     {
     }
@@ -60,9 +68,14 @@ public class ClaudeProvider : ILlmProvider
             {
                 ["model"] = _model,
                 ["messages"] = messages,
-                ["max_tokens"] = request.MaxTokens,
-                ["system"] = request.SystemPrompt
+                ["max_tokens"] = request.MaxTokens
             };
+
+            // A request without a system prompt (the connection test) gets no system field: the API refuses a null one.
+            if (!string.IsNullOrEmpty(request.SystemPrompt))
+            {
+                requestBody["system"] = request.SystemPrompt;
+            }
 
             // A model that refuses sampling parameters gets no temperature at all, not a null one (ClaudeSampling).
             if (ClaudeSampling.AcceptsTemperature(_model))
@@ -97,19 +110,20 @@ public class ClaudeProvider : ILlmProvider
             if (result.Usage == null)
                 throw new AiServiceException("Claude API response did not contain usage information");
 
-            var content = result.Content?.FirstOrDefault()?.Text ?? string.Empty;
+            var content = ClaudeResponseText.Of(result.Content?.Select(x => (x.Type, x.Text)));
 
-            // Calculate costs
-            var inputCost = (result.Usage.InputTokens / 1_000_000m) * InputCostPerMillionTokens;
-            var outputCost = (result.Usage.OutputTokens / 1_000_000m) * OutputCostPerMillionTokens;
+            // Calculate costs. A cache read costs a tenth of the input price, a cache write a quarter more.
+            var (inputCostPerMillion, outputCostPerMillion) = Pricing(_model);
+            var inputCost = (result.Usage.InputTokens / 1_000_000m) * inputCostPerMillion;
+            var outputCost = (result.Usage.OutputTokens / 1_000_000m) * outputCostPerMillion;
             // The cache counts are absent (or null) when the request asked for no caching.
             var cacheReadTokens = result.Usage.CacheReadInputTokens ?? 0;
             var cacheWriteTokens = result.Usage.CacheCreationInputTokens ?? 0;
             var cachedInputCost = cacheReadTokens > 0
-                ? (cacheReadTokens / 1_000_000m) * CachedInputCostPerMillionTokens
+                ? (cacheReadTokens / 1_000_000m) * inputCostPerMillion * 0.1m
                 : 0;
 
-            var cacheWriteCost = (cacheWriteTokens / 1_000_000m) * CacheWriteCostPerMillionTokens;
+            var cacheWriteCost = (cacheWriteTokens / 1_000_000m) * inputCostPerMillion * 1.25m;
 
             var totalCost = inputCost + outputCost + cachedInputCost + cacheWriteCost;
             var promptCacheHit = cacheReadTokens > 0;
@@ -179,6 +193,19 @@ public class ClaudeProvider : ILlmProvider
         return null;
     }
 
+    private static (decimal Input, decimal Output) Pricing(string model)
+    {
+        foreach (var (name, input, output) in ModelPricing)
+        {
+            if (model.Contains(name, StringComparison.OrdinalIgnoreCase))
+            {
+                return (input, output);
+            }
+        }
+
+        return (DefaultInputCostPerMillionTokens, DefaultOutputCostPerMillionTokens);
+    }
+
     private class ClaudeResponse
     {
         [JsonPropertyName("model")]
@@ -197,10 +224,10 @@ public class ClaudeProvider : ILlmProvider
     private class ContentBlock
     {
         [JsonPropertyName("type")]
-        public string Type { get; set; } = null!;
+        public string? Type { get; set; }
 
         [JsonPropertyName("text")]
-        public string Text { get; set; } = null!;
+        public string? Text { get; set; }
     }
 
     private class UsageInfo

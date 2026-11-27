@@ -734,10 +734,10 @@ public class OpenAiCompatibleProviderTests
     [Test]
     public void ObsoleteWrappers_StillConstruct_AndReportTheirModel()
     {
-        new OpenAiProvider(Key).Model.Should().Be("gpt-4o-mini");
+        new OpenAiProvider(Key).Model.Should().Be("gpt-6-luna");
         new OpenAiProvider(Key, "gpt-4o").Model.Should().Be("gpt-4o");
         new AzureOpenAiProvider("https://h.example/", Key, "dep").Model.Should().Be("dep");
-        new ClaudeProvider(Key).Model.Should().Be("claude-sonnet-4-20250514");
+        new ClaudeProvider(Key).Model.Should().Be("claude-sonnet-5-5");
     }
 
     [Test]

@@ -172,30 +172,29 @@ export interface ModelOption {
 }
 
 export const OPENAI_MODELS: ModelOption[] = [
-  { id: 'gpt-4o', label: 'gpt-4o', hint: 'Default · flagship' },
-  { id: 'gpt-4o-mini', label: 'gpt-4o-mini', hint: 'Fast · cheap' },
-  { id: 'gpt-4-turbo', label: 'gpt-4-turbo' },
-  { id: 'o1-preview', label: 'o1-preview', hint: 'Reasoning' },
-  { id: 'o1-mini', label: 'o1-mini', hint: 'Reasoning · fast' },
+  { id: 'gpt-6.2-sol', label: 'gpt-6.2-sol', hint: 'Default · balanced' },
+  { id: 'gpt-6.2-astra', label: 'gpt-6.2-astra', hint: 'Flagship · highest cost' },
+  { id: 'gpt-6.1-terra', label: 'gpt-6.1-terra', hint: 'Fast · efficient' },
+  { id: 'gpt-6-luna', label: 'gpt-6-luna', hint: 'Fastest · cheap' },
 ];
 
 export const ANTHROPIC_MODELS: ModelOption[] = [
-  { id: 'claude-opus-4-7', label: 'claude-opus-4-7', hint: 'Default · flagship' },
-  { id: 'claude-sonnet-4-6', label: 'claude-sonnet-4-6', hint: 'Balanced' },
-  { id: 'claude-haiku-4-5', label: 'claude-haiku-4-5', hint: 'Fast · cheap' },
-  { id: 'claude-3-5-sonnet-20241022', label: 'claude-3.5-sonnet (legacy)' },
+  { id: 'claude-opus-5-5', label: 'claude-opus-5-5', hint: 'Default · flagship' },
+  { id: 'claude-sonnet-5-5', label: 'claude-sonnet-5-5', hint: 'Balanced' },
+  { id: 'claude-haiku-5-5', label: 'claude-haiku-5-5', hint: 'Fast · cheap' },
+  { id: 'claude-fable-5-2', label: 'claude-fable-5-2', hint: 'Most capable · highest cost' },
 ];
 
-// Latest Bedrock-hosted text/chat models as of 2026-05.
-// Anthropic 4.x + Amazon Nova use the EU geo inference profile (eu. prefix) for cross-region
-// invocation within the EU geography. DeepSeek and Mistral Large 3 don't expose a geo profile
-// and must be invoked in-region (available in eu-north-1 / eu-west-2).
+// Latest Bedrock-hosted text/chat models as of 2026-11.
+// Anthropic 5.x + Amazon Nova use the EU geo inference profile (eu. prefix) for cross-region
+// invocation within the EU geography. Claude Fable 5.2 has no EU geo profile (global or us. only).
+// DeepSeek and Mistral Large 3 don't expose a geo profile and must be invoked in-region
+// (available in eu-north-1 / eu-west-2).
 export const BEDROCK_MODELS: ModelOption[] = [
-  { id: 'eu.anthropic.claude-opus-4-7', label: 'Claude Opus 4.7', hint: 'Flagship · 1M ctx · adaptive thinking' },
-  { id: 'eu.anthropic.claude-opus-4-6-v1', label: 'Claude Opus 4.6', hint: 'Flagship · 1M ctx · long agentic tasks' },
-  { id: 'eu.anthropic.claude-sonnet-4-6', label: 'Claude Sonnet 4.6', hint: 'Balanced · 1M ctx · default' },
-  { id: 'eu.anthropic.claude-sonnet-4-5-20250929-v1:0', label: 'Claude Sonnet 4.5', hint: 'Prior-gen balanced' },
-  { id: 'eu.anthropic.claude-haiku-4-5-20251001-v1:0', label: 'Claude Haiku 4.5', hint: 'Fast · cheap · 200K ctx' },
+  { id: 'eu.anthropic.claude-opus-5-5', label: 'Claude Opus 5.5', hint: 'Flagship · 1M ctx' },
+  { id: 'eu.anthropic.claude-sonnet-5-5', label: 'Claude Sonnet 5.5', hint: 'Balanced · 1M ctx · default' },
+  { id: 'eu.anthropic.claude-haiku-5-5', label: 'Claude Haiku 5.5', hint: 'Fast · cheap · 1M ctx' },
+  { id: 'global.anthropic.claude-fable-5-2', label: 'Claude Fable 5.2', hint: 'Most capable · global profile only (no EU geo)' },
   { id: 'eu.amazon.nova-2-lite-v1:0', label: 'Amazon Nova 2 Lite', hint: 'Multimodal · cost-efficient · 1M ctx' },
   { id: 'eu.amazon.nova-pro-v1:0', label: 'Amazon Nova Pro', hint: 'Multimodal · balanced · 300K ctx' },
   { id: 'us.meta.llama4-maverick-17b-instruct-v1:0', label: 'Llama 4 Maverick 17B', hint: 'MoE · 1M ctx · US-only geo profile' },

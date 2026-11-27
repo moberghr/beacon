@@ -65,9 +65,9 @@ public class LlmProviderFactoryRegistrationTests
     public void CreateFastProvider_WithoutAConfiguredFastModel_UsesEachBuiltInsDefault(string? fastModel)
     {
         Create(AiProvider.OpenAI, fast: true, fastModel).Should().BeOfType<OpenAiCompatibleProvider>()
-            .Which.Model.Should().Be("gpt-4o-mini");
+            .Which.Model.Should().Be("gpt-6-luna");
         Create(AiProvider.Claude, fast: true, fastModel).Should().BeOfType<ClaudeProvider>()
-            .Which.Model.Should().Be("claude-haiku-4-20250514");
+            .Which.Model.Should().Be("claude-haiku-5-5");
         Create(AiProvider.AzureOpenAI, fast: true, fastModel).Should().BeOfType<OpenAiCompatibleProvider>()
             .Which.Model.Should().Be("main-model", "Azure falls back to the main deployment");
     }

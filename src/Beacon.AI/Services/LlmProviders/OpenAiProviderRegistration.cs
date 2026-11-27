@@ -5,7 +5,7 @@ namespace Beacon.AI.Services.LlmProviders;
 
 internal sealed class OpenAiProviderRegistration : IBuiltInLlmProviderRegistration
 {
-    private const string DefaultFastModel = "gpt-4o-mini";
+    private const string DefaultFastModel = "gpt-6-luna";
 
     private readonly Func<HttpClient> _httpClient;
 

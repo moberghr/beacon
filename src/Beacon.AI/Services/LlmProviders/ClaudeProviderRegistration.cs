@@ -5,7 +5,7 @@ namespace Beacon.AI.Services.LlmProviders;
 
 internal sealed class ClaudeProviderRegistration : IBuiltInLlmProviderRegistration
 {
-    private const string DefaultFastModel = "claude-haiku-4-20250514";
+    private const string DefaultFastModel = "claude-haiku-5-5";
 
     private readonly Func<HttpClient> _httpClient;
 

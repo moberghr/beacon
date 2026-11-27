@@ -48,18 +48,18 @@ describe('ModelPickerField', () => {
   it('writes the picked preset into the form so display and saved value match', () => {
     render(<ModelHarness />);
     const select = screen.getByRole('combobox') as HTMLSelectElement;
-    fireEvent.change(select, { target: { value: 'gpt-4o-mini' } });
-    expect(formApi.getValues('llmModel')).toBe('gpt-4o-mini');
-    expect(select.value).toBe('gpt-4o-mini');
+    fireEvent.change(select, { target: { value: 'gpt-6-luna' } });
+    expect(formApi.getValues('llmModel')).toBe('gpt-6-luna');
+    expect(select.value).toBe('gpt-6-luna');
   });
 
   it('reflects form.reset() — the select displays the loaded settings value', () => {
     render(<ModelHarness />);
     act(() => {
-      formApi.reset({ ...settingsToForm(undefined), llmModel: 'gpt-4-turbo' });
+      formApi.reset({ ...settingsToForm(undefined), llmModel: 'gpt-6.1-terra' });
     });
     const select = screen.getByRole('combobox') as HTMLSelectElement;
-    expect(select.value).toBe('gpt-4-turbo');
+    expect(select.value).toBe('gpt-6.1-terra');
   });
 
   it('flips to the custom input when reset puts a non-preset value in the form', () => {

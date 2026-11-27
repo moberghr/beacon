@@ -22,6 +22,16 @@ public class BedrockProvider : ILlmProvider
     private readonly Amazon.Runtime.AWSCredentials? _explicitCredentials;
     private readonly Dictionary<string, (decimal input, decimal output)> _pricing = new()
     {
+        // Claude 5.x pricing (per million tokens), matched whatever the geo prefix
+        ["claude-opus-5-5"] = (4.00m, 20.00m),
+        ["claude-sonnet-5-5"] = (2.00m, 10.00m),
+        ["claude-haiku-5-5"] = (0.10m, 0.50m),
+        ["claude-fable-5-2"] = (8.00m, 40.00m),
+
+        // Mistral Large 3 and DeepSeek V3.2 (US on-demand rates; other regions differ slightly)
+        ["mistral-large-3"] = (0.50m, 1.50m),
+        ["deepseek.v3.2"] = (0.62m, 1.85m),
+
         // Claude Sonnet 4.5 pricing (per million tokens)
         ["anthropic.claude-sonnet-4-5"] = (3.00m, 15.00m),
         ["us.anthropic.claude-sonnet-4-5"] = (3.00m, 15.00m),
@@ -177,7 +187,8 @@ public class BedrockProvider : ILlmProvider
             if (_modelId.Contains("llama", StringComparison.OrdinalIgnoreCase))
                 return await InvokeLlamaModelAsync(request, cancellationToken);
 
-            throw new AiServiceException($"Model {_modelId} is not supported by BedrockProvider");
+            // Every other model (Amazon Nova, DeepSeek, Mistral, ...) goes through Bedrock's model-independent Converse API.
+            return await ConverseAsync(request, cancellationToken);
         }
         catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
         {
@@ -208,9 +219,14 @@ public class BedrockProvider : ILlmProvider
             {
                 ["anthropic_version"] = "bedrock-2023-05-31",
                 ["max_tokens"] = request.MaxTokens,
-                ["system"] = request.SystemPrompt ?? string.Empty,
                 ["messages"] = messages
             };
+
+            // A request without a system prompt (the connection test) gets no system field, as on the Anthropic API.
+            if (!string.IsNullOrEmpty(request.SystemPrompt))
+            {
+                requestBody["system"] = request.SystemPrompt;
+            }
 
             // A model that refuses sampling parameters gets no temperature at all, not a null one (ClaudeSampling).
             if (ClaudeSampling.AcceptsTemperature(_modelId))
@@ -325,6 +341,61 @@ public class BedrockProvider : ILlmProvider
         };
     }
 
+    private async Task<Beacon.Core.Models.Ai.LlmResponse> ConverseAsync(LlmRequest request, CancellationToken cancellationToken)
+    {
+        var converseRequest = new ConverseRequest
+        {
+            ModelId = _modelId,
+            Messages = request.Messages
+                .Select(x =>
+                    new Message
+                    {
+                        Role = x.Role == Beacon.Core.Data.Enums.ConversationRole.User
+                            ? Amazon.BedrockRuntime.ConversationRole.User
+                            : Amazon.BedrockRuntime.ConversationRole.Assistant,
+                        Content = [new Amazon.BedrockRuntime.Model.ContentBlock { Text = x.Content }]
+                    })
+                .ToList(),
+            InferenceConfig = new InferenceConfiguration
+            {
+                MaxTokens = request.MaxTokens,
+                Temperature = (float)request.Temperature
+            }
+        };
+
+        if (!string.IsNullOrEmpty(request.SystemPrompt))
+        {
+            converseRequest.System = [new SystemContentBlock { Text = request.SystemPrompt }];
+        }
+
+        var response = await _client.ConverseAsync(converseRequest, cancellationToken);
+
+        // The answer is the text blocks; a reasoning block before them is not part of it.
+        var texts = (response.Output?.Message?.Content ?? [])
+            .Where(x => x.Text != null)
+            .Select(x => x.Text);
+        var content = string.Concat(texts);
+        if (content.Length > MaxResponseBytes)
+        {
+            throw TooLarge();
+        }
+
+        var inputTokens = response.Usage?.InputTokens ?? 0;
+        var outputTokens = response.Usage?.OutputTokens ?? 0;
+        var (inputCostPerMillion, outputCostPerMillion) = GetPricing(_modelId);
+
+        return new Beacon.Core.Models.Ai.LlmResponse
+        {
+            Content = content,
+            InputTokens = inputTokens,
+            OutputTokens = outputTokens,
+            Cost = (inputTokens / 1_000_000m) * inputCostPerMillion + (outputTokens / 1_000_000m) * outputCostPerMillion,
+            Model = _modelId,
+            PromptCacheHit = false,
+            Truncated = response.StopReason == StopReason.Max_tokens
+        };
+    }
+
     public Task<TokenCount> CountTokensAsync(string text, CancellationToken cancellationToken = default)
     {
         // Approximate token count
@@ -347,7 +418,7 @@ public class BedrockProvider : ILlmProvider
             throw new AiServiceException("Failed to parse Bedrock Claude API response");
         }
 
-        var content = result.Content?.FirstOrDefault()?.Text ?? string.Empty;
+        var content = ClaudeResponseText.Of(result.Content?.Select(x => (x.Type, x.Text)));
 
         // Calculate costs
         var (inputCostPerMillion, outputCostPerMillion) = GetPricing(_modelId);
@@ -448,10 +519,10 @@ public class BedrockProvider : ILlmProvider
     private class ContentBlock
     {
         [JsonPropertyName("type")]
-        public string Type { get; set; } = null!;
+        public string? Type { get; set; }
 
         [JsonPropertyName("text")]
-        public string Text { get; set; } = null!;
+        public string? Text { get; set; }
     }
 
     private class UsageInfo
