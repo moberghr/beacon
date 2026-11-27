@@ -55,6 +55,9 @@ public sealed class RateLimitOptions
     /// <summary>The <c>ask</c> tool (MCP and the playground), per caller. Default 10 a minute.</summary>
     public RateLimitWindow Ask { get; set; } = new() { PermitLimit = 10 };
 
+    /// <summary>The <c>feedback</c> tool (MCP and the playground), per caller. Default 30 a minute.</summary>
+    public RateLimitWindow Feedback { get; set; } = new() { PermitLimit = 30 };
+
     /// <summary>
     /// The most partitions (callers or client addresses) each limit keeps in memory. A new partition beyond it replaces the
     /// one used least recently, which then starts over with a full budget, so memory stays bounded. Default 10,000.
@@ -171,6 +174,7 @@ internal sealed class RateLimitOptionsValidator : IValidateOptions<RateLimitOpti
         AddWindowFailures(failures, nameof(RateLimitOptions.Anonymous), options.Anonymous);
         AddWindowFailures(failures, nameof(RateLimitOptions.Mcp), options.Mcp);
         AddWindowFailures(failures, nameof(RateLimitOptions.Ask), options.Ask);
+        AddWindowFailures(failures, nameof(RateLimitOptions.Feedback), options.Feedback);
 
         if (options.MaxPartitions is < RateLimitOptions.MinPartitions or > RateLimitOptions.MaxPartitionsLimit)
         {

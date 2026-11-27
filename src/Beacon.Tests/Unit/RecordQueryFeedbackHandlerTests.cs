@@ -166,6 +166,53 @@ public class RecordQueryFeedbackHandlerTests
     }
 
     [Test]
+    public async Task AReason_IsStoredWithTheVerdict_InTheOneSave()
+    {
+        var signal = NewSignal(1, ProjectId, DataSourceId, generatedSql: "SELECT id FROM orders");
+        var store = new Store(signal);
+
+        await Handler(store, TestGroundingSqlChecks.PassThrough().Object).Handle(
+            new RecordQueryFeedbackCommand(1, McpUserVerdict.Incorrect, Reason: McpFeedbackReason.WrongJoin),
+            CancellationToken.None);
+
+        signal.UserVerdict.Should().Be(McpUserVerdict.Incorrect);
+        signal.FeedbackReason.Should().Be(McpFeedbackReason.WrongJoin);
+        store.SaveCount.Should().Be(1);
+    }
+
+    [Test]
+    public async Task AnUndefinedReason_IsRefused_AndRecordsNothing()
+    {
+        var signal = NewSignal(1, ProjectId, DataSourceId, generatedSql: "SELECT id FROM orders");
+        var store = new Store(signal);
+
+        var act = () => Handler(store, TestGroundingSqlChecks.PassThrough().Object).Handle(
+            new RecordQueryFeedbackCommand(1, McpUserVerdict.Incorrect, Reason: (McpFeedbackReason)99),
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<BeaconValidationException>();
+        signal.UserVerdict.Should().Be(McpUserVerdict.Unset);
+        signal.FeedbackReason.Should().BeNull();
+        store.SaveCount.Should().Be(0);
+    }
+
+    [Test]
+    public async Task ALaterVerdictWithoutAReason_ClearsTheEarlierReason()
+    {
+        var signal = NewSignal(1, ProjectId, DataSourceId, generatedSql: "SELECT id FROM orders");
+        signal.UserVerdict = McpUserVerdict.Incorrect;
+        signal.FeedbackReason = McpFeedbackReason.WrongTable;
+        var store = new Store(signal);
+
+        await Handler(store, TestGroundingSqlChecks.PassThrough().Object).Handle(
+            new RecordQueryFeedbackCommand(1, McpUserVerdict.Correct),
+            CancellationToken.None);
+
+        signal.UserVerdict.Should().Be(McpUserVerdict.Correct);
+        signal.FeedbackReason.Should().BeNull("the reason is stored with each verdict as given");
+    }
+
+    [Test]
     public async Task UnknownSignal_Throws()
     {
         var store = new Store();

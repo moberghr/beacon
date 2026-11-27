@@ -9,9 +9,10 @@ namespace Beacon.MCP.Services;
 
 /// <summary>
 /// The MCP request limits of <c>Beacon:RateLimits</c>: <see cref="RateLimitOptions.Mcp"/> per API key or mapped MCP caller
-/// on every request to the MCP route (<see cref="McpRateLimitFilter"/>), and <see cref="RateLimitOptions.Ask"/> per caller
-/// on the <c>ask</c> tool, through MCP and the playground alike. Kept in process memory, so each limit holds per Beacon
-/// instance. A singleton, so every request on the instance shares the counts; registered by <c>AddBeaconMcp</c>. Where it
+/// on every request to the MCP route (<see cref="McpRateLimitFilter"/>), <see cref="RateLimitOptions.Ask"/> per caller on
+/// the <c>ask</c> tool and <see cref="RateLimitOptions.Feedback"/> per caller on the <c>feedback</c> tool, through MCP and
+/// the playground alike. Kept in process memory, so each limit holds per Beacon instance. A singleton, so every request on
+/// the instance shares the counts; registered by <c>AddBeaconMcp</c>. Where it
 /// is not registered, one stand-in per application built from the options the host registered (or the defaults)
 /// limits instead.
 /// </summary>
@@ -19,6 +20,9 @@ internal sealed class McpRateLimiter : IDisposable
 {
     /// <summary>The <c>ask</c> tool's answer to a caller over its limit (an audited tool error).</summary>
     public const string AskRefusalFormat = "Too many questions for this credential; retry in {0} seconds.";
+
+    /// <summary>The <c>feedback</c> tool's answer to a caller over its limit (an audited tool error).</summary>
+    public const string FeedbackRefusalFormat = "Too many feedback calls for this credential; retry in {0} seconds.";
 
     public McpRateLimiter()
         : this(Options.Create(new RateLimitOptions()))
@@ -29,11 +33,14 @@ internal sealed class McpRateLimiter : IDisposable
     {
         Requests = new FixedWindowPartitions(options.Value.Mcp, options.Value.MaxPartitions);
         Ask = new FixedWindowPartitions(options.Value.Ask, options.Value.MaxPartitions);
+        Feedback = new FixedWindowPartitions(options.Value.Feedback, options.Value.MaxPartitions);
     }
 
     public FixedWindowPartitions Requests { get; }
 
     public FixedWindowPartitions Ask { get; }
+
+    public FixedWindowPartitions Feedback { get; }
 
     /// <summary>The registered limiter, or the application's stand-in when none is registered: the limits never fail open.</summary>
     internal static McpRateLimiter For(IServiceProvider? services)
@@ -46,6 +53,7 @@ internal sealed class McpRateLimiter : IDisposable
     {
         Requests.Dispose();
         Ask.Dispose();
+        Feedback.Dispose();
     }
 }
 
