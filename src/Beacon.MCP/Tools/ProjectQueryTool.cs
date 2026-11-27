@@ -56,15 +56,21 @@ internal sealed class ProjectQueryTool(
         int? max_rows = null,
         [Description("Optional. Specify project if your API key has access to multiple projects.")]
         int? project_id = null,
+        [Description("Optional: the signal_id of the ask answer this SQL comes from")]
+        int? signal_id = null,
         CancellationToken cancellationToken = default)
     {
         // Written by McpAuditCallToolFilter after the tool returns or throws (§1.7); the signal too, on every outcome (§9.5).
         recorder.Start("query", projectContext.UserId, sql ?? api_query);
 
+        // signal_id is only a request: the signal service links the ask signal it names when it belongs to this caller and
+        // project, and ignores it otherwise, so the answer never depends on it.
         var signal = new McpSignalBuilder()
             .SetTool("query")
             .SetQuestion(sql ?? api_query ?? "")
-            .SetUserId(projectContext.UserId);
+            .SetUserId(projectContext.UserId)
+            .SetCallerHash(projectContext.CallerHash)
+            .SetRequestedParent(signal_id);
         recorder.WithSignal(signal, sql ?? api_query);
 
         var resolveError = ToolHelper.ResolveProjectId(projectContext, "query", project_id, out var projectId);

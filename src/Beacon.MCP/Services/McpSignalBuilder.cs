@@ -31,16 +31,35 @@ internal sealed class McpSignalBuilder
     private int _executionTimeMs;
     private bool _isSuccessful;
     private List<KnowledgeItemRef> _knowledgeItems = [];
+    private string? _callerHash;
+    private int? _requestedParentId;
 
     // The SQL of record for the current ask flow — lets callers read it back without
     // building a throwaway signal entity.
     public string? GeneratedSql => _generatedSql;
+
+    /// <summary>The <c>ask</c> signal id the caller named (<c>signal_id</c>); unverified input, never a link by itself.</summary>
+    public int? RequestedParentId => _requestedParentId;
 
     public McpSignalBuilder SetTool(string tool) { _tool = tool; return this; }
     public McpSignalBuilder SetQuestion(string question) { _question = question; return this; }
     public McpSignalBuilder SetProjectId(int? projectId) { _projectId = projectId; return this; }
     public McpSignalBuilder SetDataSourceId(int? dataSourceId) { _dataSourceId = dataSourceId; return this; }
     public McpSignalBuilder SetUserId(int? userId) { _userId = userId; return this; }
+
+    // The MCP caller's keyed subject hash (IProjectContext.CallerHash, the caller_hash claim the audit row records); null without one.
+    public McpSignalBuilder SetCallerHash(string? callerHash)
+    {
+        _callerHash = string.IsNullOrEmpty(callerHash) ? null : callerHash;
+        return this;
+    }
+
+    // The ask signal the caller says this SQL comes from. Only a request: McpSignalService resolves the link.
+    public McpSignalBuilder SetRequestedParent(int? signalId)
+    {
+        _requestedParentId = signalId;
+        return this;
+    }
 
     public McpSignalBuilder SetIntent(string intent)
     {
@@ -150,6 +169,11 @@ internal sealed class McpSignalBuilder
             ResultRowCount = _resultRowCount,
             ExecutionTimeMs = _executionTimeMs,
             IsSuccessful = _isSuccessful,
+            CallerHash = _callerHash,
+            // A REQUEST, not a link: McpQuerySignal has no field for the requested parent, so it travels here, and
+            // McpSignalService.RecordSignalAsync always replaces it with the parent it resolves inside the caller's own
+            // project and identity, or null.
+            ParentSignalId = _requestedParentId,
             ContextItems = _knowledgeItems
                 .Select(x =>
                     new McpSignalContextItem

@@ -52,7 +52,8 @@ internal sealed class ProjectAskTool(
         var signal = new McpSignalBuilder()
             .SetTool("ask")
             .SetQuestion(question ?? "")
-            .SetUserId(projectContext.UserId);
+            .SetUserId(projectContext.UserId)
+            .SetCallerHash(projectContext.CallerHash);
         recorder.WithSignal(signal);
 
         if (string.IsNullOrEmpty(question))

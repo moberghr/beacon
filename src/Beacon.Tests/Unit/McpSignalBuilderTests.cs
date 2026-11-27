@@ -43,6 +43,47 @@ public class McpSignalBuilderTests
         new McpSignalBuilder().SetQuestion("q").Build().CandidateSqlHash.Should().BeNull();
     }
 
+    // SC6: the MCP caller's hash reaches the signal; a caller without one leaves it null.
+    [TestCase("9f2c1ab0", "9f2c1ab0")]
+    [TestCase(null, null)]
+    [TestCase("", null)]
+    public void Build_WritesTheCallerHash(string? callerHash, string? expected)
+    {
+        var signal = new McpSignalBuilder()
+            .SetTool("query")
+            .SetQuestion("q")
+            .SetCallerHash(callerHash)
+            .Build();
+
+        signal.CallerHash.Should().Be(expected);
+    }
+
+    // The requested parent is carried out of Build() on ParentSignalId as a request, for the signal service to verify.
+    [Test]
+    public void Build_CarriesTheRequestedParent()
+    {
+        var builder = new McpSignalBuilder()
+            .SetTool("query")
+            .SetQuestion("q")
+            .SetRequestedParent(812);
+
+        builder.RequestedParentId.Should().Be(812);
+        var signal = builder.Build();
+        signal.ParentSignalId.Should().Be(812);
+        signal.IsEditedRerun.Should().BeFalse("the builder never decides whether the SQL was edited");
+    }
+
+    [Test]
+    public void Build_WithoutRequestedParent_CarriesNone()
+    {
+        var builder = new McpSignalBuilder()
+            .SetTool("query")
+            .SetQuestion("q");
+
+        builder.RequestedParentId.Should().BeNull();
+        builder.Build().ParentSignalId.Should().BeNull();
+    }
+
     [Test]
     public void SetColumnsUsed_EmptyList_StaysNull()
     {
