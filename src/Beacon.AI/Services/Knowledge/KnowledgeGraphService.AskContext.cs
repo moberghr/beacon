@@ -87,20 +87,20 @@ internal sealed partial class KnowledgeGraphService
             // Part A: inject human-verified golden query examples ABOVE the mined learned patterns — they are
             // human-verified, so they outrank machine-mined patterns. Empty (behaviour-preserving) when
             // disabled, the embedder is off, or no golden case is near.
-            var goldenExemplarsTask = BuildGoldenExemplarBlockAsync(dataSourceId, projectId, question, mcpSettings, dialect, questionVector, ct);
+            var goldenExemplarsTask = BuildGoldenExemplarBlockWithItemsAsync(dataSourceId, projectId, question, mcpSettings, dialect, questionVector, ct);
 
             // Inject learned patterns
-            var learnedPatternsTask = Task.FromResult("");
+            var learnedPatternsTask = Task.FromResult(KnowledgeBlock.Empty);
             if (mcpSettings.EnableLearning)
             {
                 var allTableNames = allTables.Select(t => $"{t.SchemaName}.{t.TableName}").ToList();
-                learnedPatternsTask = LearnedPatternsBlockAsync(dataSourceId, projectId, allTableNames, question, mcpSettings, dialect, questionVector, ct);
+                learnedPatternsTask = LearnedPatternsBlockWithItemsAsync(dataSourceId, projectId, allTableNames, question, mcpSettings, dialect, questionVector, ct);
             }
 
             // Tier-3 ⑪: append the business-glossary block after the learned patterns. Empty (nothing
             // injected) when the embedder is off, semantic retrieval is disabled, or no term is near —
             // behaviour-preserving relative to pre-glossary output.
-            var glossaryTask = BuildGlossaryBlockAsync(projectId, question, mcpSettings, dialect, questionVector, ct);
+            var glossaryTask = BuildGlossaryBlockWithItemsAsync(projectId, question, mcpSettings, dialect, questionVector, ct);
 
             await Task.WhenAll(valueMatchesTask, goldenExemplarsTask, learnedPatternsTask, glossaryTask);
             var valueMatches = await valueMatchesTask;
@@ -116,9 +116,9 @@ internal sealed partial class KnowledgeGraphService
                 [
                     new SchemaContextPart(SchemaContextPartKind.JoinPaths, joinPaths.ToString()),
                     new SchemaContextPart(SchemaContextPartKind.ValueMatches, valueMatches),
-                    new SchemaContextPart(SchemaContextPartKind.GoldenExemplars, goldenExemplars),
-                    new SchemaContextPart(SchemaContextPartKind.LearnedPatterns, learnedPatternsBlock),
-                    new SchemaContextPart(SchemaContextPartKind.Glossary, glossary)
+                    new SchemaContextPart(SchemaContextPartKind.GoldenExemplars, goldenExemplars.Text),
+                    new SchemaContextPart(SchemaContextPartKind.LearnedPatterns, learnedPatternsBlock.Text),
+                    new SchemaContextPart(SchemaContextPartKind.Glossary, glossary.Text)
                 ],
                 AskSchemaContextBudget.TablesNamedIn(question, tableBlocks));
 
@@ -135,7 +135,8 @@ internal sealed partial class KnowledgeGraphService
                 SchemaCatalog = catalog,
                 PrimaryKeyCatalog = primaryKeyCatalog,
                 JoinPaths = allPaths,
-                RowDataCategories = RowDataCategoriesOf(samplesShown, valueMatches)
+                RowDataCategories = RowDataCategoriesOf(samplesShown, valueMatches),
+                KnowledgeItems = KnowledgeItemsShown(budgeted, goldenExemplars, learnedPatternsBlock, glossary)
             };
         }
 
@@ -211,19 +212,19 @@ internal sealed partial class KnowledgeGraphService
 
         // Part A: inject human-verified golden query examples ABOVE the mined learned patterns (same
         // behaviour-preserving fallback as the fast path — empty string when nothing to inject).
-        var smartGoldenExemplarsTask = BuildGoldenExemplarBlockAsync(dataSourceId, projectId, question, mcpSettings, dialect, smartQuestionVector, ct);
+        var smartGoldenExemplarsTask = BuildGoldenExemplarBlockWithItemsAsync(dataSourceId, projectId, question, mcpSettings, dialect, smartQuestionVector, ct);
 
         // Inject learned patterns for relevant tables
-        var smartPatternsTask = Task.FromResult("");
+        var smartPatternsTask = Task.FromResult(KnowledgeBlock.Empty);
         if (mcpSettings.EnableLearning)
         {
             var relevantTableNames = detailedTables.ToList();
-            smartPatternsTask = LearnedPatternsBlockAsync(dataSourceId, projectId, relevantTableNames, question, mcpSettings, dialect, smartQuestionVector, ct);
+            smartPatternsTask = LearnedPatternsBlockWithItemsAsync(dataSourceId, projectId, relevantTableNames, question, mcpSettings, dialect, smartQuestionVector, ct);
         }
 
         // Tier-3 ⑪: append the business-glossary block after the learned patterns (same behaviour-preserving
         // fallback as the fast path — empty string when nothing to inject).
-        var smartGlossaryTask = BuildGlossaryBlockAsync(projectId, question, mcpSettings, dialect, smartQuestionVector, ct);
+        var smartGlossaryTask = BuildGlossaryBlockWithItemsAsync(projectId, question, mcpSettings, dialect, smartQuestionVector, ct);
 
         await Task.WhenAll(smartValueMatchesTask, smartGoldenExemplarsTask, smartPatternsTask, smartGlossaryTask);
         var smartValueMatches = await smartValueMatchesTask;
@@ -245,9 +246,9 @@ internal sealed partial class KnowledgeGraphService
                 new SchemaContextPart(SchemaContextPartKind.JoinPaths, smartJoinPaths.ToString()),
                 new SchemaContextPart(SchemaContextPartKind.Coverage, coverage.ToString()),
                 new SchemaContextPart(SchemaContextPartKind.ValueMatches, smartValueMatches),
-                new SchemaContextPart(SchemaContextPartKind.GoldenExemplars, smartGoldenExemplars),
-                new SchemaContextPart(SchemaContextPartKind.LearnedPatterns, smartPatternsBlock),
-                new SchemaContextPart(SchemaContextPartKind.Glossary, smartGlossary)
+                new SchemaContextPart(SchemaContextPartKind.GoldenExemplars, smartGoldenExemplars.Text),
+                new SchemaContextPart(SchemaContextPartKind.LearnedPatterns, smartPatternsBlock.Text),
+                new SchemaContextPart(SchemaContextPartKind.Glossary, smartGlossary.Text)
             ],
             [.. AskSchemaContextBudget.TablesNamedIn(question, allBlocks), .. rankedTableNames]);
 
@@ -267,7 +268,8 @@ internal sealed partial class KnowledgeGraphService
             Capped = expansion.Capped,
             OmittedTableCount = expansion.OmittedTableCount,
             JoinPaths = expansion.JoinPaths,
-            RowDataCategories = RowDataCategoriesOf(samplesShown, smartValueMatches)
+            RowDataCategories = RowDataCategoriesOf(samplesShown, smartValueMatches),
+            KnowledgeItems = KnowledgeItemsShown(smartBudgeted, smartGoldenExemplars, smartPatternsBlock, smartGlossary)
         };
     }
 
@@ -307,6 +309,24 @@ internal sealed partial class KnowledgeGraphService
         }
 
         return budgeted;
+    }
+
+    // The knowledge items of the grounding blocks the budget kept, in context order: a block it left out is not in the
+    // context, so its items are not either.
+    private static IReadOnlyList<KnowledgeItemRef> KnowledgeItemsShown(
+        BudgetedSchemaContext budgeted, KnowledgeBlock goldenExemplars, KnowledgeBlock learnedPatterns, KnowledgeBlock glossary)
+    {
+        IReadOnlyList<(SchemaContextPartKind Kind, KnowledgeBlock Block)> blocks =
+        [
+            (SchemaContextPartKind.GoldenExemplars, goldenExemplars),
+            (SchemaContextPartKind.LearnedPatterns, learnedPatterns),
+            (SchemaContextPartKind.Glossary, glossary)
+        ];
+
+        return blocks
+            .Where(x => !budgeted.PartsLeftOut.Contains(x.Kind))
+            .SelectMany(x => x.Block.Items)
+            .ToList();
     }
 
     // One table rendered as the ask context shows it: in full, or compact (name, primary key and column names).
@@ -513,17 +533,25 @@ internal sealed partial class KnowledgeGraphService
     // dialect of the data source being asked (<paramref name="dialect"/>; without one, an expression holding a comment marker
     // is left out). An expression that cannot be shown that way is left out — the term keeps its definition — and logged by
     // term id, once per interval.
-    internal Task<string> BuildGlossaryBlockAsync(int projectId, string question, McpSettingsData settings, string? dialect, CancellationToken ct)
+    internal async Task<string> BuildGlossaryBlockAsync(int projectId, string question, McpSettingsData settings, string? dialect, CancellationToken ct)
     {
-        return BuildGlossaryBlockAsync(projectId, question, settings, dialect, new MaskedQuestionVector(embeddingService, question), ct);
+        var block = await BuildGlossaryBlockWithItemsAsync(projectId, question, settings, dialect, ct);
+
+        return block.Text;
     }
 
-    private async Task<string> BuildGlossaryBlockAsync(
+    // The glossary block and the ids of the terms it renders, in rendered order.
+    internal Task<KnowledgeBlock> BuildGlossaryBlockWithItemsAsync(int projectId, string question, McpSettingsData settings, string? dialect, CancellationToken ct)
+    {
+        return BuildGlossaryBlockWithItemsAsync(projectId, question, settings, dialect, new MaskedQuestionVector(embeddingService, question), ct);
+    }
+
+    private async Task<KnowledgeBlock> BuildGlossaryBlockWithItemsAsync(
         int projectId, string question, McpSettingsData settings, string? dialect, MaskedQuestionVector questionVector, CancellationToken ct)
     {
         if (!embeddingService.IsAvailable || !settings.EnableSemanticRetrieval)
         {
-            return "";
+            return KnowledgeBlock.Empty;
         }
 
         // Fail CLOSED like the sibling retrieval paths: a transient embedding/vector-store error must NOT
@@ -547,7 +575,7 @@ internal sealed partial class KnowledgeGraphService
 
             if (hits.Count == 0)
             {
-                return "";
+                return KnowledgeBlock.Empty;
             }
 
             // GlossaryTerm OwnerId == McpGlossaryTerm.Id. Load the hit terms (ACTIVE only — a stale vector for a
@@ -576,6 +604,7 @@ internal sealed partial class KnowledgeGraphService
             var termsById = terms.ToDictionary(x => x.Id);
 
             var sb = new StringBuilder();
+            var items = new List<KnowledgeItemRef>();
             var leftOut = new List<int>();
             foreach (var hit in hits)
             {
@@ -605,6 +634,7 @@ internal sealed partial class KnowledgeGraphService
                 }
 
                 sb.AppendLine();
+                items.Add(new KnowledgeItemRef(McpKnowledgeItemKind.GlossaryTerm, term.Id, items.Count + 1));
             }
 
             var withheldTerms = DueToLog("glossary-metric", leftOut);
@@ -617,7 +647,7 @@ internal sealed partial class KnowledgeGraphService
                     string.Join(",", withheldTerms));
             }
 
-            return sb.ToString();
+            return new KnowledgeBlock(sb.ToString(), items);
         }
         catch (OperationCanceledException)
         {
@@ -626,7 +656,7 @@ internal sealed partial class KnowledgeGraphService
         catch (Exception ex)
         {
             logger.LogWarning("Glossary retrieval failed for project {ProjectId}; injecting no glossary block ({Failure}).", projectId, FailureCodes.Describe(ex));
-            return "";
+            return KnowledgeBlock.Empty;
         }
     }
 
@@ -646,17 +676,26 @@ internal sealed partial class KnowledgeGraphService
     /// case whose SQL or question cannot be shown that way is left out, and logged by id once per interval. Internal for
     /// unit tests.
     /// </summary>
-    internal Task<string> BuildGoldenExemplarBlockAsync(int dataSourceId, int projectId, string question, McpSettingsData settings, string? dialect, CancellationToken ct)
+    internal async Task<string> BuildGoldenExemplarBlockAsync(int dataSourceId, int projectId, string question, McpSettingsData settings, string? dialect, CancellationToken ct)
     {
-        return BuildGoldenExemplarBlockAsync(dataSourceId, projectId, question, settings, dialect, new MaskedQuestionVector(embeddingService, question), ct);
+        var block = await BuildGoldenExemplarBlockWithItemsAsync(dataSourceId, projectId, question, settings, dialect, ct);
+
+        return block.Text;
     }
 
-    private async Task<string> BuildGoldenExemplarBlockAsync(
+    // The verified-examples block and the ids of the golden cases it renders, in rendered order.
+    internal Task<KnowledgeBlock> BuildGoldenExemplarBlockWithItemsAsync(
+        int dataSourceId, int projectId, string question, McpSettingsData settings, string? dialect, CancellationToken ct)
+    {
+        return BuildGoldenExemplarBlockWithItemsAsync(dataSourceId, projectId, question, settings, dialect, new MaskedQuestionVector(embeddingService, question), ct);
+    }
+
+    private async Task<KnowledgeBlock> BuildGoldenExemplarBlockWithItemsAsync(
         int dataSourceId, int projectId, string question, McpSettingsData settings, string? dialect, MaskedQuestionVector questionVector, CancellationToken ct)
     {
         if (!settings.EnableGoldenExemplars || !embeddingService.IsAvailable || !settings.EnableSemanticRetrieval)
         {
-            return "";
+            return KnowledgeBlock.Empty;
         }
 
         try
@@ -677,7 +716,7 @@ internal sealed partial class KnowledgeGraphService
 
             if (hits.Count == 0)
             {
-                return "";
+                return KnowledgeBlock.Empty;
             }
 
             // GoldenCase OwnerId == McpEvalCase.Id. Load the hit cases (ACTIVE only — a stale vector for a
@@ -706,6 +745,7 @@ internal sealed partial class KnowledgeGraphService
             var budget = Math.Max(0, settings.GoldenExemplarBudgetChars);
 
             var sb = new StringBuilder();
+            var items = new List<KnowledgeItemRef>();
             var leftOut = new List<int>();
             foreach (var hit in hits)
             {
@@ -738,6 +778,7 @@ internal sealed partial class KnowledgeGraphService
                 }
 
                 sb.Append(entry);
+                items.Add(new KnowledgeItemRef(McpKnowledgeItemKind.GoldenCase, golden.Id, items.Count + 1));
             }
 
             var withheldCases = DueToLog("golden-case", leftOut);
@@ -750,7 +791,7 @@ internal sealed partial class KnowledgeGraphService
                     string.Join(",", withheldCases));
             }
 
-            return sb.ToString();
+            return new KnowledgeBlock(sb.ToString(), items);
         }
         catch (OperationCanceledException)
         {
@@ -759,7 +800,7 @@ internal sealed partial class KnowledgeGraphService
         catch (Exception ex)
         {
             logger.LogWarning("Golden-exemplar retrieval failed for data source {DataSourceId}; injecting no verified-examples block ({Failure}).", dataSourceId, FailureCodes.Describe(ex));
-            return "";
+            return KnowledgeBlock.Empty;
         }
     }
 
@@ -969,8 +1010,9 @@ internal sealed partial class KnowledgeGraphService
         return GetRelevantPatternsAsync(dataSourceId, projectId, tableNames, question, maxPatterns, budgetChars, (_, _, _) => Task.FromResult(dialect), questionVector: null, ct);
     }
 
-    // The learned-patterns block of an ask context, ranked by the ask's shared question vector.
-    private async Task<string> LearnedPatternsBlockAsync(
+    // The learned-patterns block of an ask context, ranked by the ask's shared question vector, and the ids of the patterns
+    // it renders, in rendered order.
+    private async Task<KnowledgeBlock> LearnedPatternsBlockWithItemsAsync(
         int dataSourceId, int projectId, List<string> tableNames, string question, McpSettingsData settings, string? dialect,
         MaskedQuestionVector questionVector, CancellationToken ct)
     {
@@ -985,7 +1027,7 @@ internal sealed partial class KnowledgeGraphService
             questionVector,
             ct);
 
-        return FormatLearnedPatternsForLlm(patterns);
+        return new KnowledgeBlock(FormatLearnedPatternsForLlm(patterns), LearnedPatternItems(patterns));
     }
 
     // Example SQL comes back as a prompt shows it: without its comments, read in the data source's dialect
@@ -1193,7 +1235,8 @@ internal sealed partial class KnowledgeGraphService
                 x.PatternContent,
                 x.ExampleQuestion,
                 x.ExampleSql,
-                x.Confidence));
+                x.Confidence,
+                x.Id));
         }
 
         return result;
@@ -1357,6 +1400,35 @@ internal sealed partial class KnowledgeGraphService
 
         return sb.ToString();
     }
+
+    // The patterns FormatLearnedPatternsForLlm renders, in the order it renders them: grouped by type in its section order.
+    internal static IReadOnlyList<KnowledgeItemRef> LearnedPatternItems(List<LearnedPatternInfo> patterns)
+    {
+        var items = new List<KnowledgeItemRef>();
+        foreach (var patternType in RenderedPatternTypes)
+        {
+            var ofType = patterns
+                .Where(x => x.PatternType == patternType)
+                .ToList();
+            foreach (var pattern in ofType)
+            {
+                items.Add(new KnowledgeItemRef(McpKnowledgeItemKind.LearnedPattern, pattern.Id, items.Count + 1));
+            }
+        }
+
+        return items;
+    }
+
+    // The section order of FormatLearnedPatternsForLlm; a pattern of another type is not rendered.
+    private static readonly string[] RenderedPatternTypes =
+    [
+        nameof(McpPatternType.SchemaCorrection),
+        nameof(McpPatternType.ColumnClarification),
+        nameof(McpPatternType.JoinPattern),
+        nameof(McpPatternType.CommonQuery),
+        nameof(McpPatternType.BusinessTermMapping),
+        nameof(McpPatternType.DocumentationGap)
+    ];
 
     // Renders a glossary term's target: the qualified column path (schema.table.column, only the parts that
     // are set) and/or the metric expression as rendered (without comments). Null when the term carries neither.

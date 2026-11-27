@@ -271,6 +271,7 @@ internal sealed class ProjectAskTool(
             llmProvider, dataSourceId, projectId, question, settings, askSqlExecutor,
             new AskSqlPipelineOptions(Execute: execute) { LlmBudget = llmBudget }, ct);
 
+        signal.SetKnowledgeItems(outcome.KnowledgeItems);
         signal.SetGeneratedSql(outcome.GeneratedSql, outcome.TablesUsed.ToList());
 
         if (outcome.ColumnsUsed.Count > 0)

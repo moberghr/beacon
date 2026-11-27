@@ -1,4 +1,5 @@
 using System.Text.Json;
+using Beacon.AI.Services.Knowledge;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Services;
 
@@ -29,6 +30,7 @@ internal sealed class McpSignalBuilder
     private int? _resultRowCount;
     private int _executionTimeMs;
     private bool _isSuccessful;
+    private List<KnowledgeItemRef> _knowledgeItems = [];
 
     // The SQL of record for the current ask flow — lets callers read it back without
     // building a throwaway signal entity.
@@ -110,6 +112,16 @@ internal sealed class McpSignalBuilder
         return this;
     }
 
+    // The knowledge items the prompt carried, saved as the signal's context items: one per kind and id, the first rank kept.
+    public McpSignalBuilder SetKnowledgeItems(IEnumerable<KnowledgeItemRef> items)
+    {
+        _knowledgeItems = items
+            .DistinctBy(x => (x.Kind, x.ItemId))
+            .ToList();
+
+        return this;
+    }
+
     public McpQuerySignal Build()
     {
         return new McpQuerySignal
@@ -137,7 +149,16 @@ internal sealed class McpSignalBuilder
             CandidateSqlHash = GroundingContentHash.OfCandidateSql(null, _correctedSql, _generatedSql),
             ResultRowCount = _resultRowCount,
             ExecutionTimeMs = _executionTimeMs,
-            IsSuccessful = _isSuccessful
+            IsSuccessful = _isSuccessful,
+            ContextItems = _knowledgeItems
+                .Select(x =>
+                    new McpSignalContextItem
+                    {
+                        Kind = x.Kind,
+                        ItemId = x.ItemId,
+                        Rank = x.Rank
+                    })
+                .ToList()
         };
     }
 

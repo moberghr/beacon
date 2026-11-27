@@ -172,6 +172,12 @@ public record SmartSchemaContext
     /// context names them on one line; a repair over SQL that reads one gets its exact schema. Empty under the budget.
     /// </summary>
     public IReadOnlyList<string> TablesNotShown { get; init; } = [];
+
+    /// <summary>
+    /// The golden cases, learned patterns and glossary terms <see cref="FullContext"/> carries, in context order. The items
+    /// of a grounding block the budget left out are not listed. Empty when the context carries none.
+    /// </summary>
+    public IReadOnlyList<KnowledgeItemRef> KnowledgeItems { get; init; } = [];
 }
 
 public record LearnedPatternInfo(
@@ -181,4 +187,17 @@ public record LearnedPatternInfo(
     string PatternContent,
     string? ExampleQuestion,
     string? ExampleSql,
-    double Confidence);
+    double Confidence,
+    int Id = 0);
+
+/// <summary>
+/// One knowledge item an <c>ask</c> prompt carried: its kind, its id in its own table and its 1-based place in the prompt's
+/// block of that kind, in rendered order. Ids only, never the item's text.
+/// </summary>
+public sealed record KnowledgeItemRef(McpKnowledgeItemKind Kind, int ItemId, int Rank);
+
+/// <summary>A grounding block of an ask context and the knowledge items it renders, in rendered order.</summary>
+internal sealed record KnowledgeBlock(string Text, IReadOnlyList<KnowledgeItemRef> Items)
+{
+    public static KnowledgeBlock Empty { get; } = new("", []);
+}
