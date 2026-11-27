@@ -374,6 +374,39 @@ public class DocChunkIndexingServiceTests
         capturedEmbeddings.Select(x => x.OwnerId).Should().NotContain(keptChunk.Id);
     }
 
+    // SC10: a section whose generation failed holds a fixed text, not documentation. It gets no chunks, and the chunks (and
+    // their vectors) it had from an earlier, successful generation are pruned instead of lingering in retrieval.
+    [Test]
+    public async Task ReindexAsync_AFailedSection_GetsNoChunks_AndItsEarlierChunksArePruned()
+    {
+        var settings = new McpSettingsData { EnableSemanticRetrieval = true, EnableContextualRetrieval = true, DocChunkWindowSentences = 3, DocChunkOverlapSentences = 1 };
+        var stored = StoredChunks(settings, blurb: "old blurb");
+        var storedEmbeddings = stored
+            .Select((x, i) => NewExistingDocChunkEmbedding(id: 600 + i, ownerId: x.Id))
+            .ToList();
+        var llm = new Mock<ILlmProvider>(MockBehavior.Strict);
+        var embeddings = new CapturingEmbeddingService();
+        var capturedChunks = new List<McpDocChunk>();
+        var capturedEmbeddings = new List<McpEmbedding>();
+        var removedChunks = new List<McpDocChunk>();
+        var removedEmbeddings = new List<McpEmbedding>();
+
+        var service = BuildService(
+            settings, embeddings, llm.Object,
+            existingChunks: stored, existingEmbeddings: storedEmbeddings,
+            capturedChunks, capturedEmbeddings, removedChunks, removedEmbeddings,
+            sectionContent: FailedDocumentationSection.Content);
+
+        await service.ReindexAsync(CancellationToken.None);
+
+        capturedChunks.Should().BeEmpty("the failed section's fixed text is never chunked");
+        capturedEmbeddings.Should().BeEmpty();
+        embeddings.BatchTexts.Should().NotContain(x => x.Contains("Generation failed"));
+        removedChunks.Select(x => x.Id).Should().BeEquivalentTo(stored.Select(x => x.Id));
+        removedEmbeddings.Select(x => x.OwnerId).Should().BeEquivalentTo(stored.Select(x => x.Id));
+        llm.Invocations.Should().BeEmpty("no blurb is asked for a failed section");
+    }
+
     private static McpSettingsData ContextualSettings() =>
         new()
         {
@@ -533,7 +566,8 @@ public class DocChunkIndexingServiceTests
         ProjectDocSectionType sectionType = ProjectDocSectionType.ProjectOverview,
         ILlmRowDataEgress? egress = null,
         bool forbidRowData = false,
-        McpSettingsData? projectSettings = null)
+        McpSettingsData? projectSettings = null,
+        string sectionContent = SectionContent)
     {
         var documentation = new ProjectDocumentation
         {
@@ -549,7 +583,7 @@ public class DocChunkIndexingServiceTests
             ProjectDocumentationId = documentation.Id,
             SectionType = sectionType,
             Title = "Project Overview",
-            Content = SectionContent,
+            Content = sectionContent,
             SortOrder = 0,
             Documentation = documentation
         };

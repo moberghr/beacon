@@ -161,6 +161,31 @@ public class UpdateMcpSettingsHandlerTests
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage($"{field} must be {range}.");
     }
 
+    // SC11: the instruction column holds 4000 characters. A longer global instruction is refused with its reason before any
+    // DB access (the strict factory throws on one); one of exactly 4000 characters is written.
+    [Test]
+    public async Task Handle_AGlobalInstructionOverItsLength_IsRefusedBeforeAnyWrite()
+    {
+        var act = async () => await CreateHandler(Unlocked()).Handle(
+            new UpdateMcpSettingsCommand(new McpSettingsData { GlobalInstruction = new string('a', 4001) }),
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("GlobalInstruction must be at most 4000 characters.");
+    }
+
+    [Test]
+    public async Task Handle_AGlobalInstructionOfTheMaximumLength_IsWritten()
+    {
+        var stored = new McpSettings();
+        var (handler, saves) = CreateHandlerWithRow(stored, Unlocked());
+        var instruction = new string('a', 4000);
+
+        await handler.Handle(new UpdateMcpSettingsCommand(new McpSettingsData { GlobalInstruction = instruction }), CancellationToken.None);
+
+        stored.GlobalInstruction.Should().Be(instruction);
+        saves().Should().Be(1);
+    }
+
     [Test]
     public async Task Handle_EveryNumericSettingAtTheEdgeOfItsRange_IsWritten()
     {

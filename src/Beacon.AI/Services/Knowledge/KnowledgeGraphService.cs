@@ -6,6 +6,7 @@ using Beacon.AI.Services.LlmProviders;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models.Metadata;
@@ -90,13 +91,9 @@ internal sealed partial class KnowledgeGraphService(
             .Where(m => m.DataSourceId == dataSourceId && m.SchemaName == schemaName && m.TableName == tableName)
             .FirstOrDefaultAsync(ct);
 
-        // Get documentation from the project's documentation (DataModel section)
-        var docContent = await context.ProjectDocumentationSections
-            .Where(x => x.Documentation.ProjectId == projectId)
-            .Where(x => x.Documentation.Project.DataSources.Any(y => y.DataSourceId == dataSourceId))
-            .Where(x => x.SectionType == ProjectDocSectionType.DataModel)
-            .OrderByDescending(x => x.Documentation.GeneratedAt)
-            .Select(x => x.Content)
+        // Get documentation from the project's documentation (DataModel section); a section whose generation failed holds
+        // a fixed text, not documentation, and is never served
+        var docContent = await BuildTableDocumentationQuery(context, projectId, dataSourceId)
             .FirstOrDefaultAsync(ct);
 
         // Get code references (from the project's repositories, GitHub scanner)
@@ -668,6 +665,19 @@ internal sealed partial class KnowledgeGraphService(
         var omitted = related.Count - admitted.Count;
 
         return new SchemaExpansion([.. detailed], [], Capped: omitted > 0, OmittedTableCount: omitted);
+    }
+
+    // The newest Data Model section of projectId's documentation, while the project links dataSourceId; a section whose
+    // generation failed is never served. Internal for translation tests.
+    internal static IQueryable<string> BuildTableDocumentationQuery(BeaconContext context, int projectId, int dataSourceId)
+    {
+        return context.ProjectDocumentationSections
+            .Where(x => x.Documentation.ProjectId == projectId)
+            .Where(x => x.Documentation.Project.DataSources.Any(y => y.DataSourceId == dataSourceId))
+            .Where(x => x.SectionType == ProjectDocSectionType.DataModel)
+            .Where(x => x.Content != FailedDocumentationSection.Content)
+            .OrderByDescending(x => x.Documentation.GeneratedAt)
+            .Select(x => x.Content);
     }
 
     // The data sources projectId links. Grounding reads a data source only through the caller's authorized project

@@ -1,22 +1,29 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.SecurityAudit;
+using Beacon.Core.Services;
 
 namespace Beacon.Core.Handlers.McpGlossary;
 
 /// <summary>
 /// Creates an admin-managed business glossary term for a project (optionally scoped to a data source).
-/// The term is embedded on the next glossary re-index (the Warp doc-chunk/glossary job) and its definition
-/// is injected into the smart context when it is near a masked question (Tier-3 ⑪). Throws (§9.8) when the
+/// The project's glossary is indexed right after the save (<see cref="DocChunkReindex"/>, best effort: a failure leaves it
+/// to the next Warp doc-chunk/glossary re-index and never fails the create) and the term's definition is injected into the
+/// smart context when it is near a masked question (Tier-3 ⑪). Throws (§9.8) when the
 /// term or definition is blank — a blank term produces a useless embedding. The creation is recorded in the security audit
 /// (ids and a keyed digest of each text field, never the term's text; <see cref="CurationContentAudit"/>) in the same unit
 /// of work.
 /// </summary>
-internal sealed class CreateGlossaryTermHandler(IDbContextFactory<BeaconContext> contextFactory, ISecurityAuditRecorder securityAudit)
+internal sealed class CreateGlossaryTermHandler(
+    IDbContextFactory<BeaconContext> contextFactory,
+    ISecurityAuditRecorder securityAudit,
+    ILogger<CreateGlossaryTermHandler> logger,
+    IDocChunkIndexingService? docChunkIndexing = null)
     : IRequestHandler<CreateGlossaryTermCommand, CreateGlossaryTermResult>
 {
     public async Task<CreateGlossaryTermResult> Handle(CreateGlossaryTermCommand request, CancellationToken cancellationToken)
@@ -63,6 +70,8 @@ internal sealed class CreateGlossaryTermHandler(IDbContextFactory<BeaconContext>
                     .Digesting(CurationContentAudit.AfterKey, CurationContentAudit.Of(term))
             ],
             cancellationToken);
+
+        await DocChunkReindex.AfterWriteAsync(docChunkIndexing, term.ProjectId, logger, cancellationToken);
 
         return new CreateGlossaryTermResult(term.Id);
     }

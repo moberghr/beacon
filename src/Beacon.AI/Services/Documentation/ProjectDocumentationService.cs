@@ -35,13 +35,11 @@ internal sealed class ProjectDocumentationService(
     ISecurityAuditRecorder securityAudit,
     IOptions<McpDeploymentOptions> deploymentOptions,
     ILogger<ProjectDocumentationService> logger,
-    ISqlExecutionAudit? executionAudit = null) : IProjectDocumentationService
+    ISqlExecutionAudit? executionAudit = null,
+    IDocChunkIndexingService? docChunkIndexing = null) : IProjectDocumentationService
 {
-    /// <summary>
-    /// What a section whose generation failed holds: a fixed text, never the failure's own message (a provider's error
-    /// text would otherwise be served to agents as documentation). The failure is logged by its code.
-    /// </summary>
-    internal const string FailedSectionContent = "*Generation failed for this section. Please regenerate.*";
+    /// <summary>The most curated glossary terms the Glossary pass and the export read.</summary>
+    internal const int MaxCuratedGlossaryTerms = 500;
 
     public async Task<ProjectDocumentation> GenerateDocumentationAsync(
         int projectId, int userId, CancellationToken ct = default)
@@ -87,7 +85,7 @@ internal sealed class ProjectDocumentationService(
             {
                 logger.LogWarning("Documentation generation failed for section {SectionType} ({Failure})", pass.Type, FailureCodes.Describe(ex));
                 return (pass.Type, pass.Title, pass.SortOrder,
-                    Content: FailedSectionContent,
+                    Content: FailedDocumentationSection.Content,
                     InputTokens: 0, OutputTokens: 0, Cost: 0m, Model: "unknown", Error: ex.Message);
             }
         }).ToList();
@@ -120,7 +118,12 @@ internal sealed class ProjectDocumentationService(
         try
         {
             var glossaryPrompt = ProjectDocumentationPrompts.BuildGlossaryPrompt(docContext, sections);
-            var glossaryResponse = await CallLlmAsync(columnValuesProvider, ProjectDocumentationPrompts.GetSystemPrompt(ProjectDocSectionType.Glossary), glossaryPrompt, ct);
+            var glossaryResponse = await CallLlmAsync(
+                columnValuesProvider,
+                ProjectDocumentationPrompts.GetSystemPrompt(ProjectDocSectionType.Glossary),
+                glossaryPrompt,
+                docContext.CuratedGlossaryTerms,
+                ct);
             sections.Add(new ProjectDocumentationSection
             {
                 SectionType = ProjectDocSectionType.Glossary,
@@ -141,7 +144,7 @@ internal sealed class ProjectDocumentationService(
             {
                 SectionType = ProjectDocSectionType.Glossary,
                 Title = "Glossary",
-                Content = FailedSectionContent,
+                Content = FailedDocumentationSection.Content,
                 SortOrder = 7
             });
         }
@@ -201,6 +204,10 @@ internal sealed class ProjectDocumentationService(
             "Project documentation {DocId} generated for Project {ProjectId} in {Duration:F1}s ({Sections} sections, {Tokens} tokens)",
             documentation.Id, projectId, sw.Elapsed.TotalSeconds, documentation.Sections.Count, totalInput + totalOutput);
 
+        // The new documentation's chunks (and the glossary) are indexed now that it committed, not at the next recurring
+        // re-index; best effort, a failure never fails the generation.
+        await DocChunkReindex.AfterWriteAsync(docChunkIndexing, projectId, logger, ct);
+
         return documentation;
     }
 
@@ -226,12 +233,42 @@ internal sealed class ProjectDocumentationService(
         sb.AppendLine($"*Generated: {doc.GeneratedAt:yyyy-MM-dd HH:mm} UTC | Model: {doc.GeneratedByModel}*");
         sb.AppendLine();
 
-        foreach (var section in doc.Sections.Where(x => !leaveOut.Contains(x.SectionType)))
+        // A section whose generation failed is not served: only its heading would say anything, and the Glossary section
+        // keeps its curated terms. The curated terms, the source of truth, come first in the Glossary section.
+        var exported = doc.Sections
+            .Where(x => !leaveOut.Contains(x.SectionType))
+            .ToList();
+        var curatedTerms = exported.Any(x => x.SectionType == ProjectDocSectionType.Glossary)
+            ? await BuildCuratedGlossaryTermsQuery(context, doc.ProjectId).ToListAsync(ct)
+            : [];
+        foreach (var section in exported)
         {
+            var failed = section.Content == FailedDocumentationSection.Content;
+            var curated = section.SectionType == ProjectDocSectionType.Glossary ? curatedTerms : [];
+            if (failed && curated.Count == 0)
+            {
+                continue;
+            }
+
             sb.AppendLine($"## {section.Title}");
             sb.AppendLine();
-            sb.AppendLine(section.Content);
-            sb.AppendLine();
+            if (curated.Count > 0)
+            {
+                sb.AppendLine("### Curated terms");
+                sb.AppendLine();
+                foreach (var term in curated)
+                {
+                    sb.AppendLine(ProjectDocumentationPrompts.CuratedTermExportLine(term));
+                }
+
+                sb.AppendLine();
+            }
+
+            if (!failed)
+            {
+                sb.AppendLine(section.Content);
+                sb.AppendLine();
+            }
         }
 
         // Append learned patterns from usage
@@ -423,7 +460,7 @@ internal sealed class ProjectDocumentationService(
         {
             logger.LogWarning("Documentation generation failed for API Documentation ({Failure})", FailureCodes.Describe(ex));
             return (ProjectDocSectionType.ApiDocumentation, "API Documentation", 6,
-                Content: FailedSectionContent,
+                Content: FailedDocumentationSection.Content,
                 InputTokens: 0, OutputTokens: 0, Cost: 0m, Model: "unknown", Error: ex.Message);
         }
     }
@@ -460,8 +497,9 @@ internal sealed class ProjectDocumentationService(
         var contractsTask = GetContractsAsync(dsIds, ct);
         var reposTask = GetRepositoriesAsync(projectId, ct);
         var patternsTask = GetLearnedPatternsForDocAsync(projectId, dsIds, ct);
+        var curatedTermsTask = GetCuratedGlossaryTermsAsync(projectId, ct);
 
-        await Task.WhenAll(tablesTask, codeRefsTask, qualityTask, contractsTask, reposTask, patternsTask);
+        await Task.WhenAll(tablesTask, codeRefsTask, qualityTask, contractsTask, reposTask, patternsTask, curatedTermsTask);
 
         var tables = tablesTask.Result;
         var codeReferences = codeRefsTask.Result;
@@ -469,6 +507,7 @@ internal sealed class ProjectDocumentationService(
         var contracts = contractsTask.Result;
         var repositories = reposTask.Result;
         var learnedPatterns = patternsTask.Result;
+        var curatedGlossaryTerms = curatedTermsTask.Result;
 
         // Phase 2: Discover enum/status values from external data sources
         var enumValues = await DiscoverEnumValuesAsync(projectId, dsIds, tables, ct);
@@ -484,7 +523,8 @@ internal sealed class ProjectDocumentationService(
             Contracts = contracts,
             Repositories = repositories,
             LearnedPatterns = learnedPatterns,
-            EnumValues = enumValues
+            EnumValues = enumValues,
+            CuratedGlossaryTerms = curatedGlossaryTerms
         };
     }
 
@@ -492,18 +532,41 @@ internal sealed class ProjectDocumentationService(
 
     // The user prompt is the project's metadata — names, descriptions, values, code snippets, earlier sections — so it is sent
     // as one data block under the data rule.
-    private static async Task<LlmResponse> CallLlmAsync(ILlmProvider provider, string systemPrompt, string userPrompt, CancellationToken ct)
+    private static Task<LlmResponse> CallLlmAsync(ILlmProvider provider, string systemPrompt, string userPrompt, CancellationToken ct)
     {
-        var request = new LlmRequest
+        return CallLlmAsync(provider, systemPrompt, userPrompt, [], ct);
+    }
+
+    private static async Task<LlmResponse> CallLlmAsync(
+        ILlmProvider provider,
+        string systemPrompt,
+        string userPrompt,
+        IReadOnlyList<CuratedGlossaryTerm> curatedTerms,
+        CancellationToken ct)
+    {
+        return await provider.CompleteAsync(BuildLlmRequest(systemPrompt, userPrompt, curatedTerms), ct);
+    }
+
+    // The Glossary pass also gets the project's curated terms: their own data block next to the metadata block, and the
+    // instruction not to redefine them in the system prompt, outside every block. Without curated terms the request is the
+    // one every other pass sends.
+    internal static LlmRequest BuildLlmRequest(string systemPrompt, string userPrompt, IReadOnlyList<CuratedGlossaryTerm> curatedTerms)
+    {
+        var curatedBlock = ProjectDocumentationPrompts.BuildCuratedGlossaryBlock(curatedTerms);
+        var instruction = curatedBlock == null
+            ? systemPrompt.TrimEnd()
+            : $"{systemPrompt.TrimEnd()}\n\n{ProjectDocumentationPrompts.CuratedGlossaryInstruction}";
+        var metadata = PromptData.Fence("project metadata", userPrompt);
+
+        return new LlmRequest
         {
-            SystemPrompt = $"{systemPrompt.TrimEnd()}\n\n{PromptData.Rule}",
-            Messages = [new ChatMessage(ConversationRole.User, PromptData.Fence("project metadata", userPrompt))],
+            SystemPrompt = $"{instruction}\n\n{PromptData.Rule}",
+            Messages = [new ChatMessage(ConversationRole.User, curatedBlock == null ? metadata : $"{metadata}\n\n{curatedBlock}")],
             Temperature = 0.3m,
             MaxTokens = 8192,
             Priority = LlmRequestPriority.Background,
             Operation = LlmOperations.Documentation
         };
-        return await provider.CompleteAsync(request, ct);
     }
 
     // The column values discovery found, for the egress log: their data sources, on behalf of the user who asked.
@@ -601,6 +664,26 @@ internal sealed class ProjectDocumentationService(
             .Where(r => r.ProjectId == projectId)
             .Select(r => new RepoInfo(r.RepositoryUrl, r.Branch, r.TotalFilesScanned, r.TotalReferencesFound))
             .ToListAsync(ct);
+    }
+
+    private async Task<List<CuratedGlossaryTerm>> GetCuratedGlossaryTermsAsync(int projectId, CancellationToken ct)
+    {
+        await using var ctx = await contextFactory.CreateDbContextAsync(ct);
+        return await BuildCuratedGlossaryTermsQuery(ctx, projectId).ToListAsync(ct);
+    }
+
+    // The project's active curated glossary terms — the glossary's source of truth — filtered by project in SQL, in term
+    // order, at most MaxCuratedGlossaryTerms.
+    internal static IQueryable<CuratedGlossaryTerm> BuildCuratedGlossaryTermsQuery(BeaconContext context, int projectId)
+    {
+        return context.McpGlossaryTerms
+            .Where(x => x.ProjectId == projectId)
+            .Where(x => x.IsActive)
+            .OrderBy(x => x.Term)
+            .ThenBy(x => x.Id)
+            .Take(MaxCuratedGlossaryTerms)
+            .Select(x =>
+                new CuratedGlossaryTerm(x.Term, x.Synonyms, x.Definition));
     }
 
     // The project's approved patterns as the documentation prompt is given them: example SQL without its comments in the
@@ -1137,6 +1220,7 @@ internal sealed class ProjectDocumentationService(
 
         public List<LearnedPatternForDoc> LearnedPatterns { get; init; } = new();
         public List<EnumColumnValues> EnumValues { get; init; } = new();
+        public List<CuratedGlossaryTerm> CuratedGlossaryTerms { get; init; } = new();
 
         public int DataSourceCount => DataSources.Count;
         public int TableCount => Tables.Count;
@@ -1154,6 +1238,7 @@ internal sealed class ProjectDocumentationService(
         string Content, string? ExampleQuestion, string? ExampleSql);
 
     internal sealed record DataSourceInfo(int Id, string Name, DataSourceType Type, DatabaseEngineType? EngineType);
+    internal sealed record CuratedGlossaryTerm(string Term, string? Synonyms, string Definition);
     internal sealed record RepoInfo(string Url, string Branch, int FilesScanned, int ReferencesFound);
 
     internal sealed class TableInfo

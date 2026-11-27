@@ -6,6 +6,7 @@ using Beacon.AI.Services.LlmProviders;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Helpers;
 using Beacon.Core.Models.Metadata;
@@ -797,8 +798,10 @@ internal sealed partial class KnowledgeGraphService
 
     internal static IQueryable<DocSectionSearchRow> BuildDocSectionsQuery(BeaconContext context, int projectId, List<string> terms, int maxResults)
     {
+        // A section whose generation failed holds a fixed text, not documentation: never a search result.
         return context.ProjectDocumentationSections
             .Where(x => x.Documentation.ProjectId == projectId)
+            .Where(x => x.Content != FailedDocumentationSection.Content)
             .Select(x =>
                 new
                 {

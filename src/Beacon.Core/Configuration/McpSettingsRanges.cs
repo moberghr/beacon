@@ -25,6 +25,9 @@ internal static class McpSettingsRanges
     /// <summary>The largest plan-cost limit the stored column (precision 18, scale 2) holds.</summary>
     public const decimal MaxExplainCostMaximum = 9_999_999_999_999_999.99m;
 
+    /// <summary>The longest global or project instruction saved: what its column holds.</summary>
+    public const int GlobalInstructionMaxLength = 4_000;
+
     private static readonly FieldRange[] Ranges =
     [
         new(nameof(McpSettingsData.MaxRowLimit), 1, MaxRowLimitMaximum),

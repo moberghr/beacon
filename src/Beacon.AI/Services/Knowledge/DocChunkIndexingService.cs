@@ -4,6 +4,7 @@ using Microsoft.Extensions.Options;
 using Beacon.AI.Services.Embeddings;
 using Beacon.AI.Services.LlmProviders;
 using Beacon.Core.Configuration;
+using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Helpers;
 
 namespace Beacon.AI.Services.Knowledge;
@@ -165,7 +166,8 @@ internal sealed class DocChunkIndexingService(
 
         // Chunk the LATEST documentation only — that is what the knowledge-answer fallback exports
         // (ExportLatestToMarkdownAsync), so retrieval and fallback stay over the same content and stale
-        // generations are never indexed.
+        // generations are never indexed. A section whose generation failed holds a fixed text, not documentation: it
+        // gets no chunks, and the chunks it had are pruned below with every other chunk no longer produced.
         var latestDocId = await context.ProjectDocumentations
             .Where(x => x.ProjectId == projectId)
             .OrderByDescending(x => x.GeneratedAt)
@@ -176,6 +178,7 @@ internal sealed class DocChunkIndexingService(
             ? []
             : await context.ProjectDocumentationSections
                 .Where(x => x.ProjectDocumentationId == latestDocId.Value)
+                .Where(x => x.Content != FailedDocumentationSection.Content)
                 .OrderBy(x => x.SortOrder)
                 .Select(x =>
                     new SectionSource

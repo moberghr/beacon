@@ -218,6 +218,16 @@ internal static class ProjectDocumentationPrompts
         _ => "You are a technical writer. Generate Markdown documentation based on the provided context."
     };
 
+    // The Glossary pass's instruction for the project's curated terms. It goes in the system prompt, outside every data block,
+    // so no term's text can change it.
+    internal const string CuratedGlossaryInstruction =
+        "The project's curated glossary terms are in the \"curated glossary terms\" block. They are the glossary's source of "
+        + "truth and authoritative: do not redefine, rename or contradict them, and do not list them again. Your glossary "
+        + "covers the other terms only.";
+
+    // How much of the Glossary request the curated terms may take: their own budget, next to the metadata block's.
+    internal const int CuratedGlossaryLimit = 50_000;
+
     // --- User Prompt Builders ---
     // Each builder bounds its variable part with a DocumentationPromptBudget: items are added whole, in their order, and the
     // ones past the budget are counted in one closing line.
@@ -549,6 +559,35 @@ internal static class ProjectDocumentationPrompts
         return sb.ToString();
     }
 
+    // The project's curated glossary terms as one data block, a term per line (term, synonyms when it has some, definition, each
+    // kept on its line); null when the project has none.
+    internal static string? BuildCuratedGlossaryBlock(IReadOnlyList<CuratedGlossaryTerm> terms)
+    {
+        if (terms.Count == 0)
+        {
+            return null;
+        }
+
+        var sb = new StringBuilder();
+        var budget = new DocumentationPromptBudget(sb, CuratedGlossaryLimit);
+        foreach (var term in terms)
+        {
+            budget.TryAdd($"- {CuratedTermText(term)}{Environment.NewLine}");
+        }
+
+        budget.AppendNote();
+
+        return PromptData.Fence("curated glossary terms", sb.ToString());
+    }
+
+    // A curated term as the exported Glossary section lists it, on one line.
+    internal static string CuratedTermExportLine(CuratedGlossaryTerm term)
+    {
+        var synonyms = string.IsNullOrWhiteSpace(term.Synonyms) ? "" : $" (synonyms: {PromptData.OneLine(term.Synonyms)})";
+
+        return $"- **{PromptData.OneLine(term.Term)}**{synonyms}: {PromptData.OneLine(term.Definition)}";
+    }
+
     internal static string BuildGlossaryPrompt(DocumentationContext ctx, List<ProjectDocumentationSection> existingSections)
     {
         var sb = new StringBuilder();
@@ -584,5 +623,12 @@ internal static class ProjectDocumentationPrompts
         budget.AppendNote();
 
         return sb.ToString();
+    }
+
+    private static string CuratedTermText(CuratedGlossaryTerm term)
+    {
+        var synonyms = string.IsNullOrWhiteSpace(term.Synonyms) ? "" : $" (synonyms: {PromptData.OneLine(term.Synonyms)})";
+
+        return $"{PromptData.OneLine(term.Term)}{synonyms}: {PromptData.OneLine(term.Definition)}";
     }
 }

@@ -408,6 +408,48 @@ public class McpProjectSettingsHandlerTests
         _history.Should().OnlyContain(x => x.ChangedByUserId == "3");
     }
 
+    // SC11: a project's instruction override is in the settings history like any other override, and the instruction column
+    // holds 4000 characters: a longer override is refused with its reason before any write, one of exactly 4000 is written.
+    [Test]
+    public async Task AProjectInstructionChange_IsRecordedInTheSettingsHistory()
+    {
+        _rows.Add(new McpProjectSettings { Id = 7, ProjectId = ProjectId, GlobalInstruction = "Answer briefly." });
+
+        await CreateUpdateHandler(Unlocked()).Handle(
+            new UpdateMcpProjectSettingsCommand(ProjectId, new McpProjectSettingsData { GlobalInstruction = "Answer with the table names." }),
+            CancellationToken.None);
+
+        _history.Select(x => (x.SettingKey, x.OldValue, x.NewValue)).Should().ContainSingle()
+            .Which.Should().Be(("Mcp.Project.42.GlobalInstruction", "Answer briefly.", "Answer with the table names."));
+        _history.Should().OnlyContain(x => x.ChangedByUserId == "3");
+    }
+
+    [Test]
+    public async Task Update_AProjectInstructionOverItsLength_IsRejectedBeforeAnyWrite()
+    {
+        var act = () => CreateUpdateHandler().Handle(
+            new UpdateMcpProjectSettingsCommand(ProjectId, new McpProjectSettingsData { GlobalInstruction = new string('a', 4001) }),
+            CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("GlobalInstruction must be at most 4000 characters.");
+        _rows.Should().BeEmpty();
+        _saveCalls.Should().Be(0);
+        _history.Should().BeEmpty();
+    }
+
+    [Test]
+    public async Task Update_AProjectInstructionOfTheMaximumLength_IsWritten()
+    {
+        var instruction = new string('a', 4000);
+
+        await CreateUpdateHandler().Handle(
+            new UpdateMcpProjectSettingsCommand(ProjectId, new McpProjectSettingsData { GlobalInstruction = instruction }),
+            CancellationToken.None);
+
+        _rows.Should().ContainSingle().Which.GlobalInstruction.Should().Be(instruction);
+        _saveCalls.Should().Be(1);
+    }
+
     // A new pattern the linear-time engine cannot run is refused; one the project or the global settings already store is
     // not checked again, so it does not block the save.
     [Test]

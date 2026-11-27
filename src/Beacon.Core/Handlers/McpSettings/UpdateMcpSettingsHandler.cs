@@ -42,6 +42,13 @@ internal sealed class UpdateMcpSettingsHandler(
         // would cancel every statement.
         McpSettingsRanges.Check(data);
 
+        // The instruction is refused with its reason when its column cannot hold it, never cut or failed by the database.
+        if (data.GlobalInstruction?.Length > McpSettingsRanges.GlobalInstructionMaxLength)
+        {
+            throw new InvalidOperationException(
+                $"GlobalInstruction must be at most {McpSettingsRanges.GlobalInstructionMaxLength} characters.");
+        }
+
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         var entity = await context.McpSettings.FirstOrDefaultAsync(cancellationToken);
 
