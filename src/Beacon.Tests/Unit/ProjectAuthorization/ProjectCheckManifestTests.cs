@@ -42,6 +42,7 @@ public class ProjectCheckManifestTests
         ["DeleteDataContractCommand"] = ["DataContract(DataContractId):Manage"],
         ["DeleteSchemaRelationshipCommand"] = ["DataSource(DataSourceId):Manage:linking"],
         ["DeleteSubscriptionCommand"] = ["Subscription(SubscriptionId):Manage"],
+        ["DescribeTableColumnsCommand"] = ["Project(ProjectId):Curate", "DataSource(DataSourceId):Read"],
         ["DiffQueryVersionsQuery"] = ["QueryVersion(VersionIdA):Read", "QueryVersion(VersionIdB):Read"],
         ["EvaluateDataContractCommand"] = ["DataContract(DataContractId):Run"],
         ["ExecuteAiActorThinkCycleCommand"] = ["AiActor(ActorId):Query"],

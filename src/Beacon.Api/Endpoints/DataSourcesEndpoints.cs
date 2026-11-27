@@ -66,6 +66,22 @@ internal static class DataSourcesEndpoints
                 m.Send(query, ct))
             .WithName("GetDescriptionItems");
 
+        // Asks the LLM to describe the table's columns that have no description and no proposed patch in the project (at
+        // most 60) and stores the answers as proposed column-description patches there; the catalog is not written.
+        ds.MapPost("/{dataSourceId:int}/tables/describe", (int dataSourceId, DescribeTableColumnsBody body, IMediator m, CancellationToken ct) =>
+                m.Send(
+                    new DescribeTableColumnsCommand
+                    {
+                        DataSourceId = dataSourceId,
+                        ProjectId = body.ProjectId,
+                        SchemaName = body.SchemaName,
+                        TableName = body.TableName
+                    },
+                    ct))
+            .WithName("DescribeTableColumns")
+            .WithBeaconLongRunning()
+            .RequireBeaconPermission(BeaconPermissions.DataSourceAdminPolicy);
+
         // Edits the source and replaces its connection (credential rotation). The stored connection is never sent: an omitted
         // connection keeps it. A connection that points somewhere else answers 409 unless the body confirms the change.
         ds.MapPut("/{id:int}", async (int id, UpdateDataSourceBody body, IMediator m, CancellationToken ct) =>
@@ -147,3 +163,6 @@ internal sealed record UpdateDataSourceBody(
 
 /// <summary>Whether the data source is enabled: false disables it, so Beacon makes no connection with it.</summary>
 internal sealed record SetDataSourceEnabledBody(bool Enabled);
+
+/// <summary>The table whose columns to describe, and the project (linking the data source) the proposals are stored in.</summary>
+internal sealed record DescribeTableColumnsBody(string SchemaName, string TableName, int ProjectId);
