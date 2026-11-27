@@ -33,7 +33,7 @@ internal sealed class McpSettingField
 
     public string Name { get; }
 
-    /// <summary>True when a project may override the setting; the prompts and tool descriptions stay global.</summary>
+    /// <summary>True when a project may override the setting; the system prompt and tool descriptions stay global.</summary>
     public bool Overridable => _overrides != null;
 
     /// <summary>
@@ -87,7 +87,7 @@ internal static class McpSettingFields
     public static IReadOnlyList<McpSettingField> All { get; } =
     [
         GlobalOnly(nameof(McpSettingsData.AskSystemPrompt)),
-        GlobalOnly(nameof(McpSettingsData.GlobalInstruction)),
+        Overridable(nameof(McpSettingsData.GlobalInstruction)),
         GlobalOnly(nameof(McpSettingsData.GetContextDescription)),
         GlobalOnly(nameof(McpSettingsData.QueryDescription)),
         GlobalOnly(nameof(McpSettingsData.GetDocumentationDescription)),
@@ -128,7 +128,8 @@ internal static class McpSettingFields
         Overridable(nameof(McpSettingsData.MaxConcurrentQueriesPerKey), requiresPositive: true),
         Overridable(nameof(McpSettingsData.AllowExplicitFeedbackContent)),
         Overridable(nameof(McpSettingsData.EnableKnowledgeItemBoost)),
-        Overridable(nameof(McpSettingsData.EnableScheduledEval))
+        Overridable(nameof(McpSettingsData.EnableScheduledEval)),
+        Overridable(nameof(McpSettingsData.EnableDocChunksInAsk))
     ];
 
     /// <summary>The settings a project may override, in table order.</summary>
@@ -199,8 +200,9 @@ internal static class McpSettingFields
     }
 
     /// <summary>
-    /// Lays a project's non-null overrides over <paramref name="effective"/>. An override no reader can use (below one,
-    /// written before the write handlers checked the ranges) is no override: the field keeps its value and is reported in
+    /// Lays a project's non-null overrides over <paramref name="effective"/>. A blank text override (the project's
+    /// instruction) is no override: the global text applies. An override no reader can use (below one, written before the
+    /// write handlers checked the ranges) is no override: the field keeps its value and is reported in
     /// <paramref name="clamped"/>.
     /// </summary>
     public static void Overlay(McpSettingsData effective, McpProjectSettingsData overrides, ISet<string> clamped)
@@ -209,6 +211,11 @@ internal static class McpSettingFields
         {
             var value = field.GetOverride(overrides);
             if (value == null)
+            {
+                continue;
+            }
+
+            if (value is string text && string.IsNullOrWhiteSpace(text))
             {
                 continue;
             }

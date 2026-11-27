@@ -1,9 +1,11 @@
 using Beacon.AI.Services;
 using Beacon.AI.Services.LlmProviders;
 using Beacon.AI.Services.Mcp;
+using Beacon.Core.Configuration;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Ai;
+using Beacon.Core.Services;
 using FluentAssertions;
 using Microsoft.Extensions.Time.Testing;
 using Moq;
@@ -76,6 +78,26 @@ public class SqlGenerationPromptTests
         request.Messages[1].CacheBreakpoint.Should().BeFalse();
         request.Messages[1].Content.Should().Be($"TODAY (UTC): 2026-09-04 (Friday)\n\nUSER QUESTION: {Question}");
         request.Operation.Should().Be(LlmOperations.SqlGeneration);
+    }
+
+    // SC11: the ask prompt carries the project's effective settings, so a project's instruction replaces the global one there;
+    // a blank one inherits it.
+    [Test]
+    public async Task GenerateAsync_WithAProjectsInstruction_CarriesItInsteadOfTheGlobalOne()
+    {
+        var global = new McpSettingsData { GlobalInstruction = "Amounts are in EUR." };
+        var overridden = McpSettingsProvider.Resolve(global, new McpProjectSettingsData { GlobalInstruction = "Amounts are in ISK." }, new McpDeploymentOptions());
+        var inherited = McpSettingsProvider.Resolve(global, new McpProjectSettingsData { GlobalInstruction = "  " }, new McpDeploymentOptions());
+        var service = new SqlGenerationService(_clock);
+
+        await service.GenerateAsync(_llmProvider.Object, SchemaContext, Question, overridden.Effective, CancellationToken.None);
+        await service.GenerateAsync(_llmProvider.Object, SchemaContext, Question, inherited.Effective, CancellationToken.None);
+
+        _capturedRequests.Should().HaveCount(2);
+        _capturedRequests[0].Messages[0].Content.Should().Be(ExpectedContextMessage.Replace("Amounts are in EUR.", "Amounts are in ISK."));
+        _capturedRequests[0].Messages[0].Content.Should().NotContain("EUR");
+        _capturedRequests[0].SystemPrompt.Should().NotContain("ISK", "the instruction is user content, never the system prompt");
+        _capturedRequests[1].Messages[0].Content.Should().Be(ExpectedContextMessage);
     }
 
     // Schema text (database comments, documentation, glossary) is user content: it never reaches the system prompt.

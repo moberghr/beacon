@@ -25,8 +25,8 @@ namespace Beacon.Tests.Unit;
 /// item), adds the two settings that ship off (false on the global row, inherit on a project's row), the pattern's last
 /// replay outcome (null: never replayed), the eval run's trigger (every existing run was started by a person: Manual) and the
 /// patch's source pattern id (null, no foreign key). It runs no SQL and backfills nothing. Up is exactly the difference
-/// between the model before it and its target model, Down is exactly the way back, its target model is the snapshot, the
-/// model has no pending changes, and it sorts last.
+/// between the model before it and its target model, and Down is exactly the way back. Its target model differs from the
+/// next migration's (<c>AddDescriptionItems</c>) only by that migration, which sorts right after it.
 /// </summary>
 [TestFixture]
 public class KnowledgeItemStatsMigrationTests
@@ -35,7 +35,7 @@ public class KnowledgeItemStatsMigrationTests
 
     [TestCase(false, "integer", "boolean", "double precision", "timestamp with time zone")]
     [TestCase(true, "int", "bit", "float", "datetime2")]
-    public void TheMigration_CreatesTheStatsTable_AndAddsTheNewColumns_AndIsTheSnapshot(
+    public void TheMigration_CreatesTheStatsTable_AndAddsTheNewColumns(
         bool sqlServer, string intType, string boolType, string doubleType, string timeType)
     {
         using var provider = BuildProvider(sqlServer);
@@ -96,13 +96,17 @@ public class KnowledgeItemStatsMigrationTests
             .Should().BeEquivalentTo(Signatures(differ.GetDifferences(before, target)), "Up is exactly the difference from the model before");
         Signatures(migration.DownOperations)
             .Should().BeEquivalentTo(Signatures(differ.GetDifferences(target, before)), "Down removes exactly what Up adds");
-        differ.GetDifferences(target, Initialized(migrations.ModelSnapshot!.Model, initializer).GetRelationalModel())
-            .Should().BeEmpty("the migration's target model is the snapshot");
-        context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
+        var next = MigrationNamed(context, migrations, "_AddDescriptionItems");
+        Signatures(differ.GetDifferences(target, Initialized(next.TargetModel!, initializer).GetRelationalModel()))
+            .Should().BeEquivalentTo(
+                Signatures(next.UpOperations),
+                "this migration's target model differs from the next one's only by the next migration");
         migrations.Migrations.Keys
             .Order(StringComparer.Ordinal)
-            .Last()
-            .Should().EndWith(Suffix, "it sorts after every earlier migration");
+            .SkipWhile(x => !x.EndsWith(Suffix, StringComparison.Ordinal))
+            .Skip(1)
+            .First()
+            .Should().EndWith("_AddDescriptionItems", "the next migration sorts right after it");
     }
 
     [TestCase(false)]

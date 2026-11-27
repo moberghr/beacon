@@ -14,7 +14,10 @@ public class McpKnowledgeItemStat : BaseEntity
 
     public McpKnowledgeItemKind Kind { get; set; }
 
-    /// <summary>The item's id in its own table (<c>McpEvalCases</c>, <c>McpLearnedPatterns</c> or <c>McpGlossaryTerms</c>, by <see cref="Kind"/>).</summary>
+    /// <summary>
+    /// The item's id in its own table, by <see cref="Kind"/>: <c>McpEvalCases</c>, <c>McpLearnedPatterns</c>,
+    /// <c>McpGlossaryTerms</c>, <c>McpDescriptionItems</c> (table and column descriptions) or <c>McpDocChunks</c>.
+    /// </summary>
     public int ItemId { get; set; }
 
     public double HelpfulScore { get; set; }

@@ -71,6 +71,10 @@ public class McpSettingsData
     // Off by default: the nightly eval run spends LLM calls.
     public bool EnableScheduledEval { get; set; }
 
+    // Knowledge-documentation settings
+    // Off by default: adds the project's documentation chunks to the ask prompt.
+    public bool EnableDocChunksInAsk { get; set; }
+
     /// <summary>
     /// True when the deployment lock <c>Beacon:Mcp:ForceReadOnly</c> turned <see cref="EnforceReadOnly"/> on over a stored
     /// value that had it off, so a refusal can name the lock. Set at resolution; never serialized.

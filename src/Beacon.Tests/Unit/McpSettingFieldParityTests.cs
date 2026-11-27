@@ -41,14 +41,15 @@ public class McpSettingFieldParityTests
         "EnableGoldenExemplars", "GoldenExemplarTopK", "GoldenExemplarBudgetChars", "EnableValueGrounding",
         "ValueGroundingMaxProbes", "EnableSemanticLint", "SelfConsistencyMinTables", "RetainQueryContent",
         "StatementTimeoutSeconds", "MaxResultBytes", "MaxExplainCost", "MaxConcurrentQueriesPerKey",
-        "AllowExplicitFeedbackContent", "EnableKnowledgeItemBoost", "EnableScheduledEval"
+        "AllowExplicitFeedbackContent", "EnableKnowledgeItemBoost", "EnableScheduledEval", "EnableDocChunksInAsk"
     ];
 
-    // The prompts and tool descriptions stay global: no project is known when the tools are listed.
+    // The system prompt and tool descriptions stay global: no project is known when the tools are listed. The instruction
+    // a project's prompts carry is the one prompt text a project may replace.
     private static readonly string[] GlobalOnlyFields =
     [
-        "AskSystemPrompt", "GlobalInstruction", "GetContextDescription", "QueryDescription", "GetDocumentationDescription",
-        "AskDescription", "SearchDescription"
+        "AskSystemPrompt", "GetContextDescription", "QueryDescription", "GetDocumentationDescription", "AskDescription",
+        "SearchDescription"
     ];
 
     private List<McpSettingsEntity> _globalRows = null!;
@@ -252,7 +253,8 @@ public class McpSettingFieldParityTests
             "goldenExemplarTopK":4,"goldenExemplarBudgetChars":2000,"enableValueGrounding":false,
             "valueGroundingMaxProbes":12,"enableSemanticLint":true,"selfConsistencyMinTables":2,"retainQueryContent":true,
             "statementTimeoutSeconds":30,"maxResultBytes":262144,"maxExplainCost":null,"maxConcurrentQueriesPerKey":4,
-            "allowExplicitFeedbackContent":true,"enableKnowledgeItemBoost":false,"enableScheduledEval":false}
+            "allowExplicitFeedbackContent":true,"enableKnowledgeItemBoost":false,"enableScheduledEval":false,
+            "enableDocChunksInAsk":false}
             """;
         foreach (var expected in JsonDocument.Parse(resolved).RootElement.EnumerateObject())
         {

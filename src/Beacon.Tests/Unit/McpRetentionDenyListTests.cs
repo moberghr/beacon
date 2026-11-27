@@ -95,6 +95,26 @@ public class McpRetentionDenyListTests
         KindOf<ManualQueryExecutionLog>(nameof(ManualQueryExecutionLog.HmacKeyId)).Should().Be(RetentionKind.Structural);
     }
 
+    // Who wrote a catalog description and when (names, a structure hash, a model name), the generating model of a patch and
+    // a project's instruction (configuration, as the global one) are kept whatever the content lock says.
+    [Test]
+    public void DescriptionItems_PatchModel_AndProjectInstruction_AreStructural()
+    {
+        McpRetentionDenyList.RulesFor(typeof(McpDescriptionItem)).Select(x => $"{x.Property} {x.Kind}")
+            .Should().BeEquivalentTo(
+                $"{nameof(McpDescriptionItem.SchemaName)} {RetentionKind.Structural}",
+                $"{nameof(McpDescriptionItem.TableName)} {RetentionKind.Structural}",
+                $"{nameof(McpDescriptionItem.ColumnName)} {RetentionKind.Structural}",
+                $"{nameof(McpDescriptionItem.GeneratedByModel)} {RetentionKind.Structural}",
+                $"{nameof(McpDescriptionItem.StructureHash)} {RetentionKind.Structural}");
+        KindOf<McpDocumentationPatch>(nameof(McpDocumentationPatch.GeneratedByModel)).Should().Be(RetentionKind.Structural);
+        KindOf<McpProjectSettings>(nameof(McpProjectSettings.GlobalInstruction))
+            .Should().Be(KindOf<McpSettings>(nameof(McpSettings.GlobalInstruction)))
+            .And.Be(RetentionKind.Structural);
+        McpRetentionDenyList.ProjectIdSelector(typeof(McpDescriptionItem)).Should().BeNull("an item is keyed by its data source, not a project");
+        McpRetentionDenyList.ContentStores.Should().NotContain(typeof(McpDescriptionItem));
+    }
+
     [Test]
     public void RequiredStringProperties_CoverTheNonNullableContentColumns()
     {

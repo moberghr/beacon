@@ -1862,6 +1862,66 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.ToTable("McpAuditStatements", "beacon");
                 });
 
+            modelBuilder.Entity("Beacon.Core.Data.Entities.McpDescriptionItem", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("int");
+
+                    SqlServerPropertyBuilderExtensions.UseIdentityColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ColumnName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int>("DataSourceId")
+                        .HasColumnType("int");
+
+                    b.Property<string>("GeneratedByModel")
+                        .HasColumnType("nvarchar(max)");
+
+                    b.Property<string>("SchemaName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("nvarchar(100)");
+
+                    b.Property<int>("Source")
+                        .HasColumnType("int");
+
+                    b.Property<int?>("SourcePatchId")
+                        .HasColumnType("int");
+
+                    b.Property<DateTime?>("StaleSince")
+                        .HasColumnType("datetime2");
+
+                    b.Property<string>("StructureHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("nvarchar(64)");
+
+                    b.Property<string>("TableName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("nvarchar(200)");
+
+                    b.Property<DateTime>("WrittenAt")
+                        .HasColumnType("datetime2");
+
+                    b.Property<int?>("WrittenByUserId")
+                        .HasColumnType("int");
+
+                    b.HasKey("Id");
+
+                    b.HasIndex("DataSourceId", "SchemaName", "TableName", "ColumnName")
+                        .IsUnique();
+
+                    b.ToTable("McpDescriptionItems", "beacon");
+                });
+
             modelBuilder.Entity("Beacon.Core.Data.Entities.McpDocChunk", b =>
                 {
                     b.Property<int>("Id")
@@ -1925,6 +1985,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
 
                     b.Property<int>("DataSourceId")
                         .HasColumnType("int");
+
+                    b.Property<string>("GeneratedByModel")
+                        .HasColumnType("nvarchar(max)");
 
                     b.Property<int>("ProjectId")
                         .HasColumnType("int");
@@ -2408,6 +2471,9 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                     b.Property<bool?>("EnableContextualRetrieval")
                         .HasColumnType("bit");
 
+                    b.Property<bool?>("EnableDocChunksInAsk")
+                        .HasColumnType("bit");
+
                     b.Property<bool?>("EnableEvalJudge")
                         .HasColumnType("bit");
 
@@ -2449,6 +2515,10 @@ namespace Beacon.Core.SqlServer.Data.Migrations
 
                     b.Property<int?>("ExemplarTopK")
                         .HasColumnType("int");
+
+                    b.Property<string>("GlobalInstruction")
+                        .HasMaxLength(4000)
+                        .HasColumnType("nvarchar(4000)");
 
                     b.Property<int?>("GlossaryTopK")
                         .HasColumnType("int");
@@ -2695,6 +2765,11 @@ namespace Beacon.Core.SqlServer.Data.Migrations
                         .HasDefaultValue(5);
 
                     b.Property<bool>("EnableContextualRetrieval")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("bit")
+                        .HasDefaultValue(false);
+
+                    b.Property<bool>("EnableDocChunksInAsk")
                         .ValueGeneratedOnAdd()
                         .HasColumnType("bit")
                         .HasDefaultValue(false);

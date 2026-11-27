@@ -7,6 +7,9 @@ namespace Beacon.Core.Models;
 /// </summary>
 public class McpProjectSettingsData
 {
+    /// <summary>Replaces the global instruction in this project's prompts; null or blank inherits it.</summary>
+    public string? GlobalInstruction { get; set; }
+
     public int? MaxRowLimit { get; set; }
     public bool? EnforceReadOnly { get; set; }
     public bool? EnablePiiDetection { get; set; }
@@ -51,4 +54,6 @@ public class McpProjectSettingsData
 
     public bool? EnableKnowledgeItemBoost { get; set; }
     public bool? EnableScheduledEval { get; set; }
+
+    public bool? EnableDocChunksInAsk { get; set; }
 }
