@@ -2,6 +2,7 @@ using Beacon.AI.Services.Eval;
 using Beacon.AI.Services.Knowledge;
 using Beacon.AI.Services.LlmProviders;
 using Beacon.AI.Services.Mcp;
+using Beacon.Core.Authorization;
 using Beacon.Core.Configuration;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
@@ -28,8 +29,10 @@ namespace Beacon.Tests.Unit;
 /// through the eval harness's read-only executor — the gate with read-only forced and the row security context from the
 /// resolver, then the provider's read-only path (§1.5, §1.15) — never generation or the judge. A run gives the result's
 /// fingerprint; a gate refusal, a data source error or any failure (missing data source, statement timeout) is "did not
-/// run", logged by ids and failure codes only (§1.11); only the caller's cancellation propagates. The real
-/// <see cref="McpEvalService"/> over in-memory sets, no database (§4.7).
+/// run", logged by ids and failure codes only (§1.11); only the caller's cancellation propagates. A person starts the
+/// replay, so a statement the gate passed is in the execution log before it is sent, as the caller by <c>Users.Id</c>, and
+/// its row is closed with how it ended; while the log is required, a row that cannot be written stops the statement (§1.7).
+/// The real <see cref="McpEvalService"/> over in-memory sets, no database (§4.7).
 /// </summary>
 [TestFixture]
 public class GoldSqlReplayTests
@@ -81,6 +84,10 @@ public class GoldSqlReplayTests
         harness.Logs.Entries.Should().NotBeEmpty();
         harness.Logs.Contains("orders").Should().BeFalse("neither the SQL nor the database's error is logged");
         harness.Logs.Contains("db-secret-host").Should().BeFalse();
+        harness.ExecutionLog.Ends.Should().ContainSingle()
+            .Which.Should().Match<SqlExecutionEnd>(x => x.Status == QueryExecutionLogStatus.Failed
+                && !x.ErrorMessage!.Contains("db-secret-host")
+                && !x.ErrorMessage.Contains("orders"));
     }
 
     // The gate refuses a statement that writes or reaches the system catalog: it never reaches the data source.
@@ -95,6 +102,7 @@ public class GoldSqlReplayTests
 
         replay.Should().Be(GoldSqlReplay.DidNotRun);
         harness.Provider.VerifyNoOtherCalls();
+        harness.ExecutionLog.Starts.Should().BeEmpty("nothing reached the data source");
     }
 
     [Test]
@@ -153,6 +161,7 @@ public class GoldSqlReplayTests
         var act = () => harness.Service.ReplayGoldSqlAsync(DataSourceId, ProjectId, GoldSql, cancellation.Token);
 
         await act.Should().ThrowAsync<OperationCanceledException>();
+        harness.ExecutionLog.Ends.Should().ContainSingle().Which.Status.Should().Be(QueryExecutionLogStatus.Cancelled);
     }
 
     // The replay runs under the project's effective settings (its row cap here), or the global ones without a project.
@@ -170,17 +179,116 @@ public class GoldSqlReplayTests
             Times.Once);
     }
 
-    /// <summary>The real eval service over one PostgreSQL data source, a scripted provider and an LLM nothing may call.</summary>
-    private sealed class Harness
+    // The statement the gate wrote is in the execution log, as a gold SQL replay, before it is sent; its row is closed with
+    // how it ended.
+    [Test]
+    public async Task AReplay_IsInTheExecutionLogBeforeItIsSent_AndClosedWithItsRows()
     {
-        public Harness(IRowSecurityResolver? rowSecurity = null, bool dataSourceExists = true, McpSettingsData? projectSettings = null)
+        var harness = new Harness();
+        harness.Succeeds(Rows);
+
+        await harness.Service.ReplayGoldSqlAsync(DataSourceId, ProjectId, GoldSql, CancellationToken.None);
+
+        harness.Order.Should().Equal("start", "execute", "end");
+        var sent = harness.Provider.Invocations.Should().ContainSingle().Which.Arguments[1].Should().BeOfType<string>().Subject;
+        harness.ExecutionLog.Starts.Should().ContainSingle()
+            .Which.Should().Be(new SqlExecutionStart(DataSourceId, sent, SqlExecutionContexts.GoldSqlReplay));
+        harness.ExecutionLog.Ends.Should().ContainSingle()
+            .Which.Should().Match<SqlExecutionEnd>(x => x.Status == QueryExecutionLogStatus.Succeeded && x.ResultCount == Rows.Count);
+    }
+
+    // The row names the scope's caller — the person promoting — by Users.Id, never a name, and is written before the
+    // statement is sent.
+    [Test]
+    public async Task TheReplaysExecutionLogRow_NamesTheCallerByUsersId_BeforeTheStatementIsSent()
+    {
+        var logged = new List<object>();
+        var harness = new Harness(executionLog: RealExecutionLog(LogStore(logged), required: true, TestProjectAccess.Actors(beaconUserId: 7)));
+        var rowsAtSend = new List<ManualQueryExecutionLog>();
+        harness.Provider
+            .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+            .Callback(() => rowsAtSend.AddRange(logged.OfType<ManualQueryExecutionLog>()))
+            .ReturnsAsync(new ProviderQueryResult { Success = true, Rows = Rows });
+
+        var replay = await harness.Service.ReplayGoldSqlAsync(DataSourceId, ProjectId, GoldSql, CancellationToken.None);
+
+        replay.Ran.Should().BeTrue();
+        var sent = harness.Provider.Invocations.Should().ContainSingle().Which.Arguments[1].Should().BeOfType<string>().Subject;
+        var row = rowsAtSend.Should().ContainSingle().Which;
+        row.TriggeredByUserId.Should().Be(7);
+        row.UserId.Should().BeNull("the caller is recorded by Users.Id only");
+        row.DataSourceId.Should().Be(DataSourceId);
+        row.ExecutionContext.Should().Be(SqlExecutionContexts.GoldSqlReplay);
+        row.QueryText.Should().Be(sent);
+        row.Status.Should().Be(QueryExecutionLogStatus.Started);
+    }
+
+    [Test]
+    public async Task WhenTheLogIsRequired_AReplayWhoseRowCannotBeWritten_DidNotRun_AndNeverReachesTheDataSource()
+    {
+        var harness = new Harness(executionLog: RealExecutionLog(UnavailableLogStore(), required: true, TestProjectAccess.Actors(beaconUserId: 7)));
+        harness.Succeeds(Rows);
+
+        var replay = await harness.Service.ReplayGoldSqlAsync(DataSourceId, ProjectId, GoldSql, CancellationToken.None);
+
+        replay.Should().Be(GoldSqlReplay.DidNotRun);
+        harness.Provider.Invocations.Should().BeEmpty("a statement does not run without its execution log row while the log is required");
+        harness.Logs.Entries.Should().ContainSingle().Which.Exception.Should().BeNull("a failure is logged as its code, never the exception");
+        harness.Logs.Contains("orders").Should().BeFalse();
+    }
+
+    /// <summary>The execution log Beacon registers, over <paramref name="store"/>, naming <paramref name="actors"/>' caller.</summary>
+    internal static SqlExecutionAudit RealExecutionLog(IDbContextFactory<BeaconContext> store, bool required, IBeaconActorAccessor actors)
+    {
+        return new SqlExecutionAudit(
+            store,
+            actors,
+            Options.Create(new SecurityAuditOptions { ExecutionLog = new ExecutionLogOptions { Required = required } }),
+            NullLogger<SqlExecutionAudit>.Instance);
+    }
+
+    /// <summary>An execution log store that cannot be reached.</summary>
+    internal static IDbContextFactory<BeaconContext> UnavailableLogStore()
+    {
+        var factory = new Mock<IDbContextFactory<BeaconContext>>();
+        factory
+            .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("the log store is unavailable"));
+
+        return factory.Object;
+    }
+
+    // An execution log store whose saved rows land in saved.
+    private static IDbContextFactory<BeaconContext> LogStore(List<object> saved)
+    {
+        var factory = new Mock<IDbContextFactory<BeaconContext>>();
+        factory
+            .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new RecordingBeaconContext(new Dictionary<Type, object>(), saved));
+
+        return factory.Object;
+    }
+
+    /// <summary>
+    /// The real eval service over one PostgreSQL data source, a scripted provider, an LLM nothing may call and an execution
+    /// log (by default one that records each start and end into <see cref="Order"/>).
+    /// </summary>
+    internal sealed class Harness
+    {
+        public Harness(
+            IRowSecurityResolver? rowSecurity = null,
+            bool dataSourceExists = true,
+            McpSettingsData? projectSettings = null,
+            ISqlExecutionAudit? executionLog = null,
+            int dataSourceId = DataSourceId)
         {
+            ExecutionLog = new RecordingExecutionAudit(Order);
             var sources = new List<DataSource>();
             if (dataSourceExists)
             {
                 sources.Add(new DataSource
                 {
-                    Id = DataSourceId,
+                    Id = dataSourceId,
                     Name = "sales",
                     DataSourceType = DataSourceType.Database,
                     DatabaseEngineType = DatabaseEngineType.PostgreSQL,
@@ -229,7 +337,8 @@ public class GoldSqlReplayTests
                 settings.Object,
                 Llm.Object,
                 TestRowDataEgress.Discarding(),
-                Logs.For<McpEvalService>());
+                Logs.For<McpEvalService>(),
+                executionLog ?? ExecutionLog);
         }
 
         public McpEvalService Service { get; }
@@ -240,10 +349,17 @@ public class GoldSqlReplayTests
 
         public LogRecorder Logs { get; } = new();
 
+        /// <summary>"start", "execute" and "end", in the order the default execution log and the provider saw them.</summary>
+        public List<string> Order { get; } = [];
+
+        /// <summary>The default execution log, used when none is passed in.</summary>
+        public RecordingExecutionAudit ExecutionLog { get; }
+
         public void Succeeds(List<Dictionary<string, object?>> rows)
         {
             Provider
                 .Setup(x => x.ExecuteReadOnlyQueryAsync(It.IsAny<DataSource>(), It.IsAny<string>(), It.IsAny<Dictionary<string, object?>>(), It.IsAny<CancellationToken>()))
+                .Callback(() => Order.Add("execute"))
                 .ReturnsAsync(new ProviderQueryResult { Success = true, Rows = rows });
         }
     }

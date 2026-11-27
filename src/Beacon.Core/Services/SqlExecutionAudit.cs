@@ -32,6 +32,9 @@ public static class SqlExecutionContexts
 
     /// <summary>A data contract rule's statement.</summary>
     public const string DataQualityRule = "DataQualityRule";
+
+    /// <summary>The gold SQL of an answer being promoted to a golden case, run once before the promotion.</summary>
+    public const string GoldSqlReplay = "GoldSqlReplay";
 }
 
 /// <summary>A statement about to run on <paramref name="DataSourceId"/>: <paramref name="Sql"/> as it is sent, with its

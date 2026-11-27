@@ -1026,6 +1026,48 @@ public class GoldenCurationTests
         signal.PromotedAt.Should().BeNull();
     }
 
+    // The real replay: while the execution log is required, a replay whose row cannot be written never sends its statement,
+    // so the promotion is refused as SQL that does not run (409) and nothing is written.
+    [Test]
+    public async Task APromotionWhoseReplayCannotBeLogged_WhileTheLogIsRequired_IsAConflict_AndNeverRunsTheSql()
+    {
+        var store = new Store();
+        var signal = Signal(1, McpUserVerdict.Correct, generatedSql: "SELECT id, total FROM orders");
+        store.Signals.Add(signal);
+        var replay = new GoldSqlReplayTests.Harness(
+            executionLog: GoldSqlReplayTests.RealExecutionLog(
+                GoldSqlReplayTests.UnavailableLogStore(),
+                required: true,
+                TestProjectAccess.Actors(beaconUserId: AdminUserId)),
+            dataSourceId: DataSourceId);
+
+        var act = () => PromoteHandler(store, eval: replay.Service).Handle(new PromoteSignalToGoldenCommand(1, Hash("SELECT id, total FROM orders")), CancellationToken.None);
+
+        var refusal = await act.Should().ThrowAsync<BeaconConflictException>();
+        refusal.Which.Message.Should().Be(PromoteSignalToGoldenHandler.GoldSqlDoesNotRunMessage);
+        replay.Provider.Invocations.Should().BeEmpty("the statement never reached the data source");
+        store.Saved.Should().BeEmpty();
+        signal.PromotedAt.Should().BeNull();
+    }
+
+    // A host that runs with AI off has no eval harness: a promotion is refused with the AI-disabled message before anything
+    // is written.
+    [Test]
+    public async Task APromotionWithAiOff_IsRefused_AndWritesNothing()
+    {
+        var store = new Store();
+        var signal = Signal(1, McpUserVerdict.Correct, generatedSql: "SELECT id FROM orders");
+        store.Signals.Add(signal);
+
+        var act = () => PromoteHandler(store, eval: new AiDisabledMcpEvalService()).Handle(new PromoteSignalToGoldenCommand(1, Hash("SELECT id FROM orders")), CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage(AiDisabled.Message);
+        store.Saved.Should().BeEmpty();
+        store.SaveCount.Should().Be(0);
+        signal.CandidateSqlHash.Should().BeNull();
+        signal.PromotedAt.Should().BeNull();
+    }
+
     private static string Hash(string sql) => GroundingContentHash.OfSql(sql);
 
     private static string HashOf(McpLearnedPattern pattern) => GroundingContentHash.OfPattern(pattern.PatternContent, pattern.ExampleQuestion, pattern.ExampleSql);

@@ -60,8 +60,12 @@ public interface IMcpEvalService
     /// fingerprints the result as the eval does. Used before a golden case is promoted, so a case whose gold SQL does not run
     /// now is never created. A statement the gate refuses, one the data source answers with an error, and any failure on the
     /// way (an unreachable, disabled or missing data source, the statement timeout) did not run; only the caller's
-    /// cancellation propagates. Runs no generation, no judge and stores nothing. <paramref name="projectId"/> picks the
-    /// effective settings (row cap, statement timeout); without one the global settings apply.
+    /// cancellation propagates. Runs no generation and no judge. A statement that passes the gate is in the execution log
+    /// before it is sent (<c>ISqlExecutionAudit</c>, as <see cref="SqlExecutionContexts.GoldSqlReplay"/>, attributed to the
+    /// scope's caller by <c>Users.Id</c>) and its row is closed with how it ended; when that row cannot be written while
+    /// <c>Beacon:Audit:ExecutionLog:Required</c> is on, the statement does not run (did not run). It stores nothing else.
+    /// <paramref name="projectId"/> picks the effective settings (row cap, statement timeout); without one the global
+    /// settings apply.
     /// </summary>
     Task<GoldSqlReplay> ReplayGoldSqlAsync(int dataSourceId, int? projectId, string sql, CancellationToken ct);
 }

@@ -98,7 +98,7 @@ public class SqlExecutionPathCoverageTests
         ["src/Beacon.Core/SavedQueries/SavedQueryToolExecutor.cs"] = (2, "a saved query step's FinalSql, and its in-memory join's FinalSql"),
         ["src/Beacon.AI/Services/Documentation/ProjectDocumentationService.cs"] = (1, "an enum discovery statement's FinalSql"),
         ["src/Beacon.AI/Services/Knowledge/ValueGroundingService.cs"] = (1, "a value-grounding probe's FinalSql"),
-        ["src/Beacon.AI/Services/Eval/EvalReadOnlySqlExecutor.cs"] = (1, "an eval statement's FinalSql"),
+        ["src/Beacon.AI/Services/Eval/EvalReadOnlySqlExecutor.cs"] = (1, "an eval statement's FinalSql: in the execution log when it is a promotion's gold SQL replay, which a person starts; an eval run records each case in its run instead"),
         ["src/Beacon.MCP/Services/QueryExecutionService.cs"] = (2, "the ask statement's FinalSql, and the dry run of a statement its callers gated"),
         ["src/Beacon.MCP/Services/CrossSourceQueryService.cs"] = (3, "each source's FinalSql, the in-memory join's FinalSql, and the dry run of a gated statement or retry"),
         ["src/Beacon.MCP/Tools/ProjectQueryTool.cs"] = (2, "the query tool's FinalSql, and an API source's request (no SQL)")
@@ -151,7 +151,6 @@ public class SqlExecutionPathCoverageTests
         ["src/Beacon.Core/Services/VirtualTableManager.cs"] = "Beacon's own in-memory join store, not a data source",
         ["src/Beacon.Core/SavedQueries/SavedQueryToolExecutor.cs"] = "an MCP tool: the MCP audit records the call",
         ["src/Beacon.AI/Services/Knowledge/ValueGroundingService.cs"] = "the MCP statement log records each probe before it runs",
-        ["src/Beacon.AI/Services/Eval/EvalReadOnlySqlExecutor.cs"] = "the eval harness: its run records each case",
         ["src/Beacon.MCP/Services/QueryExecutionService.cs"] = "MCP: the MCP audit and statement log record it",
         ["src/Beacon.MCP/Services/CrossSourceQueryService.cs"] = "MCP: the MCP audit and statement log record it",
         ["src/Beacon.MCP/Tools/ProjectQueryTool.cs"] = "MCP: the MCP audit records the call"

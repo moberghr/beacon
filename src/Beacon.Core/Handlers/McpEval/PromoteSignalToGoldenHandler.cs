@@ -36,7 +36,9 @@ namespace Beacon.Core.Handlers.McpEval;
 /// executor (<see cref="IMcpEvalService.ReplayGoldSqlAsync"/>: the SQL gate with the row security context from the
 /// resolver, §1.5, §1.15): SQL that does not run read-only now is refused (409, naming neither the SQL nor the database's
 /// error), and the case stores the fingerprint of the result (<see cref="McpEvalCase.GoldResultFingerprint"/>), which the
-/// eval compares with when the gold SQL cannot run later.
+/// eval compares with when the gold SQL cannot run later. The statement is in the execution log before it is sent,
+/// attributed to the promoting user (§1.7); when its row cannot be written while that log is required, the SQL does not
+/// run and the promotion is refused the same way.
 /// </para>
 /// </summary>
 internal sealed class PromoteSignalToGoldenHandler(

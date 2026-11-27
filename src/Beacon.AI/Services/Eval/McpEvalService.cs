@@ -44,7 +44,8 @@ internal sealed class McpEvalService(
     IMcpSettingsProvider settingsProvider,
     ILlmProvider llmProvider,
     ILlmRowDataEgress rowDataEgress,
-    ILogger<McpEvalService> logger) : IMcpEvalService
+    ILogger<McpEvalService> logger,
+    ISqlExecutionAudit? executionAudit = null) : IMcpEvalService
 {
     // Hard cap on rows handed to the (opt-in, PII-redacted) judge so a large result set never balloons
     // the prompt — the judge only needs a structural sample to spot a cosmetic-only difference.
@@ -312,8 +313,10 @@ internal sealed class McpEvalService(
             : await settingsProvider.GetSettingsAsync(ct);
 
         // The executor an eval run executes a case's gold SQL with: the gate (read-only forced, the row security context
-        // from the resolver), then the provider's read-only path (§1.5, §1.15). No generation, no judge, no persistence.
-        var evalExecutor = new EvalReadOnlySqlExecutor(contextFactory, providerFactory, sqlGate, configuredDatabases, rowSecurityResolver, settings);
+        // from the resolver), then the provider's read-only path (§1.5, §1.15). No generation, no judge. A person starts the
+        // replay (a promotion), so the statement is in the execution log before it is sent, attributed to the caller, and
+        // its row is closed with how it ended (§1.7); a row that cannot be written while the log is required stops it.
+        var evalExecutor = new EvalReadOnlySqlExecutor(contextFactory, providerFactory, sqlGate, configuredDatabases, rowSecurityResolver, settings, executionAudit);
         try
         {
             var goldExec = await evalExecutor.ExecuteReadOnlyAsync(dataSourceId, sql, ct);
@@ -333,7 +336,8 @@ internal sealed class McpEvalService(
         }
         catch (Exception ex)
         {
-            // An unreachable, disabled or missing data source, or the statement timeout: the SQL did not run now.
+            // An unreachable, disabled or missing data source, the statement timeout, or an execution log row that could
+            // not be written while the log is required: the SQL did not run now.
             logger.LogWarning(
                 "Gold SQL replay on data source {DataSourceId} (project {ProjectId}) failed ({Failure})",
                 dataSourceId, projectId, FailureCodes.Describe(ex));
