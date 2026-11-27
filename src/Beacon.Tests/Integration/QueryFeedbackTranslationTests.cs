@@ -164,4 +164,57 @@ public class QueryFeedbackTranslationTests : QueryTranslationTestBase
         Assert.That(sql, Does.Not.Contain(callerHash), "expected no caller hash filter for a user-matched caller");
         Assert.That(sql, Does.Contain(newestFirst), "expected the newest ask signal first");
     }
+
+    /// <summary>
+    /// The parent lookup for the ask signal a caller names (<c>signal_id</c>): that id among the <c>ask</c> signals of the
+    /// same project and caller (by caller hash for a mapped caller, else by user id), on any data source and at any age,
+    /// reading only its id and candidate SQL hash. The shape is McpSignalService.FindParentAsync's explicit branch.
+    /// </summary>
+    [TestCase(false, true, ".id = @", ".project_id = @", ".caller_hash = @", "tool = 'ask'", "LIMIT ", "data_source_id", "created_time")]
+    [TestCase(false, false, ".id = @", ".project_id = @", ".user_id = @", "tool = 'ask'", "LIMIT ", "data_source_id", "created_time")]
+    [TestCase(true, true, ".[Id] = @", ".[ProjectId] = @", ".[CallerHash] = @", "[Tool] = N'ask'", "TOP(", "[DataSourceId]", "[CreatedTime]")]
+    [TestCase(true, false, ".[Id] = @", ".[ProjectId] = @", ".[UserId] = @", "[Tool] = N'ask'", "TOP(", "[DataSourceId]", "[CreatedTime]")]
+    public void ParentAskSignal_ByRequestedId_Translates(
+        bool sqlServer,
+        bool byCallerHash,
+        string idFilter,
+        string project,
+        string caller,
+        string tool,
+        string single,
+        string dataSource,
+        string createdTime)
+    {
+        using BeaconContext context = sqlServer ? SqlServerTestContext.Create() : NpgsqlTestContext.Create();
+        var projectId = 7;
+        int? userId = 42;
+        var callerHash = "c0ffee";
+        var parentId = 812;
+
+        var askSignals = context.McpQuerySignals
+            .Where(x => x.Tool == "ask")
+            .Where(x => x.ProjectId == projectId);
+        askSignals = byCallerHash
+            ? askSignals.Where(x => x.CallerHash == callerHash)
+            : askSignals.Where(x => x.UserId == userId);
+
+        var sql = askSignals
+            .Where(x => x.Id == parentId)
+            .Select(x =>
+                new
+                {
+                    x.Id,
+                    x.CandidateSqlHash
+                })
+            .Take(1)
+            .ToQueryString();
+
+        Assert.That(sql, Does.Contain(idFilter), "expected the named signal to be looked up by its id");
+        Assert.That(sql, Does.Contain(tool), "expected only an ask signal to be a parent");
+        Assert.That(sql, Does.Contain(project), "expected the caller's own project to be required");
+        Assert.That(sql, Does.Contain(caller), "expected the caller's own signals only");
+        Assert.That(sql, Does.Contain(single), "expected a single row to be read");
+        Assert.That(sql, Does.Not.Contain(dataSource), "expected a named ask on any data source to match");
+        Assert.That(sql, Does.Not.Contain(createdTime), "expected a named ask of any age to match");
+    }
 }

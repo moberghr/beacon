@@ -22,6 +22,17 @@ namespace Beacon.AI.Services.Knowledge;
 
 internal sealed partial class KnowledgeGraphService
 {
+    // The section order of FormatLearnedPatternsForLlm; a pattern of another type is not rendered.
+    private static readonly string[] RenderedPatternTypes =
+    [
+        nameof(McpPatternType.SchemaCorrection),
+        nameof(McpPatternType.ColumnClarification),
+        nameof(McpPatternType.JoinPattern),
+        nameof(McpPatternType.CommonQuery),
+        nameof(McpPatternType.BusinessTermMapping),
+        nameof(McpPatternType.DocumentationGap)
+    ];
+
     public async Task<SmartSchemaContext> GetSmartContextForAskAsync(int dataSourceId, int projectId, string question, bool liveValueProbes, CancellationToken ct = default)
     {
         await using var context = await contextFactory.CreateDbContextAsync(ct);
@@ -1402,9 +1413,11 @@ internal sealed partial class KnowledgeGraphService
     }
 
     // The patterns FormatLearnedPatternsForLlm renders, in the order it renders them: grouped by type in its section order.
+    // A pattern without an id (0, the record's default) keeps its place in the rendered order but is not recorded.
     internal static IReadOnlyList<KnowledgeItemRef> LearnedPatternItems(List<LearnedPatternInfo> patterns)
     {
         var items = new List<KnowledgeItemRef>();
+        var rank = 0;
         foreach (var patternType in RenderedPatternTypes)
         {
             var ofType = patterns
@@ -1412,23 +1425,18 @@ internal sealed partial class KnowledgeGraphService
                 .ToList();
             foreach (var pattern in ofType)
             {
-                items.Add(new KnowledgeItemRef(McpKnowledgeItemKind.LearnedPattern, pattern.Id, items.Count + 1));
+                rank++;
+                if (pattern.Id == 0)
+                {
+                    continue;
+                }
+
+                items.Add(new KnowledgeItemRef(McpKnowledgeItemKind.LearnedPattern, pattern.Id, rank));
             }
         }
 
         return items;
     }
-
-    // The section order of FormatLearnedPatternsForLlm; a pattern of another type is not rendered.
-    private static readonly string[] RenderedPatternTypes =
-    [
-        nameof(McpPatternType.SchemaCorrection),
-        nameof(McpPatternType.ColumnClarification),
-        nameof(McpPatternType.JoinPattern),
-        nameof(McpPatternType.CommonQuery),
-        nameof(McpPatternType.BusinessTermMapping),
-        nameof(McpPatternType.DocumentationGap)
-    ];
 
     // Renders a glossary term's target: the qualified column path (schema.table.column, only the parts that
     // are set) and/or the metric expression as rendered (without comments). Null when the term carries neither.

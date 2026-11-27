@@ -65,13 +65,15 @@ internal sealed class CrossSourceQueryService(
         var sourceQueries = new List<(RoutedSource Source, string Sql, SmartSchemaContext Context, ILlmProvider Provider)>();
         var columnsUsed = new HashSet<string>(StringComparer.Ordinal);
 
-        // The knowledge items of every source's prompt, recorded on the one signal of the call (the builder dedupes them).
+        // The knowledge items of every source's prompt, recorded on the one signal of the call (the builder dedupes them). Set
+        // after each source's context, so a later source that throws does not cost the items of the sources before it.
         var knowledgeItems = new List<KnowledgeItemRef>();
         foreach (var source in sources)
         {
             // ask needs Query in the project, so live probes may run.
             var smartContext = await knowledgeGraph.GetSmartContextForAskAsync(source.DataSourceId, projectId, question, liveValueProbes: true, ct);
             knowledgeItems.AddRange(smartContext.KnowledgeItems);
+            signal.SetKnowledgeItems(knowledgeItems);
 
             // Every prompt about this source carries its context: each request is logged with the row-derived data it carries.
             var sourceProvider = rowDataEgress.Track(
@@ -146,7 +148,6 @@ internal sealed class CrossSourceQueryService(
         }
 
         signal.SetColumnsUsed(columnsUsed.ToList());
-        signal.SetKnowledgeItems(knowledgeItems);
 
         if (!execute)
         {

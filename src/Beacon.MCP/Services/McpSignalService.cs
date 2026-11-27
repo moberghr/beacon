@@ -27,7 +27,9 @@ internal sealed class McpSignalService(
     // Returns the persisted signal's Id (populated post-save) so callers can surface it for human feedback,
     // or null when learning is disabled or recording failed. Recording stays non-optional and best-effort:
     // a transient failure is swallowed + logged, never propagated to the tool call.
-    public async Task<int?> RecordSignalAsync(McpQuerySignal signal, CancellationToken ct = default)
+    // requestedParentId is the ask signal id the caller named (signal_id): unverified input, used only by the scoped
+    // parent lookup below and never stored as given.
+    public async Task<int?> RecordSignalAsync(McpQuerySignal signal, int? requestedParentId, CancellationToken ct = default)
     {
         try
         {
@@ -39,9 +41,7 @@ internal sealed class McpSignalService(
                 McpContentRedactor.RedactSignal(signal);
             }
 
-            // The incoming ParentSignalId is the caller's unverified REQUEST (McpSignalBuilder carries signal_id there, as
-            // McpQuerySignal has no field for it): it is always replaced with the parent resolved below, or null.
-            var requestedParentId = signal.ParentSignalId;
+            // The parent fields are only ever the lookup's result: whatever the incoming entity carries is cleared first.
             signal.ParentSignalId = null;
             signal.IsEditedRerun = false;
 

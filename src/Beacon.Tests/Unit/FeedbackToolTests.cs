@@ -1,3 +1,4 @@
+using System.Reflection;
 using FluentAssertions;
 using MediatR;
 using Microsoft.AspNetCore.Http;
@@ -339,6 +340,21 @@ public class FeedbackToolTests
         audit.Logs[1].ErrorMessage.Should().Be(text);
         audit.Logs[1].Parameters.Should().Be($"signal_id={SignalId};verdict=incorrect;reason=wrong_join");
         mediator.Verify(x => x.Send(It.IsAny<RecordQueryFeedbackCommand>(), It.IsAny<CancellationToken>()), Times.Never);
+    }
+
+    // The tool's code table names every reason the handler accepts, each once and under one code: a reason added to the enum
+    // without a code (or twice) fails here.
+    [Test]
+    public void TheReasonCodeTable_CoversEveryFeedbackReasonExactlyOnce()
+    {
+        var field = typeof(FeedbackTool).GetField("Reasons", BindingFlags.NonPublic | BindingFlags.Static);
+        field.Should().NotBeNull("the tool keeps its reason codes in the static Reasons table");
+
+        var table = (ValueTuple<string, McpFeedbackReason>[])field!.GetValue(null)!;
+
+        table.Select(x => x.Item2).Should().BeEquivalentTo(Enum.GetValues<McpFeedbackReason>(), options => options.WithoutStrictOrdering());
+        table.Select(x => x.Item2).Should().OnlyHaveUniqueItems();
+        table.Select(x => x.Item1).Should().OnlyHaveUniqueItems().And.OnlyContain(x => x == x.Trim().ToLowerInvariant());
     }
 
     [TestCase("wrong_table", McpFeedbackReason.WrongTable, "wrong_table")]

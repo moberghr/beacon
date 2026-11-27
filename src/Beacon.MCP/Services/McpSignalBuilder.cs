@@ -170,10 +170,9 @@ internal sealed class McpSignalBuilder
             ExecutionTimeMs = _executionTimeMs,
             IsSuccessful = _isSuccessful,
             CallerHash = _callerHash,
-            // A REQUEST, not a link: McpQuerySignal has no field for the requested parent, so it travels here, and
-            // McpSignalService.RecordSignalAsync always replaces it with the parent it resolves inside the caller's own
-            // project and identity, or null.
-            ParentSignalId = _requestedParentId,
+            // No parent here: the requested parent (RequestedParentId) is unverified input and never sits on the entity.
+            // McpSignalService.RecordSignalAsync takes it as its own argument and sets the parent it resolves inside the
+            // caller's own project and identity, or none.
             ContextItems = _knowledgeItems
                 .Select(x =>
                     new McpSignalContextItem

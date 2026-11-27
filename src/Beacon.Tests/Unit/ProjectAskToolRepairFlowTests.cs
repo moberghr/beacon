@@ -540,6 +540,45 @@ public class ProjectAskToolRepairFlowTests
         settingsProvider.Verify(x => x.GetEffectiveSettingsAsync(It.Is<int>(id => id != ProjectId), It.IsAny<CancellationToken>()), Times.Never);
     }
 
+    // The ask signal carries the mapped caller's hash, so a later query or dry_run of the same caller can name it.
+    [Test]
+    public async Task ExecuteAsync_RecordsTheCallersHash_OnTheAskSignal()
+    {
+        var saved = new List<object>();
+        var signalFactory = new Mock<IDbContextFactory<BeaconContext>>();
+        signalFactory
+            .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new RecordingBeaconContext(
+                new Dictionary<Type, object> { [typeof(McpQuerySignal)] = RecordingBeaconContext.MemorySet(new List<McpQuerySignal>(), saved) },
+                saved));
+        var settingsProvider = SettingsProviderMock.Create();
+        var auditFactory = new Mock<IDbContextFactory<BeaconContext>>();
+        var tool = TestToolCalls.Track(recorder => new ProjectAskTool(
+            Mock.Of<IKnowledgeGraphService>(),
+            settingsProvider.Object,
+            SettingsProviderMock.Unshared(settingsProvider.Object),
+            new Mock<IServiceProvider>().WithoutAskLimit().Object,
+            new McpProjectContext { UserId = 1, AllowedProjectIds = [ProjectId], QueryProjectIds = [ProjectId], CallerHash = "c0ffee" },
+            recorder,
+            Mock.Of<IAskSqlPipeline>(),
+            _executor.Object,
+            Mock.Of<IIntentClassifier>(),
+            Mock.Of<IDataSourceRouter>(),
+            Mock.Of<IKnowledgeAnswerService>(),
+            Mock.Of<ICrossSourceQueryService>(),
+            Options.Create(new McpDeploymentOptions()),
+            new McpQueryConcurrencyLimiter(),
+            TimeProvider.System,
+            NullLogger<ProjectAskTool>.Instance), () => TestToolCalls.Recorder(new McpAuditService(auditFactory.Object, SettingsProviderMock.Create().Object, new HttpContextAccessor(), Options.Create(new McpDeploymentOptions()), NullLogger<McpAuditService>.Instance, new McpAuditOutcome(), Options.Create(new BeaconTelemetryOptions()), NullLoggerFactory.Instance, TestMcpAudit.ContentHasher, new McpStatementLog()), new McpSignalService(signalFactory.Object, settingsProvider.Object, NullLogger<McpSignalService>.Instance)));
+
+        // A call without a question fails early, and its signal is recorded all the same (§9.5).
+        await TestToolCalls.InvokeAsync(tool, x => x.ExecuteAsync("", cancellationToken: CancellationToken.None));
+
+        var signal = saved.OfType<McpQuerySignal>().Should().ContainSingle().Subject;
+        signal.Tool.Should().Be("ask");
+        signal.CallerHash.Should().Be("c0ffee");
+    }
+
     // ask runs its SQL under the strictest guardrails of the live projects that link the routed data sources.
     [Test]
     public async Task ExecuteAsync_ARoutedSourceAnotherProjectLinks_RunsUnderTheStricterGuardrails()

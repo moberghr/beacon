@@ -165,21 +165,53 @@ public class SignalContextItemTests
             Pattern(13, nameof(McpPatternType.JoinPattern)),
             Pattern(14, nameof(McpPatternType.CommonQuery)),
             Pattern(15, nameof(McpPatternType.ColumnClarification)),
-            Pattern(16, "NotAType")
+            Pattern(16, "NotAType"),
+            Pattern(17, nameof(McpPatternType.BusinessTermMapping)),
+            Pattern(18, nameof(McpPatternType.DocumentationGap))
         };
 
         var items = KnowledgeGraphService.LearnedPatternItems(patterns);
 
         var text = KnowledgeGraphService.FormatLearnedPatternsForLlm(patterns);
-        var renderedOrder = patterns
-            .Where(x => text.Contains($"content-{x.Id}", StringComparison.Ordinal))
-            .OrderBy(x => text.IndexOf($"content-{x.Id}", StringComparison.Ordinal))
-            .Select(x => x.Id)
-            .ToList();
-        renderedOrder.Should().Equal(12, 15, 13, 11, 14);
+        var renderedOrder = RenderedPatternIds(patterns, text);
+        renderedOrder.Should().Equal(12, 15, 13, 11, 14, 17, 18);
         items.Select(x => x.ItemId).Should().Equal(renderedOrder);
         items.Should().OnlyContain(x => x.Kind == McpKnowledgeItemKind.LearnedPattern);
-        items.Select(x => x.Rank).Should().Equal(1, 2, 3, 4, 5);
+        items.Select(x => x.Rank).Should().Equal(1, 2, 3, 4, 5, 6, 7);
+    }
+
+    // The items and the formatter cannot drift apart: a pattern type is reported exactly when the formatter renders it.
+    [Test]
+    public void LearnedPatternItems_EveryPatternType_IsReportedExactlyWhenItIsRendered([Values] McpPatternType type)
+    {
+        List<LearnedPatternInfo> patterns = [Pattern(21, type.ToString())];
+
+        var items = KnowledgeGraphService.LearnedPatternItems(patterns);
+
+        var rendered = KnowledgeGraphService.FormatLearnedPatternsForLlm(patterns).Contains("content-21", StringComparison.Ordinal);
+        items.Select(x => x.ItemId).Should().Equal(rendered ? new[] { 21 } : Array.Empty<int>());
+    }
+
+    // A pattern without an id (0, the record's default) is rendered but names no stored pattern, so it is not reported; the
+    // others keep the place they are rendered at.
+    [Test]
+    public void LearnedPatternItems_APatternWithoutAnId_IsRenderedButNotReported()
+    {
+        var patterns = new List<LearnedPatternInfo>
+        {
+            Pattern(31, nameof(McpPatternType.CommonQuery)),
+            Pattern(0, nameof(McpPatternType.SchemaCorrection)),
+            Pattern(32, nameof(McpPatternType.JoinPattern))
+        };
+
+        var items = KnowledgeGraphService.LearnedPatternItems(patterns);
+
+        var text = KnowledgeGraphService.FormatLearnedPatternsForLlm(patterns);
+        RenderedPatternIds(patterns, text).Should().Equal(0, 32, 31);
+        items
+            .Select(x => (x.ItemId, x.Rank))
+            .Should()
+            .Equal((32, 2), (31, 3));
     }
 
     // ---------- the ask context ----------
@@ -198,26 +230,85 @@ public class SignalContextItemTests
             new KnowledgeItemRef(McpKnowledgeItemKind.GlossaryTerm, 900, 1));
     }
 
-    [Test]
-    public async Task SmartContext_TheBudgetLeavesOutTheLearnedPatterns_ReportsNoPattern()
+    // The budget leaves the grounding blocks out in its drop order (learned patterns, then the glossary, then the golden
+    // cases), so a budget that leaves out one block leaves out the blocks before it too: none of their items is reported,
+    // and every kept block's are.
+    [TestCase(McpKnowledgeItemKind.LearnedPattern)]
+    [TestCase(McpKnowledgeItemKind.GlossaryTerm)]
+    [TestCase(McpKnowledgeItemKind.GoldenCase)]
+    public async Task SmartContext_TheBudgetLeavesOutAGroundingBlock_ReportsNoneOfItsItems(McpKnowledgeItemKind lastLeftOut)
     {
+        const string goldenHeading = "\n## Verified query examples";
+        const string patternsHeading = "\n## Learned Patterns";
+        const string glossaryHeading = "\n## Business Glossary";
         var (ample, tables) = await AskContextScenarioAsync(budgetChars: null);
         var full = (await ample.GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, liveValueProbes: true, CancellationToken.None)).FullContext;
-        var patternsChars = full.IndexOf("\n## Business Glossary", StringComparison.Ordinal) - full.IndexOf("\n## Learned Patterns", StringComparison.Ordinal);
+        var goldenStart = full.IndexOf(goldenHeading, StringComparison.Ordinal);
+        var patternsStart = full.IndexOf(patternsHeading, StringComparison.Ordinal);
+        var glossaryStart = full.IndexOf(glossaryHeading, StringComparison.Ordinal);
+        new[] { goldenStart, patternsStart, glossaryStart }.Should().BeInAscendingOrder().And.OnlyContain(x => x >= 0, "every block is shown, in this order, the glossary last");
+
+        // In the budget's drop order, each with the characters it takes in the context.
+        var blocks = new List<(McpKnowledgeItemKind Kind, string Heading, int Chars)>
+        {
+            (McpKnowledgeItemKind.LearnedPattern, patternsHeading, glossaryStart - patternsStart),
+            (McpKnowledgeItemKind.GlossaryTerm, glossaryHeading, full.Length - glossaryStart),
+            (McpKnowledgeItemKind.GoldenCase, goldenHeading, patternsStart - goldenStart)
+        };
+        var leftOutCount = blocks.FindIndex(x => x.Kind == lastLeftOut) + 1;
+        var leftOut = blocks
+            .Take(leftOutCount)
+            .ToList();
+        var kept = blocks
+            .Skip(leftOutCount)
+            .ToList();
+        var leftOutChars = leftOut.Sum(x => x.Chars);
         var otherTableChars = Rendered(tables[1]).Length;
         var omittedLine = AskSchemaContextBudget.OmittedTablesLineMaxChars(tables.Count);
         full.Should().Contain(Rendered(tables[1]));
-        (otherTableChars + patternsChars).Should().BeGreaterThan(omittedLine, "the scenario must be over the budget");
+        (otherTableChars + leftOutChars).Should().BeGreaterThan(omittedLine, "the scenario must be over the budget");
 
-        // Room for the head, the question's table and every part but the learned patterns: only they are left out.
-        var (tight, _) = await AskContextScenarioAsync(budgetChars: full.Length - otherTableChars + omittedLine - patternsChars);
+        // Room for the head, the question's table and every part but the blocks left out: exactly they are left out.
+        var (tight, _) = await AskContextScenarioAsync(budgetChars: full.Length - otherTableChars + omittedLine - leftOutChars);
 
         var result = await tight.GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, liveValueProbes: true, CancellationToken.None);
 
-        result.FullContext.Should().NotContain("## Learned Patterns");
-        result.FullContext.Should().Contain("## Verified query examples").And.Contain("## Business Glossary");
+        foreach (var block in leftOut)
+        {
+            result.FullContext.Should().NotContain(block.Heading);
+        }
+
+        foreach (var block in kept)
+        {
+            result.FullContext.Should().Contain(block.Heading);
+        }
+
+        var everyItem = new List<KnowledgeItemRef>
+        {
+            new(McpKnowledgeItemKind.GoldenCase, 700, 1),
+            new(McpKnowledgeItemKind.LearnedPattern, 800, 1),
+            new(McpKnowledgeItemKind.GlossaryTerm, 900, 1)
+        };
+        var expected = everyItem
+            .Where(x => kept.Any(y => y.Kind == x.Kind))
+            .ToList();
+        result.KnowledgeItems.Should().Equal(expected);
+    }
+
+    // Over 300 columns the ask context takes the retrieval (smart) path, which reports the blocks it shows the same way.
+    [Test]
+    public async Task SmartContext_ALargeSchema_TheRetrievalPathReportsTheGoldenCasePatternAndTerm()
+    {
+        var (service, _) = await AskContextScenarioAsync(budgetChars: null, auditColumns: 300);
+
+        var result = await service.GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, liveValueProbes: true, CancellationToken.None);
+
+        result.UsedSmartRetrieval.Should().BeTrue("2 + 300 columns are over the fast path's 300");
+        result.FullContext.Should().Contain("## Relevant Tables").And.Contain("public.orders");
+        result.FullContext.Should().Contain("## Verified query examples").And.Contain("## Learned Patterns").And.Contain("## Business Glossary");
         result.KnowledgeItems.Should().Equal(
             new KnowledgeItemRef(McpKnowledgeItemKind.GoldenCase, 700, 1),
+            new KnowledgeItemRef(McpKnowledgeItemKind.LearnedPattern, 800, 1),
             new KnowledgeItemRef(McpKnowledgeItemKind.GlossaryTerm, 900, 1));
     }
 
@@ -343,7 +434,7 @@ public class SignalContextItemTests
         outcome.KnowledgeItems.Should().Equal(items);
     }
 
-    private static async Task<(KnowledgeGraphService Service, List<DatabaseMetadata> Tables)> AskContextScenarioAsync(int? budgetChars)
+    private static async Task<(KnowledgeGraphService Service, List<DatabaseMetadata> Tables)> AskContextScenarioAsync(int? budgetChars, int auditColumns = 120)
     {
         var embedder = new FakeEmbeddingService();
         var dataSource = new DataSource
@@ -357,7 +448,7 @@ public class SignalContextItemTests
         var tables = new List<DatabaseMetadata>
         {
             Table(dataSource, 1, "orders", ["id", "status"]),
-            Table(dataSource, 2, "audit_log", Enumerable.Range(1, 120).Select(x => $"audit_column_{x:D3}").ToList())
+            Table(dataSource, 2, "audit_log", Enumerable.Range(1, auditColumns).Select(x => $"audit_column_{x:D3}").ToList())
         };
         var patterns = new List<McpLearnedPattern>
         {
@@ -508,6 +599,16 @@ public class SignalContextItemTests
     private static LearnedPatternInfo Pattern(int id, string patternType)
     {
         return new LearnedPatternInfo(patternType, "orders", "status", $"content-{id}", null, null, 0.9, id);
+    }
+
+    // The ids of the patterns the formatter's text renders, in rendered order.
+    private static List<int> RenderedPatternIds(List<LearnedPatternInfo> patterns, string text)
+    {
+        return patterns
+            .Where(x => text.Contains($"content-{x.Id}", StringComparison.Ordinal))
+            .OrderBy(x => text.IndexOf($"content-{x.Id}", StringComparison.Ordinal))
+            .Select(x => x.Id)
+            .ToList();
     }
 
     private static McpEvalCase NewCase(int id, int projectId, string goldSql, bool isActive = true)

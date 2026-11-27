@@ -118,7 +118,7 @@ public class RetentionLockIntegrationTests
             .SetResult(null, 42, false)
             .Build();
 
-        var id = await service.RecordSignalAsync(signal, CancellationToken.None);
+        var id = await service.RecordSignalAsync(signal, null, CancellationToken.None);
 
         id.Should().NotBeNull("learning is enabled, so the signal must persist regardless of the lock");
         captured.Should().ContainSingle("exactly one audit row must exist whether or not the lock is on (§1.7)");

@@ -4,8 +4,10 @@ using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Time.Testing;
 using Moq;
 using NUnit.Framework;
+using Beacon.AI.Services.Knowledge;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
+using Beacon.Core.Data.Enums;
 using Beacon.Core.Models;
 using Beacon.Core.Services;
 using Beacon.MCP.Services;
@@ -215,15 +217,31 @@ public class SignalEpisodeTests
     [Test]
     public async Task AskSignal_NeverGetsAParent_EvenWhenOneIsRequested()
     {
-        var signal = Query(tool: "ask", requestedParent: 20);
+        var query = Query(tool: "ask", requestedParent: 20);
+        var signal = query.Build();
         signal.IsEditedRerun = true;
 
-        var (_, context) = await RecordAsync(signal, [Ask(20)]);
+        var (_, context) = await RecordAsync(signal, query.RequestedParentId, [Ask(20)]);
 
         var saved = context.Added.Should().ContainSingle().Subject;
         saved.ParentSignalId.Should().BeNull();
         saved.IsEditedRerun.Should().BeFalse();
         context.QueryRootReads.Should().Be(0);
+    }
+
+    // The parent fields on the incoming entity are never trusted: only the lookup's result is stored.
+    [Test]
+    public async Task ParentFieldsOnTheIncomingSignal_AreClearedBeforeTheLookup()
+    {
+        var signal = Query().Build();
+        signal.ParentSignalId = 20;
+        signal.IsEditedRerun = true;
+
+        var (_, context) = await RecordAsync(signal, requestedParent: null, [Ask(20, dataSourceId: OtherDataSourceId)]);
+
+        var saved = context.Added.Should().ContainSingle().Subject;
+        saved.ParentSignalId.Should().BeNull("an id set on the entity is not a request and matches no implicit candidate here");
+        saved.IsEditedRerun.Should().BeFalse();
     }
 
     // SC5: edited only when both digests exist and differ.
@@ -253,6 +271,37 @@ public class SignalEpisodeTests
         saved.ParentSignalId.Should().Be(20, "the link is resolved after redaction and holds no content");
         saved.IsEditedRerun.Should().BeFalse("redaction removed the digest, so the edit cannot be told");
         saved.CandidateSqlHash.Should().BeNull();
+    }
+
+    // An ask's context items go into the one save with their signal, and they are ids, kinds and ranks only: the content
+    // lock's redaction leaves them whole while it clears the question and the SQL.
+    [TestCase(true)]
+    [TestCase(false)]
+    public async Task ContextItems_AreSavedWithTheSignal_AlsoUnderTheContentLock(bool retainQueryContent)
+    {
+        var settings = new McpSettingsData { EnableLearning = true, RetainQueryContent = retainQueryContent };
+        var ask = Query(tool: "ask")
+            .SetKnowledgeItems(
+            [
+                new KnowledgeItemRef(McpKnowledgeItemKind.GoldenCase, 700, 1),
+                new KnowledgeItemRef(McpKnowledgeItemKind.LearnedPattern, 800, 1),
+                new KnowledgeItemRef(McpKnowledgeItemKind.GlossaryTerm, 900, 2)
+            ]);
+
+        var (result, context) = await RecordAsync(ask, [], settings);
+
+        result.Should().Be(SavedId);
+        context.SaveCount.Should().Be(1, "the items are saved with their signal, never apart");
+        var saved = context.Added.Should().ContainSingle().Subject;
+        saved.ContextItems
+            .Select(x => (x.Kind, x.ItemId, x.Rank))
+            .Should()
+            .Equal(
+                (McpKnowledgeItemKind.GoldenCase, 700, 1),
+                (McpKnowledgeItemKind.LearnedPattern, 800, 1),
+                (McpKnowledgeItemKind.GlossaryTerm, 900, 2));
+        saved.GeneratedSql.Should().Be(retainQueryContent ? AskSql : null, "the content lock redacts the SQL, not the items");
+        saved.Question.Should().Be(retainQueryContent ? AskSql : string.Empty, "the content lock redacts the question, not the items");
     }
 
     [Test]
@@ -316,8 +365,8 @@ public class SignalEpisodeTests
         };
     }
 
-    // Built through the builder as the query and dry_run tools build it: the requested parent travels on ParentSignalId.
-    private static McpQuerySignal Query(
+    // Built through the builder as the query and dry_run tools build it: the requested parent stays on the builder.
+    private static McpSignalBuilder Query(
         string tool = "query",
         int? projectId = ProjectId,
         int? dataSourceId = DataSourceId,
@@ -339,11 +388,22 @@ public class SignalEpisodeTests
             builder.SetGeneratedSql(sql);
         }
 
-        return builder.Build();
+        return builder;
     }
+
+    // As McpToolCallRecorder records it: the built signal plus the builder's requested parent.
+    private static Task<(int? Result, EpisodeContext Context)> RecordAsync(
+        McpSignalBuilder query,
+        IEnumerable<McpQuerySignal> stored,
+        McpSettingsData? settings = null,
+        LogRecorder? logs = null,
+        Exception? lookupFailure = null,
+        CancellationToken cancellationToken = default) =>
+        RecordAsync(query.Build(), query.RequestedParentId, stored, settings, logs, lookupFailure, cancellationToken);
 
     private static async Task<(int? Result, EpisodeContext Context)> RecordAsync(
         McpQuerySignal signal,
+        int? requestedParent,
         IEnumerable<McpQuerySignal> stored,
         McpSettingsData? settings = null,
         LogRecorder? logs = null,
@@ -360,7 +420,7 @@ public class SignalEpisodeTests
             (logs ?? new LogRecorder()).For<McpSignalService>(),
             new FakeTimeProvider(Now));
 
-        var result = await service.RecordSignalAsync(signal, cancellationToken);
+        var result = await service.RecordSignalAsync(signal, requestedParent, cancellationToken);
 
         return (result, context);
     }

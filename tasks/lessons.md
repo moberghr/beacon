@@ -560,3 +560,19 @@ metric tags.
 **Rule:** Resolve identity per principal type using the `McpCallerClaimTypes` constants (API-key path only when `AuthenticationType == ApiKeyAuthenticationType`), and keep one composed test that runs `ApiKeyAuthMiddleware` and feeds its principal to the real provider. With `TryAdd*`, the first registration wins — register defaults after the blocks they are defaults for, and pin it with a registration test.
 
 **When it applies:** Any change to authentication middleware, authorization providers or their DI registration.
+
+## The SQL Server migration id is the PostgreSQL id plus one second (2026-11-27)
+
+**What happened:** A plan gave both providers' `AddSignalProvenance` migrations the same timestamp id. The repository's pairs differ by one second (PostgreSQL `…150000`, SQL Server `…150001`), and the migration pin tests list ids per provider.
+
+**Rule:** Scaffold the PostgreSQL migration first, then give the SQL Server one that id plus one second, in the file names and in the Designer's `[Migration]` attribute. A new migration also extends the pinned list in `ProjectAuthorizationMigrationTests` and the "next migration" check of the newest migration test before it.
+
+**When it applies:** Every new dual-provider migration.
+
+## A commit that leaves the branch ref only in `packed-refs` empties the build's commit stamp (2026-11-27)
+
+**What happened:** After a checkpoint commit in a worktree, `MapBeaconApi_PermissionsEndpoint_NamesTheRunningBuild` failed with a null commit. The SDK's git task could not read the branch ref from `packed-refs`, so `SourceRevisionId` was empty. The next commit wrote a loose ref and the test passed again.
+
+**Rule:** When that test is the only failure, check `dotnet msbuild <project> -getProperty:SourceRevisionId` before looking for a code defect; a new commit (loose ref) restores the stamp.
+
+**When it applies:** Full test runs in a worktree right after `git gc`, a fetch that packs refs, or a rebase.

@@ -58,9 +58,9 @@ public class McpSignalBuilderTests
         signal.CallerHash.Should().Be(expected);
     }
 
-    // The requested parent is carried out of Build() on ParentSignalId as a request, for the signal service to verify.
+    // The requested parent is read from the builder for the signal service to verify; it never sits on the built entity.
     [Test]
-    public void Build_CarriesTheRequestedParent()
+    public void Build_KeepsTheRequestedParentOffTheEntity()
     {
         var builder = new McpSignalBuilder()
             .SetTool("query")
@@ -69,7 +69,7 @@ public class McpSignalBuilderTests
 
         builder.RequestedParentId.Should().Be(812);
         var signal = builder.Build();
-        signal.ParentSignalId.Should().Be(812);
+        signal.ParentSignalId.Should().BeNull("the unverified signal_id is never put on the entity's parent link");
         signal.IsEditedRerun.Should().BeFalse("the builder never decides whether the SQL was edited");
     }
 

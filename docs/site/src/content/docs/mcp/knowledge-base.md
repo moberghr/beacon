@@ -201,7 +201,7 @@ A `query` or `dry_run` signal is linked to the `ask` signal it followed (`Parent
 
 #### Feedback reasons
 
-The [`feedback` tool](/mcp/server/#feedback) takes an optional `reason` for the verdict: `wrong_table`, `wrong_column`, `wrong_join`, `wrong_filter`, `wrong_aggregation`, `wrong_time_range`, `misunderstood_question` or `other`. It is stored on the signal with the verdict. `POST /beacon/api/eval/feedback` accepts it as well.
+The [`feedback` tool](/mcp/server/#feedback) takes an optional `reason` for the verdict: `wrong_table`, `wrong_column`, `wrong_join`, `wrong_filter`, `wrong_aggregation`, `wrong_time_range`, `misunderstood_question` or `other`. It is stored on the signal only with an `incorrect` verdict. A later verdict replaces it: a verdict without a reason clears it. `POST /beacon/api/eval/feedback` accepts it as well.
 
 ### Approval binds to the reviewed content
 
