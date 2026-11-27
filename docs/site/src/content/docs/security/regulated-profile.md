@@ -98,6 +98,7 @@ When the lock is on (filled or set), startup also requires `Beacon:Retention:Day
 | `Beacon:RateLimits:Anonymous:PermitLimit` | greater than 0 | Default (30). |
 | `Beacon:RateLimits:Mcp:PermitLimit` | greater than 0 | Default (60). |
 | `Beacon:RateLimits:Ask:PermitLimit` | greater than 0 | Default (10). |
+| `Beacon:RateLimits:Feedback:PermitLimit` | greater than 0 | Default (30). |
 | `Beacon:RateLimits:Lockout` | on (`Enabled` true and `MaxFailedAttempts` above 0) | Default (`Enabled` true, 5 attempts, 15 minutes). Off fails: `must be on (Enabled true, MaxFailedAttempts greater than zero): password guessing is limited only per client address`. |
 
 The break-glass delay (`Beacon:RateLimits:BreakGlassThrottle`) is not required. A delay would let anyone who knows the emergency account name keep it delayed. See the [request limits](/getting-started/configuration/#request-limits) reference.

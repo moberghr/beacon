@@ -54,6 +54,7 @@ A client should wait `Retry-After` seconds and retry. The `ask` tool answers in 
 | `Beacon:RateLimits:Anonymous:PermitLimit` | int | `30` | 0 to 100000 | Anonymous requests Beacon answers 401 (no credential, unknown or expired key or token), per address. Over the limit they get 429. |
 | `Beacon:RateLimits:Mcp:PermitLimit` | int | `60` | 0 to 100000 | Every request to `/beacon/mcp`, per API key or mapped caller. |
 | `Beacon:RateLimits:Ask:PermitLimit` | int | `10` | 0 to 100000 | The `ask` tool (MCP and the playground), per caller. |
+| `Beacon:RateLimits:Feedback:PermitLimit` | int | `30` | 0 to 100000 | The `feedback` tool (MCP and the playground), per caller. |
 | `Beacon:RateLimits:<Limit>:WindowSeconds` | int | `60` | 1 to 3600 | Length of the window for that limit. |
 | `Beacon:RateLimits:MaxPartitions` | int | `10000` | 100 to 1000000 | Partitions each limit keeps in memory. |
 
@@ -75,6 +76,7 @@ Beacon:RateLimits:MaxPartitions must be between 100 and 1000000.
       "Api": { "PermitLimit": 300, "WindowSeconds": 60 },
       "Mcp": { "PermitLimit": 120, "WindowSeconds": 60 },
       "Ask": { "PermitLimit": 10, "WindowSeconds": 60 },
+      "Feedback": { "PermitLimit": 30, "WindowSeconds": 60 },
       "MaxPartitions": 10000
     }
   }
