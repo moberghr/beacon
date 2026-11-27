@@ -48,4 +48,7 @@ public class McpProjectSettingsData
     public decimal? MaxExplainCost { get; set; }
     public int? MaxConcurrentQueriesPerKey { get; set; }
     public bool? AllowExplicitFeedbackContent { get; set; }
+
+    public bool? EnableKnowledgeItemBoost { get; set; }
+    public bool? EnableScheduledEval { get; set; }
 }

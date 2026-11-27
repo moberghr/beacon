@@ -1,4 +1,5 @@
 using Beacon.Core.Data.Entities.Base;
+using Beacon.Core.Data.Enums;
 
 namespace Beacon.Core.Data.Entities;
 
@@ -21,4 +22,6 @@ public class McpEvalRun : BaseEntity
 
     public bool JudgeEnabled { get; set; }
     public string? Notes { get; set; }
+
+    public McpEvalRunTrigger Trigger { get; set; } = McpEvalRunTrigger.Manual;
 }

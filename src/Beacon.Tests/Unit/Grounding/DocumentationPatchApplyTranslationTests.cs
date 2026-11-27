@@ -116,7 +116,7 @@ public class DocumentationPatchApplyTranslationTests
         return
         [
             31, DBNull.Value, DBNull.Value, new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc), currentContent, 10, 1, Proposed,
-            "Asked about often.", (int)McpDocPatchStatus.Proposed, 3, targetIdentifier, (int)target
+            "Asked about often.", DBNull.Value, (int)McpDocPatchStatus.Proposed, 3, targetIdentifier, (int)target
         ];
     }
 

@@ -23,8 +23,8 @@ namespace Beacon.Tests.Unit;
 /// a cascading foreign key to the signals (so the retention job's bulk delete of signals removes their items) and indexes on
 /// the signal and on (kind, item id), and adds the parent signal id (indexed, no foreign key), the edited-rerun flag (false
 /// for every existing signal) and the feedback reason to the signals. It runs no SQL and backfills nothing. Up is exactly
-/// the difference between the model before it and its target model, Down is exactly the way back, its target model is the
-/// snapshot, the model has no pending changes, and it sorts last.
+/// the difference between the model before it and its target model, and Down is exactly the way back. Its target model
+/// differs from the next migration's (<c>AddKnowledgeItemStats</c>) only by that migration, which sorts right after it.
 /// </summary>
 [TestFixture]
 public class SignalProvenanceMigrationTests
@@ -33,7 +33,7 @@ public class SignalProvenanceMigrationTests
 
     [TestCase(false, "integer", "boolean")]
     [TestCase(true, "int", "bit")]
-    public void TheMigration_AddsTheContextItemsAndTheSignalColumns_AndIsTheSnapshot(bool sqlServer, string intType, string boolType)
+    public void TheMigration_AddsTheContextItemsAndTheSignalColumns(bool sqlServer, string intType, string boolType)
     {
         using var provider = BuildProvider(sqlServer);
         using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
@@ -90,13 +90,17 @@ public class SignalProvenanceMigrationTests
             .Should().BeEquivalentTo(Signatures(differ.GetDifferences(before, target)), "Up is exactly the difference from the model before");
         Signatures(migration.DownOperations)
             .Should().BeEquivalentTo(Signatures(differ.GetDifferences(target, before)), "Down removes exactly what Up adds");
-        differ.GetDifferences(target, Initialized(migrations.ModelSnapshot!.Model, initializer).GetRelationalModel())
-            .Should().BeEmpty("the migration's target model is the snapshot");
-        context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
+        var next = MigrationNamed(context, migrations, "_AddKnowledgeItemStats");
+        Signatures(differ.GetDifferences(target, Initialized(next.TargetModel!, initializer).GetRelationalModel()))
+            .Should().BeEquivalentTo(
+                Signatures(next.UpOperations),
+                "this migration's target model differs from the next one's only by the next migration");
         migrations.Migrations.Keys
             .Order(StringComparer.Ordinal)
-            .Last()
-            .Should().EndWith(Suffix, "it sorts after every earlier migration");
+            .SkipWhile(x => !x.EndsWith(Suffix, StringComparison.Ordinal))
+            .Skip(1)
+            .First()
+            .Should().EndWith("_AddKnowledgeItemStats", "the next migration sorts right after it");
     }
 
     [TestCase(false)]

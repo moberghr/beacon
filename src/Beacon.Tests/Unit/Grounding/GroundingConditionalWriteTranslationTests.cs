@@ -254,7 +254,7 @@ public class GroundingConditionalWriteTranslationTests
         return
         [
             31, DBNull.Value, 0.7, contentHash, new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc), 7, Question, Sql, DBNull.Value, DBNull.Value,
-            Content, (int)McpPatternType.CommonQuery, 1, DBNull.Value, DBNull.Value, "public", 3, (int)McpPatternStatus.NeedsEvidence, DBNull.Value, "orders"
+            DBNull.Value, Content, (int)McpPatternType.CommonQuery, 1, DBNull.Value, DBNull.Value, "public", 3, (int)McpPatternStatus.NeedsEvidence, DBNull.Value, "orders"
         ];
     }
 

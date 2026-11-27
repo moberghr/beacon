@@ -61,4 +61,8 @@ public class McpSettings : BaseEntity
     public decimal? MaxExplainCost { get; set; }
     public int MaxConcurrentQueriesPerKey { get; set; } = 4;
     public bool AllowExplicitFeedbackContent { get; set; } = true;
+
+    // Knowledge-learning settings, off by default: the boost reorders what retrieval selected, the scheduled eval spends LLM calls.
+    public bool EnableKnowledgeItemBoost { get; set; }
+    public bool EnableScheduledEval { get; set; }
 }

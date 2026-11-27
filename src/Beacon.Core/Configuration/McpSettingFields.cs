@@ -126,7 +126,9 @@ internal static class McpSettingFields
         Overridable(nameof(McpSettingsData.MaxResultBytes), requiresPositive: true),
         Overridable(nameof(McpSettingsData.MaxExplainCost)),
         Overridable(nameof(McpSettingsData.MaxConcurrentQueriesPerKey), requiresPositive: true),
-        Overridable(nameof(McpSettingsData.AllowExplicitFeedbackContent))
+        Overridable(nameof(McpSettingsData.AllowExplicitFeedbackContent)),
+        Overridable(nameof(McpSettingsData.EnableKnowledgeItemBoost)),
+        Overridable(nameof(McpSettingsData.EnableScheduledEval))
     ];
 
     /// <summary>The settings a project may override, in table order.</summary>

@@ -62,4 +62,8 @@ public class McpProjectSettings : BaseEntity
     public decimal? MaxExplainCost { get; set; }
     public int? MaxConcurrentQueriesPerKey { get; set; }
     public bool? AllowExplicitFeedbackContent { get; set; }
+
+    // Knowledge-learning settings
+    public bool? EnableKnowledgeItemBoost { get; set; }
+    public bool? EnableScheduledEval { get; set; }
 }

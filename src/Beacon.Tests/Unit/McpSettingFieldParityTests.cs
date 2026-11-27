@@ -41,7 +41,7 @@ public class McpSettingFieldParityTests
         "EnableGoldenExemplars", "GoldenExemplarTopK", "GoldenExemplarBudgetChars", "EnableValueGrounding",
         "ValueGroundingMaxProbes", "EnableSemanticLint", "SelfConsistencyMinTables", "RetainQueryContent",
         "StatementTimeoutSeconds", "MaxResultBytes", "MaxExplainCost", "MaxConcurrentQueriesPerKey",
-        "AllowExplicitFeedbackContent"
+        "AllowExplicitFeedbackContent", "EnableKnowledgeItemBoost", "EnableScheduledEval"
     ];
 
     // The prompts and tool descriptions stay global: no project is known when the tools are listed.
@@ -252,7 +252,7 @@ public class McpSettingFieldParityTests
             "goldenExemplarTopK":4,"goldenExemplarBudgetChars":2000,"enableValueGrounding":false,
             "valueGroundingMaxProbes":12,"enableSemanticLint":true,"selfConsistencyMinTables":2,"retainQueryContent":true,
             "statementTimeoutSeconds":30,"maxResultBytes":262144,"maxExplainCost":null,"maxConcurrentQueriesPerKey":4,
-            "allowExplicitFeedbackContent":true}
+            "allowExplicitFeedbackContent":true,"enableKnowledgeItemBoost":false,"enableScheduledEval":false}
             """;
         foreach (var expected in JsonDocument.Parse(resolved).RootElement.EnumerateObject())
         {

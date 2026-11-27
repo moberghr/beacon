@@ -53,6 +53,15 @@ public abstract partial class BeaconContext
             entity.HasIndex(e => new { e.Kind, e.ItemId });
         });
 
+        // How the ask signals that carried a knowledge item went, one row per project and item, recomputed by the learning
+        // job. No foreign key: the item id points at a different table by kind. Ids, counts and scores only.
+        modelBuilder.Entity<McpKnowledgeItemStat>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.HasIndex(e => new { e.ProjectId, e.Kind, e.ItemId }).IsUnique();
+        });
+
         modelBuilder.Entity<McpLearnedPattern>(entity =>
         {
             entity.HasKey(e => e.Id);
