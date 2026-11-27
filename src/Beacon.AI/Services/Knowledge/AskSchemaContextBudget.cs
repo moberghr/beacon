@@ -23,7 +23,8 @@ internal enum SchemaContextPartKind
     ValueMatches,
     GoldenExemplars,
     LearnedPatterns,
-    Glossary
+    Glossary,
+    Documentation
 }
 
 /// <summary>One grounding section after the table blocks, rendered in the order given.</summary>
@@ -33,6 +34,9 @@ internal sealed record BudgetedSchemaContext(string Text, int TablesShown, IRead
 {
     /// <summary>Grounding sections left out so the most relevant table fits; empty under the budget.</summary>
     public IReadOnlyList<SchemaContextPartKind> PartsLeftOut { get; init; } = [];
+
+    /// <summary>The table blocks the context shows, in context order, as shown: a block <see cref="TopTableCut"/> is the cut one.</summary>
+    public IReadOnlyList<SchemaContextTableBlock> ShownBlocks { get; init; } = [];
 
     /// <summary>
     /// No whole table fit even without the optional grounding sections: the most relevant one is shown cut at a line
@@ -60,6 +64,7 @@ internal static partial class AskSchemaContextBudget
     /// <summary>The order grounding sections are left out in when the most relevant table does not fit.</summary>
     public static readonly IReadOnlyList<SchemaContextPartKind> DropOrder =
     [
+        SchemaContextPartKind.Documentation,
         SchemaContextPartKind.LearnedPatterns,
         SchemaContextPartKind.Glossary,
         SchemaContextPartKind.GoldenExemplars,
@@ -86,7 +91,7 @@ internal static partial class AskSchemaContextBudget
         var everything = Render(head, sections, parts, _ => true, null);
         if (everything.Length <= budgetChars)
         {
-            return new BudgetedSchemaContext(everything, blocks.Count, []);
+            return new BudgetedSchemaContext(everything, blocks.Count, []) { ShownBlocks = blocks };
         }
 
         var order = RankedOrder(blocks, rankedNames);
@@ -171,7 +176,11 @@ internal static partial class AskSchemaContextBudget
         return new BudgetedSchemaContext(text, shown.Count, notShown)
         {
             PartsLeftOut = partsLeftOut,
-            TopTableCut = topTableCut
+            TopTableCut = topTableCut,
+            ShownBlocks = renderedSections
+                .SelectMany(x => x.Blocks)
+                .Where(shown.Contains)
+                .ToList()
         };
     }
 

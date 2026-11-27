@@ -205,12 +205,14 @@ public class GlossaryInjectionTests
     }
 
     [Test]
-    public async Task BuildGlossaryBlock_WhenEmbedderUnavailable_InjectsNothing()
+    public async Task BuildGlossaryBlock_WhenEmbedderUnavailable_MatchesTheTermTheQuestionNames()
     {
-        // Behaviour-preserving fallback: no embedder → no glossary block at all, even with active terms + vectors.
+        // Without an embedder the glossary falls back to keyword matching: the question names "revenue", so that term is
+        // rendered as on the semantic path; "churn" is not named and stays out.
         var terms = new List<McpGlossaryTerm>
         {
-            NewTerm(1, "revenue", "Total sales amount recognized", isActive: true, metric: "SUM(amount)")
+            NewTerm(1, "revenue", "Total sales amount recognized", isActive: true, metric: "SUM(amount)"),
+            NewTerm(2, "churn", "Customers lost in the period", isActive: true)
         };
         var embeddings = new List<McpEmbedding> { NewGlossaryEmbedding(1, new float[384]) };
 
@@ -221,20 +223,23 @@ public class GlossaryInjectionTests
             ProjectId, Question, new McpSettingsData { EnableSemanticRetrieval = true, GlossaryTopK = 5 },
             CancellationToken.None);
 
-        block.Should().BeEmpty();
+        block.Should().Be("\n## Business Glossary\n" + Environment.NewLine + "- **revenue**: Total sales amount recognized (→ `SUM(amount)`)" + Environment.NewLine);
     }
 
     [Test]
-    public async Task BuildGlossaryBlock_WhenSemanticRetrievalDisabled_InjectsNothing()
+    public async Task BuildGlossaryBlock_WhenSemanticRetrievalDisabled_MatchesByKeywordInsteadOfVectors()
     {
+        // "margin" carries the query-identical vector, so the semantic path would pick it; with semantic retrieval off only
+        // the term the question names is shown.
         var embedder = new FakeEmbeddingService();
         var queryVector = await embedder.EmbedAsync(EmbeddingMaskingHelper.Mask(Question), CancellationToken.None);
 
         var terms = new List<McpGlossaryTerm>
         {
-            NewTerm(1, "revenue", "Total sales amount recognized", isActive: true)
+            NewTerm(1, "revenue", "Total sales amount recognized", isActive: true),
+            NewTerm(2, "margin", "Revenue minus cost", isActive: true)
         };
-        var embeddings = new List<McpEmbedding> { NewGlossaryEmbedding(1, queryVector) };
+        var embeddings = new List<McpEmbedding> { NewGlossaryEmbedding(2, queryVector) };
 
         var service = BuildService(embedder, terms, embeddings, semanticEnabled: false, glossaryTopK: 5);
 
@@ -242,7 +247,8 @@ public class GlossaryInjectionTests
             ProjectId, Question, new McpSettingsData { EnableSemanticRetrieval = false, GlossaryTopK = 5 },
             CancellationToken.None);
 
-        block.Should().BeEmpty();
+        block.Should().Contain("- **revenue**: Total sales amount recognized");
+        block.Should().NotContain("margin");
     }
 
     [Test]

@@ -937,6 +937,7 @@ public class KnowledgeItemBoostInjectionTests
             AddSet(dataSource == null ? [] : new List<ProjectDataSource> { new() { ProjectId = ProjectId, DataSourceId = dataSource.Id } });
             AddSet(new List<ColumnMetadata>());
             AddSet(new List<ProjectDocumentationSection>());
+            AddSet(new List<McpDescriptionItem>());
         }
 
         public int StatsReads => Volatile.Read(ref _statsReads);

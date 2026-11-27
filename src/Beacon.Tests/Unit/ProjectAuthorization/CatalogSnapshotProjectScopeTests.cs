@@ -179,7 +179,9 @@ public class CatalogSnapshotProjectScopeTests
                     {
                         [typeof(DataSource)] = BuildDbSet(new List<DataSource> { Source }).Object,
                         [typeof(ProjectDataSource)] = BuildDbSet(Links).Object,
-                        [typeof(DatabaseMetadata)] = BuildDbSet(_metadata).Object
+                        [typeof(DatabaseMetadata)] = BuildDbSet(_metadata).Object,
+                        [typeof(McpGlossaryTerm)] = BuildDbSet(new List<McpGlossaryTerm>()).Object,
+                        [typeof(McpDescriptionItem)] = BuildDbSet(new List<McpDescriptionItem>()).Object
                     }));
 
             return new KnowledgeGraphService(
