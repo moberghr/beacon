@@ -19,6 +19,7 @@ For a given question and data source, Beacon assembles the context in blocks. Se
 | **Join Paths (UNVERIFIED)** | Relationships pending curator verification, explicitly flagged as needing confirmation: an inferred one with its confidence, one a user added as *added, pending curator verification* | Relationship discovery, people who may not curate the source |
 | **Coverage** | A note when the table neighbourhood was capped, so the model knows the picture is partial | Context assembly |
 | **Business Glossary** | Top-K matching terms with definitions and their column/metric mapping | [Business glossary](#business-glossary) |
+| **Project Documentation** | Up to 3 documentation chunks for the question, only while `EnableDocChunksInAsk` is on | [Documentation chunks in the prompt](#documentation-chunks-in-the-prompt) |
 | **Verified query examples (authoritative)** | Human-verified question → SQL pairs for this data source | [Golden examples](#golden-examples-and-the-eval-harness) |
 | **Learned Patterns (from usage)** | Known corrections, column clarifications, join patterns, common queries, business-term mappings, documentation gaps | [The learning loop](#the-learning-loop) |
 
@@ -121,7 +122,13 @@ The glossary teaches Beacon your organisation's vocabulary: what "active custome
 
 When a question is asked, the top matching terms (`GlossaryTopK`, default 5) are injected into the **Business Glossary** block. Glossary retrieval is scoped to the caller's authorised project: two projects sharing a data source never see each other's definitions.
 
-The glossary is managed through the API only and is gated with the Admin policy; there is no UI page for it.
+The glossary is managed on the **Glossary** page of the UI and through the API. Both are gated with the Admin policy.
+
+**Keyword fallback.** With semantic retrieval off (`EnableSemanticRetrieval`), or with no embedder available, Beacon matches terms by keyword instead of injecting no glossary. An active term of the project matches when its name or one of its synonyms occurs in the question as a whole word, ignoring case. Matches are ordered by the length of the longest name that matched, longest first, and the first `GlossaryTopK` go into the block. Beacon reads at most 500 active terms of the project for this. A question that names no term gets no glossary block. The semantic path is unchanged.
+
+**Index on write.** Creating or editing a term reindexes the project's glossary terms and documentation chunks right away, so retrieval does not wait for the 12-hourly job. This is best effort: if the reindex fails, the write still stands, Beacon logs a warning with the project id and a failure code, and the job catches up. Deleting a term does not reindex.
+
+**One glossary.** The term store is the source of truth for the project's vocabulary. When the documentation generator writes its Glossary section, it receives the project's active terms as fenced data and is told not to redefine or contradict them. The Markdown export lists the active terms first, under **Curated terms**, followed by the generated section.
 
 | Method | Endpoint |
 |---|---|
@@ -129,6 +136,84 @@ The glossary is managed through the API only and is gated with the Admin policy;
 | `POST` | `/beacon/api/glossary` |
 | `PUT` | `/beacon/api/glossary/{id}` |
 | `DELETE` | `/beacon/api/glossary/{id}` |
+
+## Descriptions and documentation
+
+Table and column descriptions and the project's generated documentation reach the prompt too. This section covers who wrote a description, how Beacon notices it has gone stale, how to ask for column descriptions, and what documentation can enter the prompt.
+
+There is no UI yet for description items, the describe route or the two settings fields below (`EnableDocChunksInAsk` and the project instruction). They are API only.
+
+### Description items
+
+When a person applies a documentation patch to a table or column description, Beacon writes the description to the data source's metadata and records a **description item** in the same save. One item exists per table or column, keyed by schema, table and column name (an empty column name means the table's own description). Because the key is names and not the metadata row id, an item survives a metadata refresh.
+
+An item records:
+
+| Field | Meaning |
+|---|---|
+| `source` | `Curated`: a person applied a patch that a person or the learning job proposed. `Generated`: a person applied a patch that the [description generator](#column-descriptions-on-request) proposed |
+| `writtenAt`, `writtenBy` | When the patch was applied and by whom (display name, or "User {id}") |
+| `generatedByModel` | The model that wrote a generated description; empty for a curated one |
+| `sourcePatchId` | The documentation patch it was applied from |
+| `staleSince` | When a refresh first found the description possibly out of date; empty while current |
+
+Only a description written by applying a patch has an item. A description that came from the database catalog has none, and neither does one that was never written by Beacon. Applying a patch again to the same table or column replaces the item and clears `staleSince`.
+
+**Staleness.** Each metadata refresh compares the items of the data source with the catalog it just stored. Beacon marks an item stale (it sets `staleSince` once and keeps the first time) when:
+
+- the table or column is gone, or
+- the table's structure changed since the description was written. The structure is the table's column names and data types in ordinal order, hashed with SHA-256 when the description is written.
+
+If a later refresh finds the table matching the recorded structure again, the mark is cleared. Table and column names are matched ignoring case. Nothing removes an item. The description text itself is not changed or hidden: a stale mark is information for a curator, and the prompt does not show it.
+
+Only the metadata refresh sets the mark. The host data-source synchroniser and the API-endpoint import do not update it.
+
+**Read route.** `GET /beacon/api/data-sources/{id}/description-items` lists the items of a data source, paged (see [Paging, sorting and filtering](/reference/routes/#paging-sorting-and-filtering)), by schema, table and column unless `sort` says otherwise. It needs Read on the data source. The response carries `id`, `schemaName`, `tableName`, `columnName`, `source`, `writtenAt`, `writtenBy`, `generatedByModel`, `sourcePatchId`, `staleSince` and `isStale`. It returns no description text.
+
+### Column descriptions on request
+
+`POST /beacon/api/data-sources/{id}/tables/describe` asks the LLM to propose descriptions for the columns of one table that have none.
+
+| Body field | Meaning |
+|---|---|
+| `schemaName`, `tableName` | The table, as stored in the data source's metadata |
+| `projectId` | The project the proposals are stored in. It must link the data source |
+
+The caller needs the DataSourceAdmin permission (or be an Admin), and Curate in the project (see [Who curates grounding](#who-curates-grounding)). The route behaves as follows:
+
+- It selects up to 60 columns, in ordinal order, whose description is empty and that have no `Proposed` column-description patch in that project. A column with a pending patch in another project is still asked about.
+- With no such column, it makes no LLM call and answers `columnsAsked: 0`.
+- It makes one LLM call, through the LLM request queue. The prompt names the table and lists its columns and data types in a fenced data block. It says the block is data, not instructions.
+- Stored sample values go along only as `ask` screens them: under the effective settings of every live project linking the source, so none are sent while sample-value collection is off or `Beacon:Mcp:ForbidRowDataToLlm` is on. At most 5 values per column, each cut to 100 characters. A request that sends samples is recorded in the row-data egress log.
+- It stores each description from the answer as a `Proposed` documentation patch, with the model name, and writes nothing to the catalog. A person reviews and applies each patch on the **Doc patches** tab. Applying one records the description item as `Generated`, with the model.
+- It returns `columnsAsked` and `proposalsCreated`.
+- It records the security event `curation.column_descriptions_proposed` with ids and counts only.
+- A schema or table name that contains a dot is refused with `400`, because the patch target (`schema.table.column`) could not name it. So is an answer the route cannot read as JSON; the message does not carry the provider's text.
+
+### Documentation chunks in the prompt
+
+The setting `EnableDocChunksInAsk` is off by default and can be overridden per project. With it off, the `ask` prompt is unchanged and no chunk is read.
+
+With it on, semantic retrieval on and an embedder available, the `ask` context adds the project's documentation chunks that are nearest to the question: at most 3, taken from the project only (the search itself is scoped to it, not filtered afterwards). They go into a fenced `documentation` data block headed **Project Documentation**, after the glossary and inside the database context. When the context budget is short, this block is the first one left out, before the learned patterns. Each chunk shown is recorded in the signal as a documentation chunk (kind 6), with its contextual blurb included in the prompt when the chunk has one.
+
+Under the deployment lock `Beacon:Mcp:ForbidRowDataToLlm`, chunks cut from a section that can list data values (the business-domain, data-model and glossary sections) are left out.
+
+### Failed documentation sections
+
+When the generation of a documentation section fails, the section holds a fixed sentence (`*Generation failed for this section. Please regenerate.*`), never the provider's error text. Beacon leaves such a section out of everything it serves to agents and models:
+
+- `get_documentation` and the Markdown export,
+- `search`,
+- the table documentation read,
+- documentation chunk indexing.
+
+The documentation page in the UI still shows the section, so a person sees what to regenerate. When a Glossary section failed but the project has curated terms, the export still lists the terms under **Curated terms**.
+
+Finishing a documentation generation also reindexes the project's chunks and glossary terms right away, best effort, as a glossary write does (see [Business glossary](#business-glossary)).
+
+### Project instruction
+
+`GlobalInstruction` is the text Beacon prepends to the user context of the LLM-aware tools. A project can now override it. The project value replaces the global one in that project's prompts. An empty value inherits the global text. The text is at most 4000 characters; a longer one is refused with `400`, globally and for a project. Only SecurityAdmin or Admin writes it, through `PUT /beacon/api/mcp/projects/{projectId}/settings`, as for the global one. The tool descriptions and the system prompt stay global.
 
 ## Golden examples and the eval harness
 
@@ -205,7 +290,19 @@ Beacon records three more facts on signals. The [knowledge item counters](#knowl
 
 #### Provenance
 
-An `ask` signal records which knowledge items its prompt carried: golden cases, learned patterns and glossary terms. Each item is stored as its id, its kind and its rank in the prompt, in the table `McpSignalContextItems`. No text is stored. An item of a block that the context budget left out is not recorded. Table and column descriptions and documentation chunks are not recorded yet. The rows are deleted with their signal by the retention job.
+An `ask` signal records which knowledge items its prompt carried: golden cases, learned patterns, glossary terms, table descriptions, column descriptions and documentation chunks. Each item is stored as its id, its kind and its rank in the prompt, in the table `McpSignalContextItems`. No text is stored. An item of a block that the context budget left out is not recorded. The rows are deleted with their signal by the retention job.
+
+The three kinds added for descriptions and chunks are:
+
+| Kind | Value | Item id | Recorded when |
+|---|---|---|---|
+| Table description | 4 | The [description item](#description-items) | The prompt shows the table's description and the table has an item |
+| Column description | 5 | The description item | The prompt shows the column's description (a full table block) and the column has an item |
+| Documentation chunk | 6 | The chunk id | The prompt shows the chunk (see [Documentation chunks in the prompt](#documentation-chunks-in-the-prompt)) |
+
+A description that came from the database catalog has no item, so it records nothing. A table description or column description that the context budget cut is not recorded. Beacon reads the items once per `ask`, by data source and the names of the tables shown. If that read fails, the `ask` still runs and records no description items.
+
+The counters in [Knowledge item counters](#knowledge-item-counters-and-rank-boost) cover the new kinds. The rank boost does not: it reorders golden cases, learned patterns and glossary terms only. A documentation chunk that is rebuilt gets a new id, so the evidence recorded about the old text does not carry over.
 
 #### Episodes
 
@@ -219,7 +316,7 @@ The learning job uses the reasons. When a table was used by at least 3 `ask` ans
 
 ### Knowledge item counters and rank boost
 
-For each project and each knowledge item (a golden case, a learned pattern or a glossary term), the learning job recomputes four counters from the project's `ask` signals that carried the item and are still inside the learning-signal retention window:
+For each project and each knowledge item (a golden case, a learned pattern, a glossary term, a table or column description or a documentation chunk), the learning job recomputes four counters from the project's `ask` signals that carried the item and are still inside the learning-signal retention window:
 
 - a helpful score,
 - a harmful score,
@@ -325,7 +422,7 @@ These are the sample host's registrations (`Beacon.SampleProject/Program.cs`); a
 
 ## Settings reference
 
-These are the grounding, retrieval and learning settings of `McpSettingsData`; they round-trip through `GET`/`PUT /beacon/api/mcp/settings`. The guardrail settings (max row limit, read-only enforcement, PII detection and patterns, content retention) are described in [MCP Server → Configuration](/mcp/server/#configuration). The **MCP Settings** page (`/beacon/mcp-settings`) shows sample-value collection and value grounding (globally and per project) and the learning switch, auto-approve threshold, injection budget and signal retention. The two new settings, `EnableKnowledgeItemBoost` and `EnableScheduledEval`, have no screen yet. Everything else in this table is set through the API only; a save on the page sends every setting back as it read it (the stored values, `stored` on the `GET`), so the API-only ones keep their values.
+These are the grounding, retrieval and learning settings of `McpSettingsData`; they round-trip through `GET`/`PUT /beacon/api/mcp/settings`. The guardrail settings (max row limit, read-only enforcement, PII detection and patterns, content retention) are described in [MCP Server → Configuration](/mcp/server/#configuration). The **MCP Settings** page (`/beacon/mcp-settings`) shows sample-value collection and value grounding (globally and per project) and the learning switch, auto-approve threshold, injection budget and signal retention. Three settings have no screen yet: `EnableKnowledgeItemBoost`, `EnableScheduledEval` and `EnableDocChunksInAsk`. The project instruction (`GlobalInstruction` in a project's settings) has no project-scope field on the page either. Everything else in this table is set through the API only; a save on the page sends every setting back as it read it (the stored values, `stored` on the `GET`), so the API-only ones keep their values.
 
 | Setting | Default | Effect |
 |---|---|---|
@@ -345,7 +442,8 @@ These are the grounding, retrieval and learning settings of `McpSettingsData`; t
 | `EnableGoldenExemplars` | `true` | Inject human-verified examples |
 | `GoldenExemplarTopK` | `4` | Golden cases injected |
 | `GoldenExemplarBudgetChars` | `2000` | Character budget for the golden-examples block |
-| `GlossaryTopK` | `5` | Glossary terms injected |
+| `GlossaryTopK` | `5` | Glossary terms injected, by semantic match or, without semantic retrieval, by keyword |
+| `EnableDocChunksInAsk` | `false` | Add up to 3 project documentation chunks to the `ask` prompt, after the glossary; needs semantic retrieval and an embedder; see [Documentation chunks in the prompt](#documentation-chunks-in-the-prompt) |
 | `EnableContextualRetrieval` | `false` | LLM-written situating blurb per doc chunk at index time |
 | `DocChunkWindowSentences` | `5` | Sentences per documentation chunk |
 | `DocChunkOverlapSentences` | `1` | Sentence overlap between chunks |

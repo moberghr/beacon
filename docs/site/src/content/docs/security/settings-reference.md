@@ -167,7 +167,7 @@ Details: [Data-source connections](/security/data-source-connections/).
 | `Beacon:Mcp:ForceReadOnly` | bool | `true` | `true`, `false` | Pins read-only enforcement on, and makes the gate enforce it whatever a caller asks. | requires `true` |
 | `Beacon:Mcp:ForcePiiDetection` | bool | `true` | `true`, `false` | Pins PII detection on everywhere. | requires `true` |
 | `Beacon:Mcp:ForceNoContentRetention` | bool | `false` | `true`, `false` | Pins `RetainQueryContent` to false; cannot be combined with `Audit:RequireContent`. | not judged |
-| `Beacon:Mcp:ForbidRowDataToLlm` | bool | `false` | `true`, `false` | Turns off sample values, value grounding and the eval judge, so no row value reaches the LLM provider. | fills `true`; requires `true` |
+| `Beacon:Mcp:ForbidRowDataToLlm` | bool | `false` | `true`, `false` | Turns off sample values, value grounding and the eval judge, so no row value reaches the LLM provider. Also leaves chunks of the business-domain, data-model and glossary documentation sections out of the `ask` prompt (`EnableDocChunksInAsk`). | fills `true`; requires `true` |
 | `Beacon:Mcp:DataNotice` | bool | `true` | `true`, `false` | Ends every successful tool result with a block saying its content is data, not instructions. | not judged |
 | `Beacon:Mcp:Audit:Required` | bool | `false` | `true`, `false` | Withholds a tool result whose audit row could not be written. | fills `true`; requires `true` |
 | `Beacon:Mcp:Audit:RetentionDays` | int | unset (keep forever) | 0 or more; 0 keeps forever | Days MCP audit rows are kept. | not judged (but `Retention:Locked` requires it above 0) |
