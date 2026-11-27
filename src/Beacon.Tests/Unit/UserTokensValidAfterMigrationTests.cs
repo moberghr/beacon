@@ -20,8 +20,9 @@ namespace Beacon.Tests.Unit;
 /// The migration that records when a user was last signed out everywhere, checked offline on both providers (nothing
 /// connects, nothing is migrated): it adds one nullable column to the users table without a default, so every existing
 /// user keeps every bearer token working until they are next signed out everywhere. It runs no SQL and backfills nothing.
-/// Up is exactly the difference between the model before it and its target model, Down is exactly the way back, its
-/// target model is the snapshot, the model has no pending changes, and it sorts last.
+/// Up is exactly the difference between the model before it and its target model, and Down is exactly the way back. Its
+/// target model differs from the next migration's (<c>AddSignalProvenance</c>) only by that migration, which sorts right
+/// after it.
 /// </summary>
 [TestFixture]
 public class UserTokensValidAfterMigrationTests
@@ -30,7 +31,7 @@ public class UserTokensValidAfterMigrationTests
 
     [TestCase(false, "timestamp with time zone")]
     [TestCase(true, "datetime2")]
-    public void TheMigration_AddsANullableColumnToTheUsers_AndIsTheSnapshot(bool sqlServer, string columnType)
+    public void TheMigration_AddsANullableColumnToTheUsers(bool sqlServer, string columnType)
     {
         using var provider = BuildProvider(sqlServer);
         using var context = provider.GetRequiredService<IDbContextFactory<BeaconContext>>().CreateDbContext();
@@ -55,13 +56,17 @@ public class UserTokensValidAfterMigrationTests
             .Should().BeEquivalentTo(Signatures(differ.GetDifferences(before, target)), "Up is exactly the difference from the model before");
         Signatures(migration.DownOperations)
             .Should().BeEquivalentTo(Signatures(differ.GetDifferences(target, before)), "Down removes exactly what Up adds");
-        differ.GetDifferences(target, Initialized(migrations.ModelSnapshot!.Model, initializer).GetRelationalModel())
-            .Should().BeEmpty("the migration's target model is the snapshot");
-        context.Database.HasPendingModelChanges().Should().BeFalse("the snapshot matches the model");
+        var next = MigrationNamed(context, migrations, "_AddSignalProvenance");
+        Signatures(differ.GetDifferences(target, Initialized(next.TargetModel!, initializer).GetRelationalModel()))
+            .Should().BeEquivalentTo(
+                Signatures(next.UpOperations),
+                "this migration's target model differs from the next one's only by the next migration");
         migrations.Migrations.Keys
             .Order(StringComparer.Ordinal)
-            .Last()
-            .Should().EndWith(Suffix, "it sorts after every earlier migration");
+            .SkipWhile(x => !x.EndsWith(Suffix, StringComparison.Ordinal))
+            .Skip(1)
+            .First()
+            .Should().EndWith("_AddSignalProvenance", "the next migration sorts right after it");
     }
 
     // PostgreSQL names tables and columns in snake_case; SQL Server keeps the model's PascalCase.

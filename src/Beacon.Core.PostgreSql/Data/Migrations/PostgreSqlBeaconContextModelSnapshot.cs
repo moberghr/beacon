@@ -18,7 +18,7 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 #pragma warning disable 612, 618
             modelBuilder
                 .HasDefaultSchema("beacon")
-                .HasAnnotation("ProductVersion", "10.0.12")
+                .HasAnnotation("ProductVersion", "10.0.14")
                 .HasAnnotation("Relational:MaxIdentifierLength", 63);
 
             NpgsqlModelBuilderExtensions.UseIdentityByDefaultColumns(modelBuilder);
@@ -3195,6 +3195,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("text")
                         .HasColumnName("feedback_note");
 
+                    b.Property<int?>("FeedbackReason")
+                        .HasColumnType("integer")
+                        .HasColumnName("feedback_reason");
+
                     b.Property<string>("GeneratedSql")
                         .HasColumnType("text")
                         .HasColumnName("generated_sql");
@@ -3204,9 +3208,17 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("character varying(50)")
                         .HasColumnName("intent_classification");
 
+                    b.Property<bool>("IsEditedRerun")
+                        .HasColumnType("boolean")
+                        .HasColumnName("is_edited_rerun");
+
                     b.Property<bool>("IsSuccessful")
                         .HasColumnType("boolean")
                         .HasColumnName("is_successful");
+
+                    b.Property<int?>("ParentSignalId")
+                        .HasColumnType("integer")
+                        .HasColumnName("parent_signal_id");
 
                     b.Property<int?>("ProjectId")
                         .HasColumnType("integer")
@@ -3284,6 +3296,9 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
 
                     b.HasIndex("IsSuccessful")
                         .HasDatabaseName("ix_mcp_query_signals_is_successful");
+
+                    b.HasIndex("ParentSignalId")
+                        .HasDatabaseName("ix_mcp_query_signals_parent_signal_id");
 
                     b.HasIndex("ProjectId")
                         .HasDatabaseName("ix_mcp_query_signals_project_id");
@@ -3507,6 +3522,47 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasName("pk_mcp_settings");
 
                     b.ToTable("mcp_settings", "beacon");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.McpSignalContextItem", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<int>("ItemId")
+                        .HasColumnType("integer")
+                        .HasColumnName("item_id");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer")
+                        .HasColumnName("kind");
+
+                    b.Property<int>("Rank")
+                        .HasColumnType("integer")
+                        .HasColumnName("rank");
+
+                    b.Property<int>("SignalId")
+                        .HasColumnType("integer")
+                        .HasColumnName("signal_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_mcp_signal_context_items");
+
+                    b.HasIndex("SignalId")
+                        .HasDatabaseName("ix_mcp_signal_context_items_signal_id");
+
+                    b.HasIndex("Kind", "ItemId")
+                        .HasDatabaseName("ix_mcp_signal_context_items_kind_item_id");
+
+                    b.ToTable("mcp_signal_context_items", "beacon");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Metadata.ColumnMetadata", b =>
@@ -6140,6 +6196,18 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Navigation("Project");
                 });
 
+            modelBuilder.Entity("Beacon.Core.Data.Entities.McpSignalContextItem", b =>
+                {
+                    b.HasOne("Beacon.Core.Data.Entities.McpQuerySignal", "Signal")
+                        .WithMany("ContextItems")
+                        .HasForeignKey("SignalId")
+                        .OnDelete(DeleteBehavior.Cascade)
+                        .IsRequired()
+                        .HasConstraintName("fk_mcp_signal_context_items_mcp_query_signals_signal_id");
+
+                    b.Navigation("Signal");
+                });
+
             modelBuilder.Entity("Beacon.Core.Data.Entities.Metadata.ColumnMetadata", b =>
                 {
                     b.HasOne("Beacon.Core.Data.Entities.Metadata.DatabaseMetadata", "DatabaseMetadata")
@@ -6695,6 +6763,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
             modelBuilder.Entity("Beacon.Core.Data.Entities.McpAuditLog", b =>
                 {
                     b.Navigation("Statements");
+                });
+
+            modelBuilder.Entity("Beacon.Core.Data.Entities.McpQuerySignal", b =>
+                {
+                    b.Navigation("ContextItems");
                 });
 
             modelBuilder.Entity("Beacon.Core.Data.Entities.Metadata.DatabaseMetadata", b =>
