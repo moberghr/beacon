@@ -48,8 +48,12 @@ internal sealed partial class OpenAiCompatibleProvider : ILlmProvider
     // Matched by prefix in this order.
     private static readonly (string Prefix, decimal Input, decimal Output)[] OpenAiPricing =
     [
-        ("gpt-4o", 5.00m, 15.00m),
+        ("gpt-6.2-astra", 8.00m, 40.00m),
+        ("gpt-6.2-sol", 2.00m, 10.00m),
+        ("gpt-6.1-terra", 1.00m, 5.00m),
+        ("gpt-6-luna", 0.10m, 0.50m),
         ("gpt-4o-mini", 0.15m, 0.60m),
+        ("gpt-4o", 5.00m, 15.00m),
         ("gpt-4-turbo", 10.00m, 30.00m),
         ("gpt-3.5-turbo", 0.50m, 1.50m)
     ];
@@ -361,9 +365,16 @@ internal sealed partial class OpenAiCompatibleProvider : ILlmProvider
 
         writer.WriteEndArray();
 
-        // What each SDK sent: Azure.AI.OpenAI swapped max_completion_tokens for max_tokens.
-        writer.WriteNumber(_isAzure ? "max_tokens" : "max_completion_tokens", request.MaxTokens);
-        writer.WriteNumber("temperature", request.Temperature);
+        // What each SDK sent: Azure.AI.OpenAI swapped max_completion_tokens for max_tokens. An Azure deployment name
+        // need not say its model: only one that names a reasoning model is sent what such a model takes
+        // (max_completion_tokens, no temperature); any other deployment gets the request as before.
+        var reasoningDeployment = _isAzure && OpenAiSampling.NamesReasoningModel(_model);
+        writer.WriteNumber(_isAzure && !reasoningDeployment ? "max_tokens" : "max_completion_tokens", request.MaxTokens);
+        if (_isAzure ? !reasoningDeployment : OpenAiSampling.AcceptsTemperature(_model))
+        {
+            writer.WriteNumber("temperature", request.Temperature);
+        }
+
         writer.WriteEndObject();
         writer.Flush();
 

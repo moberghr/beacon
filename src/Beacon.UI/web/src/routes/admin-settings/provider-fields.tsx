@@ -69,7 +69,7 @@ const PROVIDER_CARDS: Array<{
   title: string;
   blurb: string;
 }> = [
-  { id: AiProvider.OpenAI, icon: Sparkles, title: 'OpenAI', blurb: 'GPT-4o, o1 reasoning models, API key auth.' },
+  { id: AiProvider.OpenAI, icon: Sparkles, title: 'OpenAI', blurb: 'GPT-6 models, API key auth.' },
   { id: AiProvider.Claude, icon: Bot, title: 'Anthropic', blurb: 'Claude Opus / Sonnet / Haiku via direct API.' },
   { id: AiProvider.AzureOpenAI, icon: Server, title: 'Azure OpenAI', blurb: 'Self-hosted Azure deployments with your endpoint.' },
   { id: AiProvider.Bedrock, icon: Cloud, title: 'AWS Bedrock', blurb: 'Claude, Llama, and more via AWS — IAM-role friendly.' },

@@ -6,7 +6,7 @@ public class OpenAiProvider : ILlmProvider
 {
     private readonly OpenAiCompatibleProvider _provider;
 
-    public OpenAiProvider(string apiKey, string model = "gpt-4o-mini")
+    public OpenAiProvider(string apiKey, string model = "gpt-6-luna")
         : this(LlmHttpClients.Shared, apiKey, model)
     {
     }
