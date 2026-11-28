@@ -1,3 +1,5 @@
+using Beacon.Core.Data.Enums;
+
 namespace Beacon.Core.Services;
 
 /// <summary>
@@ -13,10 +15,12 @@ public interface IMcpEvalService
     /// <summary>
     /// Creates a new eval run row (status "Running") for the project and returns its id; a null
     /// <paramref name="projectId"/> is refused (<see cref="InvalidOperationException"/>) and creates nothing.
-    /// The actual case-by-case execution happens in <see cref="RunAsync"/>, typically enqueued as a
-    /// background job so the API call returns immediately.
+    /// <paramref name="trigger"/> is stored on the run: <see cref="McpEvalRunTrigger.Manual"/> for a run a person
+    /// started (<paramref name="userId"/>), <see cref="McpEvalRunTrigger.Scheduled"/> for the nightly scheduled eval,
+    /// which has no requester. The actual case-by-case execution happens in <see cref="RunAsync"/>, typically enqueued
+    /// as a background job so the API call returns immediately.
     /// </summary>
-    Task<int> StartRunAsync(int? projectId, int? userId, CancellationToken ct);
+    Task<int> StartRunAsync(int? projectId, int? userId, McpEvalRunTrigger trigger, CancellationToken ct);
 
     /// <summary>
     /// Executes the run: for each active golden case, generates SQL, executes both the gold and the
@@ -48,6 +52,31 @@ public interface IMcpEvalService
         string? goldResultFingerprint,
         string? extraContext,
         CancellationToken ct);
+
+    /// <summary>
+    /// Runs <paramref name="sql"/> once on the data source through the eval harness's own read-only executor — the
+    /// <c>ISqlExecutionGate</c> with read-only forced and the row security context from <c>IRowSecurityResolver</c>, then the
+    /// provider's read-only path, as an eval run executes a case's gold SQL (§1.5, §1.15; no new execution path) — and
+    /// fingerprints the result as the eval does. Used before a golden case is promoted, so a case whose gold SQL does not run
+    /// now is never created. A statement the gate refuses, one the data source answers with an error, and any failure on the
+    /// way (an unreachable, disabled or missing data source, the statement timeout) did not run; only the caller's
+    /// cancellation propagates. Runs no generation and no judge. A statement that passes the gate is in the execution log
+    /// before it is sent (<c>ISqlExecutionAudit</c>, as <see cref="SqlExecutionContexts.GoldSqlReplay"/>, attributed to the
+    /// scope's caller by <c>Users.Id</c>) and its row is closed with how it ended; when that row cannot be written while
+    /// <c>Beacon:Audit:ExecutionLog:Required</c> is on, the statement does not run (did not run). It stores nothing else.
+    /// <paramref name="projectId"/> picks the effective settings (row cap, statement timeout); without one the global
+    /// settings apply.
+    /// </summary>
+    Task<GoldSqlReplay> ReplayGoldSqlAsync(int dataSourceId, int? projectId, string sql, CancellationToken ct);
+}
+
+/// <summary>
+/// The outcome of running a gold SQL once (<see cref="IMcpEvalService.ReplayGoldSqlAsync"/>): whether it ran read-only, and
+/// the fingerprint of its result when it did (null when it did not).
+/// </summary>
+public readonly record struct GoldSqlReplay(bool Ran, string? ResultFingerprint)
+{
+    public static GoldSqlReplay DidNotRun { get; } = new(false, null);
 }
 
 /// <summary>

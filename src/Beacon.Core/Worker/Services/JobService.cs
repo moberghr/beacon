@@ -49,7 +49,8 @@ internal class JobService(
     IMcpEvalService? mcpEvalService = null,
     IOptions<SubscriptionOptions>? subscriptionOptions = null,
     IOptions<ReportOptions>? reportOptions = null,
-    IBeaconActorAccessor? actorAccessor = null)
+    IBeaconActorAccessor? actorAccessor = null,
+    IMcpSettingsProvider? mcpSettingsProvider = null)
     : IJobService
 {
     // AI Actor service is optional - only available if Beacon.AI is added
@@ -598,6 +599,24 @@ internal class JobService(
         }
 
         await mcpLearningService.AggregateLearnedPatternsAsync(cancellationToken);
+
+        // Documentation patches are proposed from the approved patterns once the aggregation is done, and only proposed: a
+        // person reviews and applies each one. A failure to propose them is logged by its failure code and leaves the
+        // aggregation's result as it is; the caller's cancellation still ends the job.
+        try
+        {
+            await mcpLearningService.GenerateDocumentationPatchesAsync(cancellationToken);
+        }
+        catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogError(
+                "Documentation patches were not proposed after the learned pattern aggregation ({Failure})",
+                FailureCodes.Describe(ex));
+        }
     }
 
     public async Task CleanupOldSignals(CancellationToken cancellationToken)
@@ -645,6 +664,49 @@ internal class JobService(
         await mcpEvalService.RunAsync(runId, cancellationToken);
     }
 
+    public async Task RunScheduledEvals(CancellationToken cancellationToken)
+    {
+        if (mcpEvalService == null || mcpSettingsProvider == null)
+        {
+            logger.LogDebug("MCP eval service not available, skipping the scheduled eval");
+            return;
+        }
+
+        // The scheduled eval spends LLM calls, so it runs only for a project whose effective settings turn it on, and only
+        // over projects with an active golden case: with the setting off everywhere (the default) nothing starts. Projects
+        // run one after another in id order, each as a Scheduled run without a requester, in the job host's system scope
+        // like a manual run's job. A project's failure is logged by ids and failure code and the next project still runs;
+        // the job's own cancellation ends the job.
+        var projectIds = await ProjectsWithActiveGoldenCasesAsync(cancellationToken);
+        foreach (var projectId in projectIds)
+        {
+            int? runId = null;
+            try
+            {
+                var settings = await mcpSettingsProvider.GetEffectiveSettingsAsync(projectId, cancellationToken);
+                if (!settings.EnableScheduledEval)
+                {
+                    continue;
+                }
+
+                runId = await mcpEvalService.StartRunAsync(projectId, null, McpEvalRunTrigger.Scheduled, cancellationToken);
+                await mcpEvalService.RunAsync(runId.Value, cancellationToken);
+            }
+            catch (OperationCanceledException) when (cancellationToken.IsCancellationRequested)
+            {
+                throw;
+            }
+            catch (Exception ex)
+            {
+                logger.LogError(
+                    "The scheduled eval of project {ProjectId} failed, run {RunId} ({Failure})",
+                    projectId,
+                    runId,
+                    FailureCodes.Describe(ex));
+            }
+        }
+    }
+
     private async Task TriggerAiActorIfApplicableAsync(int subscriptionId, int rowCount, CancellationToken cancellationToken)
     {
         // AI Actor service is optional - only available if Beacon.AI is added
@@ -665,6 +727,21 @@ internal class JobService(
                 subscriptionId,
                 FailureCodes.Describe(ex));
         }
+    }
+
+    // The projects the scheduled eval may cover: those with an active golden case, archived projects left out (the global
+    // filter on Projects), in id order.
+    private async Task<List<int>> ProjectsWithActiveGoldenCasesAsync(CancellationToken cancellationToken)
+    {
+        await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
+
+        return await context.McpEvalCases
+            .Where(x => x.IsActive)
+            .Where(x => context.Projects.Any(y => y.Id == x.ProjectId))
+            .Select(x => x.ProjectId)
+            .Distinct()
+            .OrderBy(x => x)
+            .ToListAsync(cancellationToken);
     }
 
     private async Task RunAsContractOwnerAsync(int contractId, CancellationToken cancellationToken)

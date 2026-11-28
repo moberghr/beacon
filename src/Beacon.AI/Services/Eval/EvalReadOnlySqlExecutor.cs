@@ -5,6 +5,7 @@ using Beacon.Core.Data.Entities;
 using Beacon.Core.Models;
 using Beacon.Core.Models.Providers;
 using Beacon.Core.RowSecurity;
+using Beacon.Core.Services;
 using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Validation;
 
@@ -18,6 +19,13 @@ namespace Beacon.AI.Services.Eval;
 /// the provider execute (§1.5). <c>EnforceReadOnly</c> is forced true regardless of the per-project flag so
 /// the harness can never mutate a live data source. Returns raw <c>Rows</c> so the caller can fingerprint
 /// the result set (R10); <see cref="DryRunAsync"/> returns null because the harness does not dry-run.
+/// <para>
+/// Given an <paramref name="executionAudit"/> (the gold SQL replay before a promotion, which a person starts), each
+/// statement that passes the gate is in the execution log before it is sent, as
+/// <see cref="SqlExecutionContexts.GoldSqlReplay"/> attributed to the scope's caller, and its row is closed with how it
+/// ended; a row that cannot be written while the log is required stops the statement. An eval run passes none: it records
+/// each case in its run.
+/// </para>
 /// </summary>
 internal sealed class EvalReadOnlySqlExecutor(
     IDbContextFactory<BeaconContext> contextFactory,
@@ -25,7 +33,8 @@ internal sealed class EvalReadOnlySqlExecutor(
     ISqlExecutionGate gate,
     IConfiguredDatabaseResolver configuredDatabases,
     IRowSecurityResolver rowSecurityResolver,
-    McpSettingsData settings) : IAskSqlExecutor
+    McpSettingsData settings,
+    ISqlExecutionAudit? executionAudit = null) : IAskSqlExecutor
 {
     private DataSource? _dataSource;
 
@@ -70,14 +79,25 @@ internal sealed class EvalReadOnlySqlExecutor(
         }
 
         var provider = providerFactory.GetProvider(dataSource.DataSourceType);
+        var finalSql = report.FinalSql;
 
         using var timeoutCts = CancellationTokenSource.CreateLinkedTokenSource(ct);
         // The effective statement timeout, as the MCP query executor applies it.
         timeoutCts.CancelAfter(TimeSpan.FromSeconds(settings.StatementTimeoutSeconds));
 
         // §1.5 backstop — the read-only execution path (database-level READ ONLY transaction on PostgreSQL;
-        // other engines forward to normal execution and rely on the parser gates above).
-        return await provider.ExecuteReadOnlyQueryAsync(dataSource, report.FinalSql, new Dictionary<string, object?>(), timeoutCts.Token);
+        // other engines forward to normal execution and rely on the parser gates above). With an execution log the
+        // statement is in it before it is sent (the statement timeout recorded as timed out).
+        Task<ProviderQueryResult> Read(CancellationToken token) =>
+            provider.ExecuteReadOnlyQueryAsync(dataSource, finalSql, new Dictionary<string, object?>(), token);
+
+        return executionAudit == null
+            ? await Read(timeoutCts.Token)
+            : await executionAudit.RunAsync(
+                new SqlExecutionStart(dataSourceId, finalSql, SqlExecutionContexts.GoldSqlReplay),
+                Read,
+                timeoutCts.Token,
+                ct);
     }
 
     // The pipeline seam addresses a data source by id; the provider needs the entity. Loaded once and

@@ -259,6 +259,9 @@ using (var warpStartupScope = app.Services.CreateScope())
     await recurringJobPublisher.AddOrUpdateRecurringJob(new AggregateLearnedPatternsJob(), "mcp-learning-aggregate", "0 */6 * * *").WaitAsync(bootToken);
     await recurringJobPublisher.AddOrUpdateRecurringJob(new CleanupOldSignalsJob(), "mcp-learning-cleanup", "0 3 * * *").WaitAsync(bootToken);
 
+    // MCP Eval: the nightly scheduled eval, daily at 02:00; starts nothing unless a project's EnableScheduledEval is on.
+    await recurringJobPublisher.AddOrUpdateRecurringJob(new RunScheduledEvalsJob(), "mcp-eval-scheduled", "0 2 * * *").WaitAsync(bootToken);
+
     // MCP Audit: purge rows older than Beacon:Mcp:Audit:RetentionDays daily (no-op unless set). Consumer
     // hosts (e.g. Netgiro) schedule this themselves.
     await recurringJobPublisher.AddOrUpdateRecurringJob(new PurgeExpiredMcpAuditLogsJob(), "mcp-audit-retention", "30 3 * * *").WaitAsync(bootToken);

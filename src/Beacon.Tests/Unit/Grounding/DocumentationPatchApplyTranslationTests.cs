@@ -1,10 +1,13 @@
 using System.Text.RegularExpressions;
+using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.McpLearning;
 using Beacon.Core.Models;
 using Beacon.Core.SecurityAudit;
 using Beacon.Tests.Common;
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
+using Npgsql;
 using NUnit.Framework;
 
 namespace Beacon.Tests.Unit.Grounding;
@@ -14,13 +17,21 @@ namespace Beacon.Tests.Unit.Grounding;
 /// (§4.7): the patch and the target are read, then the description is written in one statement that also compares it with
 /// the content captured when the patch was proposed (<c>IS NULL</c> when none was), then the patch is marked applied in one
 /// statement conditional on it still being proposed. A description write that changes nothing (another write landed
-/// between the read and the write) refuses the patch: the patch is not marked applied and no event is recorded.
+/// between the read and the write) refuses the patch: the patch is not marked applied and no event is recorded. After the
+/// status, the table's columns are read and the description item is replaced under the catalog's names, or added when there
+/// is none.
 /// </summary>
 [TestFixture]
 public class DocumentationPatchApplyTranslationTests
 {
     private const string Captured = "The order's state.";
     private const string Proposed = "Where the order is in fulfilment.";
+
+    // SHA-256 of the structure TableColumns gives: "2:id7:integer6:status4:text".
+    private const string OrdersHash = "b64cea7567e48b5830903987d4d1c1b765c14be573efdda112357b6cdeb34a54";
+
+    // The target table's columns as the apply reads them: name, data type, ordinal position.
+    private static readonly object[][] TableColumns = [["status", "text", 2], ["id", "integer", 1]];
 
     [TestCase(false, McpDocPatchTarget.ColumnDescription, "UPDATE beacon.column_metadata AS c", "c.id = @", "c.description = @", "SET description = @")]
     [TestCase(true, McpDocPatchTarget.ColumnDescription, "UPDATE [c]", "[c].[Id] = @", "[c].[Description] = @", "SET [c].[Description] = @")]
@@ -31,14 +42,16 @@ public class DocumentationPatchApplyTranslationTests
     {
         var capture = Capture(sqlServer)
             .ThenRow(PatchRow(target, Captured))
-            .ThenRow(8, Captured)
+            .ThenRow(TargetRow(target, Captured))
             .ThenRowsAffected(1)
+            .ThenRowsAffected(1)
+            .ThenRows(TableColumns)
             .ThenRowsAffected(1);
         var audit = new RecordingSecurityAudit();
 
         await Apply(capture, audit);
 
-        capture.Commands.Should().HaveCount(4, "the patch, the target, the conditional description write, then the patch's status");
+        capture.Commands.Should().HaveCount(6, "the patch, the target, the conditional description write, the patch's status, then the table's columns and its description item");
         var write = capture.Commands[2];
         write.Should().Contain(update).And.Contain(written);
         WhereClauseOf(write).Should().Contain(byId).And.Contain(compared);
@@ -57,8 +70,10 @@ public class DocumentationPatchApplyTranslationTests
     {
         var capture = Capture(sqlServer)
             .ThenRow(PatchRow(target, DBNull.Value))
-            .ThenRow(8, DBNull.Value)
+            .ThenRow(TargetRow(target, DBNull.Value))
             .ThenRowsAffected(1)
+            .ThenRowsAffected(1)
+            .ThenRows(TableColumns)
             .ThenRowsAffected(1);
 
         await Apply(capture, new RecordingSecurityAudit());
@@ -76,14 +91,14 @@ public class DocumentationPatchApplyTranslationTests
     {
         var capture = Capture(sqlServer)
             .ThenRow(PatchRow(target, Captured))
-            .ThenRow(8, Captured)
+            .ThenRow(TargetRow(target, Captured))
             .ThenRowsAffected(0);
         var audit = new RecordingSecurityAudit();
 
         var act = () => Apply(capture, audit);
 
         (await act.Should().ThrowAsync<BeaconConflictException>()).Which.Message.Should().Be(ApplyDocumentationPatchHandler.TargetChangedMessage);
-        capture.Commands.Should().HaveCount(3, "the patch's status is not written");
+        capture.Commands.Should().HaveCount(3, "neither the patch's status nor a description item is written");
         audit.Events.Should().BeEmpty();
     }
 
@@ -94,7 +109,7 @@ public class DocumentationPatchApplyTranslationTests
     {
         var capture = Capture(sqlServer)
             .ThenRow(PatchRow(McpDocPatchTarget.ColumnDescription, Captured))
-            .ThenRow(8, "the order's state.");
+            .ThenRow(TargetRow(McpDocPatchTarget.ColumnDescription, "the order's state."));
 
         var act = () => Apply(capture, new RecordingSecurityAudit());
 
@@ -102,7 +117,91 @@ public class DocumentationPatchApplyTranslationTests
         capture.Commands.Should().HaveCount(2, "the patch and the target are read; nothing is written");
     }
 
-    private static Task Apply(SqlCapture capture, RecordingSecurityAudit audit)
+    // The item is recorded under the names the catalog holds (read with the target, here cased otherwise than the patch's
+    // identifier), with the structure of the target's table read inside the apply.
+    [TestCase(false, McpDocPatchTarget.ColumnDescription, "Status", "m.", "column_metadata", "mcp_description_items")]
+    [TestCase(true, McpDocPatchTarget.ColumnDescription, "Status", "[m].", "[ColumnMetadata]", "[McpDescriptionItems]")]
+    [TestCase(false, McpDocPatchTarget.TableDescription, "", "m.", "column_metadata", "mcp_description_items")]
+    [TestCase(true, McpDocPatchTarget.TableDescription, "", "[m].", "[ColumnMetadata]", "[McpDescriptionItems]")]
+    public async Task TheDescriptionItem_IsReplacedUnderTheCatalogsNames_Translates(
+        bool sqlServer, McpDocPatchTarget target, string column, string alias, string columns, string items)
+    {
+        var capture = Capture(sqlServer)
+            .ThenRow(PatchRow(target, Captured))
+            .ThenRow(TargetRow(target, Captured, "Public", "Orders", "Status"))
+            .ThenRowsAffected(1)
+            .ThenRowsAffected(1)
+            .ThenRows(TableColumns)
+            .ThenRowsAffected(1);
+
+        await Apply(capture, new RecordingSecurityAudit());
+
+        capture.Commands[4].Should().Contain(columns);
+        capture.CommandParameters[4].Values.Should().Contain(3, "the columns of the target's table");
+        capture.Commands[5].Should().Contain("UPDATE").And.Contain(items);
+        var names = sqlServer
+            ? new[] { "[DataSourceId]", "[SchemaName]", "[TableName]", "[ColumnName]" }
+            : ["data_source_id", "schema_name", "table_name", "column_name"];
+        ComparedWith(capture, 5, alias + names[0]).Should().Be(10);
+        ComparedWith(capture, 5, alias + names[1]).Should().Be("Public");
+        ComparedWith(capture, 5, alias + names[2]).Should().Be("Orders");
+        ComparedWith(capture, 5, alias + names[3]).Should().Be(column);
+        capture.CommandParameters[5].Values.Should().Contain(OrdersHash).And.Contain(42).And.Contain(31);
+    }
+
+    // No item yet: one is added in the apply's unit of work and inserted by its one save, after the apply's statements.
+    [Test]
+    public async Task ADescriptionWithoutAnItem_AddsOne_Translates()
+    {
+        var capture = SqlCapture.OnSqlServer()
+            .ThenRow(PatchRow(McpDocPatchTarget.ColumnDescription, Captured))
+            .ThenRow(TargetRow(McpDocPatchTarget.ColumnDescription, Captured))
+            .ThenRowsAffected(1)
+            .ThenRowsAffected(1)
+            .ThenRows(TableColumns)
+            .ThenRowsAffected(0)
+            .ThenRow(77);
+
+        await Apply(capture, new SavingSecurityAudit(new RecordingSecurityAudit()));
+
+        capture.Commands.Should().HaveCount(7, "the item's update found none, so it is inserted");
+        capture.Commands[6].Should().Contain("INSERT INTO [beacon].[McpDescriptionItems]");
+        capture.CommandParameters[6].Values.Should().Contain(["public", "orders", "status", OrdersHash, 10, 31, 42]);
+        capture.CommandParameters[6].Values.Should().Contain((int)McpDescriptionSource.Curated, "a curated description");
+    }
+
+    // Another apply added the same item between this apply's update and its insert: the apply's one save (the item with its
+    // event) breaks the item's unique index, nothing commits, and the apply is refused as a target change.
+    [Test]
+    public async Task AnItemAddedMeanwhile_RefusesTheApply_Translates()
+    {
+        var capture = new SqlCapture()
+            .ThenRow(PatchRow(McpDocPatchTarget.ColumnDescription, Captured))
+            .ThenRow(TargetRow(McpDocPatchTarget.ColumnDescription, Captured))
+            .ThenRowsAffected(1)
+            .ThenRowsAffected(1)
+            .ThenRows(TableColumns)
+            .ThenRowsAffected(0)
+            .ThenThrow(new PostgresException("duplicate key", "ERROR", "ERROR", "23505"));
+        var audit = new SecurityAuditRecorder(
+            capture.Factory(),
+            TestProjectAccess.Actors(),
+            SecurityAuditTestKit.Integrity,
+            SecurityAuditTestKit.CallerHasher,
+            TimeProvider.System,
+            NullLoggerFactory.Instance,
+            TestRequestPrincipal.OffRequest());
+
+        var act = () => Apply(capture, audit);
+
+        (await act.Should().ThrowAsync<BeaconConflictException>()).Which.Message.Should().Be(ApplyDocumentationPatchHandler.TargetChangedMessage);
+        capture.Commands.Should().HaveCount(7, "the item's update found none, so the one save inserts it");
+        capture.Commands[6].Should().Contain("INSERT INTO beacon.mcp_description_items").And.Contain("INSERT INTO beacon.security_audit_events");
+        capture.Timeline.Should().Contain(SqlCapture.TransactionBegun);
+        capture.Commits.Should().Be(0, "the description, the patch's status, the item and the event roll back together");
+    }
+
+    private static Task Apply(SqlCapture capture, ISecurityAuditRecorder audit)
     {
         return new ApplyDocumentationPatchHandler(capture.Factory(), audit)
             .Handle(new ApplyDocumentationPatchCommand { PatchId = 31, AppliedByUserId = 42 }, CancellationToken.None);
@@ -115,9 +214,16 @@ public class DocumentationPatchApplyTranslationTests
 
         return
         [
-            31, DBNull.Value, DBNull.Value, new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc), currentContent, 10, 1, Proposed,
-            "Asked about often.", (int)McpDocPatchStatus.Proposed, 3, targetIdentifier, (int)target
+            31, DBNull.Value, DBNull.Value, new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc), currentContent, 10, DBNull.Value, 1, Proposed,
+            "Asked about often.", DBNull.Value, (int)McpDocPatchStatus.Proposed, 3, targetIdentifier, (int)target
         ];
+    }
+
+    // The target row as the apply reads it: id and content, then (a column) its table's id, then the catalog's names.
+    private static object[] TargetRow(
+        McpDocPatchTarget target, object content, string schema = "public", string table = "orders", string column = "status")
+    {
+        return target == McpDocPatchTarget.ColumnDescription ? [8, content, 3, schema, table, column] : [3, content, schema, table];
     }
 
     // The value a command's WHERE compares `column` with: the parameter it names there.
@@ -140,4 +246,36 @@ public class DocumentationPatchApplyTranslationTests
     }
 
     private static SqlCapture Capture(bool sqlServer) => sqlServer ? SqlCapture.OnSqlServer() : new SqlCapture();
+
+    // The recorder as the apply meets it: the change, then the context's one save when it has events, as
+    // SecurityAuditRecorder does (without its transaction and event rows); the events are kept by the inner double.
+    private sealed class SavingSecurityAudit(RecordingSecurityAudit inner) : ISecurityAuditRecorder
+    {
+        public Task StageAsync(BeaconContext context, SecurityAuditEntry entry, CancellationToken cancellationToken) =>
+            inner.StageAsync(context, entry, cancellationToken);
+
+        public Task SaveWithEventsAsync(BeaconContext context, Func<IEnumerable<SecurityAuditEntry>> events, CancellationToken cancellationToken) =>
+            inner.SaveWithEventsAsync(context, events, cancellationToken);
+
+        public async Task<T> SaveWithEventsAsync<T>(
+            BeaconContext context,
+            Func<Task<T>> change,
+            Func<T, IEnumerable<SecurityAuditEntry>> events,
+            CancellationToken cancellationToken)
+        {
+            var result = await inner.SaveWithEventsAsync(context, change, events, cancellationToken);
+            if (events(result).Any())
+            {
+                await context.SaveChangesAsync(cancellationToken);
+            }
+
+            return result;
+        }
+
+        public Task RecordAsync(SecurityAuditEntry entry, CancellationToken cancellationToken) =>
+            inner.RecordAsync(entry, cancellationToken);
+
+        public string CallerHashOf(string tenantOrIssuer, string subject) =>
+            inner.CallerHashOf(tenantOrIssuer, subject);
+    }
 }

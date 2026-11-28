@@ -96,6 +96,9 @@ public abstract partial class BeaconContext
             entity.Property(e => e.MaxExplainCost).HasPrecision(18, 2);
             entity.Property(e => e.MaxConcurrentQueriesPerKey).HasDefaultValue(4);
             entity.Property(e => e.AllowExplicitFeedbackContent).HasDefaultValue(true);
+            entity.Property(e => e.EnableKnowledgeItemBoost).HasDefaultValue(false);
+            entity.Property(e => e.EnableScheduledEval).HasDefaultValue(false);
+            entity.Property(e => e.EnableDocChunksInAsk).HasDefaultValue(false);
         });
 
         // Per-project overrides: one row per project, every column nullable (null = inherit the global row).
@@ -108,6 +111,7 @@ public abstract partial class BeaconContext
                 .WithMany()
                 .HasForeignKey(e => e.ProjectId)
                 .OnDelete(DeleteBehavior.Cascade);
+            entity.Property(e => e.GlobalInstruction).HasMaxLength(4000);
             entity.Property(e => e.CustomPiiPatterns).HasMaxLength(4000);
             entity.Property(e => e.MaxExplainCost).HasPrecision(18, 2);
         });

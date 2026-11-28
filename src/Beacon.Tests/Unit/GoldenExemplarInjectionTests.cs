@@ -842,6 +842,7 @@ public class GoldenExemplarInjectionTests
         private readonly DbSet<McpGlossaryTerm> _terms;
         private readonly DbSet<ColumnMetadata> _columnMetadata;
         private readonly DbSet<ProjectDocumentationSection> _docSections;
+        private readonly DbSet<McpDescriptionItem> _descriptionItems = BuildDbSet(new List<McpDescriptionItem>()).Object;
         private DatabaseFacade? _database;
 
         public SmartContextTestContext(
@@ -877,6 +878,7 @@ public class GoldenExemplarInjectionTests
             if (typeof(TEntity) == typeof(McpGlossaryTerm)) return (DbSet<TEntity>)(object)_terms;
             if (typeof(TEntity) == typeof(ColumnMetadata)) return (DbSet<TEntity>)(object)_columnMetadata;
             if (typeof(TEntity) == typeof(ProjectDocumentationSection)) return (DbSet<TEntity>)(object)_docSections;
+            if (typeof(TEntity) == typeof(McpDescriptionItem)) return (DbSet<TEntity>)(object)_descriptionItems;
             return base.Set<TEntity>();
         }
 

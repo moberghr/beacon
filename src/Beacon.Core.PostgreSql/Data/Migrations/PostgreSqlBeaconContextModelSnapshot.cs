@@ -2371,6 +2371,81 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.ToTable("mcp_audit_statements", "beacon");
                 });
 
+            modelBuilder.Entity("Beacon.Core.Data.Entities.McpDescriptionItem", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<string>("ColumnName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("column_name");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<int>("DataSourceId")
+                        .HasColumnType("integer")
+                        .HasColumnName("data_source_id");
+
+                    b.Property<string>("GeneratedByModel")
+                        .HasColumnType("text")
+                        .HasColumnName("generated_by_model");
+
+                    b.Property<string>("SchemaName")
+                        .IsRequired()
+                        .HasMaxLength(100)
+                        .HasColumnType("character varying(100)")
+                        .HasColumnName("schema_name");
+
+                    b.Property<int>("Source")
+                        .HasColumnType("integer")
+                        .HasColumnName("source");
+
+                    b.Property<int?>("SourcePatchId")
+                        .HasColumnType("integer")
+                        .HasColumnName("source_patch_id");
+
+                    b.Property<DateTime?>("StaleSince")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("stale_since");
+
+                    b.Property<string>("StructureHash")
+                        .IsRequired()
+                        .HasMaxLength(64)
+                        .HasColumnType("character varying(64)")
+                        .HasColumnName("structure_hash");
+
+                    b.Property<string>("TableName")
+                        .IsRequired()
+                        .HasMaxLength(200)
+                        .HasColumnType("character varying(200)")
+                        .HasColumnName("table_name");
+
+                    b.Property<DateTime>("WrittenAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("written_at");
+
+                    b.Property<int?>("WrittenByUserId")
+                        .HasColumnType("integer")
+                        .HasColumnName("written_by_user_id");
+
+                    b.HasKey("Id")
+                        .HasName("pk_mcp_description_items");
+
+                    b.HasIndex("DataSourceId", "SchemaName", "TableName", "ColumnName")
+                        .IsUnique()
+                        .HasDatabaseName("ix_mcp_description_items_data_source_id_schema_name_table_name");
+
+                    b.ToTable("mcp_description_items", "beacon");
+                });
+
             modelBuilder.Entity("Beacon.Core.Data.Entities.McpDocChunk", b =>
                 {
                     b.Property<int>("Id")
@@ -2453,6 +2528,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("integer")
                         .HasColumnName("data_source_id");
 
+                    b.Property<string>("GeneratedByModel")
+                        .HasColumnType("text")
+                        .HasColumnName("generated_by_model");
+
                     b.Property<int>("ProjectId")
                         .HasColumnType("integer")
                         .HasColumnName("project_id");
@@ -2467,6 +2546,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasMaxLength(2000)
                         .HasColumnType("character varying(2000)")
                         .HasColumnName("reasoning");
+
+                    b.Property<int?>("SourcePatternId")
+                        .HasColumnType("integer")
+                        .HasColumnName("source_pattern_id");
 
                     b.Property<int>("Status")
                         .HasColumnType("integer")
@@ -2760,6 +2843,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasDefaultValue(0)
                         .HasColumnName("total_cases");
 
+                    b.Property<int>("Trigger")
+                        .HasColumnType("integer")
+                        .HasColumnName("trigger");
+
                     b.Property<int?>("TriggeredByUserId")
                         .HasColumnType("integer")
                         .HasColumnName("triggered_by_user_id");
@@ -2852,6 +2939,61 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.ToTable("mcp_glossary_terms", "beacon");
                 });
 
+            modelBuilder.Entity("Beacon.Core.Data.Entities.McpKnowledgeItemStat", b =>
+                {
+                    b.Property<int>("Id")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("integer")
+                        .HasColumnName("id");
+
+                    NpgsqlPropertyBuilderExtensions.UseIdentityByDefaultColumn(b.Property<int>("Id"));
+
+                    b.Property<int>("CallerCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("caller_count");
+
+                    b.Property<DateTime>("ComputedAt")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("computed_at");
+
+                    b.Property<DateTime>("CreatedTime")
+                        .HasColumnType("timestamp with time zone")
+                        .HasColumnName("created_time");
+
+                    b.Property<double>("HarmfulScore")
+                        .HasColumnType("double precision")
+                        .HasColumnName("harmful_score");
+
+                    b.Property<double>("HelpfulScore")
+                        .HasColumnType("double precision")
+                        .HasColumnName("helpful_score");
+
+                    b.Property<int>("ItemId")
+                        .HasColumnType("integer")
+                        .HasColumnName("item_id");
+
+                    b.Property<int>("Kind")
+                        .HasColumnType("integer")
+                        .HasColumnName("kind");
+
+                    b.Property<int>("ProjectId")
+                        .HasColumnType("integer")
+                        .HasColumnName("project_id");
+
+                    b.Property<int>("SignalCount")
+                        .HasColumnType("integer")
+                        .HasColumnName("signal_count");
+
+                    b.HasKey("Id")
+                        .HasName("pk_mcp_knowledge_item_stats");
+
+                    b.HasIndex("ProjectId", "Kind", "ItemId")
+                        .IsUnique()
+                        .HasDatabaseName("ix_mcp_knowledge_item_stats_project_id_kind_item_id");
+
+                    b.ToTable("mcp_knowledge_item_stats", "beacon");
+                });
+
             modelBuilder.Entity("Beacon.Core.Data.Entities.McpLearnedPattern", b =>
                 {
                     b.Property<int>("Id")
@@ -2895,6 +3037,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Property<DateTime?>("LastRefreshedAt")
                         .HasColumnType("timestamp with time zone")
                         .HasColumnName("last_refreshed_at");
+
+                    b.Property<bool?>("LastReplayPassed")
+                        .HasColumnType("boolean")
+                        .HasColumnName("last_replay_passed");
 
                     b.Property<DateTime?>("LastVerifiedAt")
                         .HasColumnType("timestamp with time zone")
@@ -2995,6 +3141,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("boolean")
                         .HasColumnName("enable_contextual_retrieval");
 
+                    b.Property<bool?>("EnableDocChunksInAsk")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enable_doc_chunks_in_ask");
+
                     b.Property<bool?>("EnableEvalJudge")
                         .HasColumnType("boolean")
                         .HasColumnName("enable_eval_judge");
@@ -3002,6 +3152,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Property<bool?>("EnableGoldenExemplars")
                         .HasColumnType("boolean")
                         .HasColumnName("enable_golden_exemplars");
+
+                    b.Property<bool?>("EnableKnowledgeItemBoost")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enable_knowledge_item_boost");
 
                     b.Property<bool?>("EnableLearning")
                         .HasColumnType("boolean")
@@ -3018,6 +3172,10 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Property<bool?>("EnableSampleValueCollection")
                         .HasColumnType("boolean")
                         .HasColumnName("enable_sample_value_collection");
+
+                    b.Property<bool?>("EnableScheduledEval")
+                        .HasColumnType("boolean")
+                        .HasColumnName("enable_scheduled_eval");
 
                     b.Property<bool?>("EnableSelfConsistency")
                         .HasColumnType("boolean")
@@ -3042,6 +3200,11 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Property<int?>("ExemplarTopK")
                         .HasColumnType("integer")
                         .HasColumnName("exemplar_top_k");
+
+                    b.Property<string>("GlobalInstruction")
+                        .HasMaxLength(4000)
+                        .HasColumnType("character varying(4000)")
+                        .HasColumnName("global_instruction");
 
                     b.Property<int?>("GlossaryTopK")
                         .HasColumnType("integer")
@@ -3364,6 +3527,12 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasDefaultValue(false)
                         .HasColumnName("enable_contextual_retrieval");
 
+                    b.Property<bool>("EnableDocChunksInAsk")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("enable_doc_chunks_in_ask");
+
                     b.Property<bool>("EnableEvalJudge")
                         .HasColumnType("boolean")
                         .HasColumnName("enable_eval_judge");
@@ -3371,6 +3540,12 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                     b.Property<bool>("EnableGoldenExemplars")
                         .HasColumnType("boolean")
                         .HasColumnName("enable_golden_exemplars");
+
+                    b.Property<bool>("EnableKnowledgeItemBoost")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("enable_knowledge_item_boost");
 
                     b.Property<bool>("EnableLearning")
                         .HasColumnType("boolean")
@@ -3391,6 +3566,12 @@ namespace Beacon.Core.PostgreSql.Data.Migrations
                         .HasColumnType("boolean")
                         .HasDefaultValue(false)
                         .HasColumnName("enable_sample_value_collection");
+
+                    b.Property<bool>("EnableScheduledEval")
+                        .ValueGeneratedOnAdd()
+                        .HasColumnType("boolean")
+                        .HasDefaultValue(false)
+                        .HasColumnName("enable_scheduled_eval");
 
                     b.Property<bool>("EnableSelfConsistency")
                         .HasColumnType("boolean")

@@ -303,9 +303,16 @@ public class GroundingTranslationTests
 
     private static PromoteSignalToGoldenHandler PromoteHandler(SqlCapture capture)
     {
+        // The replay runs on the data source, never on Beacon's own database: these tests pin only Beacon's statements.
+        var evalService = new Mock<IMcpEvalService>();
+        evalService
+            .Setup(x => x.ReplayGoldSqlAsync(It.IsAny<int>(), It.IsAny<int?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new GoldSqlReplay(true, "fingerprint"));
+
         return new PromoteSignalToGoldenHandler(
             capture.Factory(),
             TestGroundingSqlChecks.PassThrough().Object,
+            evalService.Object,
             TestProjectAccess.Actors(),
             new RecordingSecurityAudit(),
             NullLogger<PromoteSignalToGoldenHandler>.Instance);

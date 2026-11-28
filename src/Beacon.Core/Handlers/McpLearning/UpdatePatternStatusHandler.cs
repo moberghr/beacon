@@ -22,7 +22,9 @@ namespace Beacon.Core.Handlers.McpLearning;
 /// before Beacon kept the digest has it stored first, only while it still holds no digest and the content read. Approving
 /// a pattern that carries example SQL checks that SQL again (<see cref="IGroundingSqlCheck"/>, in the pattern's data
 /// source's dialect) and stores it without its comments, with the digest of what is then stored; SQL the check refuses
-/// refuses the approval (§9.8), and nothing is changed.
+/// refuses the approval (§9.8), and nothing is changed. Approving a pattern whose last replay failed
+/// (<see cref="Data.Entities.McpLearnedPattern.LastReplayPassed"/> false) is allowed; the decision's security event then
+/// carries <c>replayFailed: true</c>.
 /// </summary>
 internal sealed class UpdatePatternStatusHandler(
     IDbContextFactory<BeaconContext> contextFactory,
@@ -69,7 +71,8 @@ internal sealed class UpdatePatternStatusHandler(
                     x.PatternContent,
                     x.ExampleQuestion,
                     x.ExampleSql,
-                    x.ContentHash
+                    x.ContentHash,
+                    x.LastReplayPassed
                 })
             .FirstOrDefaultAsync(cancellationToken)
             ?? throw new InvalidOperationException($"Pattern {request.PatternId} not found");
@@ -105,6 +108,16 @@ internal sealed class UpdatePatternStatusHandler(
                 .ExecuteUpdateAsync(x => x.SetProperty(y => y.ContentHash, content), cancellationToken);
         }
 
+        var details = new SecurityAuditDetails()
+            .Add("dataSourceId", pattern.DataSourceId)
+            .Add("statusBefore", pattern.Status)
+            .Add("statusAfter", request.NewStatus);
+        if (request.NewStatus == McpPatternStatus.Approved && pattern.LastReplayPassed == false)
+        {
+            // Approving against the last replay's verdict is allowed, and on record (a flag, never the content).
+            details.Add("replayFailed", true);
+        }
+
         var decidedContent = GroundingContentHash.OfPattern(pattern.PatternContent, pattern.ExampleQuestion, exampleSql);
         var reviewedAt = DateTime.UtcNow;
         var written = await securityAudit.SaveWithEventsAsync(
@@ -127,10 +140,7 @@ internal sealed class UpdatePatternStatusHandler(
                     new SecurityAuditEntry(SecurityAuditActions.PatternStatusChanged)
                         .On(SecurityAuditResources.LearnedPattern, request.PatternId)
                         .InProject(pattern.ProjectId)
-                        .With(new SecurityAuditDetails()
-                            .Add("dataSourceId", pattern.DataSourceId)
-                            .Add("statusBefore", pattern.Status)
-                            .Add("statusAfter", request.NewStatus))
+                        .With(details)
                 ],
             cancellationToken);
         if (written == 0)

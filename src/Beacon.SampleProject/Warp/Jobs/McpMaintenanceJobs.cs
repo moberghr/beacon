@@ -22,6 +22,18 @@ public sealed class RunMcpEvalJobHandler(IJobService jobService) : IJobHandler<R
         => jobService.RunMcpEval(message.RunId, cancellationToken);
 }
 
+// Nightly scheduled eval: one Scheduled run per project whose effective EnableScheduledEval is on (off by default) and that
+// has an active golden case, one project after another; a project's failure does not stop the next.
+[Timeout(3600, Mode = TimeoutMode.Fail)]
+[Mutex("mcp-eval-scheduled", Mode = ConcurrencyMode.Skip)]
+public sealed class RunScheduledEvalsJob : IJob;
+
+public sealed class RunScheduledEvalsJobHandler(IJobService jobService) : IJobHandler<RunScheduledEvalsJob>
+{
+    public Task HandleAsync(RunScheduledEvalsJob message, CancellationToken cancellationToken)
+        => jobService.RunScheduledEvals(cancellationToken);
+}
+
 [Timeout(1800, Mode = TimeoutMode.Fail)]
 [Mutex("mcp-learning-aggregate", Mode = ConcurrencyMode.Skip)]
 public sealed class AggregateLearnedPatternsJob : IJob;

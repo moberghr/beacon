@@ -26,6 +26,7 @@ public class WarpJobBoundsTests
         (typeof(PurgeExpiredSecurityAuditEventsJob), 1800, "security-audit-retention", "recurring purge"),
         (typeof(VerifySecurityAuditEventsJob), 1800, "security-audit-verify", "recurring hash verification reads a watermark"),
         (typeof(RunMcpEvalJob), 3600, null, "one run per request id; runs are independent"),
+        (typeof(RunScheduledEvalsJob), 3600, "mcp-eval-scheduled", "recurring; a slow night's runs must not overlap the next"),
         (typeof(GenerateProjectDocumentationJob), 3600, null, "per project and user; independent"),
         (typeof(AiActorThinkCycleJob), 900, null, "per actor subscription; independent"),
         (typeof(ExecuteSubscriptionQueryJob), 1800, null, "per subscription; the run guard prevents duplicates"),

@@ -33,4 +33,7 @@ public class McpLearnedPattern : BaseEntity
     public DateTime? LastRefreshedAt { get; set; }
     public DateTime? SupersededAt { get; set; }
     public DateTime? LastVerifiedAt { get; set; }
+
+    /// <summary>Whether the last replay (written with <see cref="LastVerifiedAt"/>) passed; null for a pattern never replayed.</summary>
+    public bool? LastReplayPassed { get; set; }
 }

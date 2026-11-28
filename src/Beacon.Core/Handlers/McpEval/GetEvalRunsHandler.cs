@@ -1,6 +1,7 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
 using Beacon.Core.Data;
+using Beacon.Core.Data.Enums;
 using Beacon.Core.Authorization;
 using Beacon.Core.Models;
 
@@ -34,6 +35,7 @@ internal sealed class GetEvalRunsHandler(IDbContextFactory<BeaconContext> contex
                     ExecutionAccuracy = x.ExecutionAccuracy,
                     Status = x.Status,
                     JudgeEnabled = x.JudgeEnabled,
+                    Trigger = x.Trigger,
                     CreatedTime = x.CreatedTime
                 })
             .ToListAsync(cancellationToken);
@@ -57,5 +59,9 @@ public record EvalRunListItem
     public double ExecutionAccuracy { get; init; }
     public string Status { get; init; } = "";
     public bool JudgeEnabled { get; init; }
+
+    /// <summary>What started the run: a person (<see cref="McpEvalRunTrigger.Manual"/>) or the nightly scheduled eval.</summary>
+    public McpEvalRunTrigger Trigger { get; init; }
+
     public DateTime CreatedTime { get; init; }
 }

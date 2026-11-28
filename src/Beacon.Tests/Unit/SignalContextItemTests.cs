@@ -732,6 +732,7 @@ public class SignalContextItemTests
             AddSet(dataSource == null ? [] : new List<ProjectDataSource> { new() { ProjectId = ProjectId, DataSourceId = dataSource.Id } });
             AddSet(new List<ColumnMetadata>());
             AddSet(new List<ProjectDocumentationSection>());
+            AddSet(new List<McpDescriptionItem>());
         }
 
         public override DatabaseFacade Database => _database ??= new NonNpgsqlDatabaseFacade(this);

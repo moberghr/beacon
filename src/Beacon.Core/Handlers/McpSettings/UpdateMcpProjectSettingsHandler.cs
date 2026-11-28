@@ -43,6 +43,13 @@ internal sealed class UpdateMcpProjectSettingsHandler(
         // The same ranges as the global handler; null keeps the global value.
         McpSettingsRanges.Check(data);
 
+        // The instruction is refused with its reason when its column cannot hold it, never cut or failed by the database.
+        if (data.GlobalInstruction?.Length > McpSettingsRanges.GlobalInstructionMaxLength)
+        {
+            throw new InvalidOperationException(
+                $"GlobalInstruction must be at most {McpSettingsRanges.GlobalInstructionMaxLength} characters.");
+        }
+
         await using var context = await contextFactory.CreateDbContextAsync(cancellationToken);
         var projectExists = await context.Projects
             .Where(x => x.Id == request.ProjectId)

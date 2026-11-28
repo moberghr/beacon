@@ -68,6 +68,70 @@ public class McpEffectiveSettingsTests
         result.Effective.CustomPiiPatterns.Should().Equal("iban");
     }
 
+    // A project's instruction replaces the global one in that project's prompts; an empty or blank one inherits it.
+    [Test]
+    public void Resolve_AProjectInstruction_ReplacesTheGlobalOne()
+    {
+        var global = new McpSettingsData { GlobalInstruction = "Amounts are in EUR." };
+        var project = new McpProjectSettingsData { GlobalInstruction = "Amounts are in ISK." };
+
+        var result = McpSettingsProvider.Resolve(global, project, NoLocks());
+
+        result.Effective.GlobalInstruction.Should().Be("Amounts are in ISK.");
+        global.GlobalInstruction.Should().Be("Amounts are in EUR.", "the cached global settings are never changed");
+        result.ClampedFields.Should().BeEmpty();
+    }
+
+    [TestCase(null)]
+    [TestCase("")]
+    [TestCase("   ")]
+    [TestCase("\n\t ")]
+    public void Resolve_AnEmptyOrBlankProjectInstruction_InheritsTheGlobalOne(string? instruction)
+    {
+        var global = new McpSettingsData { GlobalInstruction = "Amounts are in EUR." };
+        var project = new McpProjectSettingsData { GlobalInstruction = instruction, MaxRowLimit = 200 };
+
+        var result = McpSettingsProvider.Resolve(global, project, NoLocks());
+
+        result.Effective.GlobalInstruction.Should().Be("Amounts are in EUR.");
+        result.Effective.MaxRowLimit.Should().Be(200, "the project's other overrides still apply");
+        result.ClampedFields.Should().BeEmpty("a blank instruction is no override, not an unusable one");
+    }
+
+    // Documentation chunks in the ask prompt ship off; a project turns them on or off over the global value.
+    [TestCase(false, null, false)]
+    [TestCase(false, true, true)]
+    [TestCase(true, null, true)]
+    [TestCase(true, false, false)]
+    public void Resolve_DocChunksInAsk_IsOffByDefault_AndAProjectOverridesIt(bool globalValue, bool? projectValue, bool expected)
+    {
+        var global = new McpSettingsData { EnableDocChunksInAsk = globalValue };
+        var project = new McpProjectSettingsData { EnableDocChunksInAsk = projectValue };
+
+        var result = McpSettingsProvider.Resolve(global, project, NoLocks());
+
+        new McpSettingsData().EnableDocChunksInAsk.Should().BeFalse();
+        result.Effective.EnableDocChunksInAsk.Should().Be(expected);
+    }
+
+    // Read through the provider: the project's stored instruction reaches that project only, a blank one inherits.
+    [Test]
+    public async Task GetEffectiveSettingsAsync_AProjectsStoredInstruction_ReachesThatProjectOnly()
+    {
+        _globalRows.Add(new McpSettingsEntity { Id = 1, GlobalInstruction = "Amounts are in EUR." });
+        _projectRows.Add(new McpProjectSettings { Id = 10, ProjectId = ProjectId, GlobalInstruction = "Amounts are in ISK." });
+        _projectRows.Add(new McpProjectSettings { Id = 11, ProjectId = ProjectId + 1, GlobalInstruction = " " });
+        var provider = CreateProvider(NoLocks());
+
+        var overridden = await provider.GetEffectiveSettingsAsync(ProjectId);
+        var blank = await provider.GetEffectiveSettingsAsync(ProjectId + 1);
+        var withoutRow = await provider.GetEffectiveSettingsAsync(ProjectId + 2);
+
+        overridden.GlobalInstruction.Should().Be("Amounts are in ISK.");
+        blank.GlobalInstruction.Should().Be("Amounts are in EUR.");
+        withoutRow.GlobalInstruction.Should().Be("Amounts are in EUR.");
+    }
+
     // A stored value no reader can use resolves to the built-in default, before the ceilings, so it never reaches a
     // CancelAfter or a concurrency limit as 0 or less.
     [TestCase(0)]

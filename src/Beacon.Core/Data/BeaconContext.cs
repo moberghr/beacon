@@ -146,8 +146,10 @@ public abstract partial class BeaconContext : DbContext, IDataProtectionKeyConte
     // MCP Learning
     public DbSet<McpQuerySignal> McpQuerySignals => Set<McpQuerySignal>();
     public DbSet<McpSignalContextItem> McpSignalContextItems => Set<McpSignalContextItem>();
+    public DbSet<McpKnowledgeItemStat> McpKnowledgeItemStats => Set<McpKnowledgeItemStat>();
     public DbSet<McpLearnedPattern> McpLearnedPatterns => Set<McpLearnedPattern>();
     public DbSet<McpDocumentationPatch> McpDocumentationPatches => Set<McpDocumentationPatch>();
+    public DbSet<McpDescriptionItem> McpDescriptionItems => Set<McpDescriptionItem>();
     public DbSet<McpEmbedding> McpEmbeddings => Set<McpEmbedding>();
     public DbSet<McpDocChunk> McpDocChunks => Set<McpDocChunk>();
     public DbSet<McpGlossaryTerm> McpGlossaryTerms => Set<McpGlossaryTerm>();

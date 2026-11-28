@@ -53,6 +53,15 @@ public abstract partial class BeaconContext
             entity.HasIndex(e => new { e.Kind, e.ItemId });
         });
 
+        // How the ask signals that carried a knowledge item went, one row per project and item, recomputed by the learning
+        // job. No foreign key: the item id points at a different table by kind. Ids, counts and scores only.
+        modelBuilder.Entity<McpKnowledgeItemStat>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+
+            entity.HasIndex(e => new { e.ProjectId, e.Kind, e.ItemId }).IsUnique();
+        });
+
         modelBuilder.Entity<McpLearnedPattern>(entity =>
         {
             entity.HasKey(e => e.Id);
@@ -76,6 +85,20 @@ public abstract partial class BeaconContext
 
             entity.HasIndex(e => new { e.ProjectId, e.Status });
             entity.HasIndex(e => e.DataSourceId);
+        });
+
+        // The table and column descriptions Beacon wrote, one row per data source and name (empty column name: the table),
+        // so the row survives the metadata refresh's delete and re-insert. No foreign keys, as the other learning rows keyed
+        // by a data source: names sized as the catalog's, a hash, ids and a model name only.
+        modelBuilder.Entity<McpDescriptionItem>(entity =>
+        {
+            entity.HasKey(e => e.Id);
+            entity.Property(e => e.SchemaName).HasMaxLength(100).IsRequired();
+            entity.Property(e => e.TableName).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.ColumnName).HasMaxLength(200).IsRequired();
+            entity.Property(e => e.StructureHash).HasMaxLength(64).IsRequired();
+
+            entity.HasIndex(e => new { e.DataSourceId, e.SchemaName, e.TableName, e.ColumnName }).IsUnique();
         });
     }
 }

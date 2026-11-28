@@ -247,7 +247,7 @@ public class McpEvalServiceJudgeGateTests
         var llm = new Mock<ILlmProvider>();
         var (service, _, _) = BuildService(llm, judgeEnabled: false, capturedResults: []);
 
-        var act = () => service.StartRunAsync(null, 3, CancellationToken.None);
+        var act = () => service.StartRunAsync(null, 3, McpEvalRunTrigger.Manual, CancellationToken.None);
 
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage(McpEvalService.NoProjectNote);
         llm.VerifyNoOtherCalls();

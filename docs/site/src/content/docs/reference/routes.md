@@ -83,7 +83,7 @@ Functional permissions named below are held by Admins too. A by-id request on a 
 | `/auth/me`, `/auth/sso`, `/auth/permissions` | Current user, SSO config, current permissions | `permissions` returns `canRead`, `canWrite`, `isAdmin`, `permissions`, `migrationsEnabled`, `build` (`version`, `commit`). |
 | `/home` | Home page: trends, activity, task summary, uptime, migration summary | `migration-summary` admits MigrationOperator. |
 | `/projects` | Projects, linked data sources, members, access mode, repositories and their scans (in the request, or as a background task), documentation, imported documents, MCP context | Members: project admins, UserAdmin. Access mode: UserAdmin (opening a restricted project: Admin). Unlinking a data source: Admin. Repository token: SecurityAdmin. |
-| `/data-sources` | Data sources, connection test, metadata, metadata refresh | Create, test and delete: DataSourceAdmin. `GET /{id}/metadata` needs Execute scope. `PUT /{id}/migration-writes`: Admin. Forced refresh is rate limited per data source (`429`). |
+| `/data-sources` | Data sources, connection test, metadata, metadata refresh, description items, column descriptions on request | Create, test and delete: DataSourceAdmin. `GET /{id}/description-items` (paged): Read on the data source. `POST /{id}/tables/describe`: DataSourceAdmin and Curate in the body's project, which must link the source. `GET /{id}/metadata` needs Execute scope. `PUT /{id}/migration-writes`: Admin. Forced refresh is rate limited per data source (`429`). |
 | `/data-sources/{id}/relationships`, `/data-sources/{id}/schema-health` | Schema relationships: list, add, edit, verify, delete, discover; schema health | Verifying needs the Curate action. |
 | `/queries` | Queries: list, detail, create, update, lock, change history, preview, step preview, publish as MCP tool | No delete route. Previews need Execute scope. `PUT /{id}/mcp-tool`: SecurityAdmin. |
 | `/queries/{id}/versions`, `/query-versions` | Versions: list, detail, diff, restore | |
@@ -97,7 +97,7 @@ Functional permissions named below are held by Admins too. A by-id request on a 
 | `/approvals` | Pending query approvals, change approvals (`/approvals/changes`), approve, reject | Reading admits Approver; approve and reject require Approver. |
 | `/migrations` | Migration jobs and executions | Mapped only when `Beacon:Migrations:Enabled` is on. MigrationOperator. |
 | `/ai-actors` | AI actors, think, pause, resume, refine, plans | `PUT /{id}/owner`: UserAdmin. |
-| `/mcp` | MCP settings and locks, project settings, learned patterns, documentation patches, learning stats, playground tools, audit log | Settings: read Auditor or SecurityAdmin, write SecurityAdmin. `POST /tools/run` needs Execute scope. `GET /audit`: Auditor. |
+| `/mcp` | MCP settings and locks, project settings (including the project instruction), learned patterns, documentation patches, learning stats, playground tools, audit log | Settings: read Auditor or SecurityAdmin, write SecurityAdmin. `POST /tools/run` needs Execute scope. `GET /audit`: Auditor. |
 | `/eval` | Golden examples, candidates, feedback, grounding re-check, eval runs | Admin. |
 | `/glossary` | Business glossary | Admin. |
 | `/api-keys` | Your API keys; `/api-keys/admin` for all keys | Create from a signed-in session only. `GET /admin`: Auditor or UserAdmin. `DELETE /admin/{id}`: UserAdmin. |

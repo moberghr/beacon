@@ -1,6 +1,7 @@
 using FluentAssertions;
 using Moq;
 using NUnit.Framework;
+using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.McpEval;
 using Beacon.Core.Services;
 using Beacon.Core.Worker;
@@ -30,7 +31,7 @@ public class EvalRunStartTests
     {
         var evalService = new Mock<IMcpEvalService>();
         evalService
-            .Setup(x => x.StartRunAsync(5, 3, It.IsAny<CancellationToken>()))
+            .Setup(x => x.StartRunAsync(5, 3, McpEvalRunTrigger.Manual, It.IsAny<CancellationToken>()))
             .ReturnsAsync(12);
         var scheduler = new Mock<IBeaconScheduler>();
         var handler = new RunEvalHandler(evalService.Object, scheduler.Object);

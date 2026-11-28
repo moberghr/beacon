@@ -345,7 +345,7 @@ public class BeaconHostChainTests
 
     private sealed class HostEvalService : IMcpEvalService
     {
-        public Task<int> StartRunAsync(int? projectId, int? userId, CancellationToken ct) => Task.FromResult(0);
+        public Task<int> StartRunAsync(int? projectId, int? userId, Beacon.Core.Data.Enums.McpEvalRunTrigger trigger, CancellationToken ct) => Task.FromResult(0);
 
         public Task RunAsync(int runId, CancellationToken ct) => Task.CompletedTask;
 
@@ -357,5 +357,8 @@ public class BeaconHostChainTests
             string? goldResultFingerprint,
             string? extraContext,
             CancellationToken ct) => throw new NotSupportedException();
+
+        public Task<GoldSqlReplay> ReplayGoldSqlAsync(int dataSourceId, int? projectId, string sql, CancellationToken ct) =>
+            throw new NotSupportedException();
     }
 }

@@ -31,6 +31,7 @@ public class DocumentationCurationEffectTests
     private const int ProjectId = 1;
     private const int DataSourceId = 10;
     private const int CuratorUserId = 42;
+    private const int SourcePatternId = 21;
     private const string StatusDescription = "The order's state.";
     private const string OrdersDescription = "Orders.";
 
@@ -156,6 +157,133 @@ public class DocumentationCurationEffectTests
         await Apply(store, 31);
 
         store.Orders.TableDescription.Should().Be("Orders placed by customers.");
+    }
+
+    // The description written is recorded under the catalog's names (an empty column name for the table): curated, by the
+    // applying user, at the time of applying, from the patch, over the table's structure (its columns in ordinal order).
+    [TestCase(McpDocPatchTarget.ColumnDescription, "public.orders.status", "status")]
+    [TestCase(McpDocPatchTarget.TableDescription, "public.orders", "")]
+    public async Task ApplyingADescriptionPatch_RecordsTheDescriptionItem(McpDocPatchTarget target, string identifier, string columnName)
+    {
+        var store = new Store();
+        var patch = store.Add(Patch(31, target, identifier, "Curated text."));
+
+        await Apply(store, 31);
+
+        var item = store.Saved.OfType<McpDescriptionItem>().Should().ContainSingle().Subject;
+        item.Should().BeEquivalentTo(
+            new
+            {
+                DataSourceId,
+                SchemaName = "public",
+                TableName = "orders",
+                ColumnName = columnName,
+                Source = McpDescriptionSource.Curated,
+                WrittenByUserId = (int?)CuratorUserId,
+                GeneratedByModel = (string?)null,
+                SourcePatchId = (int?)31,
+                StructureHash = DescriptionStructureHash.Of([("id", "integer"), ("status", "text")]),
+                StaleSince = (DateTime?)null
+            },
+            x => x.ExcludingMissingMembers());
+        item.WrittenAt.Should().Be(patch.AppliedAt!.Value);
+    }
+
+    [Test]
+    public async Task ApplyingAGeneratedPatch_RecordsTheItemAsGenerated_WithItsModel()
+    {
+        var store = new Store();
+        var patch = store.Add(Patch(31, McpDocPatchTarget.ColumnDescription, "public.orders.status", "Where the order is in fulfilment."));
+        patch.GeneratedByModel = "gpt-test";
+
+        await Apply(store, 31);
+
+        var item = store.Saved.OfType<McpDescriptionItem>().Should().ContainSingle().Subject;
+        item.Source.Should().Be(McpDescriptionSource.Generated);
+        item.GeneratedByModel.Should().Be("gpt-test");
+    }
+
+    // A description written again replaces its record in place: the new patch, writer, time, source and structure, and it is
+    // current again; no second record is added.
+    [Test]
+    public async Task ApplyingAPatchToADescriptionAlreadyRecorded_ReplacesTheItem_AndClearsItsStaleness()
+    {
+        var store = new Store();
+        var recorded = new McpDescriptionItem
+        {
+            Id = 70,
+            DataSourceId = DataSourceId,
+            SchemaName = "public",
+            TableName = "orders",
+            ColumnName = "status",
+            Source = McpDescriptionSource.Generated,
+            WrittenAt = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            WrittenByUserId = 5,
+            GeneratedByModel = "older-model",
+            SourcePatchId = 12,
+            StructureHash = "old",
+            StaleSince = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc)
+        };
+        store.DescriptionItems.Add(recorded);
+        var patch = store.Add(Patch(31, McpDocPatchTarget.ColumnDescription, "public.orders.status", "Where the order is in fulfilment."));
+
+        await Apply(store, 31);
+
+        store.Saved.OfType<McpDescriptionItem>().Should().BeEmpty("the record is replaced, not added");
+        store.DescriptionItems.Should().ContainSingle();
+        recorded.Should().BeEquivalentTo(
+            new
+            {
+                Source = McpDescriptionSource.Curated,
+                WrittenByUserId = (int?)CuratorUserId,
+                GeneratedByModel = (string?)null,
+                SourcePatchId = (int?)31,
+                StructureHash = DescriptionStructureHash.Of([("id", "integer"), ("status", "text")]),
+                StaleSince = (DateTime?)null
+            },
+            x => x.ExcludingMissingMembers());
+        recorded.WrittenAt.Should().Be(patch.AppliedAt!.Value);
+    }
+
+    // A refused apply (the description changed since the patch was proposed) records nothing and leaves a record alone.
+    [Test]
+    public async Task ARefusedApply_RecordsNoDescriptionItem()
+    {
+        var store = new Store();
+        var recorded = new McpDescriptionItem
+        {
+            Id = 70,
+            DataSourceId = DataSourceId,
+            SchemaName = "public",
+            TableName = "orders",
+            ColumnName = "status",
+            Source = McpDescriptionSource.Curated,
+            WrittenAt = new DateTime(2026, 9, 1, 0, 0, 0, DateTimeKind.Utc),
+            SourcePatchId = 12,
+            StructureHash = "old",
+            StaleSince = new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc)
+        };
+        store.DescriptionItems.Add(recorded);
+        store.Add(Patch(31, McpDocPatchTarget.ColumnDescription, "public.orders.status", "Proposed text."));
+        store.Status.Description = "Edited by hand.";
+
+        var act = () => Apply(store, 31);
+
+        await act.Should().ThrowAsync<BeaconConflictException>();
+        store.Saved.OfType<McpDescriptionItem>().Should().BeEmpty();
+        recorded.Should().BeEquivalentTo(new { SourcePatchId = (int?)12, StructureHash = "old", StaleSince = (DateTime?)new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc) }, x => x.ExcludingMissingMembers());
+    }
+
+    // A section patch is not a catalog description: it records no item.
+    [Test]
+    public async Task ApplyingADocumentationSectionPatch_RecordsNoDescriptionItem()
+    {
+        var store = new Store();
+        store.Add(Patch(31, McpDocPatchTarget.DocumentationSection, "Overview", "Refunds are orders with a negative total."));
+
+        await Apply(store, 31);
+
+        store.Saved.OfType<McpDescriptionItem>().Should().BeEmpty();
     }
 
     [Test]
@@ -349,6 +477,76 @@ public class DocumentationCurationEffectTests
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("Patch 99 not found");
     }
 
+    // A patch the learning job proposed from a pattern that is not approved (rejected, pending, waiting for evidence), or
+    // whose last replay failed (also when a person approved it despite that), is refused and stays proposed, whatever its
+    // target: nothing is written and nothing is recorded.
+    [TestCase(McpDocPatchTarget.ColumnDescription, "public.orders.status", false, McpPatternStatus.Approved)]
+    [TestCase(McpDocPatchTarget.ColumnDescription, "public.orders.status", false, McpPatternStatus.AutoApproved)]
+    [TestCase(McpDocPatchTarget.TableDescription, "public.orders", true, McpPatternStatus.Rejected)]
+    [TestCase(McpDocPatchTarget.DocumentationSection, "Overview", null, McpPatternStatus.Rejected)]
+    [TestCase(McpDocPatchTarget.DocumentationSection, "Overview", false, McpPatternStatus.NeedsEvidence)]
+    [TestCase(McpDocPatchTarget.ColumnDescription, "public.orders.status", null, McpPatternStatus.NeedsEvidence)]
+    [TestCase(McpDocPatchTarget.TableDescription, "public.orders", true, McpPatternStatus.Pending)]
+    [TestCase(McpDocPatchTarget.DocumentationSection, "Overview", null, McpPatternStatus.Pending)]
+    public async Task APatchFromAPatternThatFailedItsReplayOrWasRejected_IsRefused_AndStaysProposed(
+        McpDocPatchTarget target, string targetIdentifier, bool? lastReplayPassed, McpPatternStatus patternStatus)
+    {
+        var audit = new RecordingSecurityAudit();
+        var store = new Store();
+        store.Patterns.Add(SourcePattern(ProjectId, patternStatus, lastReplayPassed));
+        var patch = store.Add(Patch(31, target, targetIdentifier, "Proposed text."));
+        patch.SourcePatternId = SourcePatternId;
+
+        var act = () => Apply(store, 31, audit);
+
+        (await act.Should().ThrowAsync<BeaconConflictException>()).Which.Message.Should().Be(ApplyDocumentationPatchHandler.SourcePatternFailedMessage);
+        patch.Should().BeEquivalentTo(new { Status = McpDocPatchStatus.Proposed, AppliedByUserId = (int?)null, AppliedAt = (DateTime?)null }, x => x.ExcludingMissingMembers());
+        store.Status.Description.Should().Be(StatusDescription);
+        store.Orders.TableDescription.Should().Be(OrdersDescription);
+        store.Sections.Single(x => x.Id == 6).Content.Should().Be("Current overview.");
+        audit.Events.Should().BeEmpty();
+    }
+
+    // An approved pattern (by a person or by its replay) whose replay passed, or that was never replayed, leaves its patch to
+    // apply as before.
+    [TestCase(McpDocPatchTarget.ColumnDescription, "public.orders.status", true, McpPatternStatus.Approved)]
+    [TestCase(McpDocPatchTarget.ColumnDescription, "public.orders.status", null, McpPatternStatus.Approved)]
+    [TestCase(McpDocPatchTarget.DocumentationSection, "Overview", null, McpPatternStatus.AutoApproved)]
+    [TestCase(McpDocPatchTarget.TableDescription, "public.orders", true, McpPatternStatus.AutoApproved)]
+    public async Task APatchFromAnApprovedPatternThatPassedOrWasNeverReplayed_Applies(
+        McpDocPatchTarget target, string targetIdentifier, bool? lastReplayPassed, McpPatternStatus patternStatus)
+    {
+        var store = new Store();
+        store.Patterns.Add(SourcePattern(ProjectId, patternStatus, lastReplayPassed));
+        var patch = store.Add(Patch(31, target, targetIdentifier, "Proposed text."));
+        patch.SourcePatternId = SourcePatternId;
+
+        await Apply(store, 31);
+
+        patch.Status.Should().Be(McpDocPatchStatus.Applied);
+    }
+
+    // The source pattern is read in the patch's own project only: one that is gone, or that another project holds, does not
+    // decide the patch, which applies as before.
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task APatchWhoseSourcePatternIsGoneOrInAnotherProject_Applies(bool inAnotherProject)
+    {
+        var store = new Store();
+        if (inAnotherProject)
+        {
+            store.Patterns.Add(SourcePattern(2, McpPatternStatus.Rejected, lastReplayPassed: false));
+        }
+
+        var patch = store.Add(Patch(31, McpDocPatchTarget.ColumnDescription, "public.orders.status", "Where the order is in fulfilment."));
+        patch.SourcePatternId = SourcePatternId;
+
+        await Apply(store, 31);
+
+        patch.Status.Should().Be(McpDocPatchStatus.Applied);
+        store.Status.Description.Should().Be("Where the order is in fulfilment.");
+    }
+
     private static Task Apply(Store store, int patchId, ISecurityAuditRecorder? audit = null)
     {
         return new ApplyDocumentationPatchHandler(store.Factory, audit ?? new RecordingSecurityAudit())
@@ -377,6 +575,22 @@ public class DocumentationCurationEffectTests
         };
     }
 
+    private static McpLearnedPattern SourcePattern(int projectId, McpPatternStatus status, bool? lastReplayPassed)
+    {
+        return new McpLearnedPattern
+        {
+            Id = SourcePatternId,
+            ProjectId = projectId,
+            DataSourceId = DataSourceId,
+            SchemaName = "public",
+            TableName = "orders",
+            PatternType = McpPatternType.CommonQuery,
+            PatternContent = "Common query pattern for public.orders",
+            Status = status,
+            LastReplayPassed = lastReplayPassed
+        };
+    }
+
     private sealed class FixedTime(DateTimeOffset now) : TimeProvider
     {
         public override DateTimeOffset GetUtcNow() => now;
@@ -384,7 +598,7 @@ public class DocumentationCurationEffectTests
 
     /// <summary>
     /// Data source 10's <c>public.orders</c> (with its <c>status</c> column), project 1's latest documentation (5, its
-    /// Overview section 6) and an older one (4, its Overview section 7), and the patches a test adds.
+    /// Overview section 6) and an older one (4, its Overview section 7), and the patches and learned patterns a test adds.
     /// </summary>
     private sealed class Store
     {
@@ -393,8 +607,8 @@ public class DocumentationCurationEffectTests
         public Store()
         {
             Orders = new DatabaseMetadata { Id = 3, DataSourceId = DataSourceId, SchemaName = "public", TableName = "orders", TableDescription = OrdersDescription };
-            Status = new ColumnMetadata { Id = 8, ColumnName = "status", DataType = "text", Description = StatusDescription, DatabaseMetadata = Orders };
-            var id = new ColumnMetadata { Id = 9, ColumnName = "id", DataType = "integer", DatabaseMetadata = Orders };
+            Status = new ColumnMetadata { Id = 8, ColumnName = "status", DataType = "text", OrdinalPosition = 2, Description = StatusDescription, DatabaseMetadataId = 3, DatabaseMetadata = Orders };
+            var id = new ColumnMetadata { Id = 9, ColumnName = "id", DataType = "integer", OrdinalPosition = 1, DatabaseMetadataId = 3, DatabaseMetadata = Orders };
             Orders.Columns = [id, Status];
             var latest = new ProjectDocumentation { Id = 5, ProjectId = ProjectId, GeneratedByModel = "model", GeneratedAt = new DateTime(2026, 10, 2, 0, 0, 0, DateTimeKind.Utc) };
             var older = new ProjectDocumentation { Id = 4, ProjectId = ProjectId, GeneratedByModel = "model", GeneratedAt = new DateTime(2026, 9, 2, 0, 0, 0, DateTimeKind.Utc) };
@@ -411,17 +625,28 @@ public class DocumentationCurationEffectTests
                         [typeof(DatabaseMetadata)] = RecordingBeaconContext.MemorySet([Orders], saved),
                         [typeof(ColumnMetadata)] = RecordingBeaconContext.MemorySet([id, Status], saved),
                         [typeof(ProjectDocumentation)] = RecordingBeaconContext.MemorySet([latest, older], saved),
-                        [typeof(ProjectDocumentationSection)] = RecordingBeaconContext.MemorySet(Sections, saved)
+                        [typeof(ProjectDocumentationSection)] = RecordingBeaconContext.MemorySet(Sections, saved),
+                        [typeof(McpLearnedPattern)] = RecordingBeaconContext.MemorySet(Patterns, saved),
+                        [typeof(McpDescriptionItem)] = RecordingBeaconContext.MemorySet(DescriptionItems, saved)
                     },
                     saved));
+            Saved = saved;
             Factory = factory.Object;
         }
+
+        /// <summary>The description items recorded before; an apply replaces one in place.</summary>
+        public List<McpDescriptionItem> DescriptionItems { get; } = [];
+
+        /// <summary>What the contexts added: an apply's new description item lands here.</summary>
+        public List<object> Saved { get; }
 
         public DatabaseMetadata Orders { get; }
 
         public ColumnMetadata Status { get; }
 
         public List<ProjectDocumentationSection> Sections { get; } = [];
+
+        public List<McpLearnedPattern> Patterns { get; } = [];
 
         public IDbContextFactory<BeaconContext> Factory { get; }
 

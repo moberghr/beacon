@@ -19,6 +19,7 @@ For a given question and data source, Beacon assembles the context in blocks. Se
 | **Join Paths (UNVERIFIED)** | Relationships pending curator verification, explicitly flagged as needing confirmation: an inferred one with its confidence, one a user added as *added, pending curator verification* | Relationship discovery, people who may not curate the source |
 | **Coverage** | A note when the table neighbourhood was capped, so the model knows the picture is partial | Context assembly |
 | **Business Glossary** | Top-K matching terms with definitions and their column/metric mapping | [Business glossary](#business-glossary) |
+| **Project Documentation** | Up to 3 documentation chunks for the question, only while `EnableDocChunksInAsk` is on | [Documentation chunks in the prompt](#documentation-chunks-in-the-prompt) |
 | **Verified query examples (authoritative)** | Human-verified question → SQL pairs for this data source | [Golden examples](#golden-examples-and-the-eval-harness) |
 | **Learned Patterns (from usage)** | Known corrections, column clarifications, join patterns, common queries, business-term mappings, documentation gaps | [The learning loop](#the-learning-loop) |
 
@@ -121,7 +122,13 @@ The glossary teaches Beacon your organisation's vocabulary: what "active custome
 
 When a question is asked, the top matching terms (`GlossaryTopK`, default 5) are injected into the **Business Glossary** block. Glossary retrieval is scoped to the caller's authorised project: two projects sharing a data source never see each other's definitions.
 
-The glossary is managed through the API only and is gated with the Admin policy; there is no UI page for it.
+The glossary is managed on the **Glossary** page of the UI and through the API. Both are gated with the Admin policy.
+
+**Keyword fallback.** With semantic retrieval off (`EnableSemanticRetrieval`), or with no embedder available, Beacon matches terms by keyword instead of injecting no glossary. An active term of the project matches when its name or one of its synonyms occurs in the question as a whole word, ignoring case. Matches are ordered by the length of the longest name that matched, longest first, and the first `GlossaryTopK` go into the block. Beacon reads the newest 500 active terms of the project for this, and logs a warning when a project reaches that number. A question that names no term gets no glossary block. The semantic path is unchanged.
+
+**Index on write.** Creating or editing a term reindexes the project's glossary terms and documentation chunks right away, so retrieval does not wait for the 12-hourly job. This is best effort: if the reindex fails, the write still stands, Beacon logs a warning with the project id and a failure code, and the job catches up. Deleting a term does not reindex. Indexing runs one project at a time in a process; if two processes indexed the same project at once and left duplicate rows, the next run removes them and logs a warning.
+
+**One glossary.** The term store is the source of truth for the project's vocabulary. When the documentation generator writes its Glossary section, it receives the project's active terms as fenced data and is told not to redefine or contradict them. The Markdown export lists the active terms first, under **Curated terms**, followed by the generated section. Above 500 active terms, the generator and the export get the first 500 and a line saying that more exist.
 
 | Method | Endpoint |
 |---|---|
@@ -129,6 +136,85 @@ The glossary is managed through the API only and is gated with the Admin policy;
 | `POST` | `/beacon/api/glossary` |
 | `PUT` | `/beacon/api/glossary/{id}` |
 | `DELETE` | `/beacon/api/glossary/{id}` |
+
+## Descriptions and documentation
+
+Table and column descriptions and the project's generated documentation reach the prompt too. This section covers who wrote a description, how Beacon notices it has gone stale, how to ask for column descriptions, and what documentation can enter the prompt.
+
+There is no UI yet for description items, the describe route or the two settings fields below (`EnableDocChunksInAsk` and the project instruction). They are API only.
+
+### Description items
+
+When a person applies a documentation patch to a table or column description, Beacon writes the description to the data source's metadata and records a **description item** in the same save. One item exists per table or column, keyed by schema, table and column name (an empty column name means the table's own description). Because the key is names and not the metadata row id, an item survives a metadata refresh.
+
+An item records:
+
+| Field | Meaning |
+|---|---|
+| `source` | `Curated`: a person applied a patch that a person or the learning job proposed. `Generated`: a person applied a patch that the [description generator](#column-descriptions-on-request) proposed |
+| `writtenAt`, `writtenBy` | When the patch was applied and by whom (display name, or "User {id}") |
+| `generatedByModel` | The model that wrote a generated description; empty for a curated one |
+| `sourcePatchId` | The documentation patch it was applied from |
+| `staleSince` | When a refresh first found the description possibly out of date; empty while current |
+
+Only a description written by applying a patch has an item. A description that came from the database catalog has none, and neither does one that was never written by Beacon. Applying a patch again to the same table or column replaces the item and clears `staleSince`.
+
+**Staleness.** Each metadata refresh compares the items of the data source with the catalog it just stored. Beacon marks an item stale (it sets `staleSince` once and keeps the first time) when:
+
+- the table or column is gone, or
+- the table's structure changed since the description was written. The structure is the table's column names and data types in ordinal order, hashed with SHA-256 when the description is written.
+
+If a later refresh finds the table matching the recorded structure again, the mark is cleared. Table and column names are matched ignoring case. Nothing removes an item. The description text itself is not changed or hidden: a stale mark is information for a curator, and the prompt does not show it.
+
+Only the metadata refresh sets the mark. The host data-source synchroniser and the API-endpoint import do not update it.
+
+**Read route.** `GET /beacon/api/data-sources/{id}/description-items` lists the items of a data source, paged (see [Paging, sorting and filtering](/reference/routes/#paging-sorting-and-filtering)), by schema, table and column unless `sort` says otherwise. It needs Read on the data source. The response carries `id`, `schemaName`, `tableName`, `columnName`, `source`, `writtenAt`, `writtenBy`, `generatedByModel`, `sourcePatchId`, `staleSince` and `isStale`. It returns no description text.
+
+### Column descriptions on request
+
+`POST /beacon/api/data-sources/{id}/tables/describe` asks the LLM to propose descriptions for the columns of one table that have none.
+
+| Body field | Meaning |
+|---|---|
+| `schemaName`, `tableName` | The table, as stored in the data source's metadata |
+| `projectId` | The project the proposals are stored in. It must link the data source |
+
+The caller needs the DataSourceAdmin permission (or be an Admin), and Curate in the project (see [Who curates grounding](#who-curates-grounding)). The route behaves as follows:
+
+- It selects up to 60 columns, in ordinal order, whose description is empty and that have no `Proposed` column-description patch in that project. A column with a pending patch in another project is still asked about.
+- With no such column, it makes no LLM call and answers `columnsAsked: 0`.
+- It makes one LLM call, through the LLM request queue. The prompt names the table and lists its columns and data types in a fenced data block. It says the block is data, not instructions.
+- Stored sample values go along only as `ask` screens them: under the effective settings of every live project linking the source, so none are sent while sample-value collection is off or `Beacon:Mcp:ForbidRowDataToLlm` is on. At most 5 values per column, each cut to 100 characters. A request that sends samples is recorded in the row-data egress log.
+- It stores each description from the answer as a `Proposed` documentation patch, with the model name, and writes nothing to the catalog. A person reviews and applies each patch on the **Doc patches** tab. Applying one records the description item as `Generated`, with the model.
+- It returns `columnsAsked` and `proposalsCreated`.
+- An answer that cannot be read, or that describes none of the columns asked about, is refused with `400`: nothing is stored and no event is recorded. More than 60 columns without a description need further calls: each call takes the next columns that have no pending patch. Two calls for the same table at the same time can propose the same column twice; reject the extra patch.
+- It records the security event `curation.column_descriptions_proposed` with ids and counts only.
+- A schema or table name that contains a dot is refused with `400`, because the patch target (`schema.table.column`) could not name it. So is an answer the route cannot read as JSON; the message does not carry the provider's text.
+
+### Documentation chunks in the prompt
+
+The setting `EnableDocChunksInAsk` is off by default and can be overridden per project. With it off, the `ask` prompt is unchanged and no chunk is read.
+
+With it on, semantic retrieval on and an embedder available, the `ask` context adds the project's documentation chunks that are nearest to the question: at most 3, taken from the project only (the search itself is scoped to it, not filtered afterwards). They go into a fenced `documentation` data block headed **Project Documentation**, after the glossary and inside the database context. When the context budget is short, this block is the first one left out, before the learned patterns. Each chunk shown is recorded in the signal as a documentation chunk (kind 6), with its contextual blurb included in the prompt when the chunk has one.
+
+Under the deployment lock `Beacon:Mcp:ForbidRowDataToLlm`, chunks cut from a section that can list data values (the business-domain, data-model and glossary sections) are left out, and so is a chunk whose section no longer exists.
+
+### Failed documentation sections
+
+When the generation of a documentation section fails, the section holds a fixed sentence (`*Generation failed for this section. Please regenerate.*`), never the provider's error text. Beacon leaves such a section out of everything it serves to agents and models:
+
+- `get_documentation` and the Markdown export,
+- `search`,
+- the table documentation read (empty while the newest Data Model section is a failed one; an older generation is not used in its place),
+- documentation chunk indexing.
+
+The documentation page in the UI still shows the section, so a person sees what to regenerate. When a Glossary section failed but the project has curated terms, the export still lists the terms under **Curated terms**.
+
+Finishing a documentation generation also reindexes the project's chunks and glossary terms right away, best effort, as a glossary write does (see [Business glossary](#business-glossary)).
+
+### Project instruction
+
+`GlobalInstruction` is the text Beacon prepends to the user context of the LLM-aware tools. A project can now override it. The project value replaces the global one in that project's prompts. An empty value inherits the global text. The text is at most 4000 characters; a longer one is refused with `400`, globally and for a project. Only SecurityAdmin or Admin writes it, through `PUT /beacon/api/mcp/projects/{projectId}/settings`, as for the global one. The tool descriptions and the system prompt stay global.
 
 ## Golden examples and the eval harness
 
@@ -139,7 +225,7 @@ A **golden case** is a human-verified question → SQL pair. Golden cases do dou
 Only an Admin creates or edits a golden case. Feedback never does: rating an `ask` answer (through the `feedback` MCP tool, the MCP Playground, or `POST /beacon/api/eval/feedback`, which is Admins only) records the verdict, the user who recorded it and any checked corrected SQL on the answer's signal, and nothing else. The verdict is recorded whatever becomes of the corrected SQL: when the project does not retain query content, when the answer did not run on a single data source (a cross-source or knowledge answer: there is no dialect to check the SQL in), or when the [grounding SQL check](#who-curates-grounding) refuses it, only the SQL is dropped, and the answer says so (`correctedSqlRecorded: false` with `correctedSqlNotRecordedReason`).
 
 - **Golden candidates.** `GET /beacon/api/eval/golden/candidates?projectId={id}` lists the answers rated `correct` that were not promoted yet. Only `ask` signals count, because a `query` or `dry_run` signal's "question" is the SQL it ran. The list is sorted newest first, and it is paged (`page`, `pageSize`, `sort`). Each candidate shows the question, the SQL a promotion would start from (the rater's corrected SQL, else the signal's own corrected SQL, else its generated SQL) with its `sqlHash` (the SHA-256 of that SQL, lowercase hex), the note, who asked and who rated it. Only signals of one project and one data source whose content was retained are listed. A project under the [content lock](/mcp/server/#content-retention) keeps no question to promote.
-- **By promotion.** `POST /beacon/api/eval/golden/promote` takes the candidate's `signalId`, its `sqlHash` as `reviewedSqlHash`, and optional `notes`, and records the promoting user (`promotedBy`). A promotion applies to what the Admin reviewed: the signal must still be rated `correct` and still hold the SQL whose hash was sent, or the promotion is refused (`409`, "The answer changed since it was reviewed": reload the candidates and review it again). Only an answer to a question becomes a case (`400` for a `query` or `dry_run` signal); a missing signal, one without SQL, project or data source, a data source its project does not link, a question holding characters a reviewer cannot see, and SQL the check refuses answer `400` too, and nothing is created. The promotion claims its signal (`promotedAt`, `promotedEvalCaseId`) in the transaction that creates the case, only while the signal still holds the reviewed SQL (compared by the digest stored with the signal's SQL and written with every change to it, which is exact under any database collation; a signal recorded before Beacon kept the digest gets it first, only while it holds none and the SQL read). A signal is therefore promoted once: promoting it again, or two Admins promoting it at the same moment, answers with the case already promoted from it (`alreadyPromoted: true`, active or not) and creates nothing; a signal promoted before Beacon recorded promotions answers with the first case promoted from it.
+- **By promotion.** `POST /beacon/api/eval/golden/promote` takes the candidate's `signalId`, its `sqlHash` as `reviewedSqlHash`, and optional `notes`, and records the promoting user (`promotedBy`). A promotion applies to what the Admin reviewed: the signal must still be rated `correct` and still hold the SQL whose hash was sent, or the promotion is refused (`409`, "The answer changed since it was reviewed": reload the candidates and review it again). The promotion runs the SQL once before it creates anything: read-only, through the eval harness's executor and the SQL gate. SQL that does not run now is refused (`409`; the message names neither the SQL nor the database's error), and nothing is created. The statement is in the [execution log](/security/sql-execution-gate/) before it is sent (`GoldSqlReplay`, attributed to the promoting user); while `Beacon:Audit:ExecutionLog:Required` is on, a row that cannot be written stops the statement and the promotion is refused the same way. A data source that is down blocks promotion until it is back. The case stores the fingerprint of that result. Promotion needs the AI services: with AI off it is refused. Only an answer to a question becomes a case (`400` for a `query` or `dry_run` signal); a missing signal, one without SQL, project or data source, a data source its project does not link, a question holding characters a reviewer cannot see, and SQL the check refuses answer `400` too, and nothing is created. The promotion claims its signal (`promotedAt`, `promotedEvalCaseId`) in the transaction that creates the case, only while the signal still holds the reviewed SQL (compared by the digest stored with the signal's SQL and written with every change to it, which is exact under any database collation; a signal recorded before Beacon kept the digest gets it first, only while it holds none and the SQL read). A signal is therefore promoted once: promoting it again, or two Admins promoting it at the same moment, answers with the case already promoted from it (`alreadyPromoted: true`, active or not) and creates nothing; a signal promoted before Beacon recorded promotions answers with the first case promoted from it.
 - **By hand.** `PUT /beacon/api/eval/golden/{id}` edits the question, the gold SQL, the notes, or deactivates the case, and records the editing user (`modifiedBy`). A question holding characters a reviewer cannot see, or gold SQL the check refuses, is refused (`400`) and nothing changes.
 
 Promoting and editing need a signed-in Beacon user (`403` otherwise): who did it is recorded. On the **MCP Learning** page an Admin sees three more tabs: **Golden candidates** (filtered by project, paged, each candidate in full with **Promote**; a candidate promoted meanwhile shows its existing case, and one that changed since it was listed says so; reload and review it again), **Golden examples** (a project's cases, showing who promoted and who last edited each, or *Not recorded* for a case created before Beacon recorded it; which cases a prompt leaves out; and **Deactivate**) and **Grounding recheck** (see [Rechecking stored grounding](#rechecking-stored-grounding)).
@@ -157,6 +243,12 @@ The top `GoldenExemplarTopK` (default 4) cases matching the question are rendere
 With `EnableEvalJudge` turned on, an opt-in LLM judge reviews a capped, PII-redacted sample of the rows to distinguish a cosmetically different result from a wrong one. It is off by default.
 
 Both the gold SQL and the generated SQL are re-validated read-only and run through the query guardrail before execution. The harness inherits nothing and introduces no new execution path.
+
+Each run records what started it: `Manual` for a run started through the API or the page, `Scheduled` for a run started by the nightly eval job. The trigger is shown in the eval run list.
+
+#### Scheduled eval
+
+With `EnableScheduledEval` on, a nightly job (02:00, cron `0 2 * * *`) starts one eval run per project that has the setting on and has active golden cases. The setting is off by default and can be overridden per project. A run costs LLM calls for every golden case, every night, so turn it on only where you want the nightly regression check. A failure in one project does not stop the others. The job is registered by the host; the sample host does it.
 
 | Method | Endpoint |
 |---|---|
@@ -183,17 +275,35 @@ Every `ask`, `query`, and `dry_run` call records a **usage signal** holding the 
 1. **Mining.** Signals are clustered per project and data source. Only `ask` and `query` signals are mined: `dry_run` rows carry SQL rather than a natural-language question and are excluded so they cannot skew NL pattern mining or documentation-gap error rates. They remain in the signals table for analytics. A pattern's example question comes only from an `ask` signal (a `query` signal's "question" is the SQL it ran), on one line, and is left out when it holds characters a reviewer cannot see. Verdicts weigh in as follows: an `incorrect` verdict keeps the answer out of the common-query and join patterns; a `correct` verdict makes the answer the preferred example of its pattern and raises the pattern's confidence only when a [curator](#who-curates-grounding) recorded it. Where a verdict came from is recorded apart from who it is attributed to: the signal keeps the rating user (`FeedbackByUserId`) and, separately, whether the verdict came from a curator (`FeedbackFromCurator`), true only when an interactive session holding Curate in the signal's project at that moment recorded it (a project admin member or an Admin, signed in). A verdict from an API key or an MCP caller is attributed to the user it acts for and never weighs as a curator's, whatever that user's roles; neither does an Editor's or the asker's own, nor a verdict recorded before Beacon recorded its provenance. Mining reads the recorded provenance, not the rater's current roles.
 2. **Lesson extraction.** For each failure-then-correction cluster, an LLM is asked to diagnose the failure and emit one compact, durable lesson. Only the cluster's text fields are sent, never result rows. If the provider is unavailable or the response does not parse, a deterministic regex + column-similarity path produces the lesson instead, so the loop never silently stops.
 3. **Classification.** Lessons become learned patterns of type `SchemaCorrection`, `ColumnClarification`, `JoinPattern`, `CommonQuery`, `BusinessTermMapping`, or `DocumentationGap`.
-4. **Review.** A new pattern lands as `NeedsEvidence`; confidence alone never approves anything. On the **MCP Learning** page (`/beacon/mcp-learning`) a [curator](#who-curates-grounding) of the pattern's project approves, rejects or sets it back to pending. These are the only statuses a person sets (`PUT /beacon/api/mcp/learned-patterns/{id}/status` answers `400` for any other; `AutoApproved` and `NeedsEvidence` are the job's). A decision applies to the content the reviewer saw: the list hands out each pattern's `contentHash` (the SHA-256 of its content, example question and example SQL), the status change sends it back as `reviewedContentHash`, and a pattern whose content changed since (also when the job refreshes it between the decision's read and its write) is not decided (`409`: reload the patterns and review it again). The same digest is stored with the pattern and written with every change to its content, and the decision's conditional write compares the stored digest. Fixed-length lowercase hex compares exactly under any database collation, where text equality on a case-insensitive SQL Server would let a concurrent case-only or trailing-space change pass. A pattern stored before Beacon kept the digest gets it on its first decision or auto-approval, stored only while the pattern holds no digest and the content read. The reviewer recorded is the caller (`403` for a caller without a Beacon user). The page shows each pattern in full with who reviewed it (*Unknown reviewer* for a review time without a recorded reviewer) and which examples a prompt leaves out; anyone else sees the reason instead of the actions. A pattern's example SQL passes the [grounding SQL check](#who-curates-grounding) when it is mined (SQL that fails is not stored: a new pattern gets none, an existing one keeps its example, and the run logs how many) and again when a person approves the pattern: approval stores it without comments, or is refused with the reason (`400`). Approving a pattern without example SQL checks nothing.
+4. **Review.** A new pattern lands as `NeedsEvidence`; confidence alone never approves anything. On the **MCP Learning** page (`/beacon/mcp-learning`) a [curator](#who-curates-grounding) of the pattern's project approves, rejects or sets it back to pending. These are the only statuses a person sets (`PUT /beacon/api/mcp/learned-patterns/{id}/status` answers `400` for any other; `AutoApproved` and `NeedsEvidence` are the job's). A decision applies to the content the reviewer saw: the list hands out each pattern's `contentHash` (the SHA-256 of its content, example question and example SQL), the status change sends it back as `reviewedContentHash`, and a pattern whose content changed since (also when the job refreshes it between the decision's read and its write) is not decided (`409`: reload the patterns and review it again). The same digest is stored with the pattern and written with every change to its content, and the decision's conditional write compares the stored digest. Fixed-length lowercase hex compares exactly under any database collation, where text equality on a case-insensitive SQL Server would let a concurrent case-only or trailing-space change pass. A pattern stored before Beacon kept the digest gets it on its first decision or auto-approval, stored only while the pattern holds no digest and the content read. The reviewer recorded is the caller (`403` for a caller without a Beacon user). The page shows each pattern in full with who reviewed it (*Unknown reviewer* for a review time without a recorded reviewer) and which examples a prompt leaves out; anyone else sees the reason instead of the actions. A pattern's example SQL passes the [grounding SQL check](#who-curates-grounding) when it is mined (SQL that fails is not stored: a new pattern gets none, an existing one keeps its example, and the run logs how many) and again when a person approves the pattern: approval stores it without comments, or is refused with the reason (`400`). Approving a pattern without example SQL checks nothing. You can approve a pattern whose last replay failed (see `LastReplayPassed` below); the approval's security event then carries `replayFailed`.
 5. **Replay verification.** Auto-approval is decided by replay alone. With `EnableReplayVerification` on (the default), a `NeedsEvidence` candidate is *replayed*: Beacon re-runs the project's relevant golden cases with and without the candidate injected and auto-approves it only if it flips at least `LearningReplayMinFlips` (default 1) case from fail to pass with no regression. Replay is scoped to the candidate's own project and data source. Before it, the candidate's example SQL passes the grounding SQL check again and is replayed without its comments; a candidate whose SQL fails is not replayed and stays `NeedsEvidence`, and the run logs how many. The auto-approval is written only while the candidate is still `NeedsEvidence` and still holds the content the replay measured, compared by its stored digest as a person's decision is. With replay off, nothing is auto-approved: candidates wait for a person.
+
+   A candidate is replayed only when its confidence is at least `LearningAutoApproveThreshold` (default `0.7`). A candidate below it is not replayed and stays `NeedsEvidence`; a confidence equal to the threshold is replayed. **This changes behaviour for existing installs.** With the default `0.7`, candidates with lower confidence that used to be replayed, and auto-approved when they helped, now wait for a person. Lower the threshold to bring them back.
+
+   When a replay measures at least one relevant golden case, Beacon stores its verdict on the pattern as `LastReplayPassed` (`true` or `false`) with the verification time, whether or not the candidate was approved. A replay that measured no case stores nothing. A failed replay in which some relevant cases errored stores nothing either: the cases that did not run might have passed. The candidate stays `NeedsEvidence` and is replayed on the next run. A passed replay is stored as before. The learned-pattern list shows `LastReplayPassed`; `null` means the pattern was never measured.
+
+   A verdict belongs to the content it measured. When the learning job changes a pattern's content, it clears `LastReplayPassed` and the verification time in the same write. A change of counts only, or of SQL comments only, is not a content change (see [Approval binds to the reviewed content](#approval-binds-to-the-reviewed-content)) and keeps the verdict.
 6. **Injection.** Approved and auto-approved patterns are ranked and injected into **Learned Patterns (from usage)** under `LearningInjectionBudgetChars` (default 1500), filtered to the caller's authorised project. Example SQL is rendered without its comments, read in the pattern's data source's dialect, and the example question on one line; an example that cannot be shown that way is left out and the pattern's content kept.
 
 ### Provenance, episodes and feedback reasons
 
-Beacon records three more facts on signals. They are kept for later use. They do not change answers or the ranking of knowledge items.
+Beacon records three more facts on signals. The [knowledge item counters](#knowledge-item-counters-and-rank-boost) are computed from them. They change the order of knowledge items in a prompt only when you turn on the rank boost, which is off by default.
 
 #### Provenance
 
-An `ask` signal records which knowledge items its prompt carried: golden cases, learned patterns and glossary terms. Each item is stored as its id, its kind and its rank in the prompt, in the table `McpSignalContextItems`. No text is stored. An item of a block that the context budget left out is not recorded. Table and column descriptions and documentation chunks are not recorded yet. The rows are deleted with their signal by the retention job.
+An `ask` signal records which knowledge items its prompt carried: golden cases, learned patterns, glossary terms, table descriptions, column descriptions and documentation chunks. Each item is stored as its id, its kind and its rank in the prompt, in the table `McpSignalContextItems`. No text is stored. An item of a block that the context budget left out is not recorded. The rows are deleted with their signal by the retention job.
+
+The three kinds added for descriptions and chunks are:
+
+| Kind | Value | Item id | Recorded when |
+|---|---|---|---|
+| Table description | 4 | The [description item](#description-items) | The prompt shows the table's description and the table has an item |
+| Column description | 5 | The description item | The prompt shows the column's description (a full table block) and the column has an item |
+| Documentation chunk | 6 | The chunk id | The prompt shows the chunk (see [Documentation chunks in the prompt](#documentation-chunks-in-the-prompt)) |
+
+A description that came from the database catalog has no item, so it records nothing. A table description or column description that the context budget cut is not recorded. Beacon reads the items once per `ask`, by data source and the names of the tables shown. If that read fails, the `ask` still runs and records no description items.
+
+The counters in [Knowledge item counters](#knowledge-item-counters-and-rank-boost) cover the new kinds. The rank boost does not: it reorders golden cases, learned patterns and glossary terms only. A documentation chunk that is rebuilt gets a new id, so the evidence recorded about the old text does not carry over.
 
 #### Episodes
 
@@ -203,15 +313,50 @@ A `query` or `dry_run` signal is linked to the `ask` signal it followed (`Parent
 
 The [`feedback` tool](/mcp/server/#feedback) takes an optional `reason` for the verdict: `wrong_table`, `wrong_column`, `wrong_join`, `wrong_filter`, `wrong_aggregation`, `wrong_time_range`, `misunderstood_question` or `other`. It is stored on the signal only with an `incorrect` verdict. A later verdict replaces it: a verdict without a reason clears it. `POST /beacon/api/eval/feedback` accepts it as well.
 
+The learning job uses the reasons. When a table was used by at least 3 `ask` answers marked `incorrect` with a reason, from at least 2 distinct raters, it raises a `DocumentationGap` pattern for that table. The pattern holds the table name, the reason codes and their counts, for example "Table 'public.orders' was used in 4 answers marked incorrect by 2 raters. Reasons: WrongTable (1), WrongJoin (3)." It holds no question, note or SQL. It is a separate pattern from the table's error-rate gap and goes through the same review.
+
+### Knowledge item counters and rank boost
+
+For each project and each knowledge item (a golden case, a learned pattern, a glossary term, a table or column description or a documentation chunk), the learning job recomputes four counters from the project's `ask` signals that carried the item and are still inside the learning-signal retention window:
+
+- a helpful score,
+- a harmful score,
+- the number of signals that carried the item,
+- the number of distinct callers behind those signals.
+
+The weights:
+
+| Signal | Adds |
+|---|---|
+| A verdict recorded by a curator | 3 to helpful (`correct`) or harmful (`incorrect`) |
+| Any other verdict | 1 to helpful or harmful |
+| No verdict, answer succeeded, not re-run with edited SQL | 0.25 helpful |
+| No verdict, answer failed, or followed by a `query` or `dry_run` re-run with edited SQL | 0.25 harmful |
+
+A verdict wins over the implicit outcomes. For one item and one score, a single caller adds at most 2 from its own verdicts and implicit outcomes, and at most 6 from curator verdicts. The caller is the caller hash, else the signed-in user; signals with neither count as one caller. Only ids, counts and scores are stored. Items that no signal in the window carried lose their counters. This also holds for a project whose signals were all purged: the job still recomputes it, and its counters are deleted. A project with learning off is not recomputed and keeps its last counters, but the rank boost does not read them.
+
+#### Rank boost
+
+The counters can reorder the items the project's retrieval already selected. The setting is `EnableKnowledgeItemBoost`; it is off by default and can be overridden per project. There is no screen for it yet: set it through the settings API like the other MCP settings.
+
+- An item's net score is `(helpful − harmful) / (helpful + harmful + 4)`.
+- The score applies only to an item with at least 5 signals from at least 2 callers. Other items keep their place.
+- An item moves at most 2 places from where retrieval put it.
+- The boost only reorders. It never adds an item or removes one.
+- It reads only the counters of the caller's project, and applies to the selected golden cases, learned patterns and glossary terms.
+- Learned patterns are reordered before the injection budget (`LearningInjectionBudgetChars`) is applied. With a tight budget, the boost can change which patterns fit.
+- With the setting off, the counters are not read and prompts do not change.
+- The boost also needs learning on (`EnableLearning`, in the project's effective settings). With learning off, the job no longer recomputes the counters, so they may be stale: they are not read, and prompts do not change.
+
 ### Approval binds to the reviewed content
 
 The aggregation refresh never rewrites the content, example question or example SQL of a pattern a person approved or rejected. Only its signal count and confidence refresh, so what was reviewed is what is injected. An auto-approved pattern whose content changes goes back to `NeedsEvidence` and is replayed again; the run logs how many went back. Content is compared exactly but for the statistics the job writes into its own sentences (the count of a `CommonQuery` ("… (12 similar queries)") or a `JoinPattern` ("… (8 queries)"), the error rate and query count of a `DocumentationGap` ("… a 40% error rate across 40 queries")), which the pattern's signal count and confidence also hold; any other content, a lesson's numbers included, is compared as written. The question is compared on one line, and the example SQL exactly but for its comments and the whitespace between its tokens, read by the data source's dialect: a string literal, a quoted identifier, a number and an identifier's case compare as written. So a count that moves, or SQL stored with comments before they were removed, is no change: the stored count refreshes and the pattern stays auto-approved, while a changed number in a lesson, a changed literal or an identifier in another case sends it back for replay. Every write the job makes to an existing pattern is conditional on the status it read, so a person's decision between the job's read and its write is never overwritten.
 
 ### Documentation patches
 
-The learning job does not generate **documentation patches** today: no scheduled job turns approved schema corrections and documentation gaps into a proposed column or table description (or a section of the project's documentation). A patch that is already stored is still reviewed on the **Doc patches** tab, and applying or rejecting one is curation: a section patch needs Curate in its project; a description patch changes the data source's shared metadata, so it needs Curate in every live project linking the source, or a DataSourceAdmin (see [Who curates grounding](#who-curates-grounding)). This is deliberate: a description patch is mined from one project's signals, but the description it writes is what every project linking the source sees, so a project admin of the mining project alone does not apply it. The **Doc patches** tab shows each patch's current and proposed content in full and who applied or rejected it. Patches are scoped project by project: a project's patches came only from its own approved patterns, only for the data sources it linked, and only its own proposed or applied patches stopped a duplicate, so a data source shared by two projects never carries one project's patterns into the other project's patches. This describes patches already stored; no scheduled job generates new ones.
+After each aggregation, the learning job proposes **documentation patches**: it turns approved schema corrections and documentation gaps into a proposed column or table description (or a section of the project's documentation). Each patch names the learned pattern it came from. The job only proposes. It never applies a patch. A person reviews each patch on the **Doc patches** tab, and applying or rejecting one is curation: a section patch needs Curate in its project; a description patch changes the data source's shared metadata, so it needs Curate in every live project linking the source, or a DataSourceAdmin (see [Who curates grounding](#who-curates-grounding)). This is deliberate: a description patch is mined from one project's signals, but the description it writes is what every project linking the source sees, so a project admin of the mining project alone does not apply it. A patch is applied only while its source pattern is approved (by a person or by its replay) and its last replay did not fail (`LastReplayPassed` is `true` or `null`). Otherwise applying it is refused (`409`) and the patch stays proposed: reject it. This includes a pattern that is pending, waiting for evidence or rejected. It also includes a pattern a person approved despite a failed replay: its patch cannot be applied until a later replay passes or the pattern's content changes. The pattern is read just before the write; this is a check, not a lock. A patch without a source pattern, or whose pattern is gone, applies as before. The job proposes no patches for a project whose effective settings switch learning off. The **Doc patches** tab shows each patch's current and proposed content in full and who applied or rejected it. Patches are scoped project by project: a project's patches came only from its own approved patterns, only for the data sources it linked, and only its own proposed or applied patches stopped a duplicate, so a data source shared by two projects never carries one project's patterns into the other project's patches.
 
-A description patch records the description it was proposed on and applies only while the column or table still holds exactly that text. A patch whose target changed since it was proposed, edited by hand or by another project's applied patch on a shared data source, is refused (`409`) and stays proposed; nothing is written and no event is recorded. Reject it; no scheduled job proposes a replacement on the current description. Section patches append to the project's own documentation and are not checked this way.
+A description patch records the description it was proposed on and applies only while the column or table still holds exactly that text. A patch whose target changed since it was proposed, edited by hand or by another project's applied patch on a shared data source, is refused (`409`) and stays proposed; nothing is written and no event is recorded. Reject it. Section patches append to the project's own documentation and are not checked this way.
 
 ### Decay
 
@@ -267,17 +412,18 @@ Indexing and aggregation run as recurring [Warp](https://moberghr.github.io/warp
 
 | Job | Schedule | What it does |
 |---|---|---|
-| `mcp-learning-aggregate` | Every 6 hours | Mines signals into learned patterns, runs decay and replay verification |
+| `mcp-learning-aggregate` | Every 6 hours | Mines signals into learned patterns, recomputes the knowledge item counters, runs decay and replay verification, then proposes documentation patches |
 | `mcp-learning-cleanup` | Daily at 03:00 | Removes signals past the retention window |
 | `mcp-embedding-reindex` | Every 12 hours | Re-embeds schema metadata and exemplars |
 | `mcp-docchunk-reindex` | Every 12 hours | Re-chunks and re-embeds project documentation, each project under its own effective settings (a project that turned semantic or contextual retrieval off is skipped or gets no blurbs) |
+| `mcp-eval-scheduled` | Daily at 02:00 | Starts one eval run per project with `EnableScheduledEval` on and active golden cases; off by default (see [Scheduled eval](#scheduled-eval)) |
 | `mcp-audit-retention` | Daily at 03:30 | Purges MCP audit rows older than `Beacon:Mcp:Audit:RetentionDays` (a no-op while it is unset); see [MCP observability](/mcp/observability-and-audit/#retention) |
 
 These are the sample host's registrations (`Beacon.SampleProject/Program.cs`); a host that embeds Beacon schedules them itself.
 
 ## Settings reference
 
-These are the grounding, retrieval and learning settings of `McpSettingsData`; they round-trip through `GET`/`PUT /beacon/api/mcp/settings`. The guardrail settings (max row limit, read-only enforcement, PII detection and patterns, content retention) are described in [MCP Server → Configuration](/mcp/server/#configuration). The **MCP Settings** page (`/beacon/mcp-settings`) shows sample-value collection and value grounding (globally and per project) and the learning switch, auto-approve threshold, injection budget and signal retention. Everything else in this table is set through the API only; a save on the page sends every setting back as it read it (the stored values, `stored` on the `GET`), so the API-only ones keep their values.
+These are the grounding, retrieval and learning settings of `McpSettingsData`; they round-trip through `GET`/`PUT /beacon/api/mcp/settings`. The guardrail settings (max row limit, read-only enforcement, PII detection and patterns, content retention) are described in [MCP Server → Configuration](/mcp/server/#configuration). The **MCP Settings** page (`/beacon/mcp-settings`) shows sample-value collection and value grounding (globally and per project) and the learning switch, auto-approve threshold, injection budget and signal retention. Three settings have no screen yet: `EnableKnowledgeItemBoost`, `EnableScheduledEval` and `EnableDocChunksInAsk`. The project instruction (`GlobalInstruction` in a project's settings) has no project-scope field on the page either. Everything else in this table is set through the API only; a save on the page sends every setting back as it read it (the stored values, `stored` on the `GET`), so the API-only ones keep their values.
 
 | Setting | Default | Effect |
 |---|---|---|
@@ -285,7 +431,9 @@ These are the grounding, retrieval and learning settings of `McpSettingsData`; t
 | `EnableValueGrounding` | `false` | Probe live values for the literal-looking words of a question and add the matches to the context |
 | `ValueGroundingMaxProbes` | `12` | Most value probes per question; on a shared data source the lowest value among the linking projects wins. Each probe has 5 seconds from its start (a slower probe matches nothing; the others keep their matches), and all the probes of one question stop at 15 seconds. They run one at a time, or up to three at a time while the caller's credential has `MaxConcurrentQueriesPerKey` slots free: each probe beside the call counts as one more query of that credential |
 | `EnableLearning` | `true` | Master switch for signal mining |
-| `LearningAutoApproveThreshold` | `0.7` | Stored with the settings; promotion is decided by replay verification (`EnableReplayVerification`, `LearningReplayMinFlips`) |
+| `LearningAutoApproveThreshold` | `0.7` | A `NeedsEvidence` candidate with lower confidence is not replayed and waits for a person; a candidate at the threshold is replayed. Replay verification (`EnableReplayVerification`, `LearningReplayMinFlips`) still decides the approval |
+| `EnableKnowledgeItemBoost` | `false` | Reorder the selected golden cases, learned patterns and glossary terms by their counters, at most 2 places; see [Rank boost](#rank-boost) |
+| `EnableScheduledEval` | `false` | Run the eval nightly for the project; spends LLM calls; see [Scheduled eval](#scheduled-eval) |
 | `LearningInjectionBudgetChars` | `1500` | Character budget for the learned-patterns block |
 | `LearningSignalRetentionDays` | `90` | Signal retention window, in days; at least 1 |
 | `EnableReplayVerification` | `true` | Auto-approve a `NeedsEvidence` candidate only when golden-case replay shows it helps; off, nothing is auto-approved |
@@ -295,7 +443,8 @@ These are the grounding, retrieval and learning settings of `McpSettingsData`; t
 | `EnableGoldenExemplars` | `true` | Inject human-verified examples |
 | `GoldenExemplarTopK` | `4` | Golden cases injected |
 | `GoldenExemplarBudgetChars` | `2000` | Character budget for the golden-examples block |
-| `GlossaryTopK` | `5` | Glossary terms injected |
+| `GlossaryTopK` | `5` | Glossary terms injected, by semantic match or, without semantic retrieval, by keyword |
+| `EnableDocChunksInAsk` | `false` | Add up to 3 project documentation chunks to the `ask` prompt, after the glossary; needs semantic retrieval and an embedder; see [Documentation chunks in the prompt](#documentation-chunks-in-the-prompt) |
 | `EnableContextualRetrieval` | `false` | LLM-written situating blurb per doc chunk at index time |
 | `DocChunkWindowSentences` | `5` | Sentences per documentation chunk |
 | `DocChunkOverlapSentences` | `1` | Sentence overlap between chunks |

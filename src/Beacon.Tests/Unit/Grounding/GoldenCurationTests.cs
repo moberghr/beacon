@@ -38,6 +38,7 @@ public class GoldenCurationTests
     private const int OtherProjectId = 2;
     private const int DataSourceId = TestGroundingSqlChecks.DataSourceId;
     private const int AdminUserId = 11;
+    private const string GoldFingerprint = "0f1e2d3c4b5a69788796a5b4c3d2e1f00f1e2d3c4b5a69788796a5b4c3d2e1f0";
 
     [Test]
     public async Task Promote_StoresTheCheckedSqlWithoutComments_ThePromotingUser_AndClaimsTheSignal()
@@ -221,9 +222,12 @@ public class GoldenCurationTests
         var signal = Signal(1, McpUserVerdict.Correct, generatedSql: sql);
         store.Signals.Add(signal);
 
-        var act = () => PromoteHandler(store).Handle(new PromoteSignalToGoldenCommand(1, Hash(sql)), CancellationToken.None);
+        var eval = new Mock<IMcpEvalService>(MockBehavior.Strict);
+
+        var act = () => PromoteHandler(store, eval: eval.Object).Handle(new PromoteSignalToGoldenCommand(1, Hash(sql)), CancellationToken.None);
 
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("Query signal 1 cannot become a golden case: *");
+        eval.VerifyNoOtherCalls();
         store.Saved.Should().BeEmpty();
         store.SaveCount.Should().Be(0);
         signal.PromotedAt.Should().BeNull();
@@ -296,7 +300,13 @@ public class GoldenCurationTests
     {
         var store = new Store();
         store.Signals.Add(Signal(1, McpUserVerdict.Correct, generatedSql: "SELECT id FROM orders"));
-        var handler = new PromoteSignalToGoldenHandler(store.Factory, TestGroundingSqlChecks.Real(), NoBeaconUser(), new RecordingSecurityAudit(), NullLogger<PromoteSignalToGoldenHandler>.Instance);
+        var handler = new PromoteSignalToGoldenHandler(
+            store.Factory,
+            TestGroundingSqlChecks.Real(),
+            Mock.Of<IMcpEvalService>(MockBehavior.Strict),
+            NoBeaconUser(),
+            new RecordingSecurityAudit(),
+            NullLogger<PromoteSignalToGoldenHandler>.Instance);
 
         var act = () => handler.Handle(new PromoteSignalToGoldenCommand(1, Hash("SELECT id FROM orders")), CancellationToken.None);
 
@@ -820,11 +830,13 @@ public class GoldenCurationTests
         signal.PromotedEvalCaseId = 12;
         store.Signals.Add(signal);
         var check = TestGroundingSqlChecks.PassThrough();
+        var eval = new Mock<IMcpEvalService>(MockBehavior.Strict);
 
-        var result = await PromoteHandler(store, check.Object).Handle(new PromoteSignalToGoldenCommand(1, "stale"), CancellationToken.None);
+        var result = await PromoteHandler(store, check.Object, eval: eval.Object).Handle(new PromoteSignalToGoldenCommand(1, "stale"), CancellationToken.None);
 
         result.Should().BeEquivalentTo(new { EvalCaseId = 12, AlreadyPromoted = true });
         check.VerifyNoOtherCalls();
+        eval.VerifyNoOtherCalls();
         store.Saved.Should().BeEmpty();
     }
 
@@ -933,6 +945,129 @@ public class GoldenCurationTests
         store.Capture.Commits.Should().Be(0, "the claim and the case commit together, or not at all");
     }
 
+    // The gold SQL runs once, as the case will store it (checked, without comments), on the signal's data source under its
+    // project's settings, before anything is written; the case keeps its result's fingerprint.
+    [Test]
+    public async Task APromotion_ReplaysTheStoredGoldSql_BeforeAnyWrite_AndKeepsItsResultsFingerprint()
+    {
+        const string sql = "-- revenue per order\nSELECT id, total FROM orders /* all of them */";
+        var store = new Store();
+        var signal = Signal(1, McpUserVerdict.Correct, generatedSql: sql);
+        store.Signals.Add(signal);
+        var eval = Replays(GoldFingerprint);
+        string? digestAtReplay = "unread";
+        var timelineAtReplay = -1;
+        eval
+            .Setup(x => x.ReplayGoldSqlAsync(DataSourceId, ProjectId, "SELECT id, total FROM orders", It.IsAny<CancellationToken>()))
+            .Callback(() =>
+            {
+                digestAtReplay = signal.CandidateSqlHash;
+                timelineAtReplay = store.Capture.Timeline.Count;
+            })
+            .ReturnsAsync(new GoldSqlReplay(true, GoldFingerprint));
+
+        await PromoteHandler(store, eval: eval.Object).Handle(new PromoteSignalToGoldenCommand(1, Hash(sql)), CancellationToken.None);
+
+        eval.Verify(x => x.ReplayGoldSqlAsync(DataSourceId, ProjectId, "SELECT id, total FROM orders", It.IsAny<CancellationToken>()), Times.Once);
+        eval.VerifyNoOtherCalls();
+        digestAtReplay.Should().BeNull("the replay runs before the signal's digest is stored");
+        timelineAtReplay.Should().Be(0, "the replay runs before the claim's transaction begins");
+        store.Saved.OfType<McpEvalCase>().Should().ContainSingle().Which.GoldResultFingerprint.Should().Be(GoldFingerprint);
+        signal.PromotedAt.Should().NotBeNull();
+    }
+
+    // Gold SQL that does not run now never becomes a case: 409, a message naming no SQL and no database error, and nothing
+    // written — the signal keeps no digest and stays unclaimed.
+    [Test]
+    public async Task APromotionWhoseGoldSqlDoesNotRun_IsAConflict_AndWritesNothing()
+    {
+        var store = new Store();
+        var signal = Signal(1, McpUserVerdict.Correct, generatedSql: "SELECT id FROM orders");
+        store.Signals.Add(signal);
+        var eval = new Mock<IMcpEvalService>();
+        eval
+            .Setup(x => x.ReplayGoldSqlAsync(It.IsAny<int>(), It.IsAny<int?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(GoldSqlReplay.DidNotRun);
+
+        var act = () => PromoteHandler(store, eval: eval.Object).Handle(new PromoteSignalToGoldenCommand(1, Hash("SELECT id FROM orders")), CancellationToken.None);
+
+        var refusal = await act.Should().ThrowAsync<BeaconConflictException>();
+        refusal.Which.Message.Should().Be(PromoteSignalToGoldenHandler.GoldSqlDoesNotRunMessage);
+        refusal.Which.Message.Should().NotContainAny("SELECT", "orders");
+        store.Saved.Should().BeEmpty();
+        store.SaveCount.Should().Be(0);
+        store.Capture.Timeline.Should().BeEmpty("no transaction is begun");
+        signal.CandidateSqlHash.Should().BeNull();
+        signal.PromotedAt.Should().BeNull();
+    }
+
+    [Test]
+    public async Task APromotionCancelledDuringTheReplay_IsCancelled_AndWritesNothing()
+    {
+        var store = new Store();
+        var signal = Signal(1, McpUserVerdict.Correct, generatedSql: "SELECT id FROM orders");
+        store.Signals.Add(signal);
+        using var cancellation = new CancellationTokenSource();
+        var eval = new Mock<IMcpEvalService>();
+        eval
+            .Setup(x => x.ReplayGoldSqlAsync(It.IsAny<int>(), It.IsAny<int?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .Returns<int, int?, string, CancellationToken>((_, _, _, ct) =>
+            {
+                cancellation.Cancel();
+                ct.ThrowIfCancellationRequested();
+
+                return Task.FromResult(new GoldSqlReplay(true, GoldFingerprint));
+            });
+
+        var act = () => PromoteHandler(store, eval: eval.Object).Handle(new PromoteSignalToGoldenCommand(1, Hash("SELECT id FROM orders")), cancellation.Token);
+
+        await act.Should().ThrowAsync<OperationCanceledException>();
+        store.Saved.Should().BeEmpty();
+        signal.PromotedAt.Should().BeNull();
+    }
+
+    // The real replay: while the execution log is required, a replay whose row cannot be written never sends its statement,
+    // so the promotion is refused as SQL that does not run (409) and nothing is written.
+    [Test]
+    public async Task APromotionWhoseReplayCannotBeLogged_WhileTheLogIsRequired_IsAConflict_AndNeverRunsTheSql()
+    {
+        var store = new Store();
+        var signal = Signal(1, McpUserVerdict.Correct, generatedSql: "SELECT id, total FROM orders");
+        store.Signals.Add(signal);
+        var replay = new GoldSqlReplayTests.Harness(
+            executionLog: GoldSqlReplayTests.RealExecutionLog(
+                GoldSqlReplayTests.UnavailableLogStore(),
+                required: true,
+                TestProjectAccess.Actors(beaconUserId: AdminUserId)),
+            dataSourceId: DataSourceId);
+
+        var act = () => PromoteHandler(store, eval: replay.Service).Handle(new PromoteSignalToGoldenCommand(1, Hash("SELECT id, total FROM orders")), CancellationToken.None);
+
+        var refusal = await act.Should().ThrowAsync<BeaconConflictException>();
+        refusal.Which.Message.Should().Be(PromoteSignalToGoldenHandler.GoldSqlDoesNotRunMessage);
+        replay.Provider.Invocations.Should().BeEmpty("the statement never reached the data source");
+        store.Saved.Should().BeEmpty();
+        signal.PromotedAt.Should().BeNull();
+    }
+
+    // A host that runs with AI off has no eval harness: a promotion is refused with the AI-disabled message before anything
+    // is written.
+    [Test]
+    public async Task APromotionWithAiOff_IsRefused_AndWritesNothing()
+    {
+        var store = new Store();
+        var signal = Signal(1, McpUserVerdict.Correct, generatedSql: "SELECT id FROM orders");
+        store.Signals.Add(signal);
+
+        var act = () => PromoteHandler(store, eval: new AiDisabledMcpEvalService()).Handle(new PromoteSignalToGoldenCommand(1, Hash("SELECT id FROM orders")), CancellationToken.None);
+
+        await act.Should().ThrowAsync<InvalidOperationException>().WithMessage(AiDisabled.Message);
+        store.Saved.Should().BeEmpty();
+        store.SaveCount.Should().Be(0);
+        signal.CandidateSqlHash.Should().BeNull();
+        signal.PromotedAt.Should().BeNull();
+    }
+
     private static string Hash(string sql) => GroundingContentHash.OfSql(sql);
 
     private static string HashOf(McpLearnedPattern pattern) => GroundingContentHash.OfPattern(pattern.PatternContent, pattern.ExampleQuestion, pattern.ExampleSql);
@@ -965,14 +1100,27 @@ public class GoldenCurationTests
         return new UpdatePatternStatusHandler(store.Factory, check, TestProjectAccess.Actors(beaconUserId: AdminUserId), audit ?? new RecordingSecurityAudit(), NullLogger<UpdatePatternStatusHandler>.Instance);
     }
 
-    private static PromoteSignalToGoldenHandler PromoteHandler(Store store, IGroundingSqlCheck? check = null, ISecurityAuditRecorder? audit = null)
+    private static PromoteSignalToGoldenHandler PromoteHandler(
+        Store store, IGroundingSqlCheck? check = null, ISecurityAuditRecorder? audit = null, IMcpEvalService? eval = null)
     {
         return new PromoteSignalToGoldenHandler(
             store.Factory,
             check ?? TestGroundingSqlChecks.Real(),
+            eval ?? Replays(GoldFingerprint).Object,
             TestProjectAccess.Actors(beaconUserId: AdminUserId),
             audit ?? new RecordingSecurityAudit(),
             NullLogger<PromoteSignalToGoldenHandler>.Instance);
+    }
+
+    // A gold SQL replay that runs, with the fingerprint of its result.
+    private static Mock<IMcpEvalService> Replays(string fingerprint)
+    {
+        var eval = new Mock<IMcpEvalService>();
+        eval
+            .Setup(x => x.ReplayGoldSqlAsync(It.IsAny<int>(), It.IsAny<int?>(), It.IsAny<string>(), It.IsAny<CancellationToken>()))
+            .ReturnsAsync(new GoldSqlReplay(true, fingerprint));
+
+        return eval;
     }
 
     private static UpdateGoldenCaseHandler EditHandler(Store store, ISecurityAuditRecorder? audit = null)

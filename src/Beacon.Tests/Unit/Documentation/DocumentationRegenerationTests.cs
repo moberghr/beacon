@@ -1,4 +1,5 @@
 using System.Collections;
+using Beacon.AI.Services;
 using Beacon.AI.Services.Documentation;
 using Beacon.AI.Services.LlmProviders;
 using Beacon.Core.Data;
@@ -13,7 +14,7 @@ using Beacon.Core.Services.Security;
 using Beacon.Tests.Common;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
-using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging;
 using Moq;
 using NUnit.Framework;
 
@@ -78,7 +79,7 @@ public class DocumentationRegenerationTests
         generated.Sections
             .Where(x => x.EditedTime == null)
             .Should().NotBeEmpty()
-            .And.OnlyContain(x => x.Content == ProjectDocumentationService.FailedSectionContent);
+            .And.OnlyContain(x => x.Content == FailedDocumentationSection.Content);
         generated.Sections.Should().NotContain(x => x.Content.Contains("quota") || x.Content.Contains("sk-test"));
     }
 
@@ -123,6 +124,80 @@ public class DocumentationRegenerationTests
         generated.Sections.Single(x => x.SectionType == ProjectDocSectionType.DataModel).EditedTime.Should().BeNull();
         generated.Sections.Single(x => x.SectionType == ProjectDocSectionType.ApiDocumentation).Content.Should().Be("Curated API notes.");
         world.Audit.Single("Orders belong to customers").DetailsJson.Should().Contain("\"curatedSectionsKept\":1,\"curatedSectionsDropped\":1");
+    }
+
+    // SC9: a finished generation indexes the project's new chunks right after its save, once.
+    [Test]
+    public async Task AFinishedGeneration_IndexesTheProject_OnceAfterItsSave()
+    {
+        var world = new World { Indexing = new Mock<IDocChunkIndexingService>() };
+        var savedWhenIndexed = new List<(int? DocumentationId, int Events)>();
+        world.Indexing
+            .Setup(x => x.ReindexProjectAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .Callback(() => savedWhenIndexed.Add((world.Saved.OfType<ProjectDocumentation>().SingleOrDefault()?.Id, world.Audit.Events.Count)))
+            .Returns(Task.CompletedTask);
+
+        await world.Service().GenerateDocumentationAsync(ProjectId, StarterUserId, CancellationToken.None);
+
+        world.Indexing.Verify(x => x.ReindexProjectAsync(ProjectId, It.IsAny<CancellationToken>()), Times.Once);
+        world.Indexing.VerifyNoOtherCalls();
+        savedWhenIndexed.Should().Equal([(30, 1)], "the index runs after the documentation and its event were saved");
+    }
+
+    // A failing index never fails the generation: the documentation is saved and returned, and the failure is one Warning
+    // with the project id and the failure code, never the exception.
+    [Test]
+    public async Task AFailingIndex_DoesNotFailTheGeneration_AndIsLoggedWithoutTheException()
+    {
+        var world = new World { Indexing = new Mock<IDocChunkIndexingService>() };
+        world.Indexing
+            .Setup(x => x.ReindexProjectAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("embedder said: Orders belong to customers"));
+
+        var documentation = await world.Service().GenerateDocumentationAsync(ProjectId, StarterUserId, CancellationToken.None);
+
+        documentation.Id.Should().Be(30);
+        world.Saved.OfType<ProjectDocumentation>().Should().ContainSingle();
+        var warning = world.Logs.Entries.Should().ContainSingle(x => x.Message.Contains("Indexing")).Subject;
+        warning.Level.Should().Be(LogLevel.Warning);
+        warning.Exception.Should().BeNull("a failure is logged by its code, never as the exception object");
+        warning.Message.Should().Contain($"project {ProjectId}");
+        world.Logs.Entries.Should().NotContain(x => x.FullText.Contains("embedder said"));
+    }
+
+    // SC12: the Glossary pass, and only it, is given the project's active curated terms in their own block, with the
+    // instruction not to redefine them in its system prompt.
+    [Test]
+    public async Task TheGlossaryPass_AndOnlyIt_IsGivenTheProjectsActiveCuratedTerms()
+    {
+        var world = new World();
+        world.AddTerm(1, "net revenue", "sales", "Sales minus refunds", isActive: true);
+        world.AddTerm(2, "legacy", null, "Retired term", isActive: false);
+
+        await world.Service().GenerateDocumentationAsync(ProjectId, StarterUserId, CancellationToken.None);
+
+        var glossary = world.Requests.Should().ContainSingle(x => x.Messages.Single().Content.Contains("curated glossary terms")).Subject;
+        glossary.SystemPrompt.Should().StartWith(ProjectDocumentationPrompts.GetSystemPrompt(ProjectDocSectionType.Glossary).TrimEnd())
+            .And.Contain(ProjectDocumentationPrompts.CuratedGlossaryInstruction);
+        glossary.Messages.Single().Content.Should().Contain("- net revenue (synonyms: sales): Sales minus refunds")
+            .And.NotContain("Retired term");
+        world.Requests.Except([glossary]).Should().NotBeEmpty()
+            .And.OnlyContain(x => !x.Messages.Single().Content.Contains("net revenue") && !x.SystemPrompt.Contains(ProjectDocumentationPrompts.CuratedGlossaryInstruction));
+    }
+
+    [Test]
+    public async Task WithoutCuratedTerms_TheGlossaryPassSendsItsUsualRequest()
+    {
+        var world = new World();
+        world.AddTerm(2, "legacy", null, "Retired term", isActive: false);
+
+        await world.Service().GenerateDocumentationAsync(ProjectId, StarterUserId, CancellationToken.None);
+
+        var glossarySystemPrompt = ProjectDocumentationPrompts.GetSystemPrompt(ProjectDocSectionType.Glossary).TrimEnd();
+        var glossary = world.Requests.Should().ContainSingle(x => x.SystemPrompt.StartsWith(glossarySystemPrompt)).Subject;
+        glossary.SystemPrompt.Should().Be($"{glossarySystemPrompt}\n\n{PromptData.Rule}");
+        glossary.Messages.Should().ContainSingle().Which.Content.Should().StartWith("<untrusted_data label=\"project metadata\">")
+            .And.NotContain("curated glossary terms");
     }
 
     [Test]
@@ -181,6 +256,24 @@ public class DocumentationRegenerationTests
 
         public RecordingSecurityAudit Audit { get; } = new();
 
+        public LogRecorder Logs { get; } = new();
+
+        // Every request the model was sent (each one fails after it is recorded).
+        public List<LlmRequest> Requests { get; } = [];
+
+        public Mock<IDocChunkIndexingService>? Indexing { get; init; }
+
+        public void AddTerm(int id, string term, string? synonyms, string definition, bool isActive)
+        {
+            if (!_sets.TryGetValue(typeof(McpGlossaryTerm), out var terms))
+            {
+                terms = new List<McpGlossaryTerm>();
+                _sets[typeof(McpGlossaryTerm)] = terms;
+            }
+
+            terms.Add(new McpGlossaryTerm { Id = id, ProjectId = ProjectId, Term = term, Synonyms = synonyms, Definition = definition, IsActive = isActive });
+        }
+
         public ProjectDocumentationSection LatestSection(int id, ProjectDocSectionType type, string title, string content, bool edited)
         {
             return new ProjectDocumentationSection
@@ -210,6 +303,13 @@ public class DocumentationRegenerationTests
             var llm = new Mock<ILlmProvider>();
             llm
                 .Setup(x => x.CompleteAsync(It.IsAny<LlmRequest>(), It.IsAny<CancellationToken>()))
+                .Callback<LlmRequest, CancellationToken>((x, _) =>
+                {
+                    lock (Requests)
+                    {
+                        Requests.Add(x);
+                    }
+                })
                 .ThrowsAsync(new InvalidOperationException(ProviderFailure));
             var shared = new Mock<ISharedSourceSettings>();
             shared
@@ -228,7 +328,8 @@ public class DocumentationRegenerationTests
                 TestRowDataEgress.Discarding(),
                 Audit,
                 Microsoft.Extensions.Options.Options.Create(new Beacon.Core.Configuration.McpDeploymentOptions { ForbidRowDataToLlm = ForbidRowData }),
-                NullLogger<ProjectDocumentationService>.Instance);
+                Logs.For<ProjectDocumentationService>(),
+                docChunkIndexing: Indexing?.Object);
         }
     }
 

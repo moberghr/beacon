@@ -205,12 +205,14 @@ public class GlossaryInjectionTests
     }
 
     [Test]
-    public async Task BuildGlossaryBlock_WhenEmbedderUnavailable_InjectsNothing()
+    public async Task BuildGlossaryBlock_WhenEmbedderUnavailable_MatchesTheTermTheQuestionNames()
     {
-        // Behaviour-preserving fallback: no embedder → no glossary block at all, even with active terms + vectors.
+        // Without an embedder the glossary falls back to keyword matching: the question names "revenue", so that term is
+        // rendered as on the semantic path; "churn" is not named and stays out.
         var terms = new List<McpGlossaryTerm>
         {
-            NewTerm(1, "revenue", "Total sales amount recognized", isActive: true, metric: "SUM(amount)")
+            NewTerm(1, "revenue", "Total sales amount recognized", isActive: true, metric: "SUM(amount)"),
+            NewTerm(2, "churn", "Customers lost in the period", isActive: true)
         };
         var embeddings = new List<McpEmbedding> { NewGlossaryEmbedding(1, new float[384]) };
 
@@ -221,20 +223,23 @@ public class GlossaryInjectionTests
             ProjectId, Question, new McpSettingsData { EnableSemanticRetrieval = true, GlossaryTopK = 5 },
             CancellationToken.None);
 
-        block.Should().BeEmpty();
+        block.Should().Be("\n## Business Glossary\n" + Environment.NewLine + "- **revenue**: Total sales amount recognized (→ `SUM(amount)`)" + Environment.NewLine);
     }
 
     [Test]
-    public async Task BuildGlossaryBlock_WhenSemanticRetrievalDisabled_InjectsNothing()
+    public async Task BuildGlossaryBlock_WhenSemanticRetrievalDisabled_MatchesByKeywordInsteadOfVectors()
     {
+        // "margin" carries the query-identical vector, so the semantic path would pick it; with semantic retrieval off only
+        // the term the question names is shown.
         var embedder = new FakeEmbeddingService();
         var queryVector = await embedder.EmbedAsync(EmbeddingMaskingHelper.Mask(Question), CancellationToken.None);
 
         var terms = new List<McpGlossaryTerm>
         {
-            NewTerm(1, "revenue", "Total sales amount recognized", isActive: true)
+            NewTerm(1, "revenue", "Total sales amount recognized", isActive: true),
+            NewTerm(2, "margin", "Revenue minus cost", isActive: true)
         };
-        var embeddings = new List<McpEmbedding> { NewGlossaryEmbedding(1, queryVector) };
+        var embeddings = new List<McpEmbedding> { NewGlossaryEmbedding(2, queryVector) };
 
         var service = BuildService(embedder, terms, embeddings, semanticEnabled: false, glossaryTopK: 5);
 
@@ -242,7 +247,8 @@ public class GlossaryInjectionTests
             ProjectId, Question, new McpSettingsData { EnableSemanticRetrieval = false, GlossaryTopK = 5 },
             CancellationToken.None);
 
-        block.Should().BeEmpty();
+        block.Should().Contain("- **revenue**: Total sales amount recognized");
+        block.Should().NotContain("margin");
     }
 
     [Test]
@@ -259,7 +265,7 @@ public class GlossaryInjectionTests
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(context);
 
-        var handler = new CreateGlossaryTermHandler(factory.Object, new RecordingSecurityAudit());
+        var handler = new CreateGlossaryTermHandler(factory.Object, new RecordingSecurityAudit(), NullLogger<CreateGlossaryTermHandler>.Instance);
 
         await handler.Handle(new CreateGlossaryTermCommand
         {
@@ -290,7 +296,7 @@ public class GlossaryInjectionTests
         factory
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(context);
-        var handler = new CreateGlossaryTermHandler(factory.Object, new RecordingSecurityAudit());
+        var handler = new CreateGlossaryTermHandler(factory.Object, new RecordingSecurityAudit(), NullLogger<CreateGlossaryTermHandler>.Instance);
 
         var act = () => handler.Handle(new CreateGlossaryTermCommand
         {
@@ -308,7 +314,7 @@ public class GlossaryInjectionTests
     public async Task CreateGlossaryTermHandler_BlankTerm_Throws()
     {
         var factory = new Mock<IDbContextFactory<BeaconContext>>(MockBehavior.Strict);
-        var handler = new CreateGlossaryTermHandler(factory.Object, new RecordingSecurityAudit());
+        var handler = new CreateGlossaryTermHandler(factory.Object, new RecordingSecurityAudit(), NullLogger<CreateGlossaryTermHandler>.Instance);
 
         var act = async () => await handler.Handle(new CreateGlossaryTermCommand
         {
@@ -330,7 +336,7 @@ public class GlossaryInjectionTests
             .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
             .ReturnsAsync(context);
 
-        var handler = new UpdateGlossaryTermHandler(factory.Object, new RecordingSecurityAudit());
+        var handler = new UpdateGlossaryTermHandler(factory.Object, new RecordingSecurityAudit(), NullLogger<UpdateGlossaryTermHandler>.Instance);
 
         var act = async () => await handler.Handle(new UpdateGlossaryTermCommand { Id = 404, Term = "x" },
             CancellationToken.None);
@@ -349,10 +355,10 @@ public class GlossaryInjectionTests
             .ReturnsAsync(new GlossaryHandlerContext(set.Object));
         var term = NewTerm(1, "revenue", "Total sales amount recognized", isActive: true);
 
-        await new CreateGlossaryTermHandler(created.Object, audit).Handle(
+        await new CreateGlossaryTermHandler(created.Object, audit, NullLogger<CreateGlossaryTermHandler>.Instance).Handle(
             new CreateGlossaryTermCommand { ProjectId = ProjectId, DataSourceId = DataSourceId, Term = "net revenue", Definition = "Sales minus refunds" },
             CancellationToken.None);
-        await new UpdateGlossaryTermHandler(BuildGlossaryHandlerFactory(term), audit).Handle(
+        await new UpdateGlossaryTermHandler(BuildGlossaryHandlerFactory(term), audit, NullLogger<UpdateGlossaryTermHandler>.Instance).Handle(
             new UpdateGlossaryTermCommand { Id = 1, Definition = "Sales recognized this period", IsActive = false },
             CancellationToken.None);
         await new DeleteGlossaryTermHandler(BuildGlossaryHandlerFactory(term), audit).Handle(new DeleteGlossaryTermCommand(1), CancellationToken.None);
@@ -433,7 +439,7 @@ public class GlossaryInjectionTests
     public async Task UpdateGlossaryTermHandler_AppliesSuppliedFields_LeavesOthersUnchanged()
     {
         var term = NewTerm(1, "revenue", "Old definition", isActive: true, metric: "SUM(amount)");
-        var handler = new UpdateGlossaryTermHandler(BuildGlossaryHandlerFactory(term), new RecordingSecurityAudit());
+        var handler = new UpdateGlossaryTermHandler(BuildGlossaryHandlerFactory(term), new RecordingSecurityAudit(), NullLogger<UpdateGlossaryTermHandler>.Instance);
 
         await handler.Handle(new UpdateGlossaryTermCommand { Id = 1, Definition = "New definition" }, CancellationToken.None);
 
@@ -446,7 +452,7 @@ public class GlossaryInjectionTests
     public async Task UpdateGlossaryTermHandler_BlankTerm_Throws_AndLeavesTermUnchanged()
     {
         var term = NewTerm(1, "revenue", "def", isActive: true);
-        var handler = new UpdateGlossaryTermHandler(BuildGlossaryHandlerFactory(term), new RecordingSecurityAudit());
+        var handler = new UpdateGlossaryTermHandler(BuildGlossaryHandlerFactory(term), new RecordingSecurityAudit(), NullLogger<UpdateGlossaryTermHandler>.Instance);
 
         var act = async () => await handler.Handle(new UpdateGlossaryTermCommand { Id = 1, Term = "   " }, CancellationToken.None);
 
@@ -458,11 +464,137 @@ public class GlossaryInjectionTests
     public async Task UpdateGlossaryTermHandler_BlankDefinition_Throws()
     {
         var term = NewTerm(1, "revenue", "def", isActive: true);
-        var handler = new UpdateGlossaryTermHandler(BuildGlossaryHandlerFactory(term), new RecordingSecurityAudit());
+        var handler = new UpdateGlossaryTermHandler(BuildGlossaryHandlerFactory(term), new RecordingSecurityAudit(), NullLogger<UpdateGlossaryTermHandler>.Instance);
 
         var act = async () => await handler.Handle(new UpdateGlossaryTermCommand { Id = 1, Definition = " " }, CancellationToken.None);
 
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*definition cannot be blank*");
+    }
+
+    // SC9: a glossary write indexes its project right after the save commits, so the term reaches retrieval without waiting
+    // for the recurring re-index.
+    [Test]
+    public async Task CreatingATerm_IndexesItsProject_OnceAfterTheSave()
+    {
+        var context = new GlossaryHandlerContext(BuildDbSet(new List<McpGlossaryTerm>()).Object);
+        var (indexing, savesWhenIndexed) = IndexingAfter(context);
+
+        await new CreateGlossaryTermHandler(FactoryOf(context), new RecordingSecurityAudit(), NullLogger<CreateGlossaryTermHandler>.Instance, indexing.Object)
+            .Handle(new CreateGlossaryTermCommand { ProjectId = ProjectId, Term = "revenue", Definition = "Total sales amount recognized" }, CancellationToken.None);
+
+        indexing.Verify(x => x.ReindexProjectAsync(ProjectId, It.IsAny<CancellationToken>()), Times.Once);
+        indexing.VerifyNoOtherCalls();
+        savesWhenIndexed.Should().Equal([1], "the index runs once, after the save");
+    }
+
+    [Test]
+    public async Task EditingATerm_IndexesItsProject_OnceAfterTheSave()
+    {
+        var term = NewTerm(1, "revenue", "Old definition", isActive: true);
+        var context = new GlossaryHandlerContext(BuildDbSet(new List<McpGlossaryTerm> { term }).Object);
+        var (indexing, savesWhenIndexed) = IndexingAfter(context);
+
+        await new UpdateGlossaryTermHandler(FactoryOf(context), new RecordingSecurityAudit(), NullLogger<UpdateGlossaryTermHandler>.Instance, indexing.Object)
+            .Handle(new UpdateGlossaryTermCommand { Id = 1, Definition = "New definition" }, CancellationToken.None);
+
+        indexing.Verify(x => x.ReindexProjectAsync(ProjectId, It.IsAny<CancellationToken>()), Times.Once);
+        indexing.VerifyNoOtherCalls();
+        savesWhenIndexed.Should().Equal([1], "the index runs once, after the save");
+    }
+
+    // A failing index never fails the write: the term is saved, the result is the usual one, and the failure is one Warning
+    // with the project id and the failure code, never the exception or any term text.
+    [Test]
+    public async Task AFailingIndex_DoesNotFailTheCreate_AndIsLoggedWithoutTheException()
+    {
+        McpGlossaryTerm? added = null;
+        var set = BuildDbSet(new List<McpGlossaryTerm>());
+        set.Setup(x => x.Add(It.IsAny<McpGlossaryTerm>()))
+            .Callback<McpGlossaryTerm>(x => added = x);
+        var context = new GlossaryHandlerContext(set.Object);
+        var saves = 0;
+        context.Saving += () => saves++;
+        var logs = new LogRecorder();
+        var indexing = new Mock<IDocChunkIndexingService>();
+        indexing
+            .Setup(x => x.ReindexProjectAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new InvalidOperationException("embedder said: Total sales amount recognized"));
+
+        var result = await new CreateGlossaryTermHandler(FactoryOf(context), new RecordingSecurityAudit(), logs.For<CreateGlossaryTermHandler>(), indexing.Object)
+            .Handle(new CreateGlossaryTermCommand { ProjectId = ProjectId, Term = "revenue", Definition = "Total sales amount recognized" }, CancellationToken.None);
+
+        result.Should().Be(new CreateGlossaryTermResult(added!.Id));
+        saves.Should().Be(1);
+        var warning = logs.Entries.Should().ContainSingle().Subject;
+        warning.Level.Should().Be(Microsoft.Extensions.Logging.LogLevel.Warning);
+        warning.Exception.Should().BeNull("a failure is logged by its code, never as the exception object");
+        warning.Message.Should().Contain($"project {ProjectId}").And.Contain(nameof(InvalidOperationException));
+        logs.Contains("Total sales").Should().BeFalse("no term text reaches the log");
+        logs.Contains("revenue").Should().BeFalse();
+    }
+
+    [Test]
+    public async Task AFailingIndex_DoesNotFailTheEdit()
+    {
+        var term = NewTerm(1, "revenue", "Old definition", isActive: true);
+        var context = new GlossaryHandlerContext(BuildDbSet(new List<McpGlossaryTerm> { term }).Object);
+        var saves = 0;
+        context.Saving += () => saves++;
+        var logs = new LogRecorder();
+        var indexing = new Mock<IDocChunkIndexingService>();
+        indexing
+            .Setup(x => x.ReindexProjectAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new TimeoutException("New definition"));
+
+        var act = () => new UpdateGlossaryTermHandler(FactoryOf(context), new RecordingSecurityAudit(), logs.For<UpdateGlossaryTermHandler>(), indexing.Object)
+            .Handle(new UpdateGlossaryTermCommand { Id = 1, Definition = "New definition" }, CancellationToken.None);
+
+        await act.Should().NotThrowAsync();
+        term.Definition.Should().Be("New definition");
+        saves.Should().Be(1);
+        logs.Entries.Should().ContainSingle().Which.Exception.Should().BeNull();
+        logs.Contains("New definition").Should().BeFalse();
+    }
+
+    // A host without Beacon.AI registers no indexer: the write is the same, and nothing is indexed.
+    [Test]
+    public async Task WithoutAnIndexer_TheEditIsSaved()
+    {
+        var term = NewTerm(1, "revenue", "Old definition", isActive: true);
+        var context = new GlossaryHandlerContext(BuildDbSet(new List<McpGlossaryTerm> { term }).Object);
+        var saves = 0;
+        context.Saving += () => saves++;
+
+        await new UpdateGlossaryTermHandler(FactoryOf(context), new RecordingSecurityAudit(), NullLogger<UpdateGlossaryTermHandler>.Instance)
+            .Handle(new UpdateGlossaryTermCommand { Id = 1, Definition = "New definition" }, CancellationToken.None);
+
+        term.Definition.Should().Be("New definition");
+        saves.Should().Be(1);
+    }
+
+    // An indexer whose every call records how many saves the context had made by then.
+    private static (Mock<IDocChunkIndexingService> Indexing, List<int> SavesWhenIndexed) IndexingAfter(GlossaryHandlerContext context)
+    {
+        var saves = 0;
+        context.Saving += () => saves++;
+        var savesWhenIndexed = new List<int>();
+        var indexing = new Mock<IDocChunkIndexingService>();
+        indexing
+            .Setup(x => x.ReindexProjectAsync(It.IsAny<int>(), It.IsAny<CancellationToken>()))
+            .Callback(() => savesWhenIndexed.Add(saves))
+            .Returns(Task.CompletedTask);
+
+        return (indexing, savesWhenIndexed);
+    }
+
+    private static IDbContextFactory<BeaconContext> FactoryOf(GlossaryHandlerContext context)
+    {
+        var factory = new Mock<IDbContextFactory<BeaconContext>>();
+        factory
+            .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(context);
+
+        return factory.Object;
     }
 
     // The keyed digests an event holds of a term's text fields, as JSON, in the order of the event's contentFields.

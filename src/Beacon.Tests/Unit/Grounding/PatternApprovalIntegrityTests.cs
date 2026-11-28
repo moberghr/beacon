@@ -2,12 +2,15 @@ using Beacon.AI.Services.Learning;
 using Beacon.Core.Data;
 using Beacon.Core.Data.Entities;
 using Beacon.Core.Data.Enums;
+using Beacon.Core.Handlers.McpLearning;
 using Beacon.Core.Models;
+using Beacon.Core.SecurityAudit;
 using Beacon.Core.Services;
 using Beacon.Tests.Common;
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
+using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 using NUnit.Framework;
 
@@ -18,7 +21,9 @@ namespace Beacon.Tests.Unit.Grounding;
 /// SQL of a pattern a person approved or rejected (its statistics still refresh); an auto-approved pattern whose content
 /// changes goes back to NeedsEvidence; an auto-approval checks the candidate's example SQL again first, like a person's
 /// approval; and a run reads each data source's dialect and catalog once, through one batch of the grounding SQL check.
-/// The detectors and the promotion step over in-memory sets, no database (§4.7).
+/// A person may approve a pattern whose last replay failed: the decision's security event says so, and the pattern list
+/// shows each pattern's last replay verdict. The detectors, the promotion step and the handlers run over in-memory sets,
+/// no database (§4.7).
 /// </summary>
 [TestFixture]
 public class PatternApprovalIntegrityTests
@@ -28,6 +33,7 @@ public class PatternApprovalIntegrityTests
     private const string MinedContent = "Common query pattern for public.orders (3 similar queries)";
     private const string MinedQuestion = "orders last week";
     private const string MinedSql = "SELECT id FROM orders";
+    private const int ReviewerUserId = 11;
 
     [TestCase(McpPatternStatus.Approved)]
     [TestCase(McpPatternStatus.Rejected)]
@@ -202,6 +208,60 @@ public class PatternApprovalIntegrityTests
         saved.OfType<McpLearnedPattern>().Should().ContainSingle().Which.ExampleSql.Should().Be(MinedSql);
     }
 
+    // Approving against the last replay's verdict is the reviewer's call: allowed, and on record as a flag on the decision.
+    [Test]
+    public async Task ApprovingAPatternWhoseLastReplayFailed_Succeeds_AndItsEventCarriesTheReplayFlag()
+    {
+        var pattern = Pattern(McpPatternStatus.NeedsEvidence, MinedContent, MinedQuestion, MinedSql);
+        pattern.LastReplayPassed = false;
+        var audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(ReviewerUserId, "ext-11"));
+
+        await StatusHandler(pattern, audit).Handle(Decide(pattern, McpPatternStatus.Approved), CancellationToken.None);
+
+        pattern.Status.Should().Be(McpPatternStatus.Approved);
+        pattern.ReviewedByUserId.Should().Be(ReviewerUserId);
+        pattern.LastReplayPassed.Should().BeFalse("a decision does not rewrite the replay's verdict");
+        var decided = audit.Single(MinedContent, MinedQuestion, MinedSql);
+        decided.Action.Should().Be(SecurityAuditActions.PatternStatusChanged);
+        decided.DetailsJson.Should().Be(
+            $"{{\"dataSourceId\":{DataSourceId},\"statusBefore\":\"NeedsEvidence\",\"statusAfter\":\"Approved\",\"replayFailed\":true}}");
+    }
+
+    // Only an approval against a failed replay is flagged: an approval after a passing replay or none, and any other decision,
+    // record the event as before.
+    [TestCase(true, McpPatternStatus.Approved)]
+    [TestCase(null, McpPatternStatus.Approved)]
+    [TestCase(false, McpPatternStatus.Rejected)]
+    [TestCase(false, McpPatternStatus.Pending)]
+    public async Task ADecisionThatIsNotAnApprovalAgainstAFailedReplay_CarriesNoReplayFlag(bool? lastReplayPassed, McpPatternStatus decision)
+    {
+        var pattern = Pattern(McpPatternStatus.NeedsEvidence, MinedContent, MinedQuestion, MinedSql);
+        pattern.LastReplayPassed = lastReplayPassed;
+        var audit = new RecordingSecurityAudit(RecordingSecurityAudit.User(ReviewerUserId, "ext-11"));
+
+        await StatusHandler(pattern, audit).Handle(Decide(pattern, decision), CancellationToken.None);
+
+        pattern.Status.Should().Be(decision);
+        audit.Single(MinedContent, MinedQuestion, MinedSql).DetailsJson.Should().Be(
+            $"{{\"dataSourceId\":{DataSourceId},\"statusBefore\":\"NeedsEvidence\",\"statusAfter\":\"{decision}\"}}");
+    }
+
+    [TestCase(true)]
+    [TestCase(false)]
+    [TestCase(null)]
+    public async Task ThePatternList_ShowsEachPatternsLastReplayVerdict(bool? lastReplayPassed)
+    {
+        var pattern = Pattern(McpPatternStatus.NeedsEvidence, MinedContent, MinedQuestion, MinedSql);
+        pattern.LastReplayPassed = lastReplayPassed;
+
+        var page = await new GetLearnedPatternsHandler(Factory(pattern), TestProjectAccess.Evaluator(TestProjectAccess.Unrestricted))
+            .Handle(new GetLearnedPatternsQuery(), CancellationToken.None);
+
+        page.Items.Should().ContainSingle().Which.Should().BeEquivalentTo(
+            new { pattern.Id, LastReplayPassed = lastReplayPassed },
+            x => x.ExcludingMissingMembers());
+    }
+
     private static McpLearnedPattern Pattern(McpPatternStatus status, string content, string question, string sql)
     {
         return new McpLearnedPattern
@@ -216,7 +276,7 @@ public class PatternApprovalIntegrityTests
             ExampleQuestion = question,
             ExampleSql = sql,
             SignalCount = 1,
-            Confidence = 0.5,
+            Confidence = 0.9, // above the default auto-approve threshold (0.7): a candidate below it is not replayed
             Status = status
         };
     }
@@ -261,6 +321,56 @@ public class PatternApprovalIntegrityTests
     private static ReplayVerdict Verdict(bool passed)
     {
         return new ReplayVerdict(RelevantCases: 1, BaselineFailing: 1, Flipped: 1, Regressions: 0, Errored: 0, Passed: passed);
+    }
+
+    private static UpdatePatternStatusHandler StatusHandler(McpLearnedPattern pattern, ISecurityAuditRecorder audit)
+    {
+        return new UpdatePatternStatusHandler(
+            Factory(pattern),
+            TestGroundingSqlChecks.PassThrough().Object,
+            TestProjectAccess.Actors(beaconUserId: ReviewerUserId),
+            audit,
+            NullLogger<UpdatePatternStatusHandler>.Instance);
+    }
+
+    private static UpdatePatternStatusCommand Decide(McpLearnedPattern pattern, McpPatternStatus decision)
+    {
+        return new UpdatePatternStatusCommand
+        {
+            PatternId = pattern.Id,
+            NewStatus = decision,
+            ReviewedContentHash = GroundingContentHash.OfPattern(pattern.PatternContent, pattern.ExampleQuestion, pattern.ExampleSql)
+        };
+    }
+
+    // The pattern, no users and the PostgreSQL data source it was mined on, for the decision and list handlers.
+    private static IDbContextFactory<BeaconContext> Factory(McpLearnedPattern pattern)
+    {
+        var saved = new List<object>();
+        var sources = new List<DataSource>
+        {
+            new()
+            {
+                Id = DataSourceId,
+                Name = "sales",
+                DataSourceType = DataSourceType.Database,
+                DatabaseEngineType = DatabaseEngineType.PostgreSQL,
+                EncryptedConnectionData = "encrypted"
+            }
+        };
+        var factory = new Mock<IDbContextFactory<BeaconContext>>();
+        factory
+            .Setup(x => x.CreateDbContextAsync(It.IsAny<CancellationToken>()))
+            .ReturnsAsync(() => new RecordingBeaconContext(
+                new Dictionary<Type, object>
+                {
+                    [typeof(McpLearnedPattern)] = RecordingBeaconContext.MemorySet([pattern], saved),
+                    [typeof(BeaconUser)] = RecordingBeaconContext.MemorySet(new List<BeaconUser>(), saved),
+                    [typeof(DataSource)] = RecordingBeaconContext.MemorySet(sources, saved)
+                },
+                saved));
+
+        return factory.Object;
     }
 
     private static (McpLearningAggregationService Service, BeaconContext Context, LogRecorder Logs) Build(

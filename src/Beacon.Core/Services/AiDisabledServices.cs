@@ -1,4 +1,5 @@
 using Microsoft.Extensions.DependencyInjection;
+using Beacon.Core.Data.Enums;
 
 namespace Beacon.Core.Services;
 
@@ -33,7 +34,7 @@ internal sealed class AiDisabledLlmProviderCatalog : ILlmProviderCatalog
 /// <inheritdoc cref="AiDisabledLlmConnectionTester"/>
 internal sealed class AiDisabledMcpEvalService : IMcpEvalService
 {
-    public Task<int> StartRunAsync(int? projectId, int? userId, CancellationToken ct)
+    public Task<int> StartRunAsync(int? projectId, int? userId, McpEvalRunTrigger trigger, CancellationToken ct)
     {
         throw new InvalidOperationException(AiDisabled.Message);
     }
@@ -51,6 +52,11 @@ internal sealed class AiDisabledMcpEvalService : IMcpEvalService
         string? goldResultFingerprint,
         string? extraContext,
         CancellationToken ct)
+    {
+        throw new InvalidOperationException(AiDisabled.Message);
+    }
+
+    public Task<GoldSqlReplay> ReplayGoldSqlAsync(int dataSourceId, int? projectId, string sql, CancellationToken ct)
     {
         throw new InvalidOperationException(AiDisabled.Message);
     }

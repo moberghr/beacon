@@ -120,7 +120,8 @@ public class AskSchemaContextBudgetTests
             Part(SchemaContextPartKind.ValueMatches, Text('v', 50)),
             Part(SchemaContextPartKind.GoldenExemplars, Text('g', 50)),
             Part(SchemaContextPartKind.LearnedPatterns, Text('l', 50)),
-            Part(SchemaContextPartKind.Glossary, Text('o', 50))
+            Part(SchemaContextPartKind.Glossary, Text('o', 50)),
+            Part(SchemaContextPartKind.Documentation, Text('d', 50))
         ];
         var budget = AskSchemaContextBudget.OmittedTablesLineMaxChars(2) + 100;
 
@@ -587,7 +588,8 @@ public class AskSchemaContextBudgetTests
                 [typeof(McpEmbedding)] = BuildDbSet(new List<McpEmbedding>()).Object,
                 [typeof(McpGlossaryTerm)] = BuildDbSet(new List<McpGlossaryTerm>()).Object,
                 [typeof(ColumnMetadata)] = BuildDbSet(new List<ColumnMetadata>()).Object,
-                [typeof(ProjectDocumentationSection)] = BuildDbSet(new List<ProjectDocumentationSection>()).Object
+                [typeof(ProjectDocumentationSection)] = BuildDbSet(new List<ProjectDocumentationSection>()).Object,
+                [typeof(McpDescriptionItem)] = BuildDbSet(new List<McpDescriptionItem>()).Object
             };
         }
 

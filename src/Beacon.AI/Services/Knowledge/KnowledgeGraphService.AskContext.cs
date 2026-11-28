@@ -23,6 +23,12 @@ namespace Beacon.AI.Services.Knowledge;
 internal sealed partial class KnowledgeGraphService
 {
     // The section order of FormatLearnedPatternsForLlm; a pattern of another type is not rendered.
+    // The most documentation chunks an ask context shows.
+    private const int DocChunksInAsk = 3;
+
+    // The most glossary terms the keyword match reads.
+    internal const int KeywordGlossaryTerms = 500;
+
     private static readonly string[] RenderedPatternTypes =
     [
         nameof(McpPatternType.SchemaCorrection),
@@ -113,11 +119,15 @@ internal sealed partial class KnowledgeGraphService
             // behaviour-preserving relative to pre-glossary output.
             var glossaryTask = BuildGlossaryBlockWithItemsAsync(projectId, question, mcpSettings, dialect, questionVector, ct);
 
-            await Task.WhenAll(valueMatchesTask, goldenExemplarsTask, learnedPatternsTask, glossaryTask);
+            // The project's documentation chunks nearest to the question, after the glossary; none unless turned on.
+            var documentationTask = DocumentationBlockAsync(projectId, question, mcpSettings, ct);
+
+            await Task.WhenAll(valueMatchesTask, goldenExemplarsTask, learnedPatternsTask, glossaryTask, documentationTask);
             var valueMatches = await valueMatchesTask;
             var goldenExemplars = await goldenExemplarsTask;
             var learnedPatternsBlock = await learnedPatternsTask;
             var glossary = await glossaryTask;
+            var documentation = await documentationTask;
 
             // Over the budget the tables the question names come first, then the catalogue order.
             var budgeted = BudgetedContext(
@@ -129,9 +139,11 @@ internal sealed partial class KnowledgeGraphService
                     new SchemaContextPart(SchemaContextPartKind.ValueMatches, valueMatches),
                     new SchemaContextPart(SchemaContextPartKind.GoldenExemplars, goldenExemplars.Text),
                     new SchemaContextPart(SchemaContextPartKind.LearnedPatterns, learnedPatternsBlock.Text),
-                    new SchemaContextPart(SchemaContextPartKind.Glossary, glossary.Text)
+                    new SchemaContextPart(SchemaContextPartKind.Glossary, glossary.Text),
+                    .. DocumentationParts(documentation)
                 ],
                 AskSchemaContextBudget.TablesNamedIn(question, tableBlocks));
+            var descriptionItems = await DescriptionItemsShownAsync(dataSourceId, budgeted, allTables, _ => true, isApi, ct);
 
             return new SmartSchemaContext
             {
@@ -146,8 +158,8 @@ internal sealed partial class KnowledgeGraphService
                 SchemaCatalog = catalog,
                 PrimaryKeyCatalog = primaryKeyCatalog,
                 JoinPaths = allPaths,
-                RowDataCategories = RowDataCategoriesOf(samplesShown, valueMatches),
-                KnowledgeItems = KnowledgeItemsShown(budgeted, goldenExemplars, learnedPatternsBlock, glossary)
+                RowDataCategories = RowDataCategoriesOf(samplesShown, valueMatches, DocumentationListsValues(budgeted, documentation)),
+                KnowledgeItems = KnowledgeItemsShown(budgeted, descriptionItems, goldenExemplars, learnedPatternsBlock, glossary, documentation.Block)
             };
         }
 
@@ -237,11 +249,15 @@ internal sealed partial class KnowledgeGraphService
         // fallback as the fast path — empty string when nothing to inject).
         var smartGlossaryTask = BuildGlossaryBlockWithItemsAsync(projectId, question, mcpSettings, dialect, smartQuestionVector, ct);
 
-        await Task.WhenAll(smartValueMatchesTask, smartGoldenExemplarsTask, smartPatternsTask, smartGlossaryTask);
+        // The project's documentation chunks nearest to the question, after the glossary (as on the fast path).
+        var smartDocumentationTask = DocumentationBlockAsync(projectId, question, mcpSettings, ct);
+
+        await Task.WhenAll(smartValueMatchesTask, smartGoldenExemplarsTask, smartPatternsTask, smartGlossaryTask, smartDocumentationTask);
         var smartValueMatches = await smartValueMatchesTask;
         var smartGoldenExemplars = await smartGoldenExemplarsTask;
         var smartPatternsBlock = await smartPatternsTask;
         var smartGlossary = await smartGlossaryTask;
+        var smartDocumentation = await smartDocumentationTask;
 
         // Over the budget the tables the question names come first, then the tables retrieval ranked for the question, then
         // the relevant tables and the other tables in catalogue order.
@@ -259,9 +275,12 @@ internal sealed partial class KnowledgeGraphService
                 new SchemaContextPart(SchemaContextPartKind.ValueMatches, smartValueMatches),
                 new SchemaContextPart(SchemaContextPartKind.GoldenExemplars, smartGoldenExemplars.Text),
                 new SchemaContextPart(SchemaContextPartKind.LearnedPatterns, smartPatternsBlock.Text),
-                new SchemaContextPart(SchemaContextPartKind.Glossary, smartGlossary.Text)
+                new SchemaContextPart(SchemaContextPartKind.Glossary, smartGlossary.Text),
+                .. DocumentationParts(smartDocumentation)
             ],
             [.. AskSchemaContextBudget.TablesNamedIn(question, allBlocks), .. rankedTableNames]);
+        var smartDescriptionItems = await DescriptionItemsShownAsync(
+            dataSourceId, smartBudgeted, allTables, x => detailedTables.Contains($"{x.SchemaName}.{x.TableName}"), isApi, ct);
 
         return new SmartSchemaContext
         {
@@ -279,8 +298,9 @@ internal sealed partial class KnowledgeGraphService
             Capped = expansion.Capped,
             OmittedTableCount = expansion.OmittedTableCount,
             JoinPaths = expansion.JoinPaths,
-            RowDataCategories = RowDataCategoriesOf(samplesShown, smartValueMatches),
-            KnowledgeItems = KnowledgeItemsShown(smartBudgeted, smartGoldenExemplars, smartPatternsBlock, smartGlossary)
+            RowDataCategories = RowDataCategoriesOf(samplesShown, smartValueMatches, DocumentationListsValues(smartBudgeted, smartDocumentation)),
+            KnowledgeItems = KnowledgeItemsShown(
+                smartBudgeted, smartDescriptionItems, smartGoldenExemplars, smartPatternsBlock, smartGlossary, smartDocumentation.Block)
         };
     }
 
@@ -322,21 +342,30 @@ internal sealed partial class KnowledgeGraphService
         return budgeted;
     }
 
-    // The knowledge items of the grounding blocks the budget kept, in context order: a block it left out is not in the
-    // context, so its items are not either.
+    // The knowledge items the context carries, in context order: the descriptions of the tables it shows, then the items of
+    // the grounding blocks the budget kept. A block it left out is not in the context, so its items are not either.
     private static IReadOnlyList<KnowledgeItemRef> KnowledgeItemsShown(
-        BudgetedSchemaContext budgeted, KnowledgeBlock goldenExemplars, KnowledgeBlock learnedPatterns, KnowledgeBlock glossary)
+        BudgetedSchemaContext budgeted,
+        IReadOnlyList<KnowledgeItemRef> descriptions,
+        KnowledgeBlock goldenExemplars,
+        KnowledgeBlock learnedPatterns,
+        KnowledgeBlock glossary,
+        KnowledgeBlock documentation)
     {
         IReadOnlyList<(SchemaContextPartKind Kind, KnowledgeBlock Block)> blocks =
         [
             (SchemaContextPartKind.GoldenExemplars, goldenExemplars),
             (SchemaContextPartKind.LearnedPatterns, learnedPatterns),
-            (SchemaContextPartKind.Glossary, glossary)
+            (SchemaContextPartKind.Glossary, glossary),
+            (SchemaContextPartKind.Documentation, documentation)
         ];
 
-        return blocks
+        var grounding = blocks
             .Where(x => !budgeted.PartsLeftOut.Contains(x.Kind))
-            .SelectMany(x => x.Block.Items)
+            .SelectMany(x => x.Block.Items);
+
+        return descriptions
+            .Concat(grounding)
             .ToList();
     }
 
@@ -355,6 +384,211 @@ internal sealed partial class KnowledgeGraphService
         }
 
         return new SchemaContextTableBlock(AskSchemaContextBudget.BlockName(schemaName, tableName, isApi), schemaName, tableName, sb.ToString());
+    }
+
+    // The description items of the tables the context shows, in order of appearance (provenance of the ask): each shown
+    // table's own and, in a full block, its rendered columns'. A table or column without an item row records nothing. One
+    // read per ask, by the data source and the shown tables' names, matched on the catalog's exact names (the items are
+    // keyed by them). Fails closed: a read error records no description item and never fails the ask.
+    private async Task<IReadOnlyList<KnowledgeItemRef>> DescriptionItemsShownAsync(
+        int dataSourceId, BudgetedSchemaContext budgeted, IReadOnlyList<CatalogTable> tables, Func<CatalogTable, bool> fullColumns, bool isApi, CancellationToken ct)
+    {
+        var tablesByName = new Dictionary<(string, string), CatalogTable>();
+        foreach (var table in tables)
+        {
+            tablesByName.TryAdd((table.SchemaName, table.TableName), table);
+        }
+
+        var shown = new List<(string SchemaName, string TableName, string ColumnName)>();
+        foreach (var block in budgeted.ShownBlocks)
+        {
+            if (tablesByName.TryGetValue((block.SchemaName, block.TableName), out var table))
+            {
+                shown.AddRange(DescriptionsShown(block, table, fullColumns(table), budgeted.TopTableCut, isApi));
+            }
+        }
+
+        if (shown.Count == 0)
+        {
+            return [];
+        }
+
+        var tableNames = shown
+            .Select(x => x.TableName)
+            .Distinct(StringComparer.Ordinal)
+            .ToList();
+
+        try
+        {
+            await using var context = await contextFactory.CreateDbContextAsync(ct);
+            var rows = await context.McpDescriptionItems
+                .Where(x => x.DataSourceId == dataSourceId)
+                .Where(x => tableNames.Contains(x.TableName))
+                .Select(x =>
+                    new
+                    {
+                        x.Id,
+                        x.SchemaName,
+                        x.TableName,
+                        x.ColumnName
+                    })
+                .ToListAsync(ct);
+
+            var idsByName = new Dictionary<(string, string, string), int>();
+            foreach (var row in rows)
+            {
+                idsByName.TryAdd((row.SchemaName, row.TableName, row.ColumnName), row.Id);
+            }
+
+            var items = new List<KnowledgeItemRef>();
+            foreach (var description in shown)
+            {
+                if (idsByName.TryGetValue(description, out var id))
+                {
+                    var kind = description.ColumnName.Length == 0 ? McpKnowledgeItemKind.TableDescription : McpKnowledgeItemKind.ColumnDescription;
+                    items.Add(new KnowledgeItemRef(kind, id, items.Count + 1));
+                }
+            }
+
+            return items;
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning("Description item read failed for data source {DataSourceId}; recording no description items ({Failure}).", dataSourceId, FailureCodes.Describe(ex));
+            return [];
+        }
+    }
+
+    // The descriptions a shown table block renders, in order of appearance: the table's, then in a full block each column's
+    // (a compact block names its columns only). The cut top table keeps a whole-line prefix of its block, so it renders only
+    // the descriptions whose whole line it keeps. The column name is empty for the table's own description.
+    private static IEnumerable<(string SchemaName, string TableName, string ColumnName)> DescriptionsShown(
+        SchemaContextTableBlock shown, CatalogTable table, bool fullColumns, bool cut, bool isApi)
+    {
+        var block = cut
+            ? TableBlock(table.SchemaName, table.TableName, table.TableDescription, table.Columns, isApi, fullColumns)
+            : shown;
+
+        // A full block's description is its second line (after the heading); a compact block's is on its first line.
+        if (table.TableDescription != null && Keeps(shown, block, LineEnd(block.Text, 0, fullColumns ? 2 : 1)))
+        {
+            yield return (table.SchemaName, table.TableName, "");
+        }
+
+        if (!fullColumns)
+        {
+            yield break;
+        }
+
+        foreach (var column in table.Columns)
+        {
+            if (column.Description == null)
+            {
+                continue;
+            }
+
+            // Text on a line is rendered on one line (PromptData.OneLine), so only a column's own line starts with a line break.
+            var lineStart = block.Text.IndexOf("\n" + SchemaContextFormatter.TupleColumnLineStart(column.ColumnName), StringComparison.Ordinal);
+            if (lineStart >= 0 && Keeps(shown, block, LineEnd(block.Text, lineStart + 1, 1)))
+            {
+                yield return (table.SchemaName, table.TableName, column.ColumnName);
+            }
+        }
+    }
+
+    // The index of the line break that ends the <paramref name="lines"/>-th line from <paramref name="start"/>; -1 when the
+    // text ends first.
+    private static int LineEnd(string text, int start, int lines)
+    {
+        var end = start - 1;
+        for (var i = 0; i < lines; i++)
+        {
+            end = text.IndexOf('\n', end + 1);
+            if (end < 0)
+            {
+                return -1;
+            }
+        }
+
+        return end;
+    }
+
+    // Whether the shown block holds its full block's text up to and including the line break at <paramref name="lineEnd"/>.
+    private static bool Keeps(SchemaContextTableBlock shown, SchemaContextTableBlock block, int lineEnd)
+    {
+        return lineEnd >= 0 && shown.Text.StartsWith(block.Text[..(lineEnd + 1)], StringComparison.Ordinal);
+    }
+
+    // The documentation block of the ask context (EnableDocChunksInAsk): the project's chunks nearest to the question,
+    // project-scoped in the search itself, at most DocChunksInAsk, fenced as data after the glossary. None, and no chunk
+    // read, unless the setting, semantic retrieval and the embedder are all on. While row data may not reach the LLM
+    // provider (Beacon:Mcp:ForbidRowDataToLlm), a chunk that may list values (MayListValues) is left out.
+    private async Task<DocumentationBlock> DocumentationBlockAsync(int projectId, string question, McpSettingsData settings, CancellationToken ct)
+    {
+        if (!settings.EnableDocChunksInAsk || !settings.EnableSemanticRetrieval || !embeddingService.IsAvailable)
+        {
+            return DocumentationBlock.Empty;
+        }
+
+        var forbidRowData = deploymentOptions?.Value.ForbidRowDataToLlm == true;
+        var hits = await GetRelevantDocChunksAsync(projectId, question, DocChunksInAsk, ct);
+        var chunks = hits
+            .Where(x => !forbidRowData || !MayListValues(x))
+            .Take(DocChunksInAsk)
+            .ToList();
+        if (chunks.Count == 0)
+        {
+            return DocumentationBlock.Empty;
+        }
+
+        var body = new StringBuilder();
+        var items = new List<KnowledgeItemRef>();
+        foreach (var chunk in chunks)
+        {
+            if (body.Length > 0)
+            {
+                body.AppendLine();
+            }
+
+            if (!string.IsNullOrWhiteSpace(chunk.ContextualBlurb))
+            {
+                body.AppendLine(chunk.ContextualBlurb.Trim());
+                body.AppendLine();
+            }
+
+            body.AppendLine(chunk.ChunkText.Trim());
+            items.Add(new KnowledgeItemRef(McpKnowledgeItemKind.DocChunk, chunk.ChunkId, items.Count + 1));
+        }
+
+        var text = $"\n## Project Documentation\n\n{PromptData.Fence("documentation", body.ToString())}\n";
+
+        return new DocumentationBlock(new KnowledgeBlock(text, items), chunks.Any(MayListValues));
+    }
+
+    // Whether a documentation chunk may list values found in the data: cut from a section that can list them, or naming a
+    // section that was not found, whose type cannot be told. An imported document's chunk names no section.
+    private static bool MayListValues(DocChunkHit chunk)
+    {
+        return chunk.SectionType?.ListsValues() == true || (chunk.FromSection && chunk.SectionType == null);
+    }
+
+    // The documentation part, only when there is a block: without one the context, its budget and what it leaves out stay as
+    // they were before documentation could be shown.
+    private static IReadOnlyList<SchemaContextPart> DocumentationParts(DocumentationBlock documentation)
+    {
+        return documentation.Block.Text.Length == 0
+            ? []
+            : [new SchemaContextPart(SchemaContextPartKind.Documentation, documentation.Block.Text)];
+    }
+
+    // Whether the context sends a chunk cut from a section that can list values found in the data.
+    private static bool DocumentationListsValues(BudgetedSchemaContext budgeted, DocumentationBlock documentation)
+    {
+        return documentation.ListsValues && !budgeted.PartsLeftOut.Contains(SchemaContextPartKind.Documentation);
     }
 
     public async Task<Dictionary<string, HashSet<string>>> GetSchemaCatalogAsync(int dataSourceId, int projectId, CancellationToken ct = default)
@@ -467,7 +701,9 @@ internal sealed partial class KnowledgeGraphService
                 {
                     results.Add(new DocChunkHit(chunk.ChunkText, chunk.ContextualBlurb)
                     {
-                        SectionType = sectionTypes.TryGetValue(chunk.SourceSectionId, out var sectionType) ? sectionType : null
+                        ChunkId = chunk.Id,
+                        SectionType = sectionTypes.TryGetValue(chunk.SourceSectionId, out var sectionType) ? sectionType : null,
+                        FromSection = chunk.SourceSectionId != 0
                     });
                 }
             }
@@ -562,7 +798,7 @@ internal sealed partial class KnowledgeGraphService
     {
         if (!embeddingService.IsAvailable || !settings.EnableSemanticRetrieval)
         {
-            return KnowledgeBlock.Empty;
+            return await KeywordGlossaryBlockAsync(projectId, question, settings, dialect, ct);
         }
 
         // Fail CLOSED like the sibling retrieval paths: a transient embedding/vector-store error must NOT
@@ -614,51 +850,14 @@ internal sealed partial class KnowledgeGraphService
 
             var termsById = terms.ToDictionary(x => x.Id);
 
-            var sb = new StringBuilder();
-            var items = new List<KnowledgeItemRef>();
-            var leftOut = new List<int>();
-            foreach (var hit in hits)
-            {
-                if (!termsById.TryGetValue(hit.OwnerId, out var term))
-                {
-                    continue;
-                }
+            // The active terms of the project, in similarity order; the boost only reorders them.
+            var selected = hits
+                .Where(x => termsById.ContainsKey(x.OwnerId))
+                .Select(x => termsById[x.OwnerId])
+                .ToList();
+            var ordered = await BoostedAsync(context, settings, projectId, McpKnowledgeItemKind.GlossaryTerm, selected, x => x.Id, ct);
 
-                if (sb.Length == 0)
-                {
-                    sb.AppendLine("\n## Business Glossary\n");
-                }
-
-                var metricExpression = string.IsNullOrWhiteSpace(term.MetricExpression)
-                    ? null
-                    : GroundingSqlText.WithoutComments(term.MetricExpression, dialect);
-                if (!string.IsNullOrWhiteSpace(term.MetricExpression) && string.IsNullOrEmpty(metricExpression))
-                {
-                    leftOut.Add(term.Id);
-                }
-
-                sb.Append($"- **{PromptData.OneLine(term.Term)}**: {PromptData.OneLine(term.Definition)}");
-                var target = FormatGlossaryTarget(term, metricExpression);
-                if (target != null)
-                {
-                    sb.Append($" (→ {target})");
-                }
-
-                sb.AppendLine();
-                items.Add(new KnowledgeItemRef(McpKnowledgeItemKind.GlossaryTerm, term.Id, items.Count + 1));
-            }
-
-            var withheldTerms = DueToLog("glossary-metric", leftOut);
-            if (withheldTerms.Count > 0)
-            {
-                logger.LogWarning(
-                    "{Count} glossary metric expression(s) of project {ProjectId} were left out of the prompt: they hold a comment that cannot be removed or characters that do not show (terms {TermIds})",
-                    withheldTerms.Count,
-                    projectId,
-                    string.Join(",", withheldTerms));
-            }
-
-            return new KnowledgeBlock(sb.ToString(), items);
+            return GlossaryBlock(projectId, ordered, dialect);
         }
         catch (OperationCanceledException)
         {
@@ -669,6 +868,118 @@ internal sealed partial class KnowledgeGraphService
             logger.LogWarning("Glossary retrieval failed for project {ProjectId}; injecting no glossary block ({Failure}).", projectId, FailureCodes.Describe(ex));
             return KnowledgeBlock.Empty;
         }
+    }
+
+    // The glossary without semantic retrieval (no embedder, or semantic retrieval off): the project's active terms whose term
+    // or a synonym occurs in the question as a whole word (case-insensitive, invariant), the longest match first, at most
+    // GlossaryTopK, in the same block as the semantic path. At most KeywordGlossaryTerms terms are read, the newest; a project
+    // that reaches the cap is warned about (its older terms are not matched). No term named → no block. Fails closed like the
+    // semantic path.
+    private async Task<KnowledgeBlock> KeywordGlossaryBlockAsync(
+        int projectId, string question, McpSettingsData settings, string? dialect, CancellationToken ct)
+    {
+        try
+        {
+            await using var context = await contextFactory.CreateDbContextAsync(ct);
+            var terms = await context.McpGlossaryTerms
+                .Where(x => x.ProjectId == projectId)
+                .Where(x => x.IsActive)
+                .OrderByDescending(x => x.Id)
+                .Take(KeywordGlossaryTerms)
+                .Select(x =>
+                    new GlossaryHit
+                    {
+                        Id = x.Id,
+                        Term = x.Term,
+                        Definition = x.Definition,
+                        TargetSchema = x.TargetSchema,
+                        TargetTable = x.TargetTable,
+                        TargetColumn = x.TargetColumn,
+                        MetricExpression = x.MetricExpression,
+                        Synonyms = x.Synonyms
+                    })
+                .ToListAsync(ct);
+            if (terms.Count == KeywordGlossaryTerms)
+            {
+                logger.LogWarning(
+                    "Glossary keyword match for project {ProjectId} read only the newest {Cap} active terms; older terms are not matched.",
+                    projectId, KeywordGlossaryTerms);
+            }
+
+            var named = new List<(GlossaryHit Term, int MatchLength)>();
+            foreach (var term in terms)
+            {
+                var matchLength = GlossaryKeywords.LongestMatch(question, term.Term, term.Synonyms);
+                if (matchLength > 0)
+                {
+                    named.Add((term, matchLength));
+                }
+            }
+
+            var ordered = named
+                .OrderByDescending(x => x.MatchLength)
+                .ThenBy(x => x.Term.Id)
+                .Take(Math.Max(1, settings.GlossaryTopK))
+                .Select(x => x.Term)
+                .ToList();
+
+            return GlossaryBlock(projectId, ordered, dialect);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning("Glossary keyword match failed for project {ProjectId}; injecting no glossary block ({Failure}).", projectId, FailureCodes.Describe(ex));
+            return KnowledgeBlock.Empty;
+        }
+    }
+
+    // The "## Business Glossary" block of the given terms, in the order given, and their ids in rendered order; empty
+    // without a term.
+    private KnowledgeBlock GlossaryBlock(int projectId, IReadOnlyList<GlossaryHit> ordered, string? dialect)
+    {
+        var sb = new StringBuilder();
+        var items = new List<KnowledgeItemRef>();
+        var leftOut = new List<int>();
+        foreach (var term in ordered)
+        {
+            if (sb.Length == 0)
+            {
+                sb.AppendLine("\n## Business Glossary\n");
+            }
+
+            var metricExpression = string.IsNullOrWhiteSpace(term.MetricExpression)
+                ? null
+                : GroundingSqlText.WithoutComments(term.MetricExpression, dialect);
+            if (!string.IsNullOrWhiteSpace(term.MetricExpression) && string.IsNullOrEmpty(metricExpression))
+            {
+                leftOut.Add(term.Id);
+            }
+
+            sb.Append($"- **{PromptData.OneLine(term.Term)}**: {PromptData.OneLine(term.Definition)}");
+            var target = FormatGlossaryTarget(term, metricExpression);
+            if (target != null)
+            {
+                sb.Append($" (→ {target})");
+            }
+
+            sb.AppendLine();
+            items.Add(new KnowledgeItemRef(McpKnowledgeItemKind.GlossaryTerm, term.Id, items.Count + 1));
+        }
+
+        var withheldTerms = DueToLog("glossary-metric", leftOut);
+        if (withheldTerms.Count > 0)
+        {
+            logger.LogWarning(
+                "{Count} glossary metric expression(s) of project {ProjectId} were left out of the prompt: they hold a comment that cannot be removed or characters that do not show (terms {TermIds})",
+                withheldTerms.Count,
+                projectId,
+                string.Join(",", withheldTerms));
+        }
+
+        return new KnowledgeBlock(sb.ToString(), items);
     }
 
     /// <summary>
@@ -754,9 +1065,11 @@ internal sealed partial class KnowledgeGraphService
 
             var casesById = cases.ToDictionary(x => x.Id);
             var budget = Math.Max(0, settings.GoldenExemplarBudgetChars);
+            var heading = $"\n## Verified query examples (authoritative)\n{Environment.NewLine}";
 
-            var sb = new StringBuilder();
-            var items = new List<KnowledgeItemRef>();
+            // The cases the budget keeps, chosen in similarity order; the boost then only reorders them.
+            var selected = new List<(int Id, string Entry)>();
+            var selectedChars = heading.Length;
             var leftOut = new List<int>();
             foreach (var hit in hits)
             {
@@ -778,17 +1091,27 @@ internal sealed partial class KnowledgeGraphService
                 // Budget guard: stop before exceeding the char budget so a large gold SQL can't blow the
                 // context. The first fitting entry is always emitted (better one verified example than none),
                 // so the guard only trims later entries.
-                if (budget > 0 && sb.Length > 0 && sb.Length + entry.Length > budget)
+                if (budget > 0 && selected.Count > 0 && selectedChars + entry.Length > budget)
                 {
                     break;
                 }
 
+                selected.Add((golden.Id, entry));
+                selectedChars += entry.Length;
+            }
+
+            var ordered = await BoostedAsync(context, settings, projectId, McpKnowledgeItemKind.GoldenCase, selected, x => x.Id, ct);
+
+            var sb = new StringBuilder();
+            var items = new List<KnowledgeItemRef>();
+            foreach (var golden in ordered)
+            {
                 if (sb.Length == 0)
                 {
-                    sb.AppendLine("\n## Verified query examples (authoritative)\n");
+                    sb.Append(heading);
                 }
 
-                sb.Append(entry);
+                sb.Append(golden.Entry);
                 items.Add(new KnowledgeItemRef(McpKnowledgeItemKind.GoldenCase, golden.Id, items.Count + 1));
             }
 
@@ -870,7 +1193,7 @@ internal sealed partial class KnowledgeGraphService
     }
 
     // The row-derived data an ask context carries, for the egress log (LlmRowDataEgress).
-    private static List<string> RowDataCategoriesOf(bool samplesShown, string valueMatches)
+    private static List<string> RowDataCategoriesOf(bool samplesShown, string valueMatches, bool documentationListsValues)
     {
         var categories = new List<string>();
         if (samplesShown)
@@ -881,6 +1204,11 @@ internal sealed partial class KnowledgeGraphService
         if (!string.IsNullOrEmpty(valueMatches))
         {
             categories.Add(LlmRowDataCategories.ValueMatches);
+        }
+
+        if (documentationListsValues)
+        {
+            categories.Add(LlmRowDataCategories.StoredDocumentation);
         }
 
         return categories;
@@ -1105,7 +1433,10 @@ internal sealed partial class KnowledgeGraphService
                     context, patterns, lowerTables, questionVector ?? new MaskedQuestionVector(embeddingService, question!), dataSourceId, projectId, settings.ExemplarTopK, ct);
                 if (semanticRanked != null)
                 {
-                    return ApplyBudget(semanticRanked, maxPatterns, budgetChars);
+                    return ApplyBudget(
+                        await BoostedAsync(context, settings, projectId, McpKnowledgeItemKind.LearnedPattern, semanticRanked, x => x.Id, ct),
+                        maxPatterns,
+                        budgetChars);
                 }
                 // No exemplar vectors indexed / none mapped back — fall through to overlap behaviour.
             }
@@ -1120,7 +1451,10 @@ internal sealed partial class KnowledgeGraphService
         }
 
         // Behaviour-preserving fallback: the historical table-overlap ranking over ALL pattern types.
-        return ApplyBudget(RankByTableOverlap(patterns, lowerTables), maxPatterns, budgetChars);
+        return ApplyBudget(
+            await BoostedAsync(context, settings, projectId, McpKnowledgeItemKind.LearnedPattern, RankByTableOverlap(patterns, lowerTables), x => x.Id, ct),
+            maxPatterns,
+            budgetChars);
     }
 
     // Semantic path (§ Architecture ⑧): embed the masked question once, pull the nearest Exemplar embeddings
@@ -1251,6 +1585,59 @@ internal sealed partial class KnowledgeGraphService
         }
 
         return result;
+    }
+
+    // The bounded rank boost (KnowledgeItemBoost) over the items the project's retrieval selected, given in retrieval order.
+    // Off (EnableKnowledgeItemBoost, the default), or with the project's learning switched off (the learning job no longer
+    // recomputes its counters, so they may be stale), the stats are not read and the items come back as they are. On, the
+    // stats rows of exactly these items are read once, of the caller's authorized project only (§1.12), never cached. A
+    // read that fails keeps the retrieval order and is logged by ids only (§1.11); cancellation propagates.
+    private async Task<List<T>> BoostedAsync<T>(
+        BeaconContext context, McpSettingsData settings, int projectId, McpKnowledgeItemKind kind, List<T> items, Func<T, int> idOf, CancellationToken ct)
+    {
+        if (!settings.EnableKnowledgeItemBoost || !settings.EnableLearning || items.Count < 2)
+        {
+            return items;
+        }
+
+        var itemIds = items
+            .Select(idOf)
+            .Distinct()
+            .ToList();
+
+        try
+        {
+            var evidence = await context.McpKnowledgeItemStats
+                .Where(x => x.ProjectId == projectId)
+                .Where(x => x.Kind == kind)
+                .Where(x => itemIds.Contains(x.ItemId))
+                .Select(x =>
+                    new KnowledgeItemEvidence
+                    {
+                        ItemId = x.ItemId,
+                        HelpfulScore = x.HelpfulScore,
+                        HarmfulScore = x.HarmfulScore,
+                        SignalCount = x.SignalCount,
+                        CallerCount = x.CallerCount
+                    })
+                .ToListAsync(ct);
+
+            return KnowledgeItemBoost.Reorder(items, idOf, evidence);
+        }
+        catch (OperationCanceledException)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            logger.LogWarning(
+                "Knowledge item stats of project {ProjectId} could not be read for {Kind} items; keeping the retrieval order ({Failure}).",
+                projectId,
+                kind,
+                FailureCodes.Describe(ex));
+
+            return items;
+        }
     }
 
     // The bank with each example as the prompt shows it: SQL without comments (the dialect read only when an example holds a
@@ -1469,6 +1856,13 @@ internal sealed partial class KnowledgeGraphService
         public string? TargetTable { get; init; }
         public string? TargetColumn { get; init; }
         public string? MetricExpression { get; init; }
+        public string? Synonyms { get; init; }
+    }
+
+    // An ask context's documentation block, and whether a chunk it shows was cut from a section that can list values.
+    private sealed record DocumentationBlock(KnowledgeBlock Block, bool ListsValues)
+    {
+        public static DocumentationBlock Empty { get; } = new(KnowledgeBlock.Empty, false);
     }
 
     private sealed class GoldenCaseHit

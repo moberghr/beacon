@@ -374,6 +374,197 @@ public class DocChunkIndexingServiceTests
         capturedEmbeddings.Select(x => x.OwnerId).Should().NotContain(keptChunk.Id);
     }
 
+    // SC10: a section whose generation failed holds a fixed text, not documentation. It gets no chunks, and the chunks (and
+    // their vectors) it had from an earlier, successful generation are pruned instead of lingering in retrieval.
+    [Test]
+    public async Task ReindexAsync_AFailedSection_GetsNoChunks_AndItsEarlierChunksArePruned()
+    {
+        var settings = new McpSettingsData { EnableSemanticRetrieval = true, EnableContextualRetrieval = true, DocChunkWindowSentences = 3, DocChunkOverlapSentences = 1 };
+        var stored = StoredChunks(settings, blurb: "old blurb");
+        var storedEmbeddings = stored
+            .Select((x, i) => NewExistingDocChunkEmbedding(id: 600 + i, ownerId: x.Id))
+            .ToList();
+        var llm = new Mock<ILlmProvider>(MockBehavior.Strict);
+        var embeddings = new CapturingEmbeddingService();
+        var capturedChunks = new List<McpDocChunk>();
+        var capturedEmbeddings = new List<McpEmbedding>();
+        var removedChunks = new List<McpDocChunk>();
+        var removedEmbeddings = new List<McpEmbedding>();
+
+        var service = BuildService(
+            settings, embeddings, llm.Object,
+            existingChunks: stored, existingEmbeddings: storedEmbeddings,
+            capturedChunks, capturedEmbeddings, removedChunks, removedEmbeddings,
+            sectionContent: FailedDocumentationSection.Content);
+
+        await service.ReindexAsync(CancellationToken.None);
+
+        capturedChunks.Should().BeEmpty("the failed section's fixed text is never chunked");
+        capturedEmbeddings.Should().BeEmpty();
+        embeddings.BatchTexts.Should().NotContain(x => x.Contains("Generation failed"));
+        removedChunks.Select(x => x.Id).Should().BeEquivalentTo(stored.Select(x => x.Id));
+        removedEmbeddings.Select(x => x.OwnerId).Should().BeEquivalentTo(stored.Select(x => x.Id));
+        llm.Invocations.Should().BeEmpty("no blurb is asked for a failed section");
+    }
+
+    // Two runs that overlapped (another process, which the in-process lock does not hold) inserted the same chunk and
+    // vector twice. The next run keeps the lowest id per key, removes the rest with their vectors, and warns once.
+    [Test]
+    public async Task ReindexAsync_DuplicateChunksAndVectors_KeepsTheLowestId_RemovesTheRest_AndWarns()
+    {
+        var settings = new McpSettingsData { EnableSemanticRetrieval = true, EnableContextualRetrieval = false, DocChunkWindowSentences = 3, DocChunkOverlapSentences = 1 };
+        var kept = new McpDocChunk { Id = 901, ProjectId = ProjectId, SourceSectionId = SectionId, SortOrder = 0, ChunkText = "first" };
+        var duplicate = new McpDocChunk { Id = 905, ProjectId = ProjectId, SourceSectionId = SectionId, SortOrder = 0, ChunkText = "second" };
+        var keptEmbedding = NewExistingDocChunkEmbedding(id: 811, ownerId: kept.Id);
+        var duplicateEmbedding = NewExistingDocChunkEmbedding(id: 812, ownerId: kept.Id);
+        var duplicateChunkEmbedding = NewExistingDocChunkEmbedding(id: 815, ownerId: duplicate.Id);
+        var capturedChunks = new List<McpDocChunk>();
+        var capturedEmbeddings = new List<McpEmbedding>();
+        var removedChunks = new List<McpDocChunk>();
+        var removedEmbeddings = new List<McpEmbedding>();
+        var logger = new ListLogger<DocChunkIndexingService>();
+
+        var service = BuildService(
+            settings, new CapturingEmbeddingService(), new Mock<ILlmProvider>().Object,
+            existingChunks: [duplicate, kept],
+            existingEmbeddings: [duplicateChunkEmbedding, duplicateEmbedding, keptEmbedding],
+            capturedChunks, capturedEmbeddings, removedChunks, removedEmbeddings,
+            logger: logger);
+
+        await service.ReindexAsync(CancellationToken.None);
+
+        removedChunks.Select(x => x.Id).Should().Equal(duplicate.Id);
+        removedEmbeddings.Select(x => x.Id).Should().BeEquivalentTo([duplicateEmbedding.Id, duplicateChunkEmbedding.Id]);
+        capturedChunks.Should().NotContain(x => x.SortOrder == 0, "the kept chunk is updated in place");
+        capturedEmbeddings.Select(x => x.OwnerId).Should().NotContain(kept.Id, "the kept vector is updated in place");
+        logger.Entries.Should().ContainSingle(x => x.Level == LogLevel.Warning)
+            .Which.Message.Should().Be($"Doc-chunk re-index for project {ProjectId} removed 3 duplicate chunk or vector row(s) an overlapping run had written.");
+    }
+
+    [Test]
+    public async Task ReindexAsync_DuplicateGlossaryVectors_KeepsTheLowestId_AndRemovesTheRest()
+    {
+        var settings = new McpSettingsData { EnableSemanticRetrieval = true, EnableContextualRetrieval = false, DocChunkWindowSentences = 3, DocChunkOverlapSentences = 1 };
+        var term = new McpGlossaryTerm { Id = 30, ProjectId = ProjectId, Term = "churn", Definition = "Customers lost." };
+        var kept = NewExistingGlossaryEmbedding(id: 401, ownerId: term.Id);
+        var duplicate = NewExistingGlossaryEmbedding(id: 402, ownerId: term.Id);
+        var capturedEmbeddings = new List<McpEmbedding>();
+        var removedEmbeddings = new List<McpEmbedding>();
+
+        var service = BuildService(
+            settings, new CapturingEmbeddingService(), new Mock<ILlmProvider>().Object,
+            existingChunks: [], existingEmbeddings: [duplicate, kept],
+            capturedChunks: [], capturedEmbeddings, removedChunks: [], removedEmbeddings,
+            glossaryTerms: [term]);
+
+        await service.ReindexAsync(CancellationToken.None);
+
+        removedEmbeddings.Select(x => x.Id).Should().Equal(duplicate.Id);
+        capturedEmbeddings.Should().NotContain(x => x.OwnerType == McpEmbeddingOwnerType.GlossaryTerm, "the kept vector is updated in place");
+    }
+
+    [Test]
+    public async Task ReindexAsync_DuplicateImportedChunkVectors_AreRemoved_EvenWhenNothingIsToEmbed()
+    {
+        var settings = new McpSettingsData { EnableSemanticRetrieval = true, EnableContextualRetrieval = false, DocChunkWindowSentences = 3, DocChunkOverlapSentences = 1 };
+        var document = new ProjectImportedDocument { Id = 70, ProjectId = ProjectId, SourceKey = "docs", Path = "a.md", Title = "A", ContentHash = "h", Content = "Text." };
+        var imported = new McpDocChunk { Id = 950, ProjectId = ProjectId, ImportedDocumentId = document.Id, ImportedDocument = document, SortOrder = 0, ChunkText = "Text." };
+        var kept = NewExistingDocChunkEmbedding(id: 501, ownerId: imported.Id);
+        var duplicate = NewExistingDocChunkEmbedding(id: 502, ownerId: imported.Id);
+        var embeddings = new CapturingEmbeddingService();
+        var removedEmbeddings = new List<McpEmbedding>();
+
+        var service = BuildService(
+            settings, embeddings, new Mock<ILlmProvider>().Object,
+            existingChunks: [imported], existingEmbeddings: [duplicate, kept],
+            capturedChunks: [], capturedEmbeddings: [], removedChunks: [], removedEmbeddings);
+
+        await service.ReindexProjectAsync(ProjectId, CancellationToken.None);
+
+        // The mocked set keeps a removed row readable, so the section pass that follows meets (and removes) it again.
+        removedEmbeddings.Select(x => x.Id).Distinct().Should().Equal(duplicate.Id);
+        embeddings.BatchTexts.Should().NotContain(x => x.StartsWith("A\n\n"), "the kept vector is current, nothing is embedded again");
+    }
+
+    // A write's re-index overlapping another run of the same project waits for it instead of reading the same rows and
+    // inserting the same chunks twice.
+    [Test]
+    public async Task ReindexProjectAsync_TwoOverlappingRunsOfOneProject_RunOneAtATime()
+    {
+        var settings = new McpSettingsData { EnableSemanticRetrieval = true, EnableContextualRetrieval = false, DocChunkWindowSentences = 3, DocChunkOverlapSentences = 1 };
+        var embeddings = new GatedEmbeddingService();
+        var service = BuildService(
+            settings, embeddings, new Mock<ILlmProvider>().Object,
+            existingChunks: [], existingEmbeddings: [],
+            capturedChunks: [], capturedEmbeddings: [], removedChunks: [], removedEmbeddings: []);
+
+        var first = service.ReindexProjectAsync(ProjectId, CancellationToken.None);
+        Task? second = null;
+        try
+        {
+            await embeddings.Entered.Task.WaitAsync(TimeSpan.FromSeconds(10));
+            second = service.ReindexProjectAsync(ProjectId, CancellationToken.None);
+            await Task.Delay(200);
+
+            embeddings.Calls.Should().Be(1, "the second run waits for the first to finish");
+        }
+        finally
+        {
+            embeddings.Release.TrySetResult();
+        }
+
+        await first.WaitAsync(TimeSpan.FromSeconds(10));
+        await second!.WaitAsync(TimeSpan.FromSeconds(10));
+        embeddings.Calls.Should().Be(2);
+        embeddings.MaxConcurrent.Should().Be(1);
+    }
+
+    [Test]
+    public async Task AfterWriteAsync_CancelledByTheCaller_LogsInformation_AndDoesNotThrow()
+    {
+        using var cancellation = new CancellationTokenSource();
+        await cancellation.CancelAsync();
+        var indexing = new Mock<IDocChunkIndexingService>();
+        indexing
+            .Setup(x => x.ReindexProjectAsync(ProjectId, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new OperationCanceledException(cancellation.Token));
+        var logger = new ListLogger<DocChunkIndexingService>();
+
+        var act = () => DocChunkReindex.AfterWriteAsync(indexing.Object, ProjectId, logger, cancellation.Token);
+
+        await act.Should().NotThrowAsync();
+        logger.Entries.Should().ContainSingle()
+            .Which.Should().Be((LogLevel.Information, $"Indexing the glossary and documentation chunks of project {ProjectId} after a write was cancelled; the recurring re-index catches up."));
+    }
+
+    [Test]
+    public async Task AfterWriteAsync_ACancellationTheCallerDidNotAskFor_IsLoggedAsAFailure()
+    {
+        var indexing = new Mock<IDocChunkIndexingService>();
+        indexing
+            .Setup(x => x.ReindexProjectAsync(ProjectId, It.IsAny<CancellationToken>()))
+            .ThrowsAsync(new OperationCanceledException());
+        var logger = new ListLogger<DocChunkIndexingService>();
+
+        await DocChunkReindex.AfterWriteAsync(indexing.Object, ProjectId, logger, CancellationToken.None);
+
+        logger.Entries.Should().ContainSingle(x => x.Level == LogLevel.Warning);
+    }
+
+    private static McpEmbedding NewExistingGlossaryEmbedding(int id, int ownerId) =>
+        new()
+        {
+            Id = id,
+            DataSourceId = null,
+            ProjectId = ProjectId,
+            OwnerType = McpEmbeddingOwnerType.GlossaryTerm,
+            OwnerId = ownerId,
+            EmbeddingBytes = new byte[ExpectedByteLength],
+            Model = "bge-small-en-v1.5",
+            Dimensions = 384,
+            EmbeddingVersion = 1
+        };
+
     private static McpSettingsData ContextualSettings() =>
         new()
         {
@@ -533,7 +724,9 @@ public class DocChunkIndexingServiceTests
         ProjectDocSectionType sectionType = ProjectDocSectionType.ProjectOverview,
         ILlmRowDataEgress? egress = null,
         bool forbidRowData = false,
-        McpSettingsData? projectSettings = null)
+        McpSettingsData? projectSettings = null,
+        string sectionContent = SectionContent,
+        List<McpGlossaryTerm>? glossaryTerms = null)
     {
         var documentation = new ProjectDocumentation
         {
@@ -549,7 +742,7 @@ public class DocChunkIndexingServiceTests
             ProjectDocumentationId = documentation.Id,
             SectionType = sectionType,
             Title = "Project Overview",
-            Content = SectionContent,
+            Content = sectionContent,
             SortOrder = 0,
             Documentation = documentation
         };
@@ -581,9 +774,9 @@ public class DocChunkIndexingServiceTests
             .Setup(x => x.RemoveRange(It.IsAny<IEnumerable<McpEmbedding>>()))
             .Callback((IEnumerable<McpEmbedding> entities) => removedEmbeddings.AddRange(entities));
 
-        // The reindex also runs a glossary pass (⑪): these fixtures seed no glossary terms, so an empty set
+        // The reindex also runs a glossary pass (⑪): most fixtures seed no glossary terms, so an empty set
         // makes that pass a no-op and leaves the doc-chunk assertions untouched.
-        var glossarySet = BuildDbSet(new List<McpGlossaryTerm>());
+        var glossarySet = BuildDbSet(glossaryTerms ?? []);
 
         // SaveChanges assigns DB-generated ids to newly-added chunks (Id == 0) so the second unit of work
         // can key each chunk's embedding by its id — the real chunk-id chicken/egg the service handles with
@@ -727,6 +920,61 @@ public class DocChunkIndexingServiceTests
         {
             BatchTexts.AddRange(texts);
             return _inner.EmbedBatchAsync(texts, ct);
+        }
+    }
+
+    /// <summary>Holds every batch until released and records how many batches ran at once.</summary>
+    private sealed class GatedEmbeddingService : IBeaconEmbeddingService
+    {
+        private readonly FakeEmbeddingService _inner = new();
+        private int _active;
+        private int _calls;
+        private int _maxConcurrent;
+
+        public TaskCompletionSource Entered { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public TaskCompletionSource Release { get; } = new(TaskCreationOptions.RunContinuationsAsynchronously);
+
+        public int Calls => Volatile.Read(ref _calls);
+
+        public int MaxConcurrent => Volatile.Read(ref _maxConcurrent);
+
+        public int Dimensions => _inner.Dimensions;
+
+        public bool IsAvailable => true;
+
+        public Task<float[]> EmbedAsync(string text, CancellationToken ct) => _inner.EmbedAsync(text, ct);
+
+        public async Task<IReadOnlyList<float[]>> EmbedBatchAsync(IReadOnlyList<string> texts, CancellationToken ct)
+        {
+            var active = Interlocked.Increment(ref _active);
+            Interlocked.Increment(ref _calls);
+            InterlockedMax(ref _maxConcurrent, active);
+            Entered.TrySetResult();
+            try
+            {
+                await Release.Task.WaitAsync(TimeSpan.FromSeconds(10), ct);
+                return await _inner.EmbedBatchAsync(texts, ct);
+            }
+            finally
+            {
+                Interlocked.Decrement(ref _active);
+            }
+        }
+
+        private static void InterlockedMax(ref int target, int value)
+        {
+            var current = Volatile.Read(ref target);
+            while (value > current)
+            {
+                var seen = Interlocked.CompareExchange(ref target, value, current);
+                if (seen == current)
+                {
+                    return;
+                }
+
+                current = seen;
+            }
         }
     }
 

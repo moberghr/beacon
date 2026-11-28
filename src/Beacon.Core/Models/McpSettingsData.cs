@@ -64,6 +64,17 @@ public class McpSettingsData
     public int MaxConcurrentQueriesPerKey { get; set; } = 4;
     public bool AllowExplicitFeedbackContent { get; set; } = true;
 
+    // Knowledge-learning settings
+    // Off by default: reorders the knowledge items retrieval selected by how the answers that carried them went.
+    public bool EnableKnowledgeItemBoost { get; set; }
+
+    // Off by default: the nightly eval run spends LLM calls.
+    public bool EnableScheduledEval { get; set; }
+
+    // Knowledge-documentation settings
+    // Off by default: adds the project's documentation chunks to the ask prompt.
+    public bool EnableDocChunksInAsk { get; set; }
+
     /// <summary>
     /// True when the deployment lock <c>Beacon:Mcp:ForceReadOnly</c> turned <see cref="EnforceReadOnly"/> on over a stored
     /// value that had it off, so a refusal can name the lock. Set at resolution; never serialized.

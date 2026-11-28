@@ -313,9 +313,15 @@ internal static class SchemaContextFormatter
         sb.AppendLine();
     }
 
+    /// <summary>How a column's line of the ask layout starts; the ask context finds the line of a column by it.</summary>
+    public static string TupleColumnLineStart(string columnName)
+    {
+        return $"    - ({columnName}: ";
+    }
+
     private static void AppendTupleColumn(StringBuilder sb, SchemaColumn col)
     {
-        sb.Append($"    - ({col.ColumnName}: {FormatDataType(col)}");
+        sb.Append($"{TupleColumnLineStart(col.ColumnName)}{FormatDataType(col)}");
         if (col.IsPrimaryKey)
         {
             sb.Append(", PK");

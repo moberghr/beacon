@@ -1,20 +1,27 @@
 using MediatR;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Beacon.Core.Data;
 using Beacon.Core.Authorization;
 using Beacon.Core.Authorization.ProjectAccess;
 using Beacon.Core.SecurityAudit;
+using Beacon.Core.Services;
 
 namespace Beacon.Core.Handlers.McpGlossary;
 
 /// <summary>
 /// Edits a glossary term — its text, synonyms, definition, target column/metric, data-source scope, or
 /// active flag. Only the fields supplied on the command are applied; the rest are left untouched. Throws
-/// (§9.8) when the term does not exist. The next glossary re-index re-embeds the changed text. The edit is recorded in the
+/// (§9.8) when the term does not exist. The project's glossary is indexed again right after the save
+/// (<see cref="DocChunkReindex"/>, best effort: a failure leaves it to the next re-index and never fails the edit). The edit is recorded in the
 /// security audit with the names of the fields it supplied and a keyed digest of each text field before and after (never
 /// their text; <see cref="CurationContentAudit"/>) in the same save.
 /// </summary>
-internal sealed class UpdateGlossaryTermHandler(IDbContextFactory<BeaconContext> contextFactory, ISecurityAuditRecorder securityAudit)
+internal sealed class UpdateGlossaryTermHandler(
+    IDbContextFactory<BeaconContext> contextFactory,
+    ISecurityAuditRecorder securityAudit,
+    ILogger<UpdateGlossaryTermHandler> logger,
+    IDocChunkIndexingService? docChunkIndexing = null)
     : IRequestHandler<UpdateGlossaryTermCommand>
 {
     public async Task Handle(UpdateGlossaryTermCommand request, CancellationToken cancellationToken)
@@ -99,6 +106,8 @@ internal sealed class UpdateGlossaryTermHandler(IDbContextFactory<BeaconContext>
                 .Digesting(CurationContentAudit.AfterKey, CurationContentAudit.Of(term)),
             cancellationToken);
         await context.SaveChangesAsync(cancellationToken);
+
+        await DocChunkReindex.AfterWriteAsync(docChunkIndexing, term.ProjectId, logger, cancellationToken);
     }
 
     // The fields the request supplied, by name: what the edit may have changed, never what it wrote.

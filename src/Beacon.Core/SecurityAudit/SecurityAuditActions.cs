@@ -221,6 +221,7 @@ public static class SecurityAuditActions
     public const string DocumentationSectionEdited = "curation.documentation_section_edited";
     public const string DocumentationGenerated = "curation.documentation_generated";
     public const string DocumentationGenerationStarted = "curation.documentation_generation_started";
+    public const string ColumnDescriptionsProposed = "curation.column_descriptions_proposed";
 
     // Data quality
     public const string ContractCreated = "data_quality.contract_created";

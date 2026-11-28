@@ -44,7 +44,8 @@ internal sealed class McpEvalService(
     IMcpSettingsProvider settingsProvider,
     ILlmProvider llmProvider,
     ILlmRowDataEgress rowDataEgress,
-    ILogger<McpEvalService> logger) : IMcpEvalService
+    ILogger<McpEvalService> logger,
+    ISqlExecutionAudit? executionAudit = null) : IMcpEvalService
 {
     // Hard cap on rows handed to the (opt-in, PII-redacted) judge so a large result set never balloons
     // the prompt — the judge only needs a structural sample to spot a cosmetic-only difference.
@@ -62,7 +63,7 @@ internal sealed class McpEvalService(
         return triggeredByUserId?.ToString(System.Globalization.CultureInfo.InvariantCulture) ?? "eval-run";
     }
 
-    public async Task<int> StartRunAsync(int? projectId, int? userId, CancellationToken ct)
+    public async Task<int> StartRunAsync(int? projectId, int? userId, McpEvalRunTrigger trigger, CancellationToken ct)
     {
         // Golden cases are project-scoped grounding (§1.12): a run without a project is refused before it is created.
         if (projectId == null)
@@ -79,7 +80,8 @@ internal sealed class McpEvalService(
             ProjectId = projectId,
             TriggeredByUserId = userId,
             Status = "Running",
-            JudgeEnabled = JudgeAllowed(settings)
+            JudgeEnabled = JudgeAllowed(settings),
+            Trigger = trigger
         };
 
         context.McpEvalRuns.Add(run);
@@ -302,6 +304,46 @@ internal sealed class McpEvalService(
         // treat it as a clean fail (false flip) or a clean pass turning into a fail (false regression).
         var measurable = outcome.GoldExec.Success && outcome.GeneratedExec.Success;
         return new CaseEvaluation(outcome.Passed, measurable);
+    }
+
+    public async Task<GoldSqlReplay> ReplayGoldSqlAsync(int dataSourceId, int? projectId, string sql, CancellationToken ct)
+    {
+        var settings = projectId is { } id
+            ? await settingsProvider.GetEffectiveSettingsAsync(id, ct)
+            : await settingsProvider.GetSettingsAsync(ct);
+
+        // The executor an eval run executes a case's gold SQL with: the gate (read-only forced, the row security context
+        // from the resolver), then the provider's read-only path (§1.5, §1.15). No generation, no judge. A person starts the
+        // replay (a promotion), so the statement is in the execution log before it is sent, attributed to the caller, and
+        // its row is closed with how it ended (§1.7); a row that cannot be written while the log is required stops it.
+        var evalExecutor = new EvalReadOnlySqlExecutor(contextFactory, providerFactory, sqlGate, configuredDatabases, rowSecurityResolver, settings, executionAudit);
+        try
+        {
+            var goldExec = await evalExecutor.ExecuteReadOnlyAsync(dataSourceId, sql, ct);
+            if (!goldExec.Success)
+            {
+                // Refused by the gate or answered with an error: neither the SQL nor the error text is logged (§1.11).
+                logger.LogInformation("Gold SQL replay on data source {DataSourceId} (project {ProjectId}) did not run", dataSourceId, projectId);
+
+                return GoldSqlReplay.DidNotRun;
+            }
+
+            return new GoldSqlReplay(true, ResultSetFingerprint.Compute(goldExec.Rows));
+        }
+        catch (OperationCanceledException) when (ct.IsCancellationRequested)
+        {
+            throw;
+        }
+        catch (Exception ex)
+        {
+            // An unreachable, disabled or missing data source, the statement timeout, or an execution log row that could
+            // not be written while the log is required: the SQL did not run now.
+            logger.LogWarning(
+                "Gold SQL replay on data source {DataSourceId} (project {ProjectId}) failed ({Failure})",
+                dataSourceId, projectId, FailureCodes.Describe(ex));
+
+            return GoldSqlReplay.DidNotRun;
+        }
     }
 
     /// <summary>

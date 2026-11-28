@@ -100,6 +100,14 @@ public static class McpRetentionDenyList
         Rule<McpDocumentationPatch>(nameof(McpDocumentationPatch.CurrentContent), RetentionKind.Structural),
         Rule<McpDocumentationPatch>(nameof(McpDocumentationPatch.ProposedContent), RetentionKind.Structural),
         Rule<McpDocumentationPatch>(nameof(McpDocumentationPatch.Reasoning), RetentionKind.Structural),
+        Rule<McpDocumentationPatch>(nameof(McpDocumentationPatch.GeneratedByModel), RetentionKind.Structural),
+
+        // McpDescriptionItem — who wrote a catalog description and when: names, a structure hash and a model name.
+        Rule<McpDescriptionItem>(nameof(McpDescriptionItem.SchemaName), RetentionKind.Structural),
+        Rule<McpDescriptionItem>(nameof(McpDescriptionItem.TableName), RetentionKind.Structural),
+        Rule<McpDescriptionItem>(nameof(McpDescriptionItem.ColumnName), RetentionKind.Structural),
+        Rule<McpDescriptionItem>(nameof(McpDescriptionItem.GeneratedByModel), RetentionKind.Structural),
+        Rule<McpDescriptionItem>(nameof(McpDescriptionItem.StructureHash), RetentionKind.Structural),
 
         // McpEvalCase — a golden case copies the question and its SQL; promotion is blocked under the lock.
         Rule<McpEvalCase>(nameof(McpEvalCase.Question), RetentionKind.Content),
@@ -142,6 +150,7 @@ public static class McpRetentionDenyList
         Rule<McpSettings>(nameof(McpSettings.AskDescription), RetentionKind.Structural),
         Rule<McpSettings>(nameof(McpSettings.CustomPiiPatterns), RetentionKind.Structural),
 
+        Rule<McpProjectSettings>(nameof(McpProjectSettings.GlobalInstruction), RetentionKind.Structural),
         Rule<McpProjectSettings>(nameof(McpProjectSettings.CustomPiiPatterns), RetentionKind.Structural),
 
         // Subscription runs: the SQL that ran and the stored result snapshot are content. The comment is structure: it

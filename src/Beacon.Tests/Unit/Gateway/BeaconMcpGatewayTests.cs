@@ -85,7 +85,7 @@ public class BeaconMcpGatewayTests
         using var scope = provider.CreateScope();
 
         var eval = scope.ServiceProvider.GetRequiredService<Beacon.Core.Services.IMcpEvalService>();
-        var act = () => eval.StartRunAsync(1, 1, CancellationToken.None);
+        var act = () => eval.StartRunAsync(1, 1, Beacon.Core.Data.Enums.McpEvalRunTrigger.Manual, CancellationToken.None);
 
         eval.GetType().Name.Should().Be("AiDisabledMcpEvalService");
         await act.Should().ThrowAsync<InvalidOperationException>().WithMessage("*AI-backed features are unavailable*");

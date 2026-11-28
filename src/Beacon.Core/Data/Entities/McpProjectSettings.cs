@@ -5,14 +5,18 @@ namespace Beacon.Core.Data.Entities;
 
 /// <summary>
 /// Per-project overrides of <see cref="McpSettings"/>. Every field is nullable: <c>null</c> means "inherit the
-/// global value". The prompt and tool-description columns are deliberately absent — no project is known at
-/// <c>tools/list</c> time, so they stay global. Resolved by <c>IMcpSettingsProvider.GetEffectiveSettingsAsync</c>
-/// as deployment lock → project value → global value → code default.
+/// global value". The system prompt and tool-description columns are deliberately absent — no project is known at
+/// <c>tools/list</c> time, so they stay global; the instruction a project's prompts carry
+/// (<see cref="GlobalInstruction"/>) is the one prompt text a project may replace. Resolved by
+/// <c>IMcpSettingsProvider.GetEffectiveSettingsAsync</c> as deployment lock → project value → global value → code default.
 /// </summary>
 public class McpProjectSettings : BaseEntity
 {
     public int ProjectId { get; set; }
     public Project Project { get; set; } = null!;
+
+    /// <summary>Replaces the global instruction in this project's prompts; null or blank inherits it.</summary>
+    public string? GlobalInstruction { get; set; }
 
     public int? MaxRowLimit { get; set; }
     public bool? EnforceReadOnly { get; set; }
@@ -62,4 +66,11 @@ public class McpProjectSettings : BaseEntity
     public decimal? MaxExplainCost { get; set; }
     public int? MaxConcurrentQueriesPerKey { get; set; }
     public bool? AllowExplicitFeedbackContent { get; set; }
+
+    // Knowledge-learning settings
+    public bool? EnableKnowledgeItemBoost { get; set; }
+    public bool? EnableScheduledEval { get; set; }
+
+    // Knowledge-documentation settings
+    public bool? EnableDocChunksInAsk { get; set; }
 }

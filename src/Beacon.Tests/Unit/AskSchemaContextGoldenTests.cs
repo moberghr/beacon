@@ -368,7 +368,8 @@ public class AskSchemaContextGoldenTests
                 [typeof(McpEmbedding)] = BuildDbSet(embeddings).Object,
                 [typeof(McpGlossaryTerm)] = BuildDbSet(terms).Object,
                 [typeof(ColumnMetadata)] = BuildDbSet(metadata.SelectMany(x => x.Columns).ToList()).Object,
-                [typeof(ProjectDocumentationSection)] = BuildDbSet(new List<ProjectDocumentationSection>()).Object
+                [typeof(ProjectDocumentationSection)] = BuildDbSet(new List<ProjectDocumentationSection>()).Object,
+                [typeof(McpDescriptionItem)] = BuildDbSet(new List<McpDescriptionItem>()).Object
             };
         }
 

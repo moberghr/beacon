@@ -119,7 +119,7 @@ public class GroundingConditionalWriteTranslationTests
     {
         var digest = GroundingContentHash.OfPattern(Content, Question, Sql);
         var capture = Capture(sqlServer)
-            .ThenRow(2, 7, (int)McpPatternStatus.Pending, Content, Question, Sql, digest)
+            .ThenRow(2, 7, (int)McpPatternStatus.Pending, Content, Question, Sql, digest, DBNull.Value)
             .ThenRowsAffected(1);
 
         await StatusHandler(capture).Handle(Decide(McpPatternStatus.Rejected, digest), CancellationToken.None);
@@ -140,7 +140,7 @@ public class GroundingConditionalWriteTranslationTests
     {
         var digest = GroundingContentHash.OfPattern(Content, Question, Sql);
         var capture = Capture(sqlServer)
-            .ThenRow(2, 7, (int)McpPatternStatus.Pending, Content, Question, Sql, DBNull.Value)
+            .ThenRow(2, 7, (int)McpPatternStatus.Pending, Content, Question, Sql, DBNull.Value, DBNull.Value)
             .ThenRowsAffected(1)
             .ThenRowsAffected(1);
 
@@ -163,7 +163,7 @@ public class GroundingConditionalWriteTranslationTests
     {
         var reviewed = GroundingContentHash.OfPattern(Content, Question, Sql);
         var capture = Capture(sqlServer)
-            .ThenRow(2, 7, (int)McpPatternStatus.Pending, Content, Question, Sql, reviewed)
+            .ThenRow(2, 7, (int)McpPatternStatus.Pending, Content, Question, Sql, reviewed, DBNull.Value)
             .ThenRowsAffected(0);
 
         var act = () => StatusHandler(capture).Handle(Decide(McpPatternStatus.Rejected, reviewed), CancellationToken.None);
@@ -230,6 +230,36 @@ public class GroundingConditionalWriteTranslationTests
         capture.CommandParameters[1].Values.Should().Contain(GroundingContentHash.OfPattern(Content, Question, Sql));
     }
 
+    // A refresh that changes the content clears the stored replay verdict and its time in the same conditional statement;
+    // one that changes nothing but counts leaves both columns out of it.
+    [TestCase(false, "older content", true, "last_replay_passed = NULL", "last_verified_at = NULL")]
+    [TestCase(true, "older content", true, "[m].[LastReplayPassed] = NULL", "[m].[LastVerifiedAt] = NULL")]
+    [TestCase(false, Content, false, "last_replay_passed", "last_verified_at")]
+    [TestCase(true, Content, false, "[LastReplayPassed]", "[LastVerifiedAt]")]
+    public async Task ARefresh_ClearsTheReplayVerdictOnlyWithAContentChange_Translates(
+        bool sqlServer, string storedContent, bool cleared, string verdictWritten, string timeWritten)
+    {
+        var capture = Capture(sqlServer)
+            .ThenRow(31, (int)McpPatternStatus.NeedsEvidence, storedContent, Question, Sql)
+            .ThenRowsAffected(1);
+
+        await Aggregation().DetectCommonQueriesAsync(
+            await capture.Factory().CreateDbContextAsync(), 1, 7, Signals(), new McpLearningAggregationService.ExtractionStats(), CancellationToken.None);
+
+        capture.Commands.Should().HaveCount(2, "the pattern, then its refresh: one statement");
+        var setClause = capture.Commands[1][..capture.Commands[1].LastIndexOf("WHERE", StringComparison.Ordinal)];
+        if (cleared)
+        {
+            setClause.Should().Contain(verdictWritten).And.Contain(timeWritten);
+        }
+        else
+        {
+            setClause.Should().NotContainAny(verdictWritten, timeWritten);
+        }
+
+        WhereClauseOf(capture.Commands[1]).Should().ContainAny("status = @", "[m].[Status] = @");
+    }
+
     // The value a command's WHERE compares `column` with: the parameter it names there.
     private static object? ComparedWith(SqlCapture capture, int command, string column)
     {
@@ -254,7 +284,7 @@ public class GroundingConditionalWriteTranslationTests
         return
         [
             31, DBNull.Value, 0.7, contentHash, new DateTime(2026, 10, 1, 0, 0, 0, DateTimeKind.Utc), 7, Question, Sql, DBNull.Value, DBNull.Value,
-            Content, (int)McpPatternType.CommonQuery, 1, DBNull.Value, DBNull.Value, "public", 3, (int)McpPatternStatus.NeedsEvidence, DBNull.Value, "orders"
+            DBNull.Value, Content, (int)McpPatternType.CommonQuery, 1, DBNull.Value, DBNull.Value, "public", 3, (int)McpPatternStatus.NeedsEvidence, DBNull.Value, "orders"
         ];
     }
 

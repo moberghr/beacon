@@ -56,6 +56,7 @@ public class PlatformInputCapTests
         var handler = new PromoteSignalToGoldenHandler(
             null!,
             Mock.Of<IGroundingSqlCheck>(),
+            Mock.Of<IMcpEvalService>(MockBehavior.Strict),
             null!,
             null!,
             NullLogger<PromoteSignalToGoldenHandler>.Instance);

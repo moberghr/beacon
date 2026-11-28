@@ -190,6 +190,45 @@ public class PatternRefreshRaceTests
         stats.Demotions.Should().Be(1);
     }
 
+    // A replay verdict measured the content it was written with: a refresh that changes the content clears the verdict and
+    // its time, whatever the status the job may refresh, so a failed replay of old content no longer refuses the pattern's
+    // patch and a passed one no longer vouches for the new content.
+    [TestCase(McpPatternStatus.AutoApproved, true)]
+    [TestCase(McpPatternStatus.NeedsEvidence, false)]
+    [TestCase(McpPatternStatus.Pending, false)]
+    public async Task ARefreshThatChangesTheContent_ClearsTheStoredReplayVerdict(McpPatternStatus status, bool lastReplayPassed)
+    {
+        var pattern = Pattern(status, "Common query pattern for public.customers (3 similar queries)", MinedQuestion, MinedSql);
+        pattern.LastReplayPassed = lastReplayPassed;
+        pattern.LastVerifiedAt = DateTime.UtcNow.AddDays(-1);
+        var (service, context, _) = Build(TestGroundingSqlChecks.Real(), pattern);
+
+        await service.DetectCommonQueriesAsync(context, ProjectId, DataSourceId, Signals(), new McpLearningAggregationService.ExtractionStats(), CancellationToken.None);
+
+        pattern.Should().BeEquivalentTo(
+            new { PatternContent = MinedContent, LastReplayPassed = (bool?)null, LastVerifiedAt = (DateTime?)null },
+            x => x.ExcludingMissingMembers());
+    }
+
+    // Counts that move and comments in stored SQL are no content change: the verdict and its time stay as they are.
+    [TestCase(McpPatternStatus.AutoApproved, true, "Common query pattern for public.orders (12 similar queries)", MinedSql)]
+    [TestCase(McpPatternStatus.NeedsEvidence, false, MinedContent, "-- the usual\nSELECT id FROM orders")]
+    public async Task ARefreshThatChangesOnlyCountsOrComments_KeepsTheStoredReplayVerdict(
+        McpPatternStatus status, bool lastReplayPassed, string storedContent, string storedSql)
+    {
+        var verifiedAt = DateTime.UtcNow.AddDays(-1);
+        var pattern = Pattern(status, storedContent, MinedQuestion, storedSql);
+        pattern.LastReplayPassed = lastReplayPassed;
+        pattern.LastVerifiedAt = verifiedAt;
+        var (service, context, _) = Build(TestGroundingSqlChecks.Real(), pattern);
+
+        await service.DetectCommonQueriesAsync(context, ProjectId, DataSourceId, Signals(), new McpLearningAggregationService.ExtractionStats(), CancellationToken.None);
+
+        pattern.Should().BeEquivalentTo(
+            new { Status = status, PatternContent = MinedContent, SignalCount = 3, LastReplayPassed = (bool?)lastReplayPassed, LastVerifiedAt = (DateTime?)verifiedAt },
+            x => x.ExcludingMissingMembers());
+    }
+
     // The demotions of a run are logged once, at its end, as a count.
     [Test]
     public async Task AnAggregationRun_LogsItsDemotionsOnce()
@@ -258,7 +297,7 @@ public class PatternRefreshRaceTests
             ExampleQuestion = question,
             ExampleSql = sql,
             SignalCount = 1,
-            Confidence = 0.5,
+            Confidence = 0.9, // above the default auto-approve threshold (0.7): a candidate below it is not replayed
             Status = status
         };
     }

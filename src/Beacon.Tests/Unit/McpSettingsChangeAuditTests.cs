@@ -22,7 +22,7 @@ public class McpSettingsChangeAuditTests
         snapshot.Should().ContainKey(nameof(McpGlobalSettings.AskSystemPrompt)).WhoseValue.Should().Be("Be brief.");
         snapshot.Should().ContainKey(nameof(McpGlobalSettings.EnforceReadOnly)).WhoseValue.Should().Be("true");
         snapshot.Keys.Should().NotContain([nameof(McpGlobalSettings.Id), nameof(McpGlobalSettings.CreatedTime)]);
-        snapshot.Should().HaveCount(41);
+        snapshot.Should().HaveCount(44);
     }
 
     [Test]
@@ -39,7 +39,7 @@ public class McpSettingsChangeAuditTests
             nameof(McpProjectSettings.ProjectId),
             nameof(McpProjectSettings.Project)
         ]);
-        snapshot.Should().HaveCount(34);
+        snapshot.Should().HaveCount(38);
     }
 
     [Test]

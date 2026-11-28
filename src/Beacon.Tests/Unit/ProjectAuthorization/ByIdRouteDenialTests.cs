@@ -111,7 +111,8 @@ public class ByIdRouteDenialTests
             "UpdateDocumentationSection",
             "GenerateProjectDocumentation",
             "StartProjectDocumentationGeneration",
-            "VerifySchemaRelationship");
+            "VerifySchemaRelationship",
+            "DescribeTableColumns");
 
         await using var asEditor = await StartAsync(ResolvedProjectResource.InProject(ReadOnlyProject), Editor);
         var failures = new List<string>();
@@ -167,7 +168,7 @@ public class ByIdRouteDenialTests
             }
         }
 
-        curationRoutes.Should().HaveCount(7);
+        curationRoutes.Should().HaveCount(8);
         failures.Should().BeEmpty();
     }
 
@@ -225,6 +226,7 @@ public class ByIdRouteDenialTests
             "AddSubscriptionRecipients" => """{"recipientIds":[1]}""",
             "UpdateSchemaRelationship" => """{"label":"l","cardinality":1}""",
             "VerifySchemaRelationship" => """{"isVerified":true}""",
+            "DescribeTableColumns" => """{"schemaName":"s","tableName":"t","projectId":5}""",
             "UpdateDocumentationSection" => """{"content":"c"}""",
             "InstructDocumentation" => """{"instruction":"i"}""",
             "RefineAiActor" => """{"feedback":"f"}""",

@@ -17,6 +17,7 @@ public static class LlmOperations
     public const string Learning = "learning.lesson";
     public const string Documentation = "documentation.generate";
     public const string DocumentationInstruct = "documentation.instruct";
+    public const string DocumentationDescribeColumns = "documentation.describe_columns";
     public const string ActorThink = "actor.think";
     public const string ActorRefine = "actor.refine";
     public const string ActorSetup = "actor.setup";

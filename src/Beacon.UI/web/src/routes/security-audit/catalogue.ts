@@ -162,6 +162,7 @@ export const SECURITY_AUDIT_CATEGORIES: readonly SecurityAuditCategory[] = [
       'curation.documentation_section_edited',
       'curation.documentation_generated',
       'curation.documentation_generation_started',
+      'curation.column_descriptions_proposed',
     ],
   },
   {
