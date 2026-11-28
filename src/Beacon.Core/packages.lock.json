@@ -17,9 +17,9 @@
       },
       "CronExpressionDescriptor": {
         "type": "Direct",
-        "requested": "[3.1.0, )",
-        "resolved": "3.1.0",
-        "contentHash": "llsgtFprhJa9DMpKVZXZYb3glT0sz7fsuvvQwMnRUEp9PThwrzR0JRuOzVpHvSgJBwg/Y3gx7YcsXzooIbOIBg=="
+        "requested": "[3.5.0, )",
+        "resolved": "3.5.0",
+        "contentHash": "1b9kC5JszuhqnUk+Xotj1YZezBbMJwlE2lg8Ww4aMuuAu2qkPehpKGIHcALmoQ4yuQa1vbUnYfNB1y1Y7DBmwg=="
       },
       "Cronos": {
         "type": "Direct",
