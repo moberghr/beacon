@@ -8,7 +8,7 @@
     <PackageVersion Include="AWSSDK.BedrockRuntime" Version="4.1.1" />
     <PackageVersion Include="AWSSDK.CloudWatchLogs" Version="4.1.0.2" />
     <PackageVersion Include="ClosedXML" Version="0.105.1" />
-    <PackageVersion Include="CronExpressionDescriptor" Version="3.1.0" />
+    <PackageVersion Include="CronExpressionDescriptor" Version="3.5.0" />
     <PackageVersion Include="Cronos" Version="0.13.0" />
     <PackageVersion Include="Dapper" Version="2.1.100" />
     <PackageVersion Include="EFCore.NamingConventions" Version="10.0.1" />
