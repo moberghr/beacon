@@ -54,7 +54,7 @@ public class DescribeTableColumnsTests
         harness.Patch("sales.orders.STATUS", McpDocPatchStatus.Proposed);
         harness.Patch("sales.orders.code", McpDocPatchStatus.Rejected);
         harness.Patch("sales.orders.region", McpDocPatchStatus.Proposed, projectId: OtherProjectId);
-        harness.Answer("{}");
+        harness.Answer("""{"customer_name":"The customer's full name."}""");
 
         var result = await harness.HandleAsync();
 
@@ -72,7 +72,7 @@ public class DescribeTableColumnsTests
             harness.Column($"c{ordinal:000}", ordinal);
         }
 
-        harness.Answer("{}");
+        harness.Answer("""{"c001":"A value."}""");
 
         var result = await harness.HandleAsync();
 
@@ -235,6 +235,28 @@ public class DescribeTableColumnsTests
         harness.Logger.TextAtOrAbove(LogLevel.Trace).Should().NotContain(answer).And.NotContain("status");
     }
 
+    // A readable object that describes none of the columns asked: refused like an unreadable answer, the warning naming
+    // ids and counts only.
+    [TestCase("{}", 0)]
+    [TestCase("{\"columns\": {\"status\": \"The order's state.\"}}", 1)]
+    public async Task AnAnswerThatDescribesNoColumn_IsRefusedInBeaconsWords_AndNothingIsWritten(string answer, int keys)
+    {
+        var harness = new Harness();
+        harness.Column("status", ordinal: 1);
+        harness.Answer(answer);
+
+        var act = () => harness.HandleAsync();
+
+        var refusal = await act.Should().ThrowAsync<InvalidOperationException>();
+        refusal.Which.Message.Should().Be(DescribeTableColumnsHandler.UnreadableAnswerMessage);
+        harness.Saved.Should().BeEmpty();
+        harness.Saves.Should().Be(0);
+        harness.Audit.Events.Should().BeEmpty();
+        var logged = harness.Logger.TextAtOrAbove(LogLevel.Warning);
+        logged.Should().Contain($"Column description answer for data source {DataSourceId} in project {ProjectId} described none of the 1 columns asked ({keys} keys in the answer)");
+        logged.Should().NotContain("status").And.NotContain("order's state");
+    }
+
     [Test]
     public async Task TheAudit_IsStagedInTheSave_WithIdsAndCountsOnly()
     {
@@ -266,7 +288,7 @@ public class DescribeTableColumnsTests
         harness.Column("customer_name", ordinal: 1, dataType: "varchar(200)");
         harness.Column("order_id", ordinal: 2, dataType: "integer", isPrimaryKey: true);
         harness.TableDescription = "Orders placed in the web shop.";
-        harness.Answer("{}");
+        harness.Answer("""{"customer_name":"The customer's full name."}""");
 
         await harness.HandleAsync();
 
@@ -363,7 +385,7 @@ public class DescribeTableColumnsTests
         harness.Column("email", ordinal: 2, samples: ["ada@example.com"]);
         harness.Column("remark", ordinal: 3, samples: ["jane.doe@example.com", "call back"]);
         harness.Column("label", ordinal: 4, samples: Enumerable.Range(1, 9).Select(x => $"v{x}").ToArray());
-        harness.Answer("{}");
+        harness.Answer("""{"status":"The order's state."}""");
 
         await harness.HandleAsync();
 
@@ -384,7 +406,7 @@ public class DescribeTableColumnsTests
     {
         var harness = new Harness { Settings = new McpSettingsData { EnableSampleValueCollection = false } };
         harness.Column("status", ordinal: 1, samples: ["active", "closed"]);
-        harness.Answer("{}");
+        harness.Answer("""{"status":"The order's state."}""");
 
         await harness.HandleAsync();
 

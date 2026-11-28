@@ -526,7 +526,7 @@ internal sealed partial class KnowledgeGraphService
     // The documentation block of the ask context (EnableDocChunksInAsk): the project's chunks nearest to the question,
     // project-scoped in the search itself, at most DocChunksInAsk, fenced as data after the glossary. None, and no chunk
     // read, unless the setting, semantic retrieval and the embedder are all on. While row data may not reach the LLM
-    // provider (Beacon:Mcp:ForbidRowDataToLlm), a chunk cut from a section that can list values is left out.
+    // provider (Beacon:Mcp:ForbidRowDataToLlm), a chunk that may list values (MayListValues) is left out.
     private async Task<DocumentationBlock> DocumentationBlockAsync(int projectId, string question, McpSettingsData settings, CancellationToken ct)
     {
         if (!settings.EnableDocChunksInAsk || !settings.EnableSemanticRetrieval || !embeddingService.IsAvailable)
@@ -537,7 +537,7 @@ internal sealed partial class KnowledgeGraphService
         var forbidRowData = deploymentOptions?.Value.ForbidRowDataToLlm == true;
         var hits = await GetRelevantDocChunksAsync(projectId, question, DocChunksInAsk, ct);
         var chunks = hits
-            .Where(x => !forbidRowData || x.SectionType?.ListsValues() != true)
+            .Where(x => !forbidRowData || !MayListValues(x))
             .Take(DocChunksInAsk)
             .ToList();
         if (chunks.Count == 0)
@@ -566,7 +566,14 @@ internal sealed partial class KnowledgeGraphService
 
         var text = $"\n## Project Documentation\n\n{PromptData.Fence("documentation", body.ToString())}\n";
 
-        return new DocumentationBlock(new KnowledgeBlock(text, items), chunks.Any(x => x.SectionType?.ListsValues() == true));
+        return new DocumentationBlock(new KnowledgeBlock(text, items), chunks.Any(MayListValues));
+    }
+
+    // Whether a documentation chunk may list values found in the data: cut from a section that can list them, or naming a
+    // section that was not found, whose type cannot be told. An imported document's chunk names no section.
+    private static bool MayListValues(DocChunkHit chunk)
+    {
+        return chunk.SectionType?.ListsValues() == true || (chunk.FromSection && chunk.SectionType == null);
     }
 
     // The documentation part, only when there is a block: without one the context, its budget and what it leaves out stay as
@@ -695,7 +702,8 @@ internal sealed partial class KnowledgeGraphService
                     results.Add(new DocChunkHit(chunk.ChunkText, chunk.ContextualBlurb)
                     {
                         ChunkId = chunk.Id,
-                        SectionType = sectionTypes.TryGetValue(chunk.SourceSectionId, out var sectionType) ? sectionType : null
+                        SectionType = sectionTypes.TryGetValue(chunk.SourceSectionId, out var sectionType) ? sectionType : null,
+                        FromSection = chunk.SourceSectionId != 0
                     });
                 }
             }
@@ -864,8 +872,9 @@ internal sealed partial class KnowledgeGraphService
 
     // The glossary without semantic retrieval (no embedder, or semantic retrieval off): the project's active terms whose term
     // or a synonym occurs in the question as a whole word (case-insensitive, invariant), the longest match first, at most
-    // GlossaryTopK, in the same block as the semantic path. At most KeywordGlossaryTerms terms are read. No term named → no
-    // block. Fails closed like the semantic path.
+    // GlossaryTopK, in the same block as the semantic path. At most KeywordGlossaryTerms terms are read, the newest; a project
+    // that reaches the cap is warned about (its older terms are not matched). No term named → no block. Fails closed like the
+    // semantic path.
     private async Task<KnowledgeBlock> KeywordGlossaryBlockAsync(
         int projectId, string question, McpSettingsData settings, string? dialect, CancellationToken ct)
     {
@@ -875,7 +884,7 @@ internal sealed partial class KnowledgeGraphService
             var terms = await context.McpGlossaryTerms
                 .Where(x => x.ProjectId == projectId)
                 .Where(x => x.IsActive)
-                .OrderBy(x => x.Id)
+                .OrderByDescending(x => x.Id)
                 .Take(KeywordGlossaryTerms)
                 .Select(x =>
                     new GlossaryHit
@@ -890,6 +899,12 @@ internal sealed partial class KnowledgeGraphService
                         Synonyms = x.Synonyms
                     })
                 .ToListAsync(ct);
+            if (terms.Count == KeywordGlossaryTerms)
+            {
+                logger.LogWarning(
+                    "Glossary keyword match for project {ProjectId} read only the newest {Cap} active terms; older terms are not matched.",
+                    projectId, KeywordGlossaryTerms);
+            }
 
             var named = new List<(GlossaryHit Term, int MatchLength)>();
             foreach (var term in terms)

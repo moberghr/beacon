@@ -124,11 +124,11 @@ When a question is asked, the top matching terms (`GlossaryTopK`, default 5) are
 
 The glossary is managed on the **Glossary** page of the UI and through the API. Both are gated with the Admin policy.
 
-**Keyword fallback.** With semantic retrieval off (`EnableSemanticRetrieval`), or with no embedder available, Beacon matches terms by keyword instead of injecting no glossary. An active term of the project matches when its name or one of its synonyms occurs in the question as a whole word, ignoring case. Matches are ordered by the length of the longest name that matched, longest first, and the first `GlossaryTopK` go into the block. Beacon reads at most 500 active terms of the project for this. A question that names no term gets no glossary block. The semantic path is unchanged.
+**Keyword fallback.** With semantic retrieval off (`EnableSemanticRetrieval`), or with no embedder available, Beacon matches terms by keyword instead of injecting no glossary. An active term of the project matches when its name or one of its synonyms occurs in the question as a whole word, ignoring case. Matches are ordered by the length of the longest name that matched, longest first, and the first `GlossaryTopK` go into the block. Beacon reads the newest 500 active terms of the project for this, and logs a warning when a project reaches that number. A question that names no term gets no glossary block. The semantic path is unchanged.
 
-**Index on write.** Creating or editing a term reindexes the project's glossary terms and documentation chunks right away, so retrieval does not wait for the 12-hourly job. This is best effort: if the reindex fails, the write still stands, Beacon logs a warning with the project id and a failure code, and the job catches up. Deleting a term does not reindex.
+**Index on write.** Creating or editing a term reindexes the project's glossary terms and documentation chunks right away, so retrieval does not wait for the 12-hourly job. This is best effort: if the reindex fails, the write still stands, Beacon logs a warning with the project id and a failure code, and the job catches up. Deleting a term does not reindex. Indexing runs one project at a time in a process; if two processes indexed the same project at once and left duplicate rows, the next run removes them and logs a warning.
 
-**One glossary.** The term store is the source of truth for the project's vocabulary. When the documentation generator writes its Glossary section, it receives the project's active terms as fenced data and is told not to redefine or contradict them. The Markdown export lists the active terms first, under **Curated terms**, followed by the generated section.
+**One glossary.** The term store is the source of truth for the project's vocabulary. When the documentation generator writes its Glossary section, it receives the project's active terms as fenced data and is told not to redefine or contradict them. The Markdown export lists the active terms first, under **Curated terms**, followed by the generated section. Above 500 active terms, the generator and the export get the first 500 and a line saying that more exist.
 
 | Method | Endpoint |
 |---|---|
@@ -187,6 +187,7 @@ The caller needs the DataSourceAdmin permission (or be an Admin), and Curate in 
 - Stored sample values go along only as `ask` screens them: under the effective settings of every live project linking the source, so none are sent while sample-value collection is off or `Beacon:Mcp:ForbidRowDataToLlm` is on. At most 5 values per column, each cut to 100 characters. A request that sends samples is recorded in the row-data egress log.
 - It stores each description from the answer as a `Proposed` documentation patch, with the model name, and writes nothing to the catalog. A person reviews and applies each patch on the **Doc patches** tab. Applying one records the description item as `Generated`, with the model.
 - It returns `columnsAsked` and `proposalsCreated`.
+- An answer that cannot be read, or that describes none of the columns asked about, is refused with `400`: nothing is stored and no event is recorded. More than 60 columns without a description need further calls, after the first proposals are applied or rejected. Two calls for the same table at the same time can propose the same column twice; reject the extra patch.
 - It records the security event `curation.column_descriptions_proposed` with ids and counts only.
 - A schema or table name that contains a dot is refused with `400`, because the patch target (`schema.table.column`) could not name it. So is an answer the route cannot read as JSON; the message does not carry the provider's text.
 
@@ -196,7 +197,7 @@ The setting `EnableDocChunksInAsk` is off by default and can be overridden per p
 
 With it on, semantic retrieval on and an embedder available, the `ask` context adds the project's documentation chunks that are nearest to the question: at most 3, taken from the project only (the search itself is scoped to it, not filtered afterwards). They go into a fenced `documentation` data block headed **Project Documentation**, after the glossary and inside the database context. When the context budget is short, this block is the first one left out, before the learned patterns. Each chunk shown is recorded in the signal as a documentation chunk (kind 6), with its contextual blurb included in the prompt when the chunk has one.
 
-Under the deployment lock `Beacon:Mcp:ForbidRowDataToLlm`, chunks cut from a section that can list data values (the business-domain, data-model and glossary sections) are left out.
+Under the deployment lock `Beacon:Mcp:ForbidRowDataToLlm`, chunks cut from a section that can list data values (the business-domain, data-model and glossary sections) are left out, and so is a chunk whose section no longer exists.
 
 ### Failed documentation sections
 
@@ -204,7 +205,7 @@ When the generation of a documentation section fails, the section holds a fixed 
 
 - `get_documentation` and the Markdown export,
 - `search`,
-- the table documentation read,
+- the table documentation read (empty while the newest Data Model section is a failed one; an older generation is not used in its place),
 - documentation chunk indexing.
 
 The documentation page in the UI still shows the section, so a person sees what to regenerate. When a Glossary section failed but the project has curated terms, the export still lists the terms under **Curated terms**.

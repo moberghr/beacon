@@ -9,6 +9,7 @@ using Beacon.Core.Services.Providers;
 using Beacon.Core.Services.Security;
 using Beacon.Tests.Common;
 using Microsoft.EntityFrameworkCore;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Logging.Abstractions;
 using Moq;
 
@@ -92,7 +93,7 @@ internal sealed class DocumentationStore
         return factory.Object;
     }
 
-    public ProjectDocumentationService Service()
+    public ProjectDocumentationService Service(ILogger<ProjectDocumentationService>? logger = null)
     {
         return new ProjectDocumentationService(
             Factory(),
@@ -106,6 +107,6 @@ internal sealed class DocumentationStore
             TestRowDataEgress.Discarding(),
             new RecordingSecurityAudit(),
             Microsoft.Extensions.Options.Options.Create(new Beacon.Core.Configuration.McpDeploymentOptions()),
-            NullLogger<ProjectDocumentationService>.Instance);
+            logger ?? NullLogger<ProjectDocumentationService>.Instance);
     }
 }

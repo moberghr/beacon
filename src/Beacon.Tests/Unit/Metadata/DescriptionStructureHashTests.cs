@@ -61,18 +61,16 @@ public class DescriptionStructureHashTests
         DescriptionStructureHash.Of([("status", "text", 1), ("id", "integer", 2)]).Should().NotBe(OrdersHash);
     }
 
+    // Turkish cases I and i differently, and a culture comparison would sort is_paid before ITEM_ID: the hash is the one taken
+    // under the invariant culture, SHA-256 of "2:Id7:INTEGER7:ITEM_ID7:integer7:is_paid7:boolean" (ties on position in
+    // ordinal order of the name).
     [Test]
+    [SetCulture("tr-TR")]
     public void TheHash_IsTheSameOnAnotherCulture()
     {
-        var original = CultureInfo.CurrentCulture;
-        CultureInfo.CurrentCulture = new CultureInfo("de-DE");
-        try
-        {
-            DescriptionStructureHash.Of([("id", "integer"), ("status", "text")]).Should().Be(OrdersHash);
-        }
-        finally
-        {
-            CultureInfo.CurrentCulture = original;
-        }
+        CultureInfo.CurrentCulture.Name.Should().Be("tr-TR");
+
+        DescriptionStructureHash.Of([("is_paid", "boolean", 2), ("Id", "INTEGER", 1), ("ITEM_ID", "integer", 2)])
+            .Should().Be("5dd5bd7ffe6baa238fab613cefe4eb02415b9091bf5f12ccc88917d48883afda");
     }
 }

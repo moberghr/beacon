@@ -91,6 +91,12 @@ public record DocChunkHit(string ChunkText, string? ContextualBlurb)
     /// <summary>The chunk's <c>McpDocChunk.Id</c>; a rebuilt chunk gets a new one.</summary>
     public int ChunkId { get; init; }
 
-    /// <summary>The type of the documentation section the chunk was cut from; null for a chunk of an imported document.</summary>
+    /// <summary>
+    /// The type of the documentation section the chunk was cut from; null for a chunk of an imported document, and for a
+    /// chunk whose section was not found (<see cref="FromSection"/> tells the two apart).
+    /// </summary>
     public ProjectDocSectionType? SectionType { get; init; }
+
+    /// <summary>Whether the chunk names the documentation section it was cut from; false for a chunk of an imported document.</summary>
+    public bool FromSection { get; init; }
 }

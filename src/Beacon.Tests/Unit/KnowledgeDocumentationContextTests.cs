@@ -1,7 +1,7 @@
 using FluentAssertions;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.EntityFrameworkCore.Infrastructure;
-using Microsoft.Extensions.Logging.Abstractions;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Moq;
 using NUnit.Framework;
@@ -20,6 +20,7 @@ using Beacon.Core.Models.Metadata;
 using Beacon.Core.Services.Metadata;
 using Beacon.Core.Services.Security;
 using Beacon.Tests.Common;
+using Beacon.Tests.Unit.Notifications;
 
 namespace Beacon.Tests.Unit;
 
@@ -174,19 +175,23 @@ public class KnowledgeDocumentationContextTests
         result.KnowledgeItems.Should().Contain(new KnowledgeItemRef(McpKnowledgeItemKind.GlossaryTerm, 900, 1));
     }
 
-    // Off — the setting, or semantic retrieval — the prompt is the one rendered without any indexed chunk, and no chunk is
-    // read: the raw question (what chunks are searched with) is never embedded and the chunk store is never queried.
-    [TestCase(false, true)]
-    [TestCase(true, false)]
-    public async Task AskContext_DocChunksNotOn_PromptIsUnchanged_AndNoChunkIsRead(bool docChunksInAsk, bool semanticRetrieval)
+    // Off — the setting, semantic retrieval or the embedder — the prompt is the one rendered without any indexed chunk, and
+    // no chunk is read: the raw question (what chunks are searched with) is never embedded and the chunk store is never
+    // queried.
+    [TestCase(false, true, true)]
+    [TestCase(true, false, true)]
+    [TestCase(true, true, false)]
+    public async Task AskContext_DocChunksNotOn_PromptIsUnchanged_AndNoChunkIsRead(bool docChunksInAsk, bool semanticRetrieval, bool embedderAvailable)
     {
         EmbeddingMaskingHelper.Mask(Question).Should().NotBe(Question, "the raw question must differ from the masked one the other blocks embed");
         var withChunks = await DocChunkWorldAsync();
         withChunks.Settings.EnableDocChunksInAsk = docChunksInAsk;
         withChunks.Settings.EnableSemanticRetrieval = semanticRetrieval;
+        withChunks.Embedder.IsAvailable = embedderAvailable;
         var withoutChunks = await DocChunkWorldAsync(indexChunks: false);
         withoutChunks.Settings.EnableDocChunksInAsk = docChunksInAsk;
         withoutChunks.Settings.EnableSemanticRetrieval = semanticRetrieval;
+        withoutChunks.Embedder.IsAvailable = embedderAvailable;
 
         var result = await withChunks.Service().GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, liveValueProbes: true, CancellationToken.None);
         var baseline = await withoutChunks.Service().GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, liveValueProbes: true, CancellationToken.None);
@@ -246,6 +251,47 @@ public class KnowledgeDocumentationContextTests
 
         chunkIds.Should().Contain(61);
         result.FullContext.Should().Contain("documentation chunk 61");
+        result.RowDataCategories.Should().Contain(LlmRowDataCategories.StoredDocumentation);
+    }
+
+    // A chunk naming a section that is no longer found may list values (its section's type cannot be told): it is left out,
+    // and otherwise tagged, like a value-listing one. An imported document's chunk names no section and is still shown.
+    [TestCase(false)]
+    [TestCase(true)]
+    public async Task AskContext_AChunkWhoseSectionIsNotFound_IsLeftOutWhileRowDataMayNotReachTheProvider_AnImportedOneIsNot(bool forbidRowData)
+    {
+        var world = await DocChunkWorldAsync(indexChunks: false);
+        world.Settings.EnableDocChunksInAsk = true;
+        var questionVector = await world.Embedder.EmbedAsync(Question, CancellationToken.None);
+        world.Chunks.AddRange(
+        [
+            Chunk(66, ProjectId, 599, "documentation chunk 66: cut from a section that is gone"),
+            Chunk(64, ProjectId, 0, "documentation chunk 64: the warehouse ships orders")
+        ]);
+        world.Embeddings.AddRange(
+        [
+            Embedding(16, McpEmbeddingOwnerType.DocChunk, 66, questionVector, ProjectId),
+            Embedding(14, McpEmbeddingOwnerType.DocChunk, 64, questionVector, ProjectId)
+        ]);
+        world.Embedder.Reset();
+
+        var result = await world.Service(forbidRowData: forbidRowData).GetSmartContextForAskAsync(DataSourceId, ProjectId, Question, liveValueProbes: true, CancellationToken.None);
+
+        var chunkIds = result.KnowledgeItems
+            .Where(x => x.Kind == McpKnowledgeItemKind.DocChunk)
+            .Select(x => x.ItemId)
+            .ToList();
+        result.FullContext.Should().Contain("documentation chunk 64");
+        if (forbidRowData)
+        {
+            chunkIds.Should().Equal(64);
+            result.FullContext.Should().NotContain("documentation chunk 66");
+            result.RowDataCategories.Should().NotContain(LlmRowDataCategories.StoredDocumentation);
+            return;
+        }
+
+        chunkIds.Should().BeEquivalentTo([66, 64]);
+        result.FullContext.Should().Contain("documentation chunk 66");
         result.RowDataCategories.Should().Contain(LlmRowDataCategories.StoredDocumentation);
     }
 
@@ -381,9 +427,10 @@ public class KnowledgeDocumentationContextTests
         block.Items.Should().BeEmpty();
     }
 
-    // At most 500 terms are read (by id); an inactive term and another project's term are never matched.
+    // At most 500 terms are read, the newest (by id), and reaching the cap is warned about with the project id and the cap
+    // only; an inactive term and another project's term are never matched.
     [Test]
-    public async Task KeywordGlossary_ReadsTheFirst500ActiveTermsOfTheProjectOnly()
+    public async Task KeywordGlossary_ReadsTheNewest500ActiveTermsOfTheProjectOnly_AndWarnsAtTheCap()
     {
         var world = new World();
         world.Terms.AddRange(Enumerable.Range(1, KnowledgeGraphService.KeywordGlossaryTerms + 1).Select(x => Term(x, $"word{x}", $"definition {x}")));
@@ -391,9 +438,25 @@ public class KnowledgeDocumentationContextTests
         world.Terms.Add(Term(1_001, "foreign", "Another project's term", projectId: OtherProjectId));
 
         var block = await world.Service(new UnavailableEmbeddingService()).BuildGlossaryBlockWithItemsAsync(
-            ProjectId, $"word7 and word{KnowledgeGraphService.KeywordGlossaryTerms + 1}, inactive and foreign", world.Settings, Dialect, CancellationToken.None);
+            ProjectId, "word1 and word7, inactive and foreign", world.Settings, Dialect, CancellationToken.None);
 
         block.Items.Should().Equal(new KnowledgeItemRef(McpKnowledgeItemKind.GlossaryTerm, 7, 1));
+        world.Logger.Entries
+            .Where(x => x.Level >= LogLevel.Warning)
+            .Select(x => x.Message)
+            .Should().Equal($"Glossary keyword match for project {ProjectId} read only the newest {KnowledgeGraphService.KeywordGlossaryTerms} active terms; older terms are not matched.");
+    }
+
+    [Test]
+    public async Task KeywordGlossary_UnderTheCap_WarnsAboutNothing()
+    {
+        var world = new World();
+        world.Terms.AddRange(Enumerable.Range(1, KnowledgeGraphService.KeywordGlossaryTerms - 1).Select(x => Term(x, $"word{x}", $"definition {x}")));
+
+        await world.Service(new UnavailableEmbeddingService()).BuildGlossaryBlockWithItemsAsync(
+            ProjectId, "word1", world.Settings, Dialect, CancellationToken.None);
+
+        world.Logger.Entries.Should().NotContain(x => x.Level >= LogLevel.Warning);
     }
 
     [Test]
@@ -604,6 +667,7 @@ public class KnowledgeDocumentationContextTests
         public List<ProjectDocumentationSection> Sections { get; } = [];
         public List<McpKnowledgeItemStat> Stats { get; } = [];
         public RecordingEmbedder Embedder { get; } = new();
+        public CapturingLogger<KnowledgeGraphService> Logger { get; } = new();
 
         public McpSettingsData Settings { get; } = new()
         {
@@ -652,7 +716,7 @@ public class KnowledgeDocumentationContextTests
                 Mock.Of<IValueGroundingService>(),
                 TestConfiguredDatabases.None,
                 new QueryGuardrailService(),
-                NullLogger<KnowledgeGraphService>.Instance,
+                Logger,
                 deploymentOptions: deployment);
         }
 
@@ -665,7 +729,7 @@ public class KnowledgeDocumentationContextTests
         private readonly FakeEmbeddingService _inner = new();
         private readonly List<string> _texts = [];
 
-        public bool IsAvailable => true;
+        public bool IsAvailable { get; set; } = true;
         public int Dimensions => _inner.Dimensions;
 
         public IReadOnlyList<string> Texts

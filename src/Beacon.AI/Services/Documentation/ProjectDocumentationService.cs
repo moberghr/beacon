@@ -123,6 +123,7 @@ internal sealed class ProjectDocumentationService(
                 ProjectDocumentationPrompts.GetSystemPrompt(ProjectDocSectionType.Glossary),
                 glossaryPrompt,
                 docContext.CuratedGlossaryTerms,
+                docContext.MoreCuratedGlossaryTerms,
                 ct);
             sections.Add(new ProjectDocumentationSection
             {
@@ -238,13 +239,13 @@ internal sealed class ProjectDocumentationService(
         var exported = doc.Sections
             .Where(x => !leaveOut.Contains(x.SectionType))
             .ToList();
-        var curatedTerms = exported.Any(x => x.SectionType == ProjectDocSectionType.Glossary)
-            ? await BuildCuratedGlossaryTermsQuery(context, doc.ProjectId).ToListAsync(ct)
-            : [];
+        var curatedGlossary = exported.Any(x => x.SectionType == ProjectDocSectionType.Glossary)
+            ? await ReadCuratedGlossaryAsync(context, doc.ProjectId, ct)
+            : CuratedGlossary.None;
         foreach (var section in exported)
         {
             var failed = section.Content == FailedDocumentationSection.Content;
-            var curated = section.SectionType == ProjectDocSectionType.Glossary ? curatedTerms : [];
+            var curated = section.SectionType == ProjectDocSectionType.Glossary ? curatedGlossary.Terms : [];
             if (failed && curated.Count == 0)
             {
                 continue;
@@ -259,6 +260,13 @@ internal sealed class ProjectDocumentationService(
                 foreach (var term in curated)
                 {
                     sb.AppendLine(ProjectDocumentationPrompts.CuratedTermExportLine(term));
+                }
+
+                // After a blank line, so Markdown does not read it as part of the last term.
+                if (curatedGlossary.MoreExist)
+                {
+                    sb.AppendLine();
+                    sb.AppendLine(ProjectDocumentationPrompts.MoreCuratedTermsLine);
                 }
 
                 sb.AppendLine();
@@ -507,7 +515,7 @@ internal sealed class ProjectDocumentationService(
         var contracts = contractsTask.Result;
         var repositories = reposTask.Result;
         var learnedPatterns = patternsTask.Result;
-        var curatedGlossaryTerms = curatedTermsTask.Result;
+        var curatedGlossary = curatedTermsTask.Result;
 
         // Phase 2: Discover enum/status values from external data sources
         var enumValues = await DiscoverEnumValuesAsync(projectId, dsIds, tables, ct);
@@ -524,7 +532,8 @@ internal sealed class ProjectDocumentationService(
             Repositories = repositories,
             LearnedPatterns = learnedPatterns,
             EnumValues = enumValues,
-            CuratedGlossaryTerms = curatedGlossaryTerms
+            CuratedGlossaryTerms = curatedGlossary.Terms,
+            MoreCuratedGlossaryTerms = curatedGlossary.MoreExist
         };
     }
 
@@ -534,7 +543,7 @@ internal sealed class ProjectDocumentationService(
     // as one data block under the data rule.
     private static Task<LlmResponse> CallLlmAsync(ILlmProvider provider, string systemPrompt, string userPrompt, CancellationToken ct)
     {
-        return CallLlmAsync(provider, systemPrompt, userPrompt, [], ct);
+        return CallLlmAsync(provider, systemPrompt, userPrompt, [], moreCuratedTerms: false, ct);
     }
 
     private static async Task<LlmResponse> CallLlmAsync(
@@ -542,17 +551,22 @@ internal sealed class ProjectDocumentationService(
         string systemPrompt,
         string userPrompt,
         IReadOnlyList<CuratedGlossaryTerm> curatedTerms,
+        bool moreCuratedTerms,
         CancellationToken ct)
     {
-        return await provider.CompleteAsync(BuildLlmRequest(systemPrompt, userPrompt, curatedTerms), ct);
+        return await provider.CompleteAsync(BuildLlmRequest(systemPrompt, userPrompt, curatedTerms, moreCuratedTerms), ct);
     }
 
     // The Glossary pass also gets the project's curated terms: their own data block next to the metadata block, and the
     // instruction not to redefine them in the system prompt, outside every block. Without curated terms the request is the
-    // one every other pass sends.
-    internal static LlmRequest BuildLlmRequest(string systemPrompt, string userPrompt, IReadOnlyList<CuratedGlossaryTerm> curatedTerms)
+    // one every other pass sends. When more terms exist than were read, the block ends saying so.
+    internal static LlmRequest BuildLlmRequest(
+        string systemPrompt,
+        string userPrompt,
+        IReadOnlyList<CuratedGlossaryTerm> curatedTerms,
+        bool moreCuratedTerms = false)
     {
-        var curatedBlock = ProjectDocumentationPrompts.BuildCuratedGlossaryBlock(curatedTerms);
+        var curatedBlock = ProjectDocumentationPrompts.BuildCuratedGlossaryBlock(curatedTerms, moreCuratedTerms);
         var instruction = curatedBlock == null
             ? systemPrompt.TrimEnd()
             : $"{systemPrompt.TrimEnd()}\n\n{ProjectDocumentationPrompts.CuratedGlossaryInstruction}";
@@ -666,14 +680,31 @@ internal sealed class ProjectDocumentationService(
             .ToListAsync(ct);
     }
 
-    private async Task<List<CuratedGlossaryTerm>> GetCuratedGlossaryTermsAsync(int projectId, CancellationToken ct)
+    private async Task<CuratedGlossary> GetCuratedGlossaryTermsAsync(int projectId, CancellationToken ct)
     {
         await using var ctx = await contextFactory.CreateDbContextAsync(ct);
-        return await BuildCuratedGlossaryTermsQuery(ctx, projectId).ToListAsync(ct);
+        return await ReadCuratedGlossaryAsync(ctx, projectId, ct);
+    }
+
+    // The curated terms the Glossary pass and the export use: at most MaxCuratedGlossaryTerms, and whether more exist (one
+    // Warning, project id only; the prompt block and the exported list end saying so).
+    private async Task<CuratedGlossary> ReadCuratedGlossaryAsync(BeaconContext context, int projectId, CancellationToken ct)
+    {
+        var terms = await BuildCuratedGlossaryTermsQuery(context, projectId).ToListAsync(ct);
+        if (terms.Count <= MaxCuratedGlossaryTerms)
+        {
+            return new CuratedGlossary(terms, MoreExist: false);
+        }
+
+        logger.LogWarning(
+            "Project {ProjectId} has more active curated glossary terms than the {Cap} the glossary generation and the export use.",
+            projectId, MaxCuratedGlossaryTerms);
+
+        return new CuratedGlossary(terms.Take(MaxCuratedGlossaryTerms).ToList(), MoreExist: true);
     }
 
     // The project's active curated glossary terms — the glossary's source of truth — filtered by project in SQL, in term
-    // order, at most MaxCuratedGlossaryTerms.
+    // order, at most one more than MaxCuratedGlossaryTerms (the one more tells that more exist).
     internal static IQueryable<CuratedGlossaryTerm> BuildCuratedGlossaryTermsQuery(BeaconContext context, int projectId)
     {
         return context.McpGlossaryTerms
@@ -681,7 +712,7 @@ internal sealed class ProjectDocumentationService(
             .Where(x => x.IsActive)
             .OrderBy(x => x.Term)
             .ThenBy(x => x.Id)
-            .Take(MaxCuratedGlossaryTerms)
+            .Take(MaxCuratedGlossaryTerms + 1)
             .Select(x =>
                 new CuratedGlossaryTerm(x.Term, x.Synonyms, x.Definition));
     }
@@ -1221,6 +1252,7 @@ internal sealed class ProjectDocumentationService(
         public List<LearnedPatternForDoc> LearnedPatterns { get; init; } = new();
         public List<EnumColumnValues> EnumValues { get; init; } = new();
         public List<CuratedGlossaryTerm> CuratedGlossaryTerms { get; init; } = new();
+        public bool MoreCuratedGlossaryTerms { get; init; }
 
         public int DataSourceCount => DataSources.Count;
         public int TableCount => Tables.Count;
@@ -1239,6 +1271,12 @@ internal sealed class ProjectDocumentationService(
 
     internal sealed record DataSourceInfo(int Id, string Name, DataSourceType Type, DatabaseEngineType? EngineType);
     internal sealed record CuratedGlossaryTerm(string Term, string? Synonyms, string Definition);
+
+    // The curated terms read, and whether the project holds more than were read.
+    private sealed record CuratedGlossary(List<CuratedGlossaryTerm> Terms, bool MoreExist)
+    {
+        public static CuratedGlossary None { get; } = new([], MoreExist: false);
+    }
     internal sealed record RepoInfo(string Url, string Branch, int FilesScanned, int ReferencesFound);
 
     internal sealed class TableInfo

@@ -258,7 +258,8 @@ internal sealed class DescribeTableColumnsHandler(
 
     // The descriptions the answer gives for the columns it was asked about: a key matches a column's name as the prompt
     // showed it, ignoring case (a key two columns share names neither); values are trimmed, blank ones dropped, long ones
-    // cut. An answer without a readable JSON object is refused in Beacon's words, never the provider's.
+    // cut. An answer without a readable JSON object, or one that describes none of the columns, is refused in Beacon's
+    // words, never the provider's.
     private List<(ColumnToDescribe Column, string Description)> ReadDescriptions(
         string? content,
         IReadOnlyList<ShownColumn> columns,
@@ -293,8 +294,10 @@ internal sealed class DescribeTableColumnsHandler(
                 .Where(x => x.Count() == 1)
                 .ToDictionary(x => x.Key, x => x.Single().Column, StringComparer.OrdinalIgnoreCase);
             var descriptions = new Dictionary<ColumnToDescribe, string>();
+            var keys = 0;
             foreach (var property in document.RootElement.EnumerateObject())
             {
+                keys++;
                 if (property.Value.ValueKind != JsonValueKind.String
                     || !byShownName.TryGetValue(property.Name.Trim(), out var column)
                     || descriptions.ContainsKey(column))
@@ -311,6 +314,16 @@ internal sealed class DescribeTableColumnsHandler(
                 descriptions[column] = description.Length > MaxDescriptionLength
                     ? description[..MaxDescriptionLength].TrimEnd()
                     : description;
+            }
+
+            // An answer that describes none of the columns asked (an empty or nested object, other keys) is as useless as
+            // an unreadable one: refused, nothing saved, no event.
+            if (descriptions.Count == 0)
+            {
+                logger.LogWarning(
+                    "Column description answer for data source {DataSourceId} in project {ProjectId} described none of the {ColumnCount} columns asked ({KeyCount} keys in the answer)",
+                    request.DataSourceId, request.ProjectId, columns.Count, keys);
+                throw new InvalidOperationException(UnreadableAnswerMessage);
             }
 
             return columns

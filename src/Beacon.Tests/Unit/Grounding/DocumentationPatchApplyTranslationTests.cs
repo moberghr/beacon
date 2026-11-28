@@ -1,10 +1,12 @@
 using System.Text.RegularExpressions;
+using Beacon.Core.Data;
 using Beacon.Core.Data.Enums;
 using Beacon.Core.Handlers.McpLearning;
 using Beacon.Core.Models;
 using Beacon.Core.SecurityAudit;
 using Beacon.Tests.Common;
 using FluentAssertions;
+using Microsoft.Extensions.Logging.Abstractions;
 using Npgsql;
 using NUnit.Framework;
 
@@ -147,7 +149,7 @@ public class DocumentationPatchApplyTranslationTests
         capture.CommandParameters[5].Values.Should().Contain(OrdersHash).And.Contain(42).And.Contain(31);
     }
 
-    // No item yet: one is added in the apply's unit of work.
+    // No item yet: one is added in the apply's unit of work and inserted by its one save, after the apply's statements.
     [Test]
     public async Task ADescriptionWithoutAnItem_AddsOne_Translates()
     {
@@ -160,7 +162,7 @@ public class DocumentationPatchApplyTranslationTests
             .ThenRowsAffected(0)
             .ThenRow(77);
 
-        await Apply(capture, new RecordingSecurityAudit());
+        await Apply(capture, new SavingSecurityAudit(new RecordingSecurityAudit()));
 
         capture.Commands.Should().HaveCount(7, "the item's update found none, so it is inserted");
         capture.Commands[6].Should().Contain("INSERT INTO [beacon].[McpDescriptionItems]");
@@ -168,7 +170,8 @@ public class DocumentationPatchApplyTranslationTests
         capture.CommandParameters[6].Values.Should().Contain((int)McpDescriptionSource.Curated, "a curated description");
     }
 
-    // Another apply added the same item between this apply's update and its insert: the apply is refused as a target change.
+    // Another apply added the same item between this apply's update and its insert: the apply's one save (the item with its
+    // event) breaks the item's unique index, nothing commits, and the apply is refused as a target change.
     [Test]
     public async Task AnItemAddedMeanwhile_RefusesTheApply_Translates()
     {
@@ -180,15 +183,25 @@ public class DocumentationPatchApplyTranslationTests
             .ThenRows(TableColumns)
             .ThenRowsAffected(0)
             .ThenThrow(new PostgresException("duplicate key", "ERROR", "ERROR", "23505"));
-        var audit = new RecordingSecurityAudit();
+        var audit = new SecurityAuditRecorder(
+            capture.Factory(),
+            TestProjectAccess.Actors(),
+            SecurityAuditTestKit.Integrity,
+            SecurityAuditTestKit.CallerHasher,
+            TimeProvider.System,
+            NullLoggerFactory.Instance,
+            TestRequestPrincipal.OffRequest());
 
         var act = () => Apply(capture, audit);
 
         (await act.Should().ThrowAsync<BeaconConflictException>()).Which.Message.Should().Be(ApplyDocumentationPatchHandler.TargetChangedMessage);
-        audit.Events.Should().BeEmpty();
+        capture.Commands.Should().HaveCount(7, "the item's update found none, so the one save inserts it");
+        capture.Commands[6].Should().Contain("INSERT INTO beacon.mcp_description_items").And.Contain("INSERT INTO beacon.security_audit_events");
+        capture.Timeline.Should().Contain(SqlCapture.TransactionBegun);
+        capture.Commits.Should().Be(0, "the description, the patch's status, the item and the event roll back together");
     }
 
-    private static Task Apply(SqlCapture capture, RecordingSecurityAudit audit)
+    private static Task Apply(SqlCapture capture, ISecurityAuditRecorder audit)
     {
         return new ApplyDocumentationPatchHandler(capture.Factory(), audit)
             .Handle(new ApplyDocumentationPatchCommand { PatchId = 31, AppliedByUserId = 42 }, CancellationToken.None);
@@ -233,4 +246,36 @@ public class DocumentationPatchApplyTranslationTests
     }
 
     private static SqlCapture Capture(bool sqlServer) => sqlServer ? SqlCapture.OnSqlServer() : new SqlCapture();
+
+    // The recorder as the apply meets it: the change, then the context's one save when it has events, as
+    // SecurityAuditRecorder does (without its transaction and event rows); the events are kept by the inner double.
+    private sealed class SavingSecurityAudit(RecordingSecurityAudit inner) : ISecurityAuditRecorder
+    {
+        public Task StageAsync(BeaconContext context, SecurityAuditEntry entry, CancellationToken cancellationToken) =>
+            inner.StageAsync(context, entry, cancellationToken);
+
+        public Task SaveWithEventsAsync(BeaconContext context, Func<IEnumerable<SecurityAuditEntry>> events, CancellationToken cancellationToken) =>
+            inner.SaveWithEventsAsync(context, events, cancellationToken);
+
+        public async Task<T> SaveWithEventsAsync<T>(
+            BeaconContext context,
+            Func<Task<T>> change,
+            Func<T, IEnumerable<SecurityAuditEntry>> events,
+            CancellationToken cancellationToken)
+        {
+            var result = await inner.SaveWithEventsAsync(context, change, events, cancellationToken);
+            if (events(result).Any())
+            {
+                await context.SaveChangesAsync(cancellationToken);
+            }
+
+            return result;
+        }
+
+        public Task RecordAsync(SecurityAuditEntry entry, CancellationToken cancellationToken) =>
+            inner.RecordAsync(entry, cancellationToken);
+
+        public string CallerHashOf(string tenantOrIssuer, string subject) =>
+            inner.CallerHashOf(tenantOrIssuer, subject);
+    }
 }

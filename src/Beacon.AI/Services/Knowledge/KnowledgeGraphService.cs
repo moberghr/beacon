@@ -667,17 +667,18 @@ internal sealed partial class KnowledgeGraphService(
         return new SchemaExpansion([.. detailed], [], Capped: omitted > 0, OmittedTableCount: omitted);
     }
 
-    // The newest Data Model section of projectId's documentation, while the project links dataSourceId; a section whose
-    // generation failed is never served. Internal for translation tests.
+    // The newest Data Model section of projectId's documentation, while the project links dataSourceId. When that section's
+    // generation failed nothing is served: never an older generation's section in its place. Internal for translation tests.
     internal static IQueryable<string> BuildTableDocumentationQuery(BeaconContext context, int projectId, int dataSourceId)
     {
         return context.ProjectDocumentationSections
             .Where(x => x.Documentation.ProjectId == projectId)
             .Where(x => x.Documentation.Project.DataSources.Any(y => y.DataSourceId == dataSourceId))
             .Where(x => x.SectionType == ProjectDocSectionType.DataModel)
-            .Where(x => x.Content != FailedDocumentationSection.Content)
             .OrderByDescending(x => x.Documentation.GeneratedAt)
-            .Select(x => x.Content);
+            .Select(x => x.Content)
+            .Take(1)
+            .Where(x => x != FailedDocumentationSection.Content);
     }
 
     // The data sources projectId links. Grounding reads a data source only through the caller's authorized project

@@ -228,6 +228,9 @@ internal static class ProjectDocumentationPrompts
     // How much of the Glossary request the curated terms may take: their own budget, next to the metadata block's.
     internal const int CuratedGlossaryLimit = 50_000;
 
+    // The last line of the curated terms block and of the exported curated terms when the project holds more than were read.
+    internal const string MoreCuratedTermsLine = "More curated terms exist and are not shown.";
+
     // --- User Prompt Builders ---
     // Each builder bounds its variable part with a DocumentationPromptBudget: items are added whole, in their order, and the
     // ones past the budget are counted in one closing line.
@@ -560,8 +563,8 @@ internal static class ProjectDocumentationPrompts
     }
 
     // The project's curated glossary terms as one data block, a term per line (term, synonyms when it has some, definition, each
-    // kept on its line); null when the project has none.
-    internal static string? BuildCuratedGlossaryBlock(IReadOnlyList<CuratedGlossaryTerm> terms)
+    // kept on its line), ending with MoreCuratedTermsLine when the project holds more than were read; null when it has none.
+    internal static string? BuildCuratedGlossaryBlock(IReadOnlyList<CuratedGlossaryTerm> terms, bool moreTerms = false)
     {
         if (terms.Count == 0)
         {
@@ -576,6 +579,10 @@ internal static class ProjectDocumentationPrompts
         }
 
         budget.AppendNote();
+        if (moreTerms)
+        {
+            sb.AppendLine(MoreCuratedTermsLine);
+        }
 
         return PromptData.Fence("curated glossary terms", sb.ToString());
     }

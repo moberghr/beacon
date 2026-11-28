@@ -1,9 +1,11 @@
+using System.Collections.Concurrent;
 using Microsoft.EntityFrameworkCore;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using Beacon.AI.Services.Embeddings;
 using Beacon.AI.Services.LlmProviders;
 using Beacon.Core.Configuration;
+using Beacon.Core.Data.Entities.Base;
 using Beacon.Core.Data.Entities.Projects;
 using Beacon.Core.Helpers;
 
@@ -43,6 +45,9 @@ internal sealed class DocChunkIndexingService(
 
     // Contextual blurbs are one or two sentences (~80 tokens); a small ceiling keeps the per-chunk cost low.
     private const int BlurbMaxTokens = 128;
+
+    // Per-project lock for IndexProjectAsync; one semaphore per project ever indexed by this process.
+    private static readonly ConcurrentDictionary<int, SemaphoreSlim> ProjectLocks = new();
 
     private const string BlurbSystemPrompt = """
         You situate a documentation chunk within its whole section so it can be retrieved on its own.
@@ -154,6 +159,23 @@ internal sealed class DocChunkIndexingService(
 
     private async Task IndexProjectAsync(int projectId, McpSettingsData settings, CancellationToken ct)
     {
+        // One run per project at a time in this process: a write's re-index overlapping the recurring job (or another
+        // write's) would otherwise read the same rows and insert the same chunks and vectors twice. Runs in other
+        // processes are not held by it; the passes below remove what such an overlap left behind.
+        var projectLock = ProjectLocks.GetOrAdd(projectId, x => new SemaphoreSlim(1, 1));
+        await projectLock.WaitAsync(ct);
+        try
+        {
+            await IndexProjectUnderLockAsync(projectId, settings, ct);
+        }
+        finally
+        {
+            projectLock.Release();
+        }
+    }
+
+    private async Task IndexProjectUnderLockAsync(int projectId, McpSettingsData settings, CancellationToken ct)
+    {
         // Glossary (⑪) is its own unit of work (§5.7) and is independent of whether this project has any
         // documentation to chunk, so it runs first — before the doc-chunk early-return paths below.
         await IndexGlossaryTermsAsync(projectId, ct);
@@ -212,8 +234,29 @@ internal sealed class DocChunkIndexingService(
             .Where(x => x.OwnerType == McpEmbeddingOwnerType.DocChunk)
             .ToListAsync(ct);
 
+        // An overlap with a run this process does not hold may have inserted a chunk or a vector twice (no unique index
+        // covers them): keep the lowest id per key and remove the rest, with the vectors of the removed chunks, in save #1.
+        var duplicateChunks = ExtraRows(existingChunks, x => (x.SourceSectionId, x.SortOrder));
+        var duplicateChunkIds = duplicateChunks
+            .Select(x => x.Id)
+            .ToHashSet();
+        existingChunks = existingChunks
+            .Where(x => !duplicateChunkIds.Contains(x.Id))
+            .ToList();
+
+        var duplicateEmbeddings = existingEmbeddings
+            .Where(x => duplicateChunkIds.Contains(x.OwnerId))
+            .Concat(ExtraRows(existingEmbeddings.Where(x => !duplicateChunkIds.Contains(x.OwnerId)), x => x.OwnerId))
+            .ToList();
+        var duplicateEmbeddingIds = duplicateEmbeddings
+            .Select(x => x.Id)
+            .ToHashSet();
+        existingEmbeddings = existingEmbeddings
+            .Where(x => !duplicateEmbeddingIds.Contains(x.Id))
+            .ToList();
+
         // Nothing to embed AND nothing to prune → no-op (no idle SaveChanges).
-        if (desired.Count == 0 && existingChunks.Count == 0)
+        if (desired.Count == 0 && existingChunks.Count == 0 && duplicateEmbeddings.Count == 0)
         {
             return;
         }
@@ -322,12 +365,24 @@ internal sealed class DocChunkIndexingService(
             context.McpEmbeddings.RemoveRange(staleEmbeddings);
         }
 
+        if (duplicateChunks.Count > 0)
+        {
+            context.McpDocChunks.RemoveRange(duplicateChunks);
+        }
+
+        if (duplicateEmbeddings.Count > 0)
+        {
+            context.McpEmbeddings.RemoveRange(duplicateEmbeddings);
+        }
+
         // Save #1: the DB assigns Ids to the new chunks so they can key their embedding rows, and stale
         // chunks + their vectors are pruned in the same save. Two SaveChanges in one background-job unit is
         // acceptable here precisely because the chunk Id is DB-generated yet needed as the embedding OwnerId
         // (same rationale the Tier-2 promotion path documented) — a natural key would otherwise duplicate the
         // OwnerId→row mapping the retrieval seam already relies on.
         await context.SaveChangesAsync(ct);
+
+        LogDuplicatesRemoved(projectId, duplicateChunks.Count + duplicateEmbeddings.Count);
 
         // Only pruning happened (no chunks to (re-)embed) — done.
         if (desired.Count == 0)
@@ -453,12 +508,20 @@ internal sealed class DocChunkIndexingService(
             .Select(x => x.Id)
             .ToHashSet();
 
+        // A vector an overlapping run inserted twice: keep the lowest id per term and remove the rest in this save.
+        var duplicateEmbeddings = ExtraRows(existingEmbeddings, x => x.OwnerId);
+        var duplicateEmbeddingIds = duplicateEmbeddings
+            .Select(x => x.Id)
+            .ToHashSet();
+
         var staleEmbeddings = existingEmbeddings
             .Where(x => !activeIds.Contains(x.OwnerId))
+            .Where(x => !duplicateEmbeddingIds.Contains(x.Id))
             .ToList();
 
         var embeddingByOwnerId = existingEmbeddings
             .Where(x => activeIds.Contains(x.OwnerId))
+            .Where(x => !duplicateEmbeddingIds.Contains(x.Id))
             .ToDictionary(x => x.OwnerId);
 
         var newEmbeddings = new List<McpEmbedding>();
@@ -514,7 +577,14 @@ internal sealed class DocChunkIndexingService(
             context.McpEmbeddings.RemoveRange(staleEmbeddings);
         }
 
+        if (duplicateEmbeddings.Count > 0)
+        {
+            context.McpEmbeddings.RemoveRange(duplicateEmbeddings);
+        }
+
         await context.SaveChangesAsync(ct);
+
+        LogDuplicatesRemoved(projectId, duplicateEmbeddings.Count);
 
         // Populate the DB-managed pgvector column now that new rows have DB-assigned ids (PostgreSQL only).
         await vectorWriter.WriteAsync(
@@ -553,51 +623,62 @@ internal sealed class DocChunkIndexingService(
             .Where(x => chunkIds.Contains(x.OwnerId))
             .ToListAsync(ct);
 
-        var embeddingByOwnerId = embeddings.ToDictionary(x => x.OwnerId);
+        // A vector an overlapping run inserted twice: keep the lowest id per chunk and remove the rest in this save.
+        var duplicateEmbeddings = ExtraRows(embeddings, x => x.OwnerId);
+        var duplicateEmbeddingIds = duplicateEmbeddings
+            .Select(x => x.Id)
+            .ToHashSet();
+
+        var embeddingByOwnerId = embeddings
+            .Where(x => !duplicateEmbeddingIds.Contains(x.Id))
+            .ToDictionary(x => x.OwnerId);
         var pending = chunks
             .Where(x => !embeddingByOwnerId.TryGetValue(x.Id, out var row) || row.Model != EmbeddingModelName || row.EmbeddingVersion != CurrentEmbeddingVersion)
             .ToList();
 
-        if (pending.Count == 0)
+        if (pending.Count == 0 && duplicateEmbeddings.Count == 0)
         {
             return;
         }
 
-        var texts = pending
-            .Select(x => BuildEmbeddingText(x.Title, x.ChunkText))
-            .ToList();
-
-        var vectors = await embeddingService.EmbedBatchAsync(texts, ct);
-        var dimensions = embeddingService.Dimensions;
-
         var newEmbeddings = new List<McpEmbedding>();
         var vectorWrites = new List<(McpEmbedding Row, float[] Vector)>();
-        for (var i = 0; i < pending.Count; i++)
+        if (pending.Count > 0)
         {
-            var bytes = EmbeddingCodec.ToBytes(vectors[i]);
-            if (embeddingByOwnerId.TryGetValue(pending[i].Id, out var row))
-            {
-                row.EmbeddingBytes = bytes;
-                row.Model = EmbeddingModelName;
-                row.Dimensions = dimensions;
-                row.EmbeddingVersion = CurrentEmbeddingVersion;
-                vectorWrites.Add((row, vectors[i]));
-                continue;
-            }
+            var texts = pending
+                .Select(x => BuildEmbeddingText(x.Title, x.ChunkText))
+                .ToList();
 
-            var newRow = new McpEmbedding
+            var vectors = await embeddingService.EmbedBatchAsync(texts, ct);
+            var dimensions = embeddingService.Dimensions;
+
+            for (var i = 0; i < pending.Count; i++)
             {
-                DataSourceId = null,
-                ProjectId = projectId,
-                OwnerType = McpEmbeddingOwnerType.DocChunk,
-                OwnerId = pending[i].Id,
-                EmbeddingBytes = bytes,
-                Model = EmbeddingModelName,
-                Dimensions = dimensions,
-                EmbeddingVersion = CurrentEmbeddingVersion
-            };
-            newEmbeddings.Add(newRow);
-            vectorWrites.Add((newRow, vectors[i]));
+                var bytes = EmbeddingCodec.ToBytes(vectors[i]);
+                if (embeddingByOwnerId.TryGetValue(pending[i].Id, out var row))
+                {
+                    row.EmbeddingBytes = bytes;
+                    row.Model = EmbeddingModelName;
+                    row.Dimensions = dimensions;
+                    row.EmbeddingVersion = CurrentEmbeddingVersion;
+                    vectorWrites.Add((row, vectors[i]));
+                    continue;
+                }
+
+                var newRow = new McpEmbedding
+                {
+                    DataSourceId = null,
+                    ProjectId = projectId,
+                    OwnerType = McpEmbeddingOwnerType.DocChunk,
+                    OwnerId = pending[i].Id,
+                    EmbeddingBytes = bytes,
+                    Model = EmbeddingModelName,
+                    Dimensions = dimensions,
+                    EmbeddingVersion = CurrentEmbeddingVersion
+                };
+                newEmbeddings.Add(newRow);
+                vectorWrites.Add((newRow, vectors[i]));
+            }
         }
 
         if (newEmbeddings.Count > 0)
@@ -605,7 +686,14 @@ internal sealed class DocChunkIndexingService(
             await context.McpEmbeddings.AddRangeAsync(newEmbeddings, ct);
         }
 
+        if (duplicateEmbeddings.Count > 0)
+        {
+            context.McpEmbeddings.RemoveRange(duplicateEmbeddings);
+        }
+
         await context.SaveChangesAsync(ct);
+
+        LogDuplicatesRemoved(projectId, duplicateEmbeddings.Count);
 
         await vectorWriter.WriteAsync(
             context,
@@ -626,6 +714,30 @@ internal sealed class DocChunkIndexingService(
             .OrderBy(x => x.Id)
             .Select(x =>
                 new ImportedChunkSource(x.Id, x.ImportedDocument!.Title, x.ChunkText));
+    }
+
+    // The rows past the first (lowest id) of each key: what an overlapping run inserted a second time.
+    private static List<T> ExtraRows<T, TKey>(IEnumerable<T> rows, Func<T, TKey> keyOf)
+        where T : BaseEntity
+    {
+        return rows
+            .GroupBy(keyOf)
+            .SelectMany(x => x
+                .OrderBy(y => y.Id)
+                .Skip(1))
+            .ToList();
+    }
+
+    private void LogDuplicatesRemoved(int projectId, int removed)
+    {
+        if (removed == 0)
+        {
+            return;
+        }
+
+        logger.LogWarning(
+            "Doc-chunk re-index for project {ProjectId} removed {Removed} duplicate chunk or vector row(s) an overlapping run had written.",
+            projectId, removed);
     }
 
     private async Task<BlurbResult> GenerateBlurbAsync(ILlmProvider provider, int sectionId, string sectionText, string chunkText, CancellationToken ct)

@@ -14,7 +14,8 @@ namespace Beacon.Tests.Unit;
 /// <summary>
 /// SC10: a documentation section whose generation failed holds a fixed text (<see cref="FailedDocumentationSection"/>), not
 /// documentation. It is left out of the Markdown export (which get_documentation and knowledge answers serve), keyword
-/// search (filtered in SQL), the table documentation read and the doc-chunk index — the chunk-index case, with the pruning
+/// search (filtered in SQL), the table documentation read (nothing when the newest Data Model failed, never an older
+/// one) and the doc-chunk index — the chunk-index case, with the pruning
 /// of the chunks the section had before, is in <see cref="DocChunkIndexingServiceTests"/>, whose fixture builds the
 /// indexer. The page read still shows it, so a person sees what to regenerate. No database (§4.7); the SQL is checked with
 /// <c>ToQueryString()</c> on both providers.
@@ -89,12 +90,27 @@ public class FailedSectionTests
         sql.Should().MatchRegex(@"<> N?'\*Generation failed for this section\. Please regenerate\.\*'");
     }
 
+    // The newest generation's Data Model failed: nothing is read, never the older generation's section in its place.
     [Test]
-    public async Task TheTableDocumentationRead_SkipsAFailedDataModel_ForTheNewestOneThatWasGenerated()
+    public async Task TheTableDocumentationRead_WhenTheNewestDataModelFailed_ReadsNothing_NotAnOlderOne()
     {
         var store = new DocumentationStore();
         store.AddDocumentation(30, Earlier, (ProjectDocSectionType.DataModel, "Data Model", "Orders belong to customers."));
         store.AddDocumentation(31, Later, (ProjectDocSectionType.DataModel, "Data Model", Failed));
+        await using var context = store.Context();
+
+        var content = await KnowledgeGraphService.BuildTableDocumentationQuery(context, DocumentationStore.ProjectId, DocumentationStore.DataSourceId)
+            .FirstOrDefaultAsync();
+
+        content.Should().BeNull();
+    }
+
+    [Test]
+    public async Task TheTableDocumentationRead_ReadsTheNewestDataModel()
+    {
+        var store = new DocumentationStore();
+        store.AddDocumentation(30, Earlier, (ProjectDocSectionType.DataModel, "Data Model", Failed));
+        store.AddDocumentation(31, Later, (ProjectDocSectionType.DataModel, "Data Model", "Orders belong to customers."));
         await using var context = store.Context();
 
         var content = await KnowledgeGraphService.BuildTableDocumentationQuery(context, DocumentationStore.ProjectId, DocumentationStore.DataSourceId)
@@ -124,7 +140,8 @@ public class FailedSectionTests
 
         var sql = KnowledgeGraphService.BuildTableDocumentationQuery(context, DocumentationStore.ProjectId, DocumentationStore.DataSourceId).ToQueryString();
 
-        sql.Should().MatchRegex(@"<> N?'\*Generation failed for this section\. Please regenerate\.\*'");
+        // The newest section is picked first (LIMIT / TOP inside), the failed text is filtered on that one row outside.
+        sql.Should().MatchRegex(@"(?s)(TOP\(@p\)|LIMIT @p).*\) AS \[?s\]?\s+WHERE .*<> N?'\*Generation failed for this section\. Please regenerate\.\*'");
         sql.Should().MatchRegex("(?i)ORDER BY .*generated_?at.* DESC");
     }
 

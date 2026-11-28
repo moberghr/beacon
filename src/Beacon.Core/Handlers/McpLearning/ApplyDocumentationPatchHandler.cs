@@ -102,7 +102,7 @@ internal sealed class ApplyDocumentationPatchHandler(
         }
 
         var appliedAt = DateTime.UtcNow;
-        var written = await securityAudit.SaveWithEventsAsync(
+        var written = await SaveAppliedAsync(
             context,
             async () =>
             {
@@ -131,9 +131,7 @@ internal sealed class ApplyDocumentationPatchHandler(
 
                 return changed;
             },
-            changed => changed == 0
-                ? []
-                : [DocumentationPatchAudit.Decided(SecurityAuditActions.DocumentationPatchApplied, patch)],
+            patch,
             cancellationToken);
         if (written == 0)
         {
@@ -142,6 +140,28 @@ internal sealed class ApplyDocumentationPatchHandler(
 
         // The description is part of the stored catalog the ask path reads.
         catalogSnapshots?.Invalidate(patch.DataSourceId);
+    }
+
+    // Runs the apply and saves it with its event. An item the apply added is inserted by that save (a retried attempt clears
+    // the tracker and runs the apply again, so it is added once); another apply that recorded the same description between
+    // the item's update and this insert breaks the item's unique index, and the whole apply rolls back as when the
+    // description changed under it. The only other unique key that save writes is the event's random EventGuid.
+    private async Task<int> SaveAppliedAsync(BeaconContext context, Func<Task<int>> apply, McpDocumentationPatch patch, CancellationToken ct)
+    {
+        try
+        {
+            return await securityAudit.SaveWithEventsAsync(
+                context,
+                apply,
+                changed => changed == 0
+                    ? []
+                    : [DocumentationPatchAudit.Decided(SecurityAuditActions.DocumentationPatchApplied, patch)],
+                ct);
+        }
+        catch (DbUpdateException ex) when (DbUniqueViolation.IsUniqueViolation(ex) && ex.Entries.Any(x => x.Entity is McpDescriptionItem))
+        {
+            throw new BeaconConflictException(TargetChangedMessage, ex);
+        }
     }
 
     private async Task ApplyToSectionAsync(BeaconContext context, McpDocumentationPatch patch, ApplyDocumentationPatchCommand request, CancellationToken ct)
@@ -294,6 +314,7 @@ internal sealed class ApplyDocumentationPatchHandler(
             return;
         }
 
+        // Inserted by the apply's one save, with its event (SaveAppliedAsync).
         context.McpDescriptionItems.Add(new McpDescriptionItem
         {
             DataSourceId = dataSourceId,
@@ -307,16 +328,6 @@ internal sealed class ApplyDocumentationPatchHandler(
             SourcePatchId = patchId,
             StructureHash = structureHash
         });
-        try
-        {
-            await context.SaveChangesAsync(ct);
-        }
-        catch (DbUpdateException ex) when (DbUniqueViolation.IsUniqueViolation(ex))
-        {
-            // Another apply recorded the same description between the update above and this insert: the whole apply rolls
-            // back, as when the description changed under it.
-            throw new BeaconConflictException(TargetChangedMessage, ex);
-        }
     }
 
     private static async Task<ProjectDocumentationSection?> FindDocumentationSectionAsync(BeaconContext context, McpDocumentationPatch patch, CancellationToken ct)

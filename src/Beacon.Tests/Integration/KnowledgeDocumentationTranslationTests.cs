@@ -49,11 +49,11 @@ public class KnowledgeDocumentationTranslationTests
     {
         using var context = Create(sqlServer);
 
-        // Mirrors KnowledgeGraphService.KeywordGlossaryBlockAsync: the project's active terms, at most 500, by id.
+        // Mirrors KnowledgeGraphService.KeywordGlossaryBlockAsync: the project's active terms, at most 500, the newest first.
         var sql = context.McpGlossaryTerms
             .Where(x => x.ProjectId == 3)
             .Where(x => x.IsActive)
-            .OrderBy(x => x.Id)
+            .OrderByDescending(x => x.Id)
             .Take(KnowledgeGraphService.KeywordGlossaryTerms)
             .Select(x =>
                 new
@@ -71,7 +71,7 @@ public class KnowledgeDocumentationTranslationTests
 
         sql.Should().MatchRegex(sqlServer ? @"\[ProjectId\] = 3" : @"project_id = 3");
         sql.Should().MatchRegex(sqlServer ? @"\[IsActive\] = CAST\(1 AS bit\)" : @"\.is_active");
-        sql.Should().MatchRegex(sqlServer ? @"ORDER BY \[m\]\.\[Id\]" : @"ORDER BY m\.id");
+        sql.Should().MatchRegex(sqlServer ? @"ORDER BY \[m\]\.\[Id\] DESC" : @"ORDER BY m\.id DESC");
         sql.Should().MatchRegex(sqlServer ? @"TOP\(@p\)|OFFSET 0 ROWS FETCH NEXT @p ROWS ONLY|TOP\(@__p_0\)" : @"LIMIT @p");
     }
 
